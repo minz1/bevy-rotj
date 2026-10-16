@@ -9,6 +9,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::*;
+use rotj_core::actor::oam::Mark;
 use rotj_core::actor::world::Ppu;
 use rotj_core::actor::{Game, Script, raster};
 use rotj_core::render::{Frame, Line, MAX_SPRITES_PER_LINE, OAM_SPRITES, Picture};
@@ -48,6 +49,8 @@ pub struct Play {
     /// The lines the PPU draws this frame with, and the sprites its NMI copied.
     lines: Vec<Line>,
     oam: [u8; 256],
+    /// Which drawer placed each of those sprites.
+    marks: [Mark; 64],
     /// The level forced at `$D3D8`, kept for the boot after a reset.
     forced: Option<u8>,
 }
@@ -63,6 +66,7 @@ impl Play {
     fn running(game: Game, prg: Vec<u8>, chr: Vec<u8>, ppu: Ppu, forced: Option<u8>) -> Play {
         let mut play = Play {
             oam: game.oam.page,
+            marks: game.oam.marks,
             game,
             prg,
             chr,
@@ -118,6 +122,7 @@ impl Play {
         self.ppu.apply(&vblank.writes, self.game.scroll.mirroring);
         let registers = raster::Registers::of(&self.game);
         self.oam = self.game.oam.page;
+        self.marks = self.game.oam.marks;
         self.run_frame(registers);
         vblank.sound
     }
@@ -458,6 +463,93 @@ mod tests {
             play.step(0);
         }
         assert!(!play.paused(), "Start again resumes");
+    }
+
+    /// The shown sprites `mark` placed, on screen.
+    fn shown(play: &Play, mark: Mark) -> usize {
+        (0..64)
+            .filter(|&entry| play.marks[entry] == mark && play.oam[entry * 4] < 0xEF)
+            .count()
+    }
+
+    /// Every marked sprite shown is drawable as UI exactly as the PPU draws it.
+    fn assert_drawable(play: &Play) {
+        if let Some(why) = rotj_core::actor::oam::undrawable(&play.oam, &play.marks, &play.lines) {
+            panic!("{why}");
+        }
+    }
+
+    /// One step with `pad`, checking the sprites it shows, which the state before it drew.
+    fn checked_step(play: &mut Play, pad: u8) {
+        play.step(pad);
+        assert_drawable(play);
+    }
+
+    #[test]
+    fn the_title_shows_only_its_cursor_as_ui() {
+        let Some(mut play) = powered_on(None) else {
+            return;
+        };
+        assert!(step_until(&mut play, 400, 0, on_title), "no title");
+        for (i, pad) in [0x01, 0, 0x02, 0, 0x20, 0, 0, 0].into_iter().enumerate() {
+            let title = on_title(&play);
+            checked_step(&mut play, pad);
+            let visible = (0..64).filter(|&e| play.oam[e * 4] < 0xEF).count();
+            if title {
+                assert!(shown(&play, Mark::Title) > 0, "step {i}");
+                assert_eq!(shown(&play, Mark::Title), visible, "step {i}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_password_entry_shows_nine_six_or_none() {
+        let Some(mut play) = powered_on(None) else {
+            return;
+        };
+        assert!(step_until(&mut play, 400, 0, on_title), "no title");
+        for pad in [0x01, 0, 0x80, 0] {
+            checked_step(&mut play, pad);
+        }
+        let mut counts = std::collections::BTreeSet::new();
+        let mut entered = false;
+        for step in 0..1500 {
+            let count = shown(&play, Mark::Password);
+            counts.insert(count);
+            let pad = if count == 9 && !entered && step % 2 == 0 {
+                entered = step > 300;
+                if entered { 0x80 } else { 0x04 }
+            } else {
+                0
+            };
+            checked_step(&mut play, pad);
+        }
+        assert!(counts.is_subset(&[0, 6, 9].into()), "{counts:?}");
+        assert!(counts.contains(&9) && counts.contains(&6), "{counts:?}");
+    }
+
+    #[test]
+    fn the_pause_card_is_all_ui() {
+        let Some(mut play) = play() else {
+            return;
+        };
+        for _ in 0..30 {
+            checked_step(&mut play, 0);
+        }
+        assert!(shown(&play, Mark::Hud) > 0);
+        checked_step(&mut play, 0x10);
+        let mut paused = 0;
+        for _ in 0..30 {
+            let was = play.paused();
+            checked_step(&mut play, 0);
+            if was {
+                let visible = (0..64).filter(|&e| play.oam[e * 4] < 0xEF).count();
+                assert_eq!(shown(&play, Mark::Pause), visible);
+                paused += 1;
+            }
+        }
+        assert!(paused > 20, "{paused} paused steps");
+        checked_step(&mut play, 0x10);
     }
 
     /// Arms `$BA`/`$BB` and runs the script that follows to its end.

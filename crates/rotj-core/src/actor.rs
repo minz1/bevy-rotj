@@ -529,6 +529,10 @@ mod tests {
             (47332, 2318, 2362, 2, 0, 31268),
             "{run:?}"
         );
+        assert!(
+            pictures.hud > 0 && pictures.label > 0,
+            "the chain showed marked HUD sprites: {run:?}"
+        );
         let injected: Vec<_> = run.injected.keys().copied().collect();
         assert_eq!(
             injected,

@@ -4,6 +4,7 @@ use super::engine::adc_overflows;
 use crate::actors::{ActorError, bank_slice};
 #[cfg(test)]
 use crate::ines::FME7_PRG_BANK_SIZE;
+use crate::render::Line;
 
 /// One 8x16 sprite of a metasprite, relative to the draw position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -246,6 +247,37 @@ impl OamBuilder {
         self.next = self.start;
         self.left = ENTRIES - 1;
     }
+}
+
+/// Why a marked entry the PPU shows could not be shown as UI exactly as the PPU shows it,
+/// if one could not: behind the background, outside 8x16 mode, across a change of sprite
+/// banks, or at the sides that scrolled lines black out and `$2001`'s left-8 clip hides.
+#[must_use]
+pub fn undrawable(page: &[u8; 256], marks: &[Mark; 64], lines: &[Line]) -> Option<String> {
+    (0..64).find_map(|entry| {
+        let [y, _, attr, x] = page[entry * 4..entry * 4 + 4].try_into().expect("4 bytes");
+        let top = usize::from(y) + 1;
+        let first = lines.get(top)?;
+        if marks[entry] == Mark::Scene || first.mask & 0x10 == 0 {
+            return None;
+        }
+        let rows = &lines[top..(top + 16).min(lines.len())];
+        let why = if attr & 0x20 != 0 {
+            "behind the background"
+        } else if first.ctrl & 0x20 == 0 {
+            "in 8x8 mode"
+        } else if rows.iter().any(|line| line.sprite_chr != first.sprite_chr) {
+            "across a sprite bank change"
+        } else if !(8..=240).contains(&x) {
+            "at the screen's side"
+        } else {
+            return None;
+        };
+        Some(format!(
+            "{:?} entry {entry} at ({x}, {y}) {why}",
+            marks[entry]
+        ))
+    })
 }
 
 const NEXT_ENTRY: u8 = 0xC4;

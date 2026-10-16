@@ -625,14 +625,17 @@ impl Memory {
         self.apply(game, writes);
     }
 
-    /// Applies `writes` over the already-projected memory and lifts `game` back.
+    /// Applies `writes` over the already-projected memory and lifts `game` back, keeping
+    /// what memory does not hold: the script and the OAM's marks.
     fn apply(&mut self, game: &mut State, writes: &[(u16, u8)]) {
         for &(at, value) in writes {
             self.write(at, value);
         }
         let script = game.script.take();
+        let marks = game.oam.marks;
         *game = self.lift();
         game.script = script;
+        game.oam.marks = marks;
     }
 
     /// [`Memory::inject`] for interrupt bytes, except their stack traffic where the VRAM
@@ -909,6 +912,12 @@ impl Lockstep {
             return;
         }
         let port = super::raster::lines(registers, game);
+        if let Some(why) = super::oam::undrawable(&before.oam.page, &before.oam.marks, &port) {
+            panic!("frame {frame}: {why}{}", self.context());
+        }
+        let shown = |mark| before.oam.marks.iter().filter(|&&m| m == mark).count();
+        self.pictures.hud += shown(super::oam::Mark::Hud);
+        self.pictures.label += shown(super::oam::Mark::Label);
         let direct_mirroring = oracle.lines[0].mirroring != port[0].mirroring;
         let normal = |l: &Line| {
             let mut l = drawn(l);
@@ -1687,6 +1696,9 @@ pub(crate) struct Pictures {
     pub raced: usize,
     /// Frames whose raster IRQ bytes were compared ([`Lockstep::compare_irq_ram`]).
     pub irqs: usize,
+    /// The HUD's marked gauge and label entries the compared frames showed.
+    pub hud: usize,
+    pub label: usize,
 }
 
 /// Runs the port's [`Game::frame`](super::Game::frame) chained from one lift at the
