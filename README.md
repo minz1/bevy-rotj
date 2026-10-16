@@ -9,21 +9,32 @@ the cartridge, sound and flicker included.
 
 ## You need your own ROM
 
-None of the game is in this repository. You build the port with your copy of
+None of the game is in this repository or in the downloads. You need your copy of
 **Batman - Return of the Joker (USA).nes** (PRG+CHR MD5
-`830111df30b8511562d4faca6aeb792d`; the header doesn't matter): put it in `raw/`, or
-set `ROTJ_ROM=/absolute/path/to/rom.nes`, then build. The build checks it and compiles
-it into the executable, so the exe runs on its own. That also means the exe contains
-the game: keep it to yourself, and let others build their own.
+`830111df30b8511562d4faca6aeb792d`; the header doesn't matter).
+
+## Download
+
+Each [release](https://github.com/minz1/bevy-rotj/releases) has a Windows exe and a
+Linux one. Put your ROM next to the exe, or drop it onto the exe (on Linux, pass it as
+the first argument); `ROTJ_ROM=/path/to/rom.nes` works too. Nothing is written to your
+machine, so the ROM stays where you put it. If no ROM is found, the exe says where it
+looked.
+
+## Build from source
+
+    cargo run --release -p batman-rotj -- /path/to/rom.nes
+
+That exe finds the ROM at start-up like the downloads. To build the ROM in instead, put
+it in `raw/` or set `ROTJ_ROM=/absolute/path/to/rom.nes` before building: the build
+checks it and compiles it in, so the exe runs on its own. That exe contains the game,
+so keep it to yourself.
 
 A ROM that is named but missing or wrong fails the build. With no ROM at all the
-workspace still builds and tests (the ROM tests skip), and the exe just tells you it was
-built without one. If you add the ROM later, rebuild (`touch crates/app/build.rs` if
-`raw/` didn't exist before).
+workspace still builds and tests (the ROM tests skip). If you add the ROM later, rebuild
+(`touch crates/app/build.rs` if `raw/` didn't exist before).
 
-## Running
-
-    cargo run --release -p batman-rotj
+## Playing
 
 | NES        | Keyboard | Gamepad |
 |------------|----------|---------|
@@ -42,7 +53,7 @@ the original.
 
 | Path | What it is |
 |------|------------|
-| `crates/rotj-rom` | finds and checks your ROM (the app's build script embeds it) |
+| `crates/rotj-rom` | finds and checks your ROM (the app's build script embeds it, or the exe loads it at start-up) |
 | `crates/rotj-core` | the game: actors, levels, scripts, the boot and the ending, plus the NES-picture renderer |
 | `crates/rotj-apu`, `crates/rotj-music` | the 2A03 synth and the game's own music driver, ported |
 | `crates/app` | the Bevy app |

@@ -1,6 +1,7 @@
 //! The user's own Batman: Return of the Joker (USA) ROM: where it is found, how it is
 //! checked, and its PRG and CHR. Nothing derived from the ROM is distributed with the
-//! port; the app's build script embeds it and every test reads it through this crate.
+//! port; the app's build script embeds it (an exe built without it loads it at start-up)
+//! and every test reads it through this crate.
 
 mod md5;
 
@@ -62,6 +63,14 @@ impl Rom {
         }
         Ok(rom)
     }
+
+    /// The ROM of an exe built without one: `arg` (a file dropped on the exe), `ROTJ_ROM`,
+    /// then a `.nes` beside the exe.
+    pub fn load(arg: Option<&Path>) -> Result<Rom, String> {
+        let env = std::env::var_os("ROTJ_ROM").filter(|env| !env.is_empty());
+        let exe = std::env::current_exe().ok();
+        search(arg, env.as_deref(), exe.as_deref().and_then(Path::parent)).map(|(rom, _)| rom)
+    }
 }
 
 /// The workspace's `raw/` ROM path (it exists only in a development checkout).
@@ -99,6 +108,41 @@ fn find(env: Option<&OsStr>, raw: &Path) -> Result<Option<(PathBuf, Rom)>, Strin
     };
     let rom = read(&path)?;
     Ok(Some((path, rom)))
+}
+
+/// The search behind [`Rom::load`], with the environment passed in. An argument or
+/// `ROTJ_ROM` that does not load is an error; a bad file beside the exe is noted and the
+/// search goes on.
+fn search(
+    arg: Option<&Path>,
+    env: Option<&OsStr>,
+    exe_dir: Option<&Path>,
+) -> Result<(Rom, PathBuf), String> {
+    if let Some(path) = arg.or(env.map(Path::new)) {
+        return read(path).map(|rom| (rom, path.to_path_buf()));
+    }
+    let dir = exe_dir.ok_or("Looked nowhere: the exe's folder is unknown")?;
+    let entries =
+        std::fs::read_dir(dir).map_err(|e| format!("Looked in:\n  {}: {e}", dir.display()))?;
+    let mut beside: Vec<PathBuf> = entries
+        .filter_map(|entry| Some(entry.ok()?.path()))
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("nes"))
+        })
+        .collect();
+    beside.sort();
+    let mut looked = Vec::new();
+    for path in beside {
+        match read(&path) {
+            Ok(rom) => return Ok((rom, path)),
+            Err(error) => looked.push(error),
+        }
+    }
+    if looked.is_empty() {
+        looked.push(format!("{}: no .nes file", dir.display()));
+    }
+    Err(format!("Looked in:\n  {}", looked.join("\n  ")))
 }
 
 /// The ROM for a test: `ROTJ_ROM`, else the workspace's `raw/`. Without one it prints the
@@ -228,5 +272,87 @@ mod tests {
             .expect("loads")
             .expect("found");
         assert_eq!(path, env);
+    }
+
+    fn exe_dir(name: &str) -> PathBuf {
+        let dir = scratch(name).join("exe");
+        std::fs::create_dir_all(&dir).expect("exe dir");
+        dir
+    }
+
+    #[test]
+    fn a_missing_arg_or_runtime_rom_env_is_an_error() {
+        let exe = exe_dir("named");
+        std::fs::write(exe.join("a.nes"), real_image().unwrap_or_else(wrong_game)).expect("write");
+        let missing = exe.join("missing.nes");
+        for error in [
+            search(Some(&missing), None, Some(&exe)),
+            search(None, Some(missing.as_os_str()), Some(&exe)),
+        ] {
+            let error = error.expect_err("a missing named ROM");
+            assert!(error.contains("missing.nes"), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_wrong_arg_names_its_file() {
+        let bad = scratch("wrong-arg").join("bad.nes");
+        std::fs::write(&bad, wrong_game()).expect("write");
+        let error = search(Some(&bad), None, None).expect_err("wrong game");
+        assert!(
+            error.contains("bad.nes") && error.contains("MD5"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_exe_folder_says_so() {
+        let gone = scratch("gone").join("exe");
+        let error = search(None, None, Some(&gone)).expect_err("no folder");
+        assert!(error.contains(&gone.display().to_string()), "{error}");
+    }
+
+    #[test]
+    fn no_rom_beside_the_exe_says_where_it_looked() {
+        let exe = exe_dir("empty");
+        let error = search(None, None, Some(&exe)).expect_err("nothing beside the exe");
+        assert!(
+            error.contains(&exe.display().to_string()) && error.contains("no .nes file"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_bad_rom_beside_the_exe_falls_through() {
+        let exe = exe_dir("beside");
+        std::fs::write(exe.join("a.nes"), wrong_game()).expect("write");
+        let error = search(None, None, Some(&exe)).expect_err("only a bad file");
+        assert!(error.contains("a.nes") && error.contains("MD5"), "{error}");
+        let Some(image) = real_image() else {
+            return;
+        };
+        std::fs::write(exe.join("b.NES"), image).expect("write");
+        let (_, path) = search(None, None, Some(&exe)).expect("the good file");
+        assert_eq!(path, exe.join("b.NES"));
+    }
+
+    #[test]
+    fn the_search_order_holds() {
+        let Some(image) = real_image() else {
+            return;
+        };
+        let exe = exe_dir("search-order");
+        let (arg, env) = (exe.join("../arg.nes"), exe.join("../env.nes"));
+        for path in [&arg, &env, &exe.join("a.nes")] {
+            std::fs::write(path, &image).expect("write");
+        }
+        let found = |arg: Option<&Path>, env: Option<&Path>| {
+            search(arg, env.map(Path::as_os_str), Some(&exe))
+                .expect("found")
+                .1
+        };
+        assert_eq!(found(Some(&arg), Some(&env)), arg);
+        assert_eq!(found(None, Some(&env)), env);
+        assert_eq!(found(None, None), exe.join("a.nes"));
     }
 }

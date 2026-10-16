@@ -62,8 +62,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             xvfb libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev \
             libx11-dev libgl1-mesa-dri mesa-vulkan-drivers vulkan-tools
-      # Public CI has no ROM, so the exe is built without one: tools/boot-check.sh then
-      # checks that it exits 2 with its "built without a ROM" message. Built with a ROM
+      # Public CI has no ROM, so the exe is built and run without one: tools/boot-check.sh
+      # then checks that it exits 2 with its "no usable ROM found" message. Built with a ROM
       # (raw/ or ROTJ_ROM) it boots the game and requires it to keep running.
       - name: boot check
         run: xvfb-run -a bash tools/boot-check.sh 60

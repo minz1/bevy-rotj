@@ -1,0 +1,44 @@
+name: Release
+on:
+  push:
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  release:
+    name: ROM-less Linux and Windows exes
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps for bevy and the Windows cross-build
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libx11-dev gcc-mingw-w64-x86-64
+      - run: cargo --version && rustup target add x86_64-pc-windows-gnu
+      - run: cargo build --release -p batman-rotj
+      - run: cargo build --release -p batman-rotj --target x86_64-pc-windows-gnu
+        env:
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
+      - name: Strip
+        run: |
+          mkdir dist
+          strip -o dist/batman-rotj target/release/batman-rotj
+          x86_64-w64-mingw32-strip -o dist/batman-rotj.exe target/x86_64-pc-windows-gnu/release/batman-rotj.exe
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/batman-rotj dist/batman-rotj.exe \
+            --verify-tag --title "$GITHUB_REF_NAME" --notes "$(cat <<'NOTES'
+          The game isn't included: you need your own **Batman - Return of the Joker (USA).nes** (PRG+CHR MD5 `830111df30b8511562d4faca6aeb792d`; the header doesn't matter).
+
+          - Windows: put the ROM beside `batman-rotj.exe`, or drop it on the exe.
+          - Linux: put the ROM beside `batman-rotj` (`chmod +x` it first), or pass it as the first argument.
+
+          `ROTJ_ROM=/path/to/rom.nes` works too.
+          NOTES
+          )"

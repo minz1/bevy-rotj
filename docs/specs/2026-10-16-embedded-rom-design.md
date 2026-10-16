@@ -4,7 +4,8 @@ Status: approved 2026-10-16 by a stand-in reviewer under the owner's delegation 
 with changes; all six applied: empty files instead of a cfg, an absolute `ROTJ_ROM`, `raw/`
 watched only when it exists, `build.rs`'s crate doc, the boot check led by the exe's own
 exit, the stale `Rom::load` references). The owner's call is in `docs/STATUS.md` "Owner
-decisions made". Implemented in 1.0.3.
+decisions made". Implemented in 1.0.3. Amended for 1.0.4 by the owner's design (approved by
+the owner, 2026-10-16): the runtime fallback below.
 
 ## Goal
 
@@ -30,7 +31,7 @@ builds their own with their own ROM.
    - `Ok(None)`: write both files empty, `cargo::warning=built without a ROM ...`, and
      watch `raw/` if the directory exists (a missing path would make cargo rerun the
      script on every build); otherwise adding the ROM needs `touch crates/app/build.rs`.
-3. `crates/app/src/main.rs` always `include_bytes!` both files: one code path, linted
+3. (1.0.4: see the Amendment.) `crates/app/src/main.rs` always `include_bytes!` both files: one code path, linted
    with and without a ROM. Empty PRG means no ROM: it prints "built without a ROM: set
    ROTJ_ROM or put it in raw/ and rebuild" (and, on Windows, waits for Enter as 1.0.1
    did) and exits 2. The app ignores its arguments.
@@ -38,7 +39,7 @@ builds their own with their own ROM.
    their tests (search order, bad cache, remember). Kept: `parse_ines`, `from_ines`,
    `for_test`, the parse/MD5 tests; new tests for `locate`'s rule (the inner function takes
    the env value and the raw path).
-5. `tools/boot-check.sh` runs the exe once and goes by what the build made: status 2
+5. (1.0.4: see the Amendment.) `tools/boot-check.sh` runs the exe once and goes by what the build made: status 2
    with the "built without a ROM" message passes (fails under `ROTJ_REQUIRE_ROM`);
    anything else must be the game still running when killed. A failed build prints its
    tail. The ROM-less exe is exercised by CI's boot job (no ROM) and by the release's
@@ -61,3 +62,33 @@ builds their own with their own ROM.
 
 A first-run importer (a shareable exe) stays possible later (1.1's "ROM decoder becomes an
 importer"). The CI build job's artifact stays a ROM-less exe.
+
+## Amendment (1.0.4): the runtime fallback
+
+Approved by the owner, 2026-10-16. One rule: an embedded ROM wins; without one, the exe
+finds the ROM at start-up. It replaces design point 3's "exits 2" and the ROM-less half
+of point 5; the rest stands.
+
+1. The build-time embedding is unchanged. The ROM-less build's warning now says players
+   supply the ROM at start-up.
+2. When PRG is empty, `main` calls `rotj_rom::Rom::load(first argument)`, which tries the
+   argument (a file dropped on the exe), then `ROTJ_ROM`, then the `.nes` files beside the
+   exe in name order. A named file (argument, `ROTJ_ROM`) that is missing or wrong is an
+   error naming it; a bad file beside the exe is noted and the search goes on. With none,
+   the exe prints "no usable ROM found", how to supply it and where it looked, waits for
+   Enter on Windows, and exits 2.
+3. No cache (1.0.1's `%LOCALAPPDATA%` / `~/.cache` copy stays gone): the ROM beside the
+   exe persists, and nothing is written to the player's machine. No `raw/` at start-up;
+   embedding covers development builds.
+4. Tests: the search order (argument, `ROTJ_ROM`, beside the exe), a missing argument or
+   `ROTJ_ROM` is an error even with a good ROM beside the exe, a bad file beside the exe
+   falls through to the next one, and an empty folder says where it looked.
+5. `.github/workflows/release.yml`, on a pushed tag: builds the ROM-less release exes for
+   Linux (native) and Windows (`x86_64-pc-windows-gnu`, mingw cross-build on the same
+   Ubuntu runner, the build the owner's exe already uses), strips them and creates the
+   release with both attached and short notes. Built-in `GITHUB_TOKEN` with
+   `contents: write`. Its only action is `actions/checkout`, pinned as in `ci.yml`; the
+   toolchain comes from the runner's rustup and `rust-toolchain.toml`, so no third-party
+   action runs with the write token. 1.0.3 gets no binaries.
+6. `tools/boot-check.sh`: the exe built and run without a ROM must exit 2 with "no usable
+   ROM found" (CI's boot job); built with one, it must keep running (local gates).

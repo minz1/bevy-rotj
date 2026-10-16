@@ -1,5 +1,5 @@
 //! Embeds the user's ROM (`ROTJ_ROM`, else the workspace's `raw/`) after checking it; without
-//! one the exe is built to say so and exit.
+//! one the exe is built to load it at start-up.
 
 use std::path::{Path, PathBuf};
 
@@ -18,7 +18,8 @@ fn main() {
                 watch(raw);
             }
             println!(
-                "cargo::warning=built without a ROM: set ROTJ_ROM or put it in raw/ and rebuild"
+                "cargo::warning=built without a ROM: players supply it at start-up \
+                 (set ROTJ_ROM or put it in raw/ and rebuild to embed it)"
             );
             (Vec::new(), Vec::new())
         }

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Pre-tag check: the port must boot *and keep running*. Every release tag is
 # expected to pass this (the CI `boot` job runs the same check under xvfb). An exe
-# built without a ROM must instead exit 2 with its message.
+# built without a ROM, run with none, must instead exit 2 with its message.
 #
 #   tools/boot-check.sh [seconds]
 #
@@ -33,9 +33,9 @@ timeout "$SECONDS_TO_RUN" target/debug/batman-rotj >"$LOG" 2>&1 </dev/null
 STATUS=$?
 set -e
 
-if [ "$STATUS" -eq 2 ] && grep -q "built without a ROM" "$LOG"; then
+if [ "$STATUS" -eq 2 ] && grep -q "no usable ROM found" "$LOG"; then
     [ -z "${ROTJ_REQUIRE_ROM:-}" ] || fail "ROTJ_REQUIRE_ROM is set but the exe was built without a ROM"
-    echo "OK: built without a ROM, so only its message was checked"
+    echo "OK: built and run without a ROM, so only its message was checked"
     exit 0
 fi
 if grep -qi "panicked" "$LOG"; then
