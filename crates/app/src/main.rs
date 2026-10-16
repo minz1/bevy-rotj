@@ -7,6 +7,7 @@ mod pacing;
 mod play;
 mod screen;
 mod settings;
+mod ui;
 
 use bevy::camera::{OrthographicProjection, Projection, ScalingMode};
 use bevy::image::ImagePlugin;
@@ -120,6 +121,7 @@ fn main() {
     .add_plugins((
         pacing::PacingPlugin,
         menu::MenuPlugin,
+        ui::UiPlugin,
         audio::AudioPlugin,
         input::InputPlugin,
         play::PlayPlugin,

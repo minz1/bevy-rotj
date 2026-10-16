@@ -249,7 +249,7 @@ mod tests {
             play.step(0);
         }
         let mut frame = Frame::new();
-        play.compose(&mut frame, rotj_core::render::MAX_SPRITES_PER_LINE);
+        play.compose(&mut frame, rotj_core::render::MAX_SPRITES_PER_LINE, false);
         let mut ours = vec![0; frame.rgba().len()];
         rgba_into(frame.indices(), &NES_PALETTE, &[], &mut ours);
         assert!(ours == frame.rgba(), "the upload differs from Frame::rgba");

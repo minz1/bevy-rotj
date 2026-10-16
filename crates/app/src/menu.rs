@@ -12,15 +12,16 @@ use crate::input::{NesButtons, NesInput};
 use crate::pacing::Step;
 use crate::play::Play;
 use crate::screen::{Colours, pixels, visible};
-use crate::settings::{Overscan, PaletteChoice, Settings, SettingsDir, save};
+use crate::settings::{Overscan, PaletteChoice, Settings, SettingsDir, UiStyle, save};
 
 /// The menu's lines, in order.
-const ROWS: [&str; 6] = [
+const ROWS: [&str; 7] = [
     "VOLUME",
     "OVERSCAN",
     "PALETTE",
     "SPRITE LIMIT",
     "VSYNC",
+    "UI",
     "BACK",
 ];
 /// Where the values start, in glyphs.
@@ -140,6 +141,11 @@ fn value(settings: &Settings, colours: &Colours, row: usize) -> String {
         .into(),
         3 => on(settings.sprite_limit).into(),
         4 => on(settings.vsync).into(),
+        5 => match settings.ui {
+            UiStyle::Classic => "CLASSIC",
+            UiStyle::Faithful => "FAITHFUL",
+        }
+        .into(),
         _ => String::new(),
     }
 }
@@ -181,6 +187,12 @@ fn change(settings: &mut Settings, row: usize, step: i8) {
         }
         3 => settings.sprite_limit = !settings.sprite_limit,
         4 => settings.vsync = !settings.vsync,
+        5 => {
+            settings.ui = match settings.ui {
+                UiStyle::Classic => UiStyle::Faithful,
+                UiStyle::Faithful => UiStyle::Classic,
+            };
+        }
         _ => {}
     }
 }
@@ -489,6 +501,7 @@ mod tests {
                 let settings = Settings {
                     palette,
                     sprite_limit: false,
+                    ui: UiStyle::Faithful,
                     ..settings.clone()
                 };
                 let colours = Colours {

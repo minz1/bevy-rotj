@@ -24,6 +24,8 @@ pub struct Settings {
     pub sprite_limit: bool,
     /// Present on the display's vertical blank.
     pub vsync: bool,
+    /// How the game's own UI (HUD, pause card, title cursor, password entry) is drawn.
+    pub ui: UiStyle,
 }
 
 impl Default for Settings {
@@ -34,8 +36,18 @@ impl Default for Settings {
             palette: PaletteChoice::CompositeDirect,
             sprite_limit: true,
             vsync: true,
+            ui: UiStyle::Classic,
         }
     }
+}
+
+/// How the game's own UI is drawn.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UiStyle {
+    /// As the game's sprites, flicker and all.
+    Classic,
+    /// The game's own UI sprites as Bevy UI, steady.
+    Faithful,
 }
 
 /// Which of the 240 lines show.
@@ -111,6 +123,7 @@ struct Fields {
     palette: Option<Box<RawValue>>,
     sprite_limit: Option<Box<RawValue>>,
     vsync: Option<Box<RawValue>>,
+    ui: Option<Box<RawValue>>,
 }
 
 /// The settings `text` holds that this release reads, each on its own: a value it does
@@ -132,6 +145,7 @@ fn parse(text: &str) -> ron::error::SpannedResult<Settings> {
     read(fields.palette, &mut settings.palette);
     read(fields.sprite_limit, &mut settings.sprite_limit);
     read(fields.vsync, &mut settings.vsync);
+    read(fields.ui, &mut settings.ui);
     Ok(settings)
 }
 
@@ -181,6 +195,7 @@ mod tests {
             palette: PaletteChoice::Ntsc,
             sprite_limit: false,
             vsync: false,
+            ui: UiStyle::Faithful,
         };
         save(&dir, &settings).expect("save");
         assert_eq!(load(&dir), settings);
@@ -222,7 +237,7 @@ mod tests {
     fn a_value_this_release_does_not_know_keeps_the_rest() {
         let (dir, settings) = load_text(
             "newer",
-            "(volume: 40, palette: Hdr, overscan: Shown, vsync: maybe)",
+            "(volume: 40, palette: Hdr, overscan: Shown, vsync: maybe, ui: Modern)",
         );
         let expected = Settings {
             volume: 40,

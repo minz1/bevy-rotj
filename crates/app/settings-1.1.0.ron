@@ -4,4 +4,5 @@
     palette: CompositeDirect,
     sprite_limit: true,
     vsync: true,
+    ui: Classic,
 )

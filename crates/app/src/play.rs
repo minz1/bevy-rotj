@@ -47,10 +47,12 @@ pub struct Play {
     /// The NMI armed the raster IRQ (`$D0` bit 7), so this frame is split.
     raster: bool,
     /// The lines the PPU draws this frame with, and the sprites its NMI copied.
-    lines: Vec<Line>,
-    oam: [u8; 256],
+    pub(crate) lines: Vec<Line>,
+    pub(crate) oam: [u8; 256],
     /// Which drawer placed each of those sprites.
-    marks: [Mark; 64],
+    pub(crate) marks: [Mark; 64],
+    /// The HUD label's sprites the step before showed, which the game draws every other frame.
+    pub(crate) label: Vec<[u8; 4]>,
     /// The level forced at `$D3D8`, kept for the boot after a reset.
     forced: Option<u8>,
 }
@@ -67,6 +69,7 @@ impl Play {
         let mut play = Play {
             oam: game.oam.page,
             marks: game.oam.marks,
+            label: Vec::new(),
             game,
             prg,
             chr,
@@ -121,6 +124,7 @@ impl Play {
         self.raster = self.game.scroll.room[0] & 0x80 != 0;
         self.ppu.apply(&vblank.writes, self.game.scroll.mirroring);
         let registers = raster::Registers::of(&self.game);
+        self.label = marked(&self.oam, &self.marks, Mark::Label);
         self.oam = self.game.oam.page;
         self.marks = self.game.oam.marks;
         self.run_frame(registers);
@@ -154,19 +158,54 @@ impl Play {
 
     /// Composes the picture the PPU draws from the game's state: its nametables, palette
     /// and sprites, line by line as the NMI and the raster IRQs set them.
-    pub fn compose(&self, frame: &mut Frame, sprites_per_line: usize) {
+    pub fn compose(&self, frame: &mut Frame, sprites_per_line: usize, park: bool) {
         let vram = self.ppu.nametables.concat();
         frame.render(
             &Picture {
                 lines: &self.lines,
                 vram: &vram,
                 palette: &self.ppu.palette,
-                oam: &self.oam,
+                oam: &self.display_oam(park),
                 chr: &self.chr,
             },
             sprites_per_line,
         );
     }
+
+    /// The sprites the picture shows: with `park`, the game's UI sprites moved off screen,
+    /// for Bevy UI to draw.
+    fn display_oam(&self, park: bool) -> [u8; 256] {
+        let mut oam = self.oam;
+        if park {
+            for (entry, mark) in self.marks.iter().enumerate() {
+                if *mark != Mark::Scene {
+                    oam[entry * 4] = PARKED;
+                }
+            }
+        }
+        oam
+    }
+
+    /// The palette RAM the picture is drawn with.
+    pub(crate) fn palette(&self) -> &[u8; 32] {
+        &self.ppu.palette
+    }
+
+    /// The CHR the picture is drawn from.
+    pub(crate) fn chr(&self) -> &[u8] {
+        &self.chr
+    }
+}
+
+/// An OAM y below every line the PPU draws.
+const PARKED: u8 = 0xF4;
+
+/// The entries of `oam` that `mark` placed.
+fn marked(oam: &[u8; 256], marks: &[Mark; 64], mark: Mark) -> Vec<[u8; 4]> {
+    (0..64)
+        .filter(|&entry| marks[entry] == mark)
+        .map(|entry| oam[entry * 4..entry * 4 + 4].try_into().expect("4 bytes"))
+        .collect()
 }
 
 /// A session's pads for a replay against the oracle: one byte per [`Play::step`], the
@@ -312,7 +351,8 @@ fn draw(play: Option<Res<'_, Play>>, settings: Res<'_, Settings>, mut screen: Re
         } else {
             OAM_SPRITES
         };
-        play.compose(screen_frame(&mut screen), limit);
+        let faithful = settings.ui == crate::settings::UiStyle::Faithful;
+        play.compose(screen_frame(&mut screen), limit, faithful);
         let hidden = settings.overscan == crate::settings::Overscan::Hidden;
         let edges = std::array::from_fn(|y| {
             hidden && play.lines.get(y).is_some_and(crate::screen::scrolled)
@@ -486,6 +526,48 @@ mod tests {
     }
 
     #[test]
+    fn classic_shows_the_games_oam_and_faithful_parks_the_ui() {
+        let Some(mut play) = play() else {
+            return;
+        };
+        for _ in 0..4 {
+            play.step(0);
+        }
+        assert_eq!(play.display_oam(false), play.oam);
+        let parked = play.display_oam(true);
+        for entry in 0..64 {
+            let (ours, game) = (
+                &parked[entry * 4..entry * 4 + 4],
+                &play.oam[entry * 4..entry * 4 + 4],
+            );
+            if play.marks[entry] == Mark::Scene {
+                assert_eq!(ours, game);
+            } else {
+                assert_eq!((ours[0], &ours[1..]), (PARKED, &game[1..]));
+            }
+        }
+        assert!(play.marks.contains(&Mark::Hud));
+    }
+
+    #[test]
+    fn the_label_carries_over_one_step() {
+        let Some(mut play) = play() else {
+            return;
+        };
+        let mut carried = 0;
+        for _ in 0..8 {
+            let before = marked(&play.oam, &play.marks, Mark::Label);
+            play.step(0);
+            assert_eq!(play.label, before);
+            carried += usize::from(!play.label.is_empty() && !play.marks.contains(&Mark::Label));
+        }
+        assert!(
+            carried >= 3,
+            "the even frames carry the odd frames' label: {carried}"
+        );
+    }
+
+    #[test]
     fn the_title_shows_only_its_cursor_as_ui() {
         let Some(mut play) = powered_on(None) else {
             return;
@@ -582,7 +664,7 @@ mod tests {
 
     fn picture(play: &Play) -> Vec<u8> {
         let mut frame = Frame::new();
-        play.compose(&mut frame, MAX_SPRITES_PER_LINE);
+        play.compose(&mut frame, MAX_SPRITES_PER_LINE, false);
         frame.indices().to_vec()
     }
 
@@ -710,7 +792,7 @@ mod tests {
         }
         assert_eq!(play.game().world.room, 2, "the room change never ran");
         let mut frame = Frame::new();
-        play.compose(&mut frame, MAX_SPRITES_PER_LINE);
+        play.compose(&mut frame, MAX_SPRITES_PER_LINE, false);
         assert!(frame.rgba().iter().any(|&byte| byte != 0));
     }
 
@@ -841,7 +923,7 @@ mod tests {
             play.step(0x01);
         }
         let mut frame = Frame::new();
-        play.compose(&mut frame, MAX_SPRITES_PER_LINE);
+        play.compose(&mut frame, MAX_SPRITES_PER_LINE, false);
         let backdrop = frame.indices()[0];
         assert!(
             frame.indices().iter().any(|&pixel| pixel != backdrop),
@@ -865,7 +947,7 @@ mod tests {
         for tick in 0..7000 {
             requests.extend(play.step(0).into_iter().filter(|&id| id != 0));
             if tick % 100 == 50 {
-                play.compose(&mut frame, MAX_SPRITES_PER_LINE);
+                play.compose(&mut frame, MAX_SPRITES_PER_LINE, false);
                 samples.push(frame.indices().to_vec());
             }
         }
@@ -1178,7 +1260,7 @@ mod tests {
             if lines.iter().all(|l| l.mask & 0x18 == 0) {
                 continue;
             }
-            play.compose(&mut ours, MAX_SPRITES_PER_LINE);
+            play.compose(&mut ours, MAX_SPRITES_PER_LINE, false);
             theirs.render(
                 &Picture {
                     lines: &lines,
