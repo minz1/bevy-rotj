@@ -2,7 +2,7 @@
 
 use super::oam::{DrawCall, Metasprite};
 use super::slots::Body;
-use super::world::{Cx, Effects, Level, Motion, Player, Schedule, Weapon, World};
+use super::world::{Cx, Effects, Level, Motion, Player, Schedule, Weapon, World, pose};
 use crate::actors::bank_slice;
 
 /// The zero-page working set `$90-$A6`, carried from slot to slot as the game's is.
@@ -791,7 +791,7 @@ pub fn hurt_player(effects: &mut Effects) {
     effects.sound[0] = 0x25;
     effects.attack &= 0x80;
     let player = &mut effects.player;
-    player.pose &= 0xBF;
+    player.pose &= !pose::SHOT;
     player.hurt_timer = 0x20;
     player.flags[2] = 0xC0;
     if player.motion == Motion::Falling {

@@ -6,6 +6,7 @@ use super::cutscene::Cutscene;
 use super::engine::{draw, rom_byte, rom_word};
 use super::room;
 use super::world::{Motion, VramWrite, Weapon};
+use crate::actor::button;
 
 /// The stage-end script's state (`$0408-$040C`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -447,7 +448,7 @@ impl NextArea {
                 }
                 Step::BannerHolding => {
                     self.hold = self.hold.wrapping_sub(1);
-                    if self.hold != 0 && game.world.pressed & 0xD0 == 0 {
+                    if self.hold != 0 && game.world.pressed & button::ACCEPT == 0 {
                         return;
                     }
                     self.fade = Fade::new(false, false);
@@ -1046,7 +1047,7 @@ impl Continue {
                     }
                 }
                 Countdown::Check => {
-                    self.step = if game.world.pad & 0x10 != 0 {
+                    self.step = if game.world.pad & button::START != 0 {
                         Countdown::Leave
                     } else {
                         Countdown::Count
@@ -1122,7 +1123,7 @@ impl Continue {
                 }
                 Countdown::OverCheck => {
                     self.step = Countdown::OverScroll;
-                    if game.world.pressed & 0xF0 != 0 {
+                    if game.world.pressed & button::FACE != 0 {
                         self.step = Countdown::Reset;
                     } else if !game.world.frame_odd {
                         self.timer = self.timer.wrapping_sub(1);

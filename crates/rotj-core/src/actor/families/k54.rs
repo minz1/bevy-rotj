@@ -2,6 +2,7 @@
 //! his motion state to `$0B`, steps his position with the pad and sets his walk
 //! frame. It never draws and calls no engine or collision routine.
 
+use crate::actor::button;
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion};
@@ -34,15 +35,15 @@ impl State {
         player.x = player.x.wrapping_add(DRIFT);
         if cx.effects.scroll_lock != NO_CLAMP {
             let pad = cx.world.pad;
-            if pad & 0x03 != 0 {
+            if pad & button::SIDEWAYS != 0 {
                 player.x = if pad & 1 != 0 {
                     player.x.wrapping_add(STEP)
                 } else {
                     player.x.wrapping_sub(STEP)
                 };
             }
-            if pad & 0x0C != 0 {
-                if pad & 0x08 == 0 {
+            if pad & button::UP_OR_DOWN != 0 {
+                if pad & button::UP == 0 {
                     player.y = player.y.wrapping_add(STEP);
                     if player.y.to_be_bytes()[0] >= Y_MAX {
                         player.y = u16::from(Y_MAX) << 8;

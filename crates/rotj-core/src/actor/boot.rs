@@ -8,6 +8,7 @@ use super::cutscene::{ScreenClear, copy_frame, draw_block, draw_sprite};
 use super::oam::Mark;
 use super::sound_test::SoundTest;
 use super::stage::{Fade, NextArea, blackout, queue_palette};
+use crate::actor::button;
 use crate::actor::world::Weapon;
 use crate::levelmap::BOOT_FIRST_BANK;
 
@@ -53,10 +54,8 @@ const PASSWORD: u8 = 0x98;
 const FLASH_BLOCKS: u16 = 0x66F3;
 /// Frames the title waits for a choice before the attract mode (`$20:$21`).
 const TITLE_FRAMES: u16 = 0x0700;
-/// The buttons that skip the intro and choose on the title: A, B and Start (`$7E60`).
-const CONFIRM: u8 = 0xD0;
 /// A and Start held at the stage start enter the sound test (`$D3C6`).
-const SOUND_TEST: u8 = 0x90;
+const SOUND_TEST: u8 = button::A | button::START;
 
 /// The password screen's CHR banks (`$6E0A`), draw list (`$6992`) and palette (`$6DEA`).
 const PASSWORD_BANKS: u16 = 0x6E0A;
@@ -319,7 +318,7 @@ impl Boot {
 
     /// Runs one frame up to its NMI wait.
     pub fn step(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) {
-        if std::mem::take(&mut self.check) && game.world.pressed & CONFIRM != 0 {
+        if std::mem::take(&mut self.check) && game.world.pressed & button::ACCEPT != 0 {
             self.step = Step::TitleSetup(TitleSetup::Start);
         }
         while !self.frame(game, prg, chr) {}
@@ -621,15 +620,15 @@ impl Boot {
                     return false;
                 }
                 let world = &game.world;
-                if world.pressed & CONFIRM != 0 {
+                if world.pressed & button::ACCEPT != 0 {
                     self.step = Step::Title(Title::Chosen);
                     return false;
                 }
-                if world.pad & 0x02 != 0 {
+                if world.pad & button::LEFT != 0 {
                     self.choice = GAME_START;
-                } else if world.pad & 0x01 != 0 {
+                } else if world.pad & button::RIGHT != 0 {
                     self.choice = PASSWORD;
-                } else if world.pressed & 0x20 != 0 {
+                } else if world.pressed & button::SELECT != 0 {
                     self.choice = if self.choice == PASSWORD {
                         GAME_START
                     } else {
@@ -754,11 +753,11 @@ impl Boot {
                 return false;
             }
             Password::Entry => {
-                if game.world.pressed & CONFIRM != 0 {
+                if game.world.pressed & button::ACCEPT != 0 {
                     self.step = Step::Password(Password::Submitted);
                     return false;
                 }
-                if game.world.pressed & 0x20 != 0 {
+                if game.world.pressed & button::SELECT != 0 {
                     self.fade = Fade::new(false, false);
                     self.step = Step::Password(Password::FadeOut { accepted: false });
                     return false;
@@ -869,7 +868,7 @@ impl Boot {
         let (pressed, held) = (game.world.pressed, game.world.pad);
         let entry = &mut self.entry;
         let column = usize::from(entry.column);
-        for bit in [0x08, 0x04, 0x02, 0x01] {
+        for bit in [button::UP, button::DOWN, button::LEFT, button::RIGHT] {
             if pressed & bit != 0 {
                 entry.period = 0x1F;
             } else if held & bit != 0 && entry.repeat {
@@ -884,9 +883,9 @@ impl Boot {
             game.effects.sound[0] = 0x39;
             let letter = &mut entry.letters[column];
             match bit {
-                0x08 => *letter = letter.checked_sub(1).unwrap_or(0x19),
-                0x04 => *letter = (*letter + 1) % 0x1A,
-                0x02 => entry.column = entry.column.wrapping_sub(1) & 3,
+                button::UP => *letter = letter.checked_sub(1).unwrap_or(0x19),
+                button::DOWN => *letter = (*letter + 1) % 0x1A,
+                button::LEFT => entry.column = entry.column.wrapping_sub(1) & 3,
                 _ => entry.column = (entry.column + 1) & 3,
             }
             return;

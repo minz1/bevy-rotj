@@ -11,6 +11,7 @@ use super::engine::{self, Work, rom_byte, rom_word};
 use super::scroll::Scroll;
 use super::slots;
 use super::world::{Cx, Motion, Projectile, Weapon};
+use crate::actor::button;
 
 /// A charged attack's first stage, every weapon's: the `kind` the player's charge writes.
 pub const CHARGE_START: u8 = 0x80;
@@ -433,7 +434,7 @@ fn homing_gather(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
             homing_clear_charge(cx);
             return;
         }
-    } else if cx.world.pad & 0x8F != 0 || !held {
+    } else if cx.world.pad & (button::A | button::UP_OR_DOWN | button::SIDEWAYS) != 0 || !held {
         homing_launch(slot, work, cx);
         homing_thrown(slot, work, cx);
         return;
@@ -582,9 +583,9 @@ fn homing_launch(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     } else if pad.trailing_zeros() >= 2 {
         #[cfg(test)]
         super::oracle::seen(0x8668);
-        if pad & 0x08 != 0 { 2 } else { 3 }
+        if pad & button::UP != 0 { 2 } else { 3 }
     } else {
-        u16::from(pad & 0x01 == 0)
+        u16::from(pad & button::RIGHT == 0)
     };
     let vx = word(cx, 0x8885 + direction, 0x8881 + direction);
     let vy = word(cx, 0x888D + direction, 0x8889 + direction);

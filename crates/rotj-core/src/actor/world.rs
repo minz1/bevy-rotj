@@ -145,6 +145,23 @@ impl Motion {
     }
 }
 
+/// The bits of the player's pose (`$047F`).
+pub mod pose {
+    /// A turn is pending.
+    pub const TURNING: u8 = 0x80;
+    /// The shot pose.
+    pub const SHOT: u8 = 0x40;
+    /// The next frame resumes the motion saved in [`SAVED_MOTION`].
+    pub const RESUME: u8 = 0x20;
+    /// The landing animation plays (set on touching down).
+    pub const LANDING: u8 = 0x10;
+    /// The saved motion's byte, with [`RESUME`].
+    pub const SAVED_MOTION: u8 = 0x0F;
+    /// With [`LANDING`] and without [`RESUME`]: the long landing (after a jump, bank 4
+    /// `$96E0`) rather than the short one (`$96DD`); it shares the saved motion's bits.
+    pub const LONG_LANDING: u8 = 0x01;
+}
+
 /// The player as actors see him.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Player {

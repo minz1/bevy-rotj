@@ -8,6 +8,7 @@ use super::cutscene::draw_sprite;
 use super::engine::rom_byte;
 use super::stage::blackout;
 use super::world::VramWrite;
+use crate::actor::button;
 
 /// Its screen's direct writes (`$9BEB`), palette (`$9C36`), cursor (`$9C56`, at x `$68`
 /// and a row's y from `$9C62`), the number's metasprite (`$9C65`) and tiles (`$9C6B`),
@@ -88,7 +89,7 @@ impl SoundTest {
                     self.step = Step::Running;
                 }
                 Step::Running => {
-                    if game.world.pressed & 0xCF != 0 {
+                    if game.world.pressed & !(button::SELECT | button::START) != 0 {
                         self.input(game, prg);
                     }
                     if self.step == Step::Running {
@@ -110,7 +111,7 @@ impl SoundTest {
     /// with nothing drawn.
     fn input(&mut self, game: &mut Game, prg: &[u8]) {
         let pressed = game.world.pressed;
-        if pressed & 0x80 != 0 {
+        if pressed & button::A != 0 {
             match self.row {
                 SONG_ROW => {
                     game.effects.music = 0xFF;
@@ -124,10 +125,10 @@ impl SoundTest {
                     self.step = Step::Exit;
                 }
             }
-        } else if pressed & 0x40 != 0 {
+        } else if pressed & button::B != 0 {
             game.effects.music = 0xFF;
-        } else if pressed & 0x03 != 0 {
-            let right = pressed & 0x01 != 0;
+        } else if pressed & button::SIDEWAYS != 0 {
+            let right = pressed & button::RIGHT != 0;
             match self.row {
                 SONG_ROW => {
                     game.effects.music = 0xFF;
@@ -137,7 +138,7 @@ impl SoundTest {
                 _ => {}
             }
         } else {
-            self.row = step_wrapping(self.row, pressed & 0x04 != 0, 3);
+            self.row = step_wrapping(self.row, pressed & button::DOWN != 0, 3);
         }
     }
 

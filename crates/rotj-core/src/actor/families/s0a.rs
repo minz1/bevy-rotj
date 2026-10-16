@@ -1,5 +1,6 @@
 //! Second-class type `$0A`, the platform that follows a path once stood on (bank 8 `$90C7`).
 
+use crate::actor::button;
 use crate::actor::engine::{rom_byte, rom_word};
 use crate::actor::slots::{Body, PRESSED};
 use crate::actor::world::Cx;
@@ -22,7 +23,7 @@ impl State {
         body.anim = 0;
         if body.state & 0x80 != 0 && body.dying_timer & 0x80 == 0 {
             let pressed = cx.byte(PRESSED + index);
-            if pressed & 0x80 == 0 {
+            if pressed & button::A == 0 {
                 (body.hit, body.behaviour, body.subtype, body.phase) = (0, 0, 0, 0);
                 return;
             }

@@ -2,6 +2,7 @@
 
 mod attract;
 pub mod boot;
+pub mod button;
 pub mod collision;
 pub mod cutscene;
 pub mod ending;
@@ -178,7 +179,7 @@ impl Game {
                 }
             }
         }
-        if !past_pause && self.world.pressed & 0x10 != 0 && self.effects.busy & 0x80 == 0 {
+        if !past_pause && self.world.pressed & button::START != 0 && self.effects.busy & 0x80 == 0 {
             let mut pause = pause::Pause::default();
             pause.step(self, prg);
             self.script = Some(Script::Pause(pause));

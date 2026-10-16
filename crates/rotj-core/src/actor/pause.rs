@@ -4,6 +4,7 @@
 use super::Game;
 use super::engine::{draw, draw_metasprite, rom_byte, rom_word};
 use super::oam::{Mark, Metasprite};
+use crate::actor::button;
 
 /// The area name's metasprite the pause builds in WRAM (`$7FD0-$7FE1`).
 pub const NAME: u16 = 0x7FD0;
@@ -65,7 +66,7 @@ impl Pause {
                 self.step = Step::Held;
                 return;
             }
-            Step::Held if game.world.pressed & 0x10 == 0 => {
+            Step::Held if game.world.pressed & button::START == 0 => {
                 self.frame(game, prg);
                 return;
             }
