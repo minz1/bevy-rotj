@@ -1117,7 +1117,8 @@ mod tests {
     #[test]
     #[ignore = "seeded random play in stage 5 (release); the gates run it in release with --ignored"]
     fn random_play_in_stage_5_matches_the_oracle() {
-        // 28821 seed 1 found $8BEA's full-slot return.
+        // 28821 seed 1 found $8BEA's full-slot return; seed 3 weapon 4 an NMI that ran
+        // past the first IRQ's counter.
         plays_randomly(
             &[],
             &[
@@ -1133,6 +1134,7 @@ mod tests {
                 (28821, 1, 3, 1884),
                 (28821, 1, 4, 1874),
                 (28821, 1, 5, 1883),
+                (28821, 3, 4, 1838),
             ],
         );
         plays_randomly(DEATH, &[(27554, 1, 1, 901), (28821, 1, 1, 1811)]);

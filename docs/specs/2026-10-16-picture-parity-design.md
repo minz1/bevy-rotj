@@ -1,7 +1,13 @@
 # Picture parity: the raster splits, and pixels checked against the emulator (1.0.2)
 
-Status: approved 2026-10-16 by a stand-in reviewer under the owner's delegation (changes
-requested; all applied below). Owner, 2026-10-16: "work autonomously until the bug is fixed
+Status: done 2026-10-16 (tag 1.0.2). Approved by a stand-in reviewer under the owner's
+delegation (changes requested; all applied). As built, three things differ from the text
+below: a frame's lines are built at its loop's end (the IRQs read RAM that loop has
+written), not at the NMI; a line where the real game itself varies (an IRQ write within
+its wander of the line's end, a byte the loop writes in the frame an IRQ reads it) may
+show either outcome, counted and pinned (`docs/STATUS.md` "Decided autonomously"); and the
+app's own pixels are compared with the oracle's from power-on through the attract
+(`play::tests::the_app_draws_like_the_oracle_from_power_on`). Owner, 2026-10-16: "work autonomously until the bug is fixed
 ... update the tests to check the images too ... find a way to test for this so this doesn't
 happen again."
 

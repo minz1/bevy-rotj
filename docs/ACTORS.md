@@ -1799,9 +1799,9 @@ to `$D5` (nametable `$DA` bit 0), the second to `$D6` (`$DA` bit 1), the third t
 0 and steps the slide (`$977D`): `$D5` down 8 a frame from `$F8` (its first step
 forced by `$DA` bit 0), then `$D6` up 8 a frame until it wraps (forced by bit 1),
 so the picture's top band slides in, then the bottom. The lockstep injects the
-IRQ's bytes as elsewhere (9k); for the app, `cutscene::raster_irqs` runs `$977D`'s
-step once per frame the NMI armed, and the app draws the three bands
-(`split_lines`, a fixed 60-cycle entry latency, `shortcut:`).
+IRQ's bytes as elsewhere (9k); for the app, `raster::run_irqs` runs `$977D`'s
+step once per frame the NMI armed, and `raster::lines` places the three bands at the
+cycles measured from the oracle (since 1.0.2; before, a fixed 60-cycle latency).
 
 `the_loop_matches_the_tas_from_stage_1_to_the_ending` (9k) runs this cutscene
 (TAS 6784-7136) and those of stages 3-7, and compares RAM at every one of their
@@ -1887,8 +1887,8 @@ frame). A credit line held `$9F` frames instead of `$A0` fails it at script fram
 (TAS 42742, `$015C`: the next line queued a frame early). The type `$B8` is ported on
 the stage 4-7 branch; an independent port of it here chained 296 loop frames from TAS
 40880 through the boss's fall into the same ending, all equal, before it was dropped
-for that one. For the app, `cutscene::raster_irqs` steps the `$0D` split's scrolls
-each frame and `play::compose` draws both splits' bands (the `$0C` split hides the
+for that one. For the app, `raster::run_irqs` steps the `$0D` split's scrolls
+each frame and `raster::lines` draws both splits' bands (the `$0C` split hides the
 sprites below its second IRQ). `play::tests::beating_the_final_boss_plays_the_ending`
 sets `$BA = 6` in stage 7-1 and plays 7000 frames: the ending reaches its last screen,
 requests `$0D`, `$22` and `$23`, and of 70 sampled pictures at least 60 must be drawn
@@ -1929,11 +1929,11 @@ also clears the table bit its `$2000` write set; the next eight set the table fr
 cycles apart, the ninth `$0600`); the tenth (`$96A1`) shows table B from x 0 and steps
 each band at `$96AF-$972C`: `$D5`-`$D9` up by `$20`, `$28`, `$40`, `$50`, `$58` until
 it wraps, which sets its `$DA` bit and parks it at 0. The lockstep injects the IRQ's
-bytes as elsewhere; for the app `cutscene::raster_irqs` runs the step once per frame
+bytes as elsewhere; for the app `raster::run_irqs` runs the step once per frame
 the NMI armed, and `the_intro_runs_its_own_raster_split` runs the port alone (its own
 IRQ model, no oracle bytes) from power-on and holds the oracle's `$D0-$DC` at every
-NMI wait to the title. `play::compose` draws the ten bands (`split_line`'s fixed
-latency, `shortcut:`).
+NMI wait to the title. `raster::lines` draws the ten bands at the oracle's measured
+cycles (since 1.0.2, the 12 areas' splits too: `actor/raster.rs`).
 
 **The password** (`$6330-$65F4`, PASSWORD chosen): the clear, CHR from `$6E0A`, eleven
 blocks of `$6992`, the entry's metasprite in WRAM `$7FC0` (from `$6E12`), the palette

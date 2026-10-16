@@ -1195,7 +1195,7 @@ mod tests {
         }
     }
 
-    /// The port alone, its raster IRQ model ([`raster_irqs`](super::super::cutscene::raster_irqs))
+    /// The port alone, its raster IRQ model ([`run_irqs`](super::super::raster::run_irqs))
     /// run as the app runs it in place of the oracle's bytes, holds the oracle's raster
     /// bytes `$D0-$DC` at every NMI wait from power-on to the title.
     #[test]

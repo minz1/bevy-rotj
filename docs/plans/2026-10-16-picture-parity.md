@@ -1,6 +1,6 @@
 # Picture parity Implementation Plan
 
-Status: draft for the stand-in review.
+Status: done 2026-10-16 (tag 1.0.2); the deviations are in the spec's status line.
 
 **Goal:** the app draws every frame like the game, the raster splits included, and every
 lockstep proves it against the oracle, whose pictures are proven against fceux's.

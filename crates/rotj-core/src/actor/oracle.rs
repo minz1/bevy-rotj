@@ -697,7 +697,7 @@ const OWNED: [u16; 12] = [
 ];
 
 /// The last value `writes` leaves in each byte the raster handlers own.
-fn owned(writes: &Writes) -> BTreeMap<u16, u8> {
+fn owned(writes: &[(u16, u8)]) -> BTreeMap<u16, u8> {
     writes
         .iter()
         .copied()
@@ -770,6 +770,12 @@ struct Lockstep {
     irq_writes: Writes,
     /// Which interrupts `irq_writes` holds: the raster IRQs', a lag frame's NMI's.
     irq_kinds: (bool, bool),
+    /// How many of `irq_writes` came before the waited NMI: an NMI that runs long lets
+    /// the next frame's first IRQ in before the loop wakes.
+    irq_at_nmi: Option<usize>,
+    /// Each byte those early IRQs changed, as it was before them: the NMI's writes are
+    /// the wait-to-wake changes without them.
+    early_irq: BTreeMap<u16, u8>,
     irq_check: Option<IrqCheck>,
     /// The last NMI's registers, the port's state then and the oracle's picture of its
     /// frame, compared at its loop's end.
@@ -856,6 +862,8 @@ impl Lockstep {
             on_demand: false,
             irq_writes: Vec::new(),
             irq_kinds: (false, false),
+            irq_at_nmi: None,
+            early_irq: BTreeMap::new(),
             irq_check: None,
             registers: None,
             waiting: true,
@@ -969,7 +977,7 @@ impl Lockstep {
     /// The bytes the raster handlers own, as the port's own [`super::raster::run_irqs`]
     /// left them from the NMI wait, equal what the oracle's IRQs of the frame left: an
     /// IRQ the port does not model fails here.
-    fn compare_irq_ram(&mut self, game: &State, woke: &PeekEvent) {
+    fn compare_irq_ram(&mut self, game: &State, woke: &PeekEvent, before_nmi: usize) {
         let Some(IrqCheck {
             port,
             oracle: mut want,
@@ -982,7 +990,7 @@ impl Lockstep {
         if lag || !(raster || during) {
             return;
         }
-        want.extend(owned(&self.irq_writes));
+        want.extend(owned(&self.irq_writes[..before_nmi]));
         let mut port = port;
         port[0xD1] ^= std::mem::take(&mut self.flip_irq);
         self.pictures.irqs += 1;
@@ -1096,13 +1104,24 @@ impl Lockstep {
             self.interrupt(&event);
         };
         let name = match entry.pc {
-            NMI if self.waiting => return,
+            NMI if self.waiting => {
+                self.irq_at_nmi.get_or_insert(self.irq_writes.len());
+                return;
+            }
             NMI => {
                 self.irq_kinds.1 = true;
                 "NMI $E1D0 outside the wait (a lag frame)"
             }
             _ => {
-                self.irq_kinds.0 = true;
+                if self.irq_at_nmi.is_some() {
+                    for (addr, _) in changes(entry, &exit) {
+                        self.early_irq
+                            .entry(addr)
+                            .or_insert_with(|| peek_byte(entry, addr));
+                    }
+                } else {
+                    self.irq_kinds.0 = true;
+                }
                 "IRQ handler $E2A9 (raster splits)"
             }
         };
@@ -1118,6 +1137,8 @@ impl Lockstep {
             self.compare_lines(&registers, &before, game, &picture);
         }
         let mut writes = std::mem::take(&mut self.irq_writes);
+        self.irq_at_nmi = None;
+        self.early_irq.clear();
         drop_rewritten_irqs(&mut writes, at);
         let (raster, lag) = std::mem::take(&mut self.irq_kinds);
         self.irq_check = (!lag).then(|| {
@@ -1178,6 +1199,8 @@ impl Lockstep {
         self.memory = Memory::of(&event);
         self.ppu = ppu_of(&event);
         self.irq_writes.clear();
+        self.irq_at_nmi = None;
+        self.early_irq.clear();
         self.irq_kinds = (false, false);
         self.registers = None;
         self.memory.lift()
@@ -1251,12 +1274,21 @@ impl Environment for Lockstep {
     fn nmi(&mut self, game: &mut State) {
         let wait = self.at.take().expect("the NMI wait");
         let woke = self.expect(WOKE);
-        self.compare_irq_ram(game, &woke);
+        let before_nmi = self.irq_at_nmi.take().unwrap_or(self.irq_writes.len());
+        self.compare_irq_ram(game, &woke, before_nmi);
         self.overflow.clear();
         OVERFLOW.with_borrow_mut(Vec::clear);
-        self.irq_writes.clear();
-        self.irq_kinds = (false, false);
-        let writes = changes(&wait, &woke);
+        self.irq_writes.drain(..before_nmi);
+        self.irq_kinds = (!self.irq_writes.is_empty(), false);
+        let mut writes: BTreeMap<u16, u8> = changes(&wait, &woke).into_iter().collect();
+        for (addr, before) in std::mem::take(&mut self.early_irq) {
+            if peek_byte(&wait, addr) == before {
+                writes.remove(&addr);
+            } else {
+                writes.insert(addr, before);
+            }
+        }
+        let writes: Writes = writes.into_iter().collect();
         let pads = self.playtest();
         let pad = pads.and_then(|pads| pads.get(self.waits - 1));
         let mut app = game.clone();
@@ -1316,6 +1348,8 @@ impl Environment for Lockstep {
         }
         self.on_demand = false;
         self.irq_writes.clear();
+        self.irq_at_nmi = None;
+        self.early_irq.clear();
         self.irq_kinds = (false, false);
         self.waited |= waited;
         let writes = changes(&begin, &end);

@@ -12,16 +12,16 @@ name = "batman-rotj"
 path = "src/main.rs"
 
 [dependencies]
-rotj-core = { path = "../rotj-core", version = "1.0.1" }
-rotj-apu = { path = "../rotj-apu", version = "1.0.1" }
-rotj-music = { path = "../rotj-music", version = "1.0.1" }
-rotj-rom = { path = "../rotj-rom", version = "1.0.1" }
+rotj-core = { path = "../rotj-core", version = "1.0.2" }
+rotj-apu = { path = "../rotj-apu", version = "1.0.2" }
+rotj-music = { path = "../rotj-music", version = "1.0.2" }
+rotj-rom = { path = "../rotj-rom", version = "1.0.2" }
 bevy.workspace = true
 ron.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
-rotj-oracle = { version = "1.0.1", path = "../../tools/rotj-oracle" }
+rotj-oracle = { version = "1.0.2", path = "../../tools/rotj-oracle" }
 
 [lints]
 workspace = true
