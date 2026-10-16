@@ -2,6 +2,7 @@
 
 mod audio;
 mod input;
+mod pacing;
 mod play;
 mod screen;
 mod settings;
@@ -11,7 +12,6 @@ use bevy::image::ImagePlugin;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
-use bevy::time::Fixed;
 use bevy::window::{PrimaryWindow, Window, WindowResolution};
 
 /// The user's ROM: embedded at build time or, in a build without one, found at start-up.
@@ -109,8 +109,6 @@ fn main() {
                 ..default()
             }),
     )
-    // NES logic ticks at 60 Hz — bevy's FixedUpdate default is 64.
-    .insert_resource(Time::<Fixed>::from_hz(60.0))
     .insert_resource(RomData(rom))
     .insert_resource(saved)
     .init_resource::<screen::Colours>()
@@ -118,7 +116,12 @@ fn main() {
     .init_state::<GameState>()
     .add_systems(Startup, spawn_camera)
     .add_systems(Update, fit_camera)
-    .add_plugins((audio::AudioPlugin, input::InputPlugin, play::PlayPlugin));
+    .add_plugins((
+        pacing::PacingPlugin,
+        audio::AudioPlugin,
+        input::InputPlugin,
+        play::PlayPlugin,
+    ));
 
     // The display image is made before the app runs, so every system can rely on it.
     let screen = {

@@ -14,6 +14,7 @@ use rotj_core::actor::{Game, Script, raster};
 use rotj_core::render::{Frame, Line, MAX_SPRITES_PER_LINE, Picture};
 
 use crate::input::NesInput;
+use crate::pacing::Step;
 use crate::screen::{Screen, screen_frame, screen_image};
 use crate::settings::Settings;
 use crate::{GameState, RomData};
@@ -208,7 +209,7 @@ pub struct PlayPlugin;
 impl Plugin for PlayPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, power_on)
-            .add_systems(FixedUpdate, tick)
+            .add_systems(Update, tick.in_set(Step::Game))
             .add_systems(
                 Update,
                 (
@@ -216,7 +217,8 @@ impl Plugin for PlayPlugin {
                     draw,
                     crate::screen::upload_frame,
                 )
-                    .chain(),
+                    .chain()
+                    .in_set(Step::Picture),
             );
     }
 }

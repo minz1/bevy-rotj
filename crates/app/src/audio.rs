@@ -218,7 +218,7 @@ impl Plugin for AudioPlugin {
         app.add_audio_source::<MusicSource>()
             .init_resource::<SampleQueue>()
             .add_systems(Startup, start_music)
-            .add_systems(FixedUpdate, advance_music);
+            .add_systems(Update, advance_music.in_set(crate::pacing::Step::Music));
     }
 }
 
