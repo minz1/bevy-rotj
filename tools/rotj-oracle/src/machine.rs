@@ -3,6 +3,7 @@
 use crate::bus::{ExecEvent, NesBus, PeekEvent, WriteLog};
 use crate::cart::Cart;
 use crate::cpu::{Bus, Cpu, IRQ_DISABLE, base_cycles};
+use crate::ppu::Line;
 
 const DOTS_PER_LINE: i32 = 341;
 const LINES_PER_FRAME: i32 = 262;
@@ -11,6 +12,10 @@ const COUNT_PER_DOT: i32 = 16;
 const COUNT_PER_CYCLE: i32 = 48;
 /// fceux sets the vblank flag, then runs 12 dots before raising the NMI.
 const NMI_DELAY_DOTS: i32 = 12;
+/// The dot at which fceux's old core ends a line: it steps the render address down a
+/// line and reloads its horizontal scroll, so a write later in the line (in hblank)
+/// shapes the next line from its first pixel.
+const LINE_END_DOT: i32 = 256;
 /// fceux runs this many whole frames without vblank after power-on (`ppudead`).
 const DEAD_FRAMES: u8 = 2;
 
@@ -23,6 +28,12 @@ pub struct FrameLog {
     pub cycles: u32,
     /// NMIs taken.
     pub nmis: u32,
+    /// The 240 visible lines as the PPU drew them (empty for a frame without rendering).
+    pub lines: Vec<Line>,
+    /// Lines a write may split: one made while the line was drawn, or in the hblank
+    /// before it (fceux can still draw that line's left part the old way). fceux draws
+    /// such a line with the first state up to some pixel, then the second.
+    pub splits: Vec<(usize, Line, Line)>,
 }
 
 /// The whole console; snapshots are clones.
@@ -45,6 +56,8 @@ pub struct Machine {
     nmi_delayed: bool,
     dead_frames: u8,
     short_frame: bool,
+    /// CPU cycles at the start of the frame being run.
+    frame_start: u64,
     log: FrameLog,
 }
 
@@ -71,6 +84,7 @@ impl Machine {
             nmi_delayed: false,
             dead_frames: DEAD_FRAMES,
             short_frame: false,
+            frame_start: 0,
             log: FrameLog::default(),
         }
     }
@@ -82,6 +96,7 @@ impl Machine {
         }
         self.bus.trace.frame = self.frame + 1;
         let start = self.cpu.cycles;
+        self.frame_start = start;
         if self.dead_frames > 0 {
             self.dead_frames -= 1;
             self.run(LINES_PER_FRAME * DOTS_PER_LINE);
@@ -96,7 +111,43 @@ impl Machine {
             self.bus.ppu.clear_vblank();
             self.run(DOTS_PER_LINE - i32::from(self.short_frame));
             self.short_frame = !self.short_frame;
-            self.run(240 * DOTS_PER_LINE);
+            self.bus.ppu.start_render();
+            let mut lines = Vec::with_capacity(240);
+            let mut splits = Vec::new();
+            let mut previous: Option<Line> = None;
+            for y in 0..240 {
+                self.bus.ppu.drawing = (self.bus.ppu.mask & 0x18 != 0)
+                    .then(|| u8::try_from(y).expect("a visible line"));
+                let mut line = self.bus.ppu.line(&self.bus.fme7);
+                if let Some(before) = previous {
+                    line.sprite_chr = before.chr;
+                }
+                lines.push(line);
+                if let Some(before) = previous.filter(|before| !before.same_but_scroll(&line)) {
+                    splits.push((
+                        y,
+                        Line {
+                            v: line.v,
+                            ..before
+                        },
+                        line,
+                    ));
+                }
+                self.run(LINE_END_DOT);
+                let after = Line {
+                    sprite_chr: line.sprite_chr,
+                    ..self.bus.ppu.line(&self.bus.fme7)
+                };
+                if after != line {
+                    splits.push((y, line, after));
+                }
+                previous = Some(after);
+                self.bus.ppu.end_line();
+                self.run(DOTS_PER_LINE - LINE_END_DOT);
+            }
+            self.bus.ppu.drawing = None;
+            self.log.lines = lines;
+            self.log.splits = splits;
         }
         self.frame += 1;
         let mut log = std::mem::take(&mut self.log);
@@ -150,6 +201,7 @@ impl Machine {
                 frame: self.bus.trace.frame,
                 pc,
                 bank: self.bus.fme7.bank_at(pc, self.bus.cart.prg.len()),
+                cycle: u32::try_from(self.cpu.cycles - self.frame_start).unwrap_or(u32::MAX),
             };
             self.bus.trace.execs.push(event);
         }
@@ -460,12 +512,12 @@ mod tests {
         machine.bus.trace.pokes.push((0xE000, 0x0020, 7));
         machine.run_frame(0);
         assert_eq!(machine.bus.ram[0x0300], 7);
-        let first = |pc| ExecEvent {
-            frame: 1,
-            pc,
-            bank: Some(15),
-        };
-        assert_eq!(machine.bus.trace.execs[..2], [first(0xE000), first(0xE002)]);
+        let execs = &machine.bus.trace.execs;
+        assert_eq!(
+            (execs[0].frame, execs[0].pc, execs[0].bank, execs[1].pc),
+            (1, 0xE000, Some(15), 0xE002)
+        );
+        assert_eq!(execs[1].cycle - execs[0].cycle, 3, "LDA zp takes 3 cycles");
         let traced = &machine.bus.trace.execs;
         assert!(
             traced

@@ -7,6 +7,9 @@
     digest.py <capture> <name> apu              # one line per frame of an apu-writes.csv,
                                                 #   without $4014/$4016 (addr LE, value)
     digest.py <capture> <name> file [start end] # one line for the file or a byte range (unit -)
+    digest.py <capture> <name> idx              # one line per 57344-byte record (unit = frame,
+                                                #   from 1): fceux's indexed screenshots, lines
+                                                #   8-231, packed by tools/emu/pack-shots.py
 """
 import sys
 
@@ -34,6 +37,12 @@ def main():
             frames.setdefault(int(frame), bytearray()).extend([addr & 0xFF, addr >> 8, value])
         for frame in sorted(frames):
             print(f"{name} {frame} {fnv1a(frames[frame]):016x}")
+    elif kind == "idx":
+        with open(path, "rb") as f:
+            frame = 1
+            while record := f.read(57344):
+                print(f"{name} {frame} {fnv1a(record):016x}")
+                frame += 1
     elif kind == "file":
         data = open(path, "rb").read()
         if len(sys.argv) > 4:

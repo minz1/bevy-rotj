@@ -15,5 +15,5 @@ pub use cart::{Cart, load_rom};
 pub use cpu::Cpu;
 pub use fme7::Fme7;
 pub use machine::{FrameLog, Machine};
-pub use ppu::Ppu;
+pub use ppu::{Line, Ppu};
 pub use replay::{data_path, physics_input, plan_input, power_on, read_inputs};

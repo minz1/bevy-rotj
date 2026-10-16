@@ -219,6 +219,8 @@ pub struct ExecEvent {
     pub pc: u16,
     /// PRG bank mapped at `pc` (`None` when it runs from RAM or WRAM).
     pub bank: Option<u8>,
+    /// CPU cycles since the frame began (`run_frame`), when it ran.
+    pub cycle: u32,
 }
 
 /// RAM, WRAM and the PPU's memory as they were when execution reached a peeked PC.

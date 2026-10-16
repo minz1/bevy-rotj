@@ -226,6 +226,176 @@ impl Default for Frame {
     }
 }
 
+/// What the PPU draws one scanline with: the scroll, `$2000`/`$2001`, and the mapper's
+/// CHR banks and mirroring as they were when the line began.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Line {
+    /// The VRAM address of the line's first tile: coarse x (bits 0-4) and y (5-9), the
+    /// nametable (10-11), fine y (12-14).
+    pub v: u16,
+    /// Fine X scroll.
+    pub fine_x: u8,
+    /// `$2000`: pattern tables (bits 3, 4), sprite size (bit 5).
+    pub ctrl: u8,
+    /// `$2001`: greyscale (bit 0), left-8 background/sprites (bits 1, 2), background and
+    /// sprites on (bits 3, 4).
+    pub mask: u8,
+    /// The eight 1 KiB CHR banks of `$0000-$1FFF`, for the background.
+    pub chr: [u8; 8],
+    /// The banks the line's sprites were fetched with (in the previous line's hblank).
+    pub sprite_chr: [u8; 8],
+    /// 0 vertical, 1 horizontal, 2 single-screen low, 3 single-screen high.
+    pub mirroring: u8,
+}
+
+/// A whole frame's inputs as the PPU sees them.
+#[derive(Clone, Copy, Debug)]
+pub struct Picture<'a> {
+    /// The 240 visible lines.
+    pub lines: &'a [Line],
+    /// The console's 2 KiB of nametable RAM.
+    pub vram: &'a [u8],
+    /// Palette RAM.
+    pub palette: &'a [u8; 32],
+    /// Object attribute memory.
+    pub oam: &'a [u8; 256],
+    /// The whole CHR ROM.
+    pub chr: &'a [u8],
+}
+
+impl Picture<'_> {
+    fn pattern(&self, banks: [u8; 8], addr: usize) -> u8 {
+        let bank = usize::from(banks[(addr >> 10) & 7]) * 1024 % self.chr.len();
+        self.chr[bank + (addr & 0x3FF)]
+    }
+
+    fn nametable(&self, line: &Line, table: usize, at: usize) -> u8 {
+        let physical = match line.mirroring & 3 {
+            0 => table & 1,
+            1 => (table >> 1) & 1,
+            2 => 0,
+            _ => 1,
+        };
+        self.vram[physical * NAMETABLE_BYTES + at]
+    }
+
+    fn colour(&self, line: &Line, entry: usize) -> u8 {
+        let value = self.palette[if entry.trailing_zeros() >= 2 {
+            0
+        } else {
+            entry
+        }] & 0x3F;
+        if line.mask & 1 != 0 {
+            value & 0x30
+        } else {
+            value
+        }
+    }
+}
+
+impl Frame {
+    /// Renders a frame line by line from what the PPU had on each line: the background
+    /// from the line's scroll and banks, then up to eight sprites per line, the lowest
+    /// OAM index in front, behind the background where their priority bit says, clipped
+    /// at the right edge and by `$2001`'s left-8 bits.
+    pub fn render(&mut self, picture: &Picture<'_>) {
+        self.clear();
+        let mut bg = [0u8; SCREEN_W];
+        for (y, line) in picture.lines.iter().enumerate().take(SCREEN_H) {
+            self.background_line(picture, line, y, &mut bg);
+            self.sprite_line(picture, line, y, &bg);
+        }
+    }
+
+    fn background_line(
+        &mut self,
+        picture: &Picture<'_>,
+        line: &Line,
+        y: usize,
+        bg: &mut [u8; SCREEN_W],
+    ) {
+        let v = usize::from(line.v);
+        let (coarse_y, fine_y) = ((v >> 5) & 0x1F, (v >> 12) & 7);
+        let base = if line.ctrl & 0x10 != 0 { 0x1000 } else { 0 };
+        for (x, slot) in bg.iter_mut().enumerate() {
+            let column = (v & 0x1F) * 8 + usize::from(line.fine_x) + x;
+            let coarse_x = (column / 8) % 32;
+            let table = ((v >> 10) & 3) ^ ((column / 256) & 1);
+            let tile = picture.nametable(line, table, coarse_y * 32 + coarse_x);
+            let attr = picture.nametable(
+                line,
+                table,
+                ATTRIBUTE_OFFSET + (coarse_y / 4) * 8 + coarse_x / 4,
+            );
+            let shift = ((coarse_y % 4) / 2) * 4 + ((coarse_x % 4) / 2) * 2;
+            let addr = base + usize::from(tile) * TILE_BYTES + fine_y;
+            let bit = 7 - column % 8;
+            let low = (picture.pattern(line.chr, addr) >> bit) & 1;
+            let high = (picture.pattern(line.chr, addr + 8) >> bit) & 1;
+            let shown = line.mask & 0x08 != 0 && (x >= 8 || line.mask & 0x02 != 0);
+            let value = if shown { high << 1 | low } else { 0 };
+            *slot = value;
+            let entry = usize::from((attr >> shift) & 3) * 4 + usize::from(value);
+            self.put(y * SCREEN_W + x, picture.colour(line, entry));
+        }
+    }
+
+    fn sprite_line(&mut self, picture: &Picture<'_>, line: &Line, y: usize, bg: &[u8; SCREEN_W]) {
+        if line.mask & 0x10 == 0 {
+            return;
+        }
+        let tall = line.ctrl & 0x20 != 0;
+        let height = if tall { 16 } else { 8 };
+        let mut drawn = [false; SCREEN_W];
+        let found = (0..64)
+            .map(|i| &picture.oam[i * 4..i * 4 + 4])
+            .filter(|oam| (usize::from(oam[0]) + 1..usize::from(oam[0]) + 1 + height).contains(&y))
+            .take(MAX_SPRITES_PER_LINE);
+        for oam in found {
+            let (attr, x0) = (oam[2], usize::from(oam[3]));
+            let row = y - usize::from(oam[0]) - 1;
+            let row = if attr & 0x80 != 0 {
+                height - 1 - row
+            } else {
+                row
+            };
+            let addr = if tall {
+                let table = if oam[1] & 1 != 0 { 0x1000 } else { 0 };
+                table + usize::from(oam[1] & 0xFE) * TILE_BYTES + (row / 8) * TILE_BYTES + row % 8
+            } else {
+                let table = if line.ctrl & 0x08 != 0 { 0x1000 } else { 0 };
+                table + usize::from(oam[1]) * TILE_BYTES + row
+            };
+            let (low, high) = (
+                picture.pattern(line.sprite_chr, addr),
+                picture.pattern(line.sprite_chr, addr + 8),
+            );
+            for col in 0..8 {
+                let x = x0 + col;
+                if x >= SCREEN_W || drawn[x] || (x < 8 && line.mask & 0x04 == 0) {
+                    continue;
+                }
+                let bit = if attr & 0x40 != 0 { col } else { 7 - col };
+                let value = ((high >> bit) & 1) << 1 | ((low >> bit) & 1);
+                if value == 0 {
+                    continue;
+                }
+                drawn[x] = true;
+                if attr & 0x20 == 0 || bg[x] == 0 {
+                    let entry =
+                        SPRITE_PALETTE_OFFSET + usize::from(attr & 3) * 4 + usize::from(value);
+                    self.put(y * SCREEN_W + x, picture.colour(line, entry));
+                }
+            }
+        }
+    }
+
+    fn put(&mut self, at: usize, value: u8) {
+        self.indices[at] = value;
+        self.rgba[at * 4..at * 4 + 4].copy_from_slice(&palette::rgba(value));
+    }
+}
+
 /// Clamp a band to the visible screen.
 fn clamp_band(band: Range<usize>) -> Range<usize> {
     band.start.min(SCREEN_H)..band.end.min(SCREEN_H)

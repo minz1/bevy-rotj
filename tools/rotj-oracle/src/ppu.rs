@@ -34,6 +34,46 @@ pub struct Ppu {
     pub(crate) visible: bool,
     /// Last value driven onto the PPU data bus (fceux `PPUGenLatch`).
     pub latch: u8,
+    /// The VRAM address the renderer scrolls by, kept apart from `v` (which this model
+    /// does not move while rendering): set from `t` on the pre-render line and by a second
+    /// `$2006` write, stepped down a line and given `t`'s horizontal bits after each line.
+    pub render_v: u16,
+    /// The visible line being drawn with rendering on, if any (set by the machine).
+    pub(crate) drawing: Option<u8>,
+    /// Writes the line model does not represent: OAM, VRAM or palette written while a
+    /// line is drawn, or `$2001`'s colour emphasis bits set. The picture tests require 0.
+    pub unmodelled: u32,
+}
+
+/// What the PPU draws one scanline with.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Line {
+    /// The VRAM address of the line's first tile: coarse x and y, nametable, fine y.
+    pub v: u16,
+    /// Fine X scroll.
+    pub fine_x: u8,
+    /// `$2000`.
+    pub ctrl: u8,
+    /// `$2001`.
+    pub mask: u8,
+    /// The FME-7's eight 1 KiB CHR banks.
+    pub chr: [u8; 8],
+    /// The CHR banks the line's sprites were fetched with, in the previous line's hblank.
+    pub sprite_chr: [u8; 8],
+    /// The FME-7's mirroring (0 vertical, 1 horizontal, 2/3 single-screen).
+    pub mirroring: u8,
+}
+
+impl Line {
+    /// Equal but for the render address, which moves every line anyway.
+    #[must_use]
+    pub fn same_but_scroll(&self, other: &Line) -> bool {
+        Line {
+            v: other.v,
+            sprite_chr: other.sprite_chr,
+            ..*self
+        } == *other
+    }
 }
 
 impl Default for Ppu {
@@ -54,6 +94,9 @@ impl Default for Ppu {
             nmi_pending: false,
             visible: false,
             latch: 0,
+            render_v: 0,
+            drawing: None,
+            unmodelled: 0,
         }
     }
 }
@@ -99,9 +142,15 @@ impl Ppu {
                 self.ctrl = value;
                 self.t = (self.t & !0x0C00) | (u16::from(value & 3) << 10);
             }
-            1 => self.mask = value,
+            1 => {
+                if value & 0xE0 != 0 {
+                    self.unmodelled += 1;
+                }
+                self.mask = value;
+            }
             3 => self.oam_addr = value,
             4 => {
+                self.unmodelled += u32::from(self.drawing.is_some());
                 self.oam[usize::from(self.oam_addr)] = value;
                 self.oam_addr = self.oam_addr.wrapping_add(1);
             }
@@ -120,12 +169,14 @@ impl Ppu {
                 if self.w {
                     self.t = (self.t & 0xFF00) | u16::from(value);
                     self.v = self.t;
+                    self.render_v = self.t;
                 } else {
                     self.t = (self.t & 0x00FF) | (u16::from(value & 0x3F) << 8);
                 }
                 self.w = !self.w;
             }
             7 => {
+                self.unmodelled += u32::from(self.drawing.is_some());
                 let at = self.v & 0x3FFF;
                 match at {
                     0x0000..=0x1FFF => {}
@@ -155,6 +206,47 @@ impl Ppu {
     /// old core moves line by line and this model does not.
     pub(crate) fn renders(&self) -> bool {
         self.visible && self.mask & 0x18 != 0
+    }
+
+    /// The pre-render line's copy of `t` into the render address, when rendering is on.
+    pub(crate) fn start_render(&mut self) {
+        if self.mask & 0x18 != 0 {
+            self.render_v = self.t;
+        }
+    }
+
+    /// The line this scanline draws with, given the mapper's state.
+    pub(crate) fn line(&self, fme7: &Fme7) -> Line {
+        Line {
+            v: self.render_v,
+            fine_x: self.x,
+            ctrl: self.ctrl,
+            mask: self.mask,
+            chr: fme7.chr,
+            sprite_chr: fme7.chr,
+            mirroring: fme7.mirroring,
+        }
+    }
+
+    /// The end of a rendered line: fine y steps down (wrapping into the next nametable row
+    /// at 30 tiles), and the horizontal scroll reloads from `t`.
+    pub(crate) fn end_line(&mut self) {
+        if self.mask & 0x18 == 0 {
+            return;
+        }
+        let mut v = self.render_v;
+        if v & 0x7000 == 0x7000 {
+            v &= !0x7000;
+            let coarse_y = (v >> 5) & 0x1F;
+            v = match coarse_y {
+                29 => (v & !0x03E0) ^ 0x0800,
+                31 => v & !0x03E0,
+                _ => (v & !0x03E0) | ((coarse_y + 1) << 5),
+            };
+        } else {
+            v += 0x1000;
+        }
+        self.render_v = (v & !0x041F) | (self.t & 0x041F);
     }
 
     fn advance(&mut self) {
