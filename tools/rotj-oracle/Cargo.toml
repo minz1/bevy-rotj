@@ -1,0 +1,18 @@
+[package]
+name = "rotj-oracle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Dev-only 6502 oracle: runs the original game's frames from power-on so the port can be diffed against it in tests."
+
+[lints]
+workspace = true
+
+[dependencies]
+rotj-rom = { version = "1.0.1", path = "../../crates/rotj-rom" }
+
+[dev-dependencies]
+rotj-core = { version = "1.0.1", path = "../../crates/rotj-core" }
+rotj-music = { version = "1.0.1", path = "../../crates/rotj-music" }

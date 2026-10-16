@@ -1,0 +1,4 @@
+# Latest stable required (user preference: latest everything)
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]

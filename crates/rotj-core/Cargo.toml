@@ -1,0 +1,19 @@
+[package]
+name = "rotj-core"
+description = "Shared data formats (ROM header, CHR, palettes, level data) for Batman: Return of the Joker"
+version.workspace = true
+authors = ["minz1"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+rotj-rom = { version = "1.0.1", path = "../rotj-rom" }
+flate2 = "1.1.10"
+rotj-oracle = { version = "1.0.1", path = "../../tools/rotj-oracle" }
+
+[lints]
+workspace = true

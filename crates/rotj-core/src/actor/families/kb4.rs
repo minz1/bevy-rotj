@@ -1,0 +1,482 @@
+//! Type `$B4`, the stage 7 boss controller (bank 12 `$8C59`).
+//!
+//! It never calls `$A000`'s siblings `$A79B`/`$A852`/`$A8E4`: it draws fixed-screen
+//! metasprites through `$81C6` (bank 9 at `$A000`) and hands the visible parts to
+//! free slots — type `$52` into slots 0-15, `$B8`/`$BC`/`$BE`/`$C0` into 16-23,
+//! type `$50` through `$B1C4`. Its `$7DD0` phases come from the table at `$9100`;
+//! `$8DB8` leaves phases 2/3 for phase 4 once the boss's hit points reach `$4650`.
+//!
+//! Its only byte outside `Body`/`Work`/`Effects` is `$FD` (`$8EF1`), the camera's
+//! scroll x; see `REPORT.md` and the tests.
+
+use crate::actor::engine::{self, Work};
+use crate::actor::slots::Body;
+use crate::actor::world::Cx;
+
+/// The single body draw's metasprite pointers (`$910E`), by `$F1` bits 2-3.
+const BODY_DRAW: u16 = 0x910E;
+/// The `$E2 == $68` draw's pointers (`$911E`), by `$7C30`.
+const SHAPE_DRAW: u16 = 0x911E;
+/// The five-piece draw's pointers (`$912F`) and screen positions (`$9139`/`$913A`).
+const PIECES: u16 = 0x912F;
+const PIECE_X: u16 = 0x9139;
+const PIECE_Y: u16 = 0x913A;
+/// `$8DB8`'s `$7C30` values (`$9126`), by `$F1` bits 3-4.
+const TURN_FRAMES: u16 = 0x9126;
+/// Phase 3's `$E2` values (`$912A`), by `$7E90 >> 3`; `$912D` is its `$7E90 >= $40` arm.
+const CHR_RAMP: u16 = 0x912A;
+/// The `$BE` children's x low (`$9143`), x high (`$9147`), y low (`$914B`) and
+/// y high (`$914F`), by spawn index.
+const BE_X_LO: u16 = 0x9143;
+const BE_X_HI: u16 = 0x9147;
+const BE_Y_LO: u16 = 0x914B;
+const BE_Y_HI: u16 = 0x914F;
+/// `$907A`'s `$52` offsets (`$90E8`, `$90EE`, `$90F4`, `$90FA`), by `$7E10`.
+const SPOT_X_LO: u16 = 0x90E8;
+const SPOT_X_HI: u16 = 0x90EE;
+const SPOT_Y_LO: u16 = 0x90F4;
+const SPOT_Y_HI: u16 = 0x90FA;
+/// `$81C6` maps bank 9 at `$A000` for every draw.
+const DRAW_BANK: u8 = 9;
+/// The `$AFD6` amount and mode the tail passes (`$8E66`).
+const CONTACT: u16 = 0x00E0;
+const CONTACT_MODE: u8 = 0xC0;
+/// `$8DB8`'s hit-point gate: above it the boss stays in its phase.
+const PHASE_GATE: u16 = 0x4650;
+
+/// Type `$B4` keeps its whole state in [`Body`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct State;
+
+impl State {
+    /// One frame of the handler (`$8C59`, phases through `$9100`).
+    pub fn step(&mut self, _kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+        cx.oam.chr[6] = 0xD0;
+        engine::load(body, work);
+        let flash = engine::boss_flash(body, work, cx.world);
+        if flash & 0x80 != 0 {
+            if body.dying_timer == 0x01 {
+                spawn_b8(body, cx);
+                engine::boss_defeated(work.slot, cx);
+            }
+            return;
+        }
+        match body.phase {
+            0 => phase0(body, work, cx),
+            1 => phase1(body, work, cx),
+            2 => phase2(body, work, cx),
+            3 => phase3(body, work, cx),
+            4 => phase4(body, work, cx),
+            5 => phase5(body, work, cx),
+            6 => phase6(body, work, cx),
+            phase => panic!("type $B4 phase {phase} is past the $9100 table"),
+        }
+    }
+}
+
+/// `$8C8B`: hold until the player reaches motion 9, then animate.
+fn phase0(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+    cx.oam.chr[7] = 0xD1;
+    if cx.effects.player.motion != 0x09 {
+        body.phase = 1;
+        body.anim = 0;
+    }
+    tail(body, work, cx);
+}
+
+/// `$8CA3`: step `$7C30` through 0/2/4/6 for 16 frames, then phase 2.
+fn phase1(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+    cx.oam.chr[7] = 0xD1;
+    body.sprite = (body.anim >> 2) & 0x06;
+    body.anim = body.anim.wrapping_add(1);
+    if body.anim >= 0x10 {
+        body.phase = 2;
+        body.anim = 0;
+    }
+    tail(body, work, cx);
+}
+
+/// `$8CC8`: pick the `$E2` CHR bank and wait `$7E90` out into phase 3.
+fn phase2(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+    cx.oam.chr[7] = 0xD1;
+    cx.oam.chr[2] = 0x71;
+    if body.anim == 0 {
+        body.phase = 3;
+    } else {
+        body.anim = body.anim.wrapping_sub(1);
+    }
+    gate(body, work, cx);
+}
+
+/// `$8CE3`: ramp `$E2` on `$7E90`, drop a `$BC` every 16 frames, then back to 2.
+fn phase3(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+    cx.oam.chr[7] = 0xD1;
+    let anim = body.anim;
+    if anim < 0x18 {
+        let chr = engine::rom_byte(cx.prg, 12, CHR_RAMP + u16::from(anim >> 3));
+        if chr != 0 {
+            cx.oam.chr[2] = chr;
+        }
+    } else if anim >= 0x40 {
+        cx.oam.chr[2] = engine::rom_byte(cx.prg, 12, CHR_RAMP + 3 + u16::from((anim - 0x40) >> 3));
+    }
+    body.anim = body.anim.wrapping_add(1);
+    if body.anim >= 0x10 && body.anim.is_multiple_of(0x10) {
+        spawn_bc(cx);
+    }
+    if body.anim >= 0x32 {
+        body.phase = 2;
+        body.anim = 0x80;
+    }
+    gate(body, work, cx);
+}
+
+/// `$8D2D`: count `$7E90` up through `$8EDB`, drawing the shape from `$68`.
+fn phase4(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+    cx.oam.chr[6] = 0xB3;
+    count_up(body, work, cx);
+    if body.anim >= 0x68 {
+        cx.oam.chr[7] = 0xD4;
+        work.attr = 0;
+        work.tile = 0;
+        body.sprite = 0;
+        shape_draw(body, work, cx);
+    }
+}
+
+/// `$8D50`: count `$7E90` to `$C0`, then hand over to phase 6 with the y offset.
+fn phase5(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+    cx.oam.chr[7] = 0xD4;
+    body.anim = body.anim.wrapping_add(1);
+    if body.anim == 0xC0 {
+        body.phase = 6;
+        body.anim = 0;
+        body.timer = cx.effects.player.x.to_be_bytes()[0].wrapping_shl(4);
+    }
+    body.sprite = 0;
+    tail(body, work, cx);
+}
+
+/// `$8D7A`: alternate the `7D30` bit every 64 frames and drop `$C0` or `$BE` parts.
+fn phase6(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+    cx.oam.chr[7] = 0xD4;
+    body.sprite = ((body.anim & 0x08) >> 2).wrapping_add(2);
+    body.anim = body.anim.wrapping_add(1);
+    if body.anim & 0x3F == 0x3F {
+        body.scratch ^= 0x80;
+        if body.scratch & 0x80 != 0 {
+            spawn_be(body, cx);
+        } else {
+            spawn_c0(body, work, cx);
+        }
+        body.anim = 0;
+        body.phase = 5;
+    }
+    tail(body, work, cx);
+}
+
+/// `$8EDB`: the phase-4 count, its `$FD` write and the `$E2 = $68` swap at `$60`.
+fn count_up(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
+    if body.anim < 0xAF && body.anim.is_multiple_of(0x04) {
+        spawn_52(body, work, cx);
+    }
+    cx.scroll.scroll_x = u8::from(cx.world.frame & 0x04 != 0);
+    body.anim = body.anim.wrapping_add(1);
+    if body.anim >= 0xC0 {
+        body.phase = 5;
+        body.counter = 0;
+        body.anim = 0;
+        body.sprite = 0;
+        cx.scroll.scroll_x = 0;
+        body.scratch = 0;
+    } else if body.anim >= 0x60 {
+        cx.oam.chr[2] = 0x68;
+    }
+}
+
+/// `$8DB8`: pick `$7C30`, then leave for phase 4 above the hit-point gate or draw on.
+fn gate(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+    body.sprite = engine::rom_byte(
+        cx.prg,
+        12,
+        TURN_FRAMES + u16::from((cx.world.frame >> 3) & 0x03),
+    );
+    if cx.effects.boss_hp > PHASE_GATE {
+        tail(body, work, cx);
+        return;
+    }
+    body.phase = 4;
+    body.timer = 0;
+    body.counter = 0;
+    body.anim = 0;
+    for index in 0..16u16 {
+        cx.set_byte(0x7CD0 + index, 0);
+    }
+    for index in 0..16u16 {
+        if cx.byte(0x7CC0 + index) == 0xB6 {
+            cx.set_byte(0x7CC0 + index, 0);
+        }
+    }
+    set_palette(cx, 0x0F);
+}
+
+/// `$8E04`: the shared draw, boss contact and hit-flash tail.
+fn tail(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+    work.tile = 0;
+    work.attr = 0;
+    if cx.oam.chr[2] == 0x68 {
+        shape_draw(body, work, cx);
+        if cx.world.frame & 0x08 == 0 {
+            for index in (0..=4u8).rev() {
+                let y = u16::from(index) * 2;
+                work.pointer = engine::rom_word(cx.prg, 12, PIECES + y);
+                work.screen_x = engine::rom_byte(cx.prg, 12, PIECE_X + y);
+                work.screen_y = engine::rom_byte(cx.prg, 12, PIECE_Y + y);
+                engine::draw(work, DRAW_BANK, cx);
+            }
+        }
+    } else {
+        let y = u16::from((cx.world.frame & 0x0C) >> 1);
+        work.pointer = engine::rom_word(cx.prg, 12, BODY_DRAW + y);
+        work.screen_x = 0x80;
+        work.screen_y = 0x40;
+        engine::draw(work, DRAW_BANK, cx);
+    }
+    let before = cx.effects.boss_hp;
+    work.hitbox = 4;
+    engine::boss_contact(CONTACT, CONTACT_MODE, body, work, cx);
+    if cx.effects.boss_hp.wrapping_sub(before).to_be_bytes()[0] != 0 && body.counter == 0 {
+        body.counter = 0x80;
+    }
+    match body.counter {
+        0 => {}
+        0x80.. => {
+            set_palette(cx, 0x32);
+            queue_palette(cx);
+            body.counter = 0x40;
+        }
+        0x40..=0x7F => {
+            set_palette(cx, 0x0F);
+            queue_palette(cx);
+            body.counter = 0x07;
+        }
+        counter => body.counter = counter - 1,
+    }
+}
+
+/// `$8F1D`: draw the `$911E` metasprite at `$7C30`, fixed at screen (128, 88).
+fn shape_draw(body: &Body, work: &mut Work, cx: &mut Cx<'_>) {
+    work.pointer = engine::rom_word(cx.prg, 12, SHAPE_DRAW + u16::from(body.sprite));
+    work.screen_x = 0x80;
+    work.screen_y = 0x58;
+    engine::draw(work, DRAW_BANK, cx);
+}
+
+/// `$8ECF`: set every palette's first colour.
+fn set_palette(cx: &mut Cx<'_>, value: u8) {
+    for first in cx.effects.palette.iter_mut().step_by(4) {
+        *first = value;
+    }
+}
+
+/// `$C34B`: queue the palette shadow, but only while the VRAM queue has room.
+fn queue_palette(cx: &mut Cx<'_>) {
+    if cx.effects.vram.top < 0x70 {
+        return;
+    }
+    let palette = cx.effects.palette;
+    cx.effects.vram.push(0x3F00, 0, &palette);
+}
+
+/// `$8F37`: palette `$0F`, then a type `$B8` into the highest free slot 0-15.
+fn spawn_b8(body: &mut Body, cx: &mut Cx<'_>) {
+    set_palette(cx, 0x0F);
+    let Some(slot) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0) else {
+        return;
+    };
+    cx.set_byte(0x7CC0 + u16::try_from(slot).expect("slot < 16"), 0xB8);
+    body.counter = 0;
+    body.anim = 0;
+}
+
+/// `$8F55`: a type `$BC` at (0x0800, 0x0580) into the highest free slot 16-23.
+fn spawn_bc(cx: &mut Cx<'_>) {
+    let Some(slot) = engine::free_child_slot(cx.slots) else {
+        return;
+    };
+    let y = u16::try_from(slot - 16).expect("slot < 24");
+    cx.set_byte(0x7CD0 + y, 0xBC);
+    cx.set_byte(0x7B10 + y, 0x08);
+    cx.set_byte(0x7B70 + y, 0x80);
+    cx.set_byte(0x7B50 + y, 0x05);
+    for array in [0x7D60u16, 0x7DC0, 0x7DE0, 0x7E00, 0x7E20, 0x7EA0, 0x7B30] {
+        cx.set_byte(array + y, 0);
+    }
+}
+
+/// `$8F89`: up to four type `$BE` children at the `$9143` offsets.
+fn spawn_be(body: &Body, cx: &mut Cx<'_>) {
+    for count in 0..4u8 {
+        let Some(slot) = engine::free_child_slot(cx.slots) else {
+            return;
+        };
+        let y = u16::try_from(slot - 16).expect("slot < 24");
+        let n = u16::from(count);
+        cx.set_byte(0x7CD0 + y, 0xBE);
+        cx.set_byte(0x7B30 + y, engine::rom_byte(cx.prg, 12, BE_X_LO + n));
+        cx.set_byte(0x7B10 + y, engine::rom_byte(cx.prg, 12, BE_X_HI + n));
+        cx.set_byte(0x7B70 + y, engine::rom_byte(cx.prg, 12, BE_Y_LO + n));
+        cx.set_byte(0x7B50 + y, engine::rom_byte(cx.prg, 12, BE_Y_HI + n));
+        for array in [0x7D60u16, 0x7E00, 0x7E20, 0x7EA0] {
+            cx.set_byte(array + y, 0);
+        }
+        let (subtype, phase) = if body.timer & 0x80 == 0 {
+            (if count < 2 { 0xF0 } else { 0xD8 }, 0xFF)
+        } else {
+            (if count < 2 { 0x28 } else { 0x10 }, 0)
+        };
+        cx.set_byte(0x7DC0 + y, subtype);
+        cx.set_byte(0x7DE0 + y, phase);
+    }
+}
+
+/// `$8FFA`: up to two type `$C0` children at (0x0800, 0x0580), facing off the boss.
+fn spawn_c0(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
+    if body.behaviour != 0 {
+        return;
+    }
+    for count in 0..2u8 {
+        let Some(slot) = engine::free_child_slot(cx.slots) else {
+            return;
+        };
+        let y = u16::try_from(slot - 16).expect("slot < 24");
+        cx.set_byte(0x7CD0 + y, 0xC0);
+        cx.set_byte(0x7B30 + y, 0x00);
+        cx.set_byte(0x7B10 + y, 0x08);
+        cx.set_byte(0x7B70 + y, 0x80);
+        cx.set_byte(0x7B50 + y, 0x05);
+        for array in [0x7D60u16, 0x7EA0, 0x7CA0, 0x7CF0] {
+            cx.set_byte(array + y, 0);
+        }
+        cx.set_byte(0x7E00 + y, 0x14);
+        cx.set_byte(0x7E20 + y, 0);
+        if count == 0 {
+            cx.set_byte(0x7DA0 + y, 0);
+            body.behaviour |= 0x80;
+            cx.set_byte(0x7DC0 + y, 0x20);
+            cx.set_byte(0x7DE0 + y, 0);
+        } else {
+            cx.set_byte(0x7DA0 + y, count);
+            body.behaviour |= 0x40;
+            cx.set_byte(0x7DC0 + y, 0xE0);
+            cx.set_byte(0x7DE0 + y, 0xFF);
+        }
+        cx.set_byte(0x7C40 + y, work.slot);
+    }
+}
+
+/// `$907A`: a type `$52` part at a `$7E10`-indexed offset, once every fourth count.
+fn spawn_52(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
+    cx.effects.sound[0] = 0x23;
+    let n = u16::from(body.counter);
+    let [x_hi, x_lo] = work.x.to_be_bytes();
+    let (x_lo, carry) = x_lo.overflowing_add(engine::rom_byte(cx.prg, 12, SPOT_X_LO + n));
+    let x_hi = x_hi
+        .wrapping_add(engine::rom_byte(cx.prg, 12, SPOT_X_HI + n))
+        .wrapping_add(u8::from(carry));
+    let [y_hi, y_lo] = work.y.to_be_bytes();
+    let (y_lo, carry) = y_lo.overflowing_add(engine::rom_byte(cx.prg, 12, SPOT_Y_LO + n));
+    let y_hi = y_hi
+        .wrapping_add(engine::rom_byte(cx.prg, 12, SPOT_Y_HI + n))
+        .wrapping_add(u8::from(carry));
+    if x_hi & 0xF0 == 0
+        && y_hi & 0xF0 == 0
+        && let Some(slot) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0)
+    {
+        let y = u16::try_from(slot).expect("slot < 16");
+        cx.set_byte(0x7CC0 + y, 0x52);
+        cx.set_byte(0x7C90 + y, 0x06);
+        cx.set_byte(0x7B00 + y, x_hi);
+        cx.set_byte(0x7B20 + y, x_lo);
+        cx.set_byte(0x7B40 + y, y_hi);
+        cx.set_byte(0x7B60 + y, y_lo);
+        cx.set_byte(0x7E90 + y, 0);
+    }
+    body.counter = body.counter.wrapping_add(1);
+    if body.counter >= 6 {
+        body.counter = 0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
+
+    /// The slot the level-start record puts the boss in (§8b, checked by `occupied`).
+    const BOSS_SLOT: u16 = 1;
+
+    /// Frees every slot but the boss's own at the loop head, so the parts it spawns
+    /// (all unported) never run; their spawn writes are still compared.
+    fn isolate_children(mut scene: Scene) -> Scene {
+        let pokes = &mut scene.machine.bus.trace.pokes;
+        for slot in (0..=15u16).filter(|&slot| slot != BOSS_SLOT) {
+            pokes.push((0xD450, 0x7CC0 + slot, 0));
+        }
+        for slot in 0..8u16 {
+            pokes.push((0xD450, 0x7CD0 + slot, 0));
+        }
+        scene
+    }
+
+    /// Frames 39680-40087: the boss's phases 0-4, 387 actor loops (the rest drop on
+    /// an NMI), every one occupied, 384 drawn, all compared byte for byte — the short
+    /// window beside the whole-life test below.
+    #[test]
+    fn matches_the_oracle() {
+        let Some(scene) = Scene::tas(39679) else {
+            return;
+        };
+        let coverage = assert_actor_phases(isolate_children(scene), 408, &[0xB4]);
+        assert_eq!(
+            coverage,
+            Coverage {
+                frames: 387,
+                occupied: 387,
+                drawn: 384,
+                phases: BTreeMap::from([(0, 100), (1, 16), (2, 169), (3, 100), (4, 2)]),
+            }
+        );
+    }
+
+    /// The whole life (frames 39680-40894), every phase 0-6.
+    ///
+    /// The count-up writes `$FD` from `$F1` (`$8EF1`); now that the handler reaches the
+    /// scroll through `Cx`, the port reproduces those writes and the comparison covers
+    /// them natively, so neither `$F1` nor `$FD` is held.
+    #[test]
+    fn matches_the_oracle_through_every_phase() {
+        let Some(scene) = Scene::tas(39679) else {
+            return;
+        };
+        let coverage = assert_actor_phases(isolate_children(scene), 1215, &[0xB4]);
+        assert_eq!(
+            coverage,
+            Coverage {
+                frames: 1194,
+                occupied: 1194,
+                drawn: 1089,
+                phases: BTreeMap::from([
+                    (0, 100),
+                    (1, 16),
+                    (2, 169),
+                    (3, 100),
+                    (4, 192),
+                    (5, 491),
+                    (6, 126),
+                ]),
+            }
+        );
+    }
+}

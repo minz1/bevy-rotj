@@ -1,0 +1,72 @@
+# FNV-1a 64 digests of fceux captures (name unit digest), written by tools/emu/digest.py.
+# Each block names its capture and the dump.lua run that regenerates it.
+
+# actors-seek-700-wram.bin: WRAM $7CC0-$7DEF (304 B) of the physics run (INPUT=physics) at
+# frame 700; also in the stage/seek capture's wram-700.bin. Reader: actors.rs.
+actors-seek-700 - 7dd3a39c90784861
+
+# actors-route-900-wram.bin: WRAM $7CC0-$7DEF (304 B) of the route run (INPUT=route,
+# ROUTE_JUMPS=735..760,792..817, route-dense) at frame 900. Reader: actors.rs.
+actors-route-900 - 379d3b33defc9b25
+
+# level-palettes.bin: 13 x $3F00-$3F1F (32 B each), stagearea-probe/lvl-<n>/ppu-744.bin
+# (one line per level; the dumped $10/$14/$18/$1C are the PPU's colour mirrors).
+level-palette-0 - 4544b1c116e42d2d
+level-palette-1 - 2c3c36e664e8fa7e
+level-palette-2 - feed5ec79b7e6a16
+level-palette-3 - 967e827cb1b2c248
+level-palette-4 - 0dad8d45bf0e524c
+level-palette-5 - e0874bdfdc7259d4
+level-palette-6 - 08943e66c9c48640
+level-palette-7 - 0a8bcce1e9c2365f
+level-palette-8 - 59d2fa22490fc528
+level-palette-9 - a134c7abb861618c
+level-palette-10 - 6043204383cfc733
+level-palette-11 - 2b2e96fc43694e34
+level-palette-12 - 2950ef0a384c503b
+
+# level-chr.bin: 13 x $E0-$E7 (8 B each), stagearea-probe/lvl-<n>/ram-624.bin (one line
+# per level; the moment the level has loaded).
+level-chr-0 - 0213c8e101cf7979
+level-chr-1 - 810273a1b6223749
+level-chr-2 - 8cfbe9ec98ceed85
+level-chr-3 - 9113548e9e395696
+level-chr-4 - 1343074fc2337655
+level-chr-5 - 6e65ec8c8efd9cad
+level-chr-6 - 090ce512fe45611b
+level-chr-7 - 49f05dacae1de9fd
+level-chr-8 - 7cb0de866dcc0fb1
+level-chr-9 - f8ebc884d5179e09
+level-chr-10 - 9ef5d24c40a404f5
+level-chr-11 - 9e5aef194d55adc4
+level-chr-12 - a18b70354427c84c
+# assets/levels/stage-1-1/collision.bin: stage 1-1's WRAM $6000-$7FFF at frame 700,
+#   tools/emu/stage (dump.lua INPUT=physics, DUMPS=700). The byte ranges the tests compare.
+stage-1-1-map - acca1ffa29ba3253
+stage-1-1-attrs - 19368d6fab175124
+stage-1-1-class - 6873bd23b2c3e9fd
+stage-1-1-tables - 0aafcb26ff17f090
+# assets/levels/stage-1-1/nametables.bin: the same capture's PPU nametable. The visible
+#   30 rows [0..960], and the page's attribute table [960..1024].
+stage-1-1-page - dfe45c377d0c3c23
+stage-1-1-ppu-attrs - 07891a0428984a1c
+# assets/levels/stage-1-1/nametable-drive-{600,700,800}.bin [0..960]: tools/emu/drive
+#   (dump.lua INPUT=drive: Start 300-306, Right from 500, A f%90<3, B f%150<3), frames 600/700/800.
+stage-1-1-drive-600 - dfe45c377d0c3c23
+stage-1-1-drive-700 - a161922136127490
+stage-1-1-drive-800 - a161922136127490
+# assets/levels/stage-1-2/reference/tile-tables-744.bin: WRAM $7000-$736F at frame 744,
+#   tools/emu/stagearea-probe/lvl-1 (probe.lua LEVEL=1). The four table ranges concatenated.
+stage-1-2-tables - cddd90abdbf26d51
+# crates/rotj-core/tests/data/area16-attrs.bin: area 16's $7600-$79FF, tools/emu/sublevels-force
+#   (force.lua $0400=32) = stagearea-probe/lvl-12/wram-624.bin.
+area16-attrs - 4a19dbca1eca1c3b
+# crates/rotj-core/tests/data/classes-7b00.bin [0..201]: $7B00 at the auto-tiler's $8E57,
+#   tools/emu/attributes-trace (trace.lua), frame 606.
+classes-7b00 - c9a853c22bdaa999
+# crates/rotj-core/tests/data/attrstream-scroll.bin: 65 (u16 camera + 64 B $23C0) records,
+#   tools/emu/attrstream-{ra,rb,rc}, in camera order (0,8,...,512).
+attrstream-scroll - 7094025d2206c5c2
+# crates/rotj-core/tests/data/attrstream-dumps.bin, the 8 records the oracle reproduces
+#   (drive 700/800, route-dense 760/820/852/900, route-oam 850, route-step 1000), in fixture order.
+attrstream-dumps - d6f7f318505d8136

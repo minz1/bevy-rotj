@@ -1,0 +1,8 @@
+# FNV-1a 64 digests of fceux captures (name unit digest), written by tools/emu/digest.py.
+# Each block names its capture and the dump.lua run that regenerates it.
+# assets/screens/attract/reference-emulator-300.indices: fceux's frame 300 (lines 8-231, palette
+# indices), tools/emu/attract (dump.lua, no input: DUMPS=300).
+title-300 - d41d8534ced35b01
+# assets/levels/stage-1-1/nametables.bin [0..960]: fceux's stage 1-1 nametable at frame 700,
+# tools/emu/stage (dump.lua INPUT=physics, DUMPS=700).
+stage-1-1-page-0 - dfe45c377d0c3c23

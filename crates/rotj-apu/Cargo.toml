@@ -1,0 +1,18 @@
+[package]
+name = "rotj-apu"
+description = "Nintendo 2A03 + Sunsoft-5B APU synthesis engine in safe Rust"
+version.workspace = true
+authors = ["minz1"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tracing.workspace = true
+
+[dev-dependencies]
+rotj-oracle = { path = "../../tools/rotj-oracle", version = "1.0.1" }
+rotj-rom = { path = "../rotj-rom", version = "1.0.1" }
+
+[lints]
+workspace = true

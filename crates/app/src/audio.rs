@@ -1,0 +1,334 @@
+//! Audio output: the port's 2A03 synth, played through Bevy's audio engine.
+//!
+//! Music advances on the game's own 60 Hz clock — a fixed number of APU ticks
+//! per frame, exactly like the console — and the mixed samples land in a small
+//! queue the audio device drains. Keeping the synth on the game clock is what
+//! makes playback deterministic and reproducible: what you hear is a function of
+//! the frame count, not of the sound card's timing.
+//!
+//! The soundtrack comes from the *ported* sound driver (`rotj-music`), fed by
+//! the extracted driver and song banks: each game frame ticks the driver, which
+//! returns the APU register writes the game itself would make
+//! (`docs/MUSIC.md`, `crates/rotj-music/tests/acceptance.rs`).
+//!
+//! The game's own requests (`$40-$43`, from `Game::nmi`) drive it from power-on: the
+//! title's song `$01` (`$61AE`), each stage's `$D980[$0400 / 2]` (`$D973`) and every
+//! effect.
+
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use bevy::audio::{
+    AddAudioSource, AudioPlayer, ChannelCount, Decodable, Sample, SampleRate, Source,
+};
+use bevy::prelude::*;
+use rotj_apu::stream::ApuStream;
+
+/// Output sample rate.
+const SAMPLE_RATE: u32 = 44_100;
+/// Samples a frame is worth at [`SAMPLE_RATE`] (44,100 / 60.0988).
+const SAMPLES_PER_FRAME: usize = 734;
+/// How much mixed audio stays queued, in samples (a quarter second).
+const QUEUE_CAPACITY: usize = (SAMPLE_RATE / 4) as usize;
+
+/// The 2A03 with the DMC's sample bank (the fixed `$E000-$FFFF` window), without
+/// which the DMC reads zeros and the bass and drums samples are silent.
+fn apu_with_samples(prg: &[u8]) -> rotj_apu::apu::Apu {
+    let mut apu = rotj_apu::apu::Apu::new();
+    apu.set_sample_rom(rotj_apu::dmc::SampleRom::new(
+        0xE000,
+        prg[0x1E000..0x20000].to_vec(),
+    ));
+    apu
+}
+
+/// The app's driver at its power-on init, for tests that feed it one request.
+#[cfg(test)]
+pub(crate) fn driver() -> rotj_music::Music {
+    let mut driver = rotj_music::Music::from_prg(&rotj_rom::for_test().expect("the ROM").prg);
+    driver.init();
+    driver
+}
+
+/// Mixed samples in flight, from the game clock to the audio device.
+#[derive(Resource, Clone, Default)]
+pub struct SampleQueue(Arc<Mutex<VecDeque<f32>>>);
+
+impl SampleQueue {
+    /// Queues one sample, dropping it if the device is not keeping up (stale
+    /// audio is worse than a dropped sample).
+    fn push(&self, sample: f32) {
+        if let Ok(mut queue) = self.0.lock()
+            && queue.len() < QUEUE_CAPACITY
+        {
+            queue.push_back(sample);
+        }
+    }
+
+    /// Takes one sample, if any is queued.
+    fn pop(&self) -> Option<f32> {
+        self.0.lock().ok()?.pop_front()
+    }
+
+    /// Samples currently queued.
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.0.lock().map_or(0, |queue| queue.len())
+    }
+}
+
+/// The synth on the game's clock: ticks the ported driver each frame, applies
+/// the register writes it returns, and fills the queue.
+#[derive(Resource)]
+pub struct Music {
+    stream: ApuStream,
+    driver: rotj_music::Music,
+    started: bool,
+    queue: SampleQueue,
+}
+
+impl Music {
+    /// Builds the synth and loads the driver.
+    #[must_use]
+    pub fn new(queue: SampleQueue, prg: &[u8]) -> Self {
+        Self {
+            stream: ApuStream::new(apu_with_samples(prg), SAMPLE_RATE),
+            driver: rotj_music::Music::from_prg(prg),
+            started: false,
+            queue,
+        }
+    }
+
+    /// Queues a request the game made (`$40-$43`).
+    pub fn request(&mut self, id: u8) {
+        self.driver.request(id);
+    }
+
+    /// The driver's power-on init (bank 10 `$8000`, from `$D394`), once.
+    pub fn start(&mut self) {
+        if !self.started {
+            for write in self.driver.init() {
+                self.stream.apu_mut().write(write.addr, write.value);
+            }
+            self.started = true;
+        }
+    }
+
+    /// Advances one game frame: tick the driver, apply its writes, then render a
+    /// frame's worth of samples.
+    pub fn advance_frame(&mut self) {
+        for write in self.driver.tick() {
+            self.stream.apu_mut().write(write.addr, write.value);
+        }
+        let mut buffer = [0.0_f32; SAMPLES_PER_FRAME];
+        self.stream.fill(&mut buffer);
+        for sample in buffer {
+            self.queue.push(sample);
+        }
+    }
+}
+
+/// A Bevy audio source that drains [`SampleQueue`].
+pub struct QueueSource {
+    queue: SampleQueue,
+}
+
+impl Iterator for QueueSource {
+    type Item = Sample;
+
+    /// Silence while the queue is empty: `None` would end the source for good.
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.queue.pop().unwrap_or(0.0))
+    }
+}
+
+impl Source for QueueSource {
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+
+    fn channels(&self) -> ChannelCount {
+        ChannelCount::new(1).expect("one channel is non-zero")
+    }
+
+    fn sample_rate(&self) -> SampleRate {
+        SampleRate::new(SAMPLE_RATE).expect("sample rate is non-zero")
+    }
+
+    fn total_duration(&self) -> Option<Duration> {
+        None // endless: the source follows the queue
+    }
+}
+
+/// The playable asset: a handle to the shared queue.
+#[derive(Asset, TypePath)]
+pub struct MusicSource {
+    queue: SampleQueue,
+}
+
+impl Decodable for MusicSource {
+    type Decoder = QueueSource;
+
+    fn decoder(&self) -> Self::Decoder {
+        QueueSource {
+            queue: self.queue.clone(),
+        }
+    }
+}
+
+/// Audio plugin: keeps the synth on the game clock and plays its output.
+#[derive(Default)]
+pub struct AudioPlugin;
+
+impl Plugin for AudioPlugin {
+    fn build(&self, app: &mut App) {
+        // `add_audio_source` schedules the system that plays `AudioPlayer<MusicSource>`;
+        // `init_asset` alone makes the asset but nothing ever plays it.
+        app.add_audio_source::<MusicSource>()
+            .init_resource::<SampleQueue>()
+            .add_systems(Startup, start_music)
+            .add_systems(FixedUpdate, advance_music);
+    }
+}
+
+/// Hands the queue to Bevy's audio engine. Without a device this simply logs a
+/// warning, as the engine already does, and the game carries on silently.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Bevy system params, rust-clippy#8940"
+)]
+fn start_music(
+    mut commands: Commands<'_, '_>,
+    queue: Res<'_, SampleQueue>,
+    mut sources: ResMut<'_, Assets<MusicSource>>,
+    rom: Res<'_, crate::RomData>,
+) {
+    let handle = sources.add(MusicSource {
+        queue: queue.clone(),
+    });
+    commands.insert_resource(Music::new(queue.clone(), &rom.0.prg));
+    commands.spawn(AudioPlayer::<MusicSource>(handle));
+}
+
+/// Inits the driver on the first tick, then advances the synth one frame.
+fn advance_music(mut music: ResMut<'_, Music>) {
+    music.start();
+    music.advance_frame();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn post_update_systems(with_audio: bool) -> usize {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()));
+        if with_audio {
+            app.add_plugins(AudioPlugin);
+        }
+        app.world_mut()
+            .schedule_scope(PostUpdate, |world, schedule| {
+                schedule.initialize(world).expect("PostUpdate initializes");
+                schedule.systems().expect("systems").count()
+            })
+    }
+
+    /// Bevy plays an `AudioPlayer<T>` only for a `T` registered with `add_audio_source`:
+    /// the asset's own `PostUpdate` system plus play and cleanup (`init_asset` alone adds 1).
+    #[test]
+    fn bevy_audio_plays_the_music_source() {
+        assert_eq!(post_update_systems(true) - post_update_systems(false), 3);
+    }
+
+    /// The DMC plays the game's sample bank, not the zeros an empty sample ROM reads.
+    #[test]
+    fn the_dmc_reads_the_games_samples() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let dmc_level_after = |mut apu: rotj_apu::apu::Apu| {
+            for (addr, value) in [
+                (0x4011, 0x40),
+                (0x4012, 0x94),
+                (0x4013, 0x3F),
+                (0x4010, 0x0F),
+                (0x4015, 0x10),
+            ] {
+                apu.write(addr, value);
+            }
+            (0..20_000)
+                .map(|_| {
+                    apu.tick();
+                    apu.channel_levels()[4]
+                })
+                .max()
+                .expect("ticks")
+        };
+        assert!(
+            dmc_level_after(apu_with_samples(&rom.prg))
+                > dmc_level_after(rotj_apu::apu::Apu::new())
+        );
+    }
+
+    #[test]
+    fn queue_round_trips_and_bounds_itself() {
+        let queue = SampleQueue::default();
+        assert_eq!(queue.len(), 0);
+        queue.push(0.25);
+        queue.push(-0.5);
+        assert_eq!(queue.pop(), Some(0.25));
+        assert_eq!(queue.pop(), Some(-0.5));
+        assert_eq!(queue.pop(), None);
+        for _ in 0..QUEUE_CAPACITY * 2 {
+            queue.push(1.0);
+        }
+        assert_eq!(queue.len(), QUEUE_CAPACITY, "the queue is bounded");
+    }
+
+    #[test]
+    fn decoder_drains_the_queue() {
+        let queue = SampleQueue::default();
+        queue.push(0.5);
+        let source = MusicSource {
+            queue: queue.clone(),
+        };
+        let mut decoder = source.decoder();
+        assert_eq!(decoder.next(), Some(0.5));
+        assert_eq!(decoder.next(), Some(0.0), "starved: silence, never the end");
+        assert_eq!(decoder.channels().get(), 1);
+        assert_eq!(decoder.sample_rate().get(), SAMPLE_RATE);
+    }
+
+    /// The ported driver, ticked on the game's own clock, produces real,
+    /// non-silent audio: the game's own music, from the ROM's song data rather
+    /// than a capture of it.
+    #[test]
+    fn music_advances_and_produces_sound() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let queue = SampleQueue::default();
+        let mut music = Music::new(queue.clone(), &rom.prg);
+        music.start();
+        music.request(0x04);
+        for _ in 0..600 {
+            music.advance_frame();
+        }
+        assert!(music.started, "the driver was asked for a song");
+        // 600 frames of 44.1 kHz audio, bounded by the queue's capacity.
+        assert_eq!(queue.len(), QUEUE_CAPACITY);
+        let peak = drain_peak(&queue);
+        assert!(peak > 0.05, "the music is audible (peak {peak})");
+        assert!(peak <= 1.0, "and stays in range");
+    }
+
+    /// Drains a queue, returning the loudest sample seen.
+    fn drain_peak(queue: &SampleQueue) -> f32 {
+        let mut peak = 0.0_f32;
+        while let Some(sample) = queue.pop() {
+            peak = peak.max(sample.abs());
+        }
+        peak
+    }
+}

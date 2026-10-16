@@ -1,0 +1,19 @@
+[package]
+name = "rotj-music"
+description = "Batman: Return of the Joker sound-driver port: song data -> 2A03 register writes"
+version.workspace = true
+authors = ["minz1"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rotj-apu = { path = "../rotj-apu", version = "1.0.1" }
+tracing.workspace = true
+
+[dev-dependencies]
+rotj-core = { path = "../rotj-core", version = "1.0.1" }
+rotj-rom = { path = "../rotj-rom", version = "1.0.1" }
+
+[lints]
+workspace = true

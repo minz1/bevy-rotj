@@ -1,0 +1,17 @@
+[package]
+name = "rotj-verify"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Dev-only verification harness: renders emulator dumps through the port's renderer and diffs them against the emulator's own screen output."
+
+[dependencies]
+clap.workspace = true
+color-eyre.workspace = true
+image.workspace = true
+rotj-core = { version = "1.0.1", path = "../../crates/rotj-core" }
+
+[lints]
+workspace = true

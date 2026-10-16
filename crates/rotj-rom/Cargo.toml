@@ -1,0 +1,11 @@
+[package]
+name = "rotj-rom"
+description = "Finds, checks and parses the user's own Batman: Return of the Joker ROM"
+version.workspace = true
+authors = ["minz1"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

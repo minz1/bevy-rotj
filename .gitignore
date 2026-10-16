@@ -1,0 +1,57 @@
+# Rust
+/target/
+Cargo.lock.orig
+
+# ROM source data stays out of the repo (not redistributable)
+/raw/
+
+# Windows filesystem artifacts
+*.Zone.Identifier
+Zone.Identifier
+
+# Rendered scratch output
+/out/
+*.ppm
+
+# disassembly build artifacts
+disasm/obj/
+disasm/rotj.nes
+disasm/gen/__pycache__/
+/assets/preview/
+
+# emulator dump output (dev tooling)
+tools/emu/dumps/
+tools/emu/probe.txt
+tools/emu/dumps*/
+
+# emulator capture scratch (regenerate with tools/emu/dump.lua)
+tools/emu/*/
+!tools/emu/*.py
+!tools/emu/*.lua
+!tools/emu/*.txt
+
+# swept level pages are regenerable capture output
+
+assets/levels/*/pages/
+
+# the published TAS input is committed (CC BY 2.0, see tools/emu/tas/ATTRIBUTION.md); the downloaded movie is not
+!tools/emu/tas/
+tools/emu/tas/movie.*
+
+# the disassembly listing is generated from your ROM by disasm/assemble.sh
+disasm/*.s
+disasm/rotj.cfg
+
+# ROM-derived data stays local (1.0.1, docs/specs/2026-10-15-bring-your-own-rom-design.md):
+# extractor outputs and fceux captures; the tests keep only their digests
+/assets/*
+!/assets/graphics/
+/assets/graphics/*
+!/assets/graphics/palette-sources/
+/crates/rotj-core/tests/data/*
+!/crates/rotj-core/tests/data/digests.txt
+/tools/rotj-oracle/tests/data/route-900-*.bin
+/tools/rotj-oracle/tests/data/route-apu.csv
+
+# the owner's AI-generated cut-content survey stays local
+/docs/Batman Return Joker Cut Content.txt

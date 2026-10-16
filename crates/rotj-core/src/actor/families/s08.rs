@@ -1,0 +1,64 @@
+//! Second-class type `$08`, the platform that sinks under the player (bank 8 `$8ED5`).
+
+use crate::actor::collision::{Probe, solid};
+use crate::actor::engine::Work;
+use crate::actor::slots::{Body, PRESSED};
+use crate::actor::world::Cx;
+
+const STEP: u16 = 0x10;
+const HOME: u16 = 0x7BF0;
+
+/// The platform keeps its home row in `$7BD8,x` and the player's weight in `$7EF8,x`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct State;
+
+impl State {
+    /// One frame (`$8ED5`): sink 1 px while stood on, unless the level is solid below;
+    /// otherwise rise 1 px a frame back to its home row.
+    pub fn step(&mut self, index: usize, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+        let index = u16::try_from(index).expect("< 8");
+        work.x = body.x;
+        work.y = body.y;
+        work.hitbox = 1;
+        let [row, fraction] = body.y.to_be_bytes();
+        if body.state == 0 {
+            cx.set_byte(HOME + index, row);
+            body.state = 1;
+        }
+        body.hit = 0x18;
+        body.behaviour = 0;
+        if cx.byte(PRESSED + index) & 0x80 == 0 {
+            if fraction != 0 || cx.byte(HOME + index) != row {
+                body.y = body.y.wrapping_sub(STEP);
+            }
+            return;
+        }
+        body.scratch = 0;
+        body.anim = 0;
+        body.y = body.y.wrapping_add(STEP);
+        let mut probe = Probe {
+            x: body.x,
+            y: body.y,
+            ..Probe::default()
+        };
+        if solid(&mut probe, 0x84, cx) & 0x80 != 0 {
+            body.y = body.y.wrapping_sub(STEP);
+        }
+        cx.set_byte(PRESSED + index, 0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::actor::oracle::{Scene, assert_second_phases};
+
+    #[test]
+    fn matches_the_oracle_on_the_tas() {
+        let Some(scene) = Scene::tas(1060) else {
+            return;
+        };
+        let coverage = assert_second_phases(scene, 180, &[0x08]);
+        assert!(coverage.occupied > 100, "{coverage:?}");
+        assert!(coverage.drawn > 0, "{coverage:?}");
+    }
+}

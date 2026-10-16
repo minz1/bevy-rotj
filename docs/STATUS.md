@@ -1,0 +1,279 @@
+# Status — where 1.0.1 stands
+
+1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
+the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
+single source of truth for what is done and what is next; the other `docs/*.md`
+hold the evidence. Update it in the same commit as the work it describes.
+
+Last reconciled 2026-10-16 (agent merges are recorded here as they land).
+
+## Milestones
+
+| tag | state |
+| --- | --- |
+| 0.1.0 | **done**, tag `0.1.1` (`0.1.0` cannot run: see "Bugs the checks missed") |
+| 0.2.0 streaming | **done, tag `0.2.0`** (2026-10-14): stage 1-1 builds from the ROM alone (`Stage::load = for_level(0)`; map, attributes, auto-tiler tile tables, palette, CHR banks and the background animation all decoded), is walkable across its 4096 px, and scrolled frames match the emulator's PPU state exactly (0 px at cameras 0/50/54); `tools/boot-check.sh` passes. Left: the ~1% screenshot residual lead and the game's real solid-tile rule |
+| 0.3.0 actors | **done, tag `0.3.0`** (2026-10-15): the port's whole game loop replays the published TAS byte for byte (RAM/WRAM at every loop frame) from the stage 1-1 start (frame 351) through stage 1-2 and the stage 1 boss fight to frame 6770, with only the area-2/4 raster IRQ and the area loads' leftover bytes injected (`actor::tests::the_loop_matches_the_tas_through_stage_1_and_its_boss`, since extended into stage 2); the app runs `Game` (stage 1-1 into 1-2, firing, death, continue, game over), `tools/boot-check.sh` passes. Actor families: 72 of ~96 types ported. Left for 0.4.0: pause, the banner cutscene engine `$98BD` (the stage 1 -> 2 transition), weapon 1 and the charged attacks of weapons 4/5 |
+| 0.4.0 | **done, tag `0.4.0`** (2026-10-15): the banner cutscene `$98BD`, the pause `$9C37`, the `$DD` bit-7 room change (fade path `$BA8B`, second page draw, `$B586` attribute raise) and two-nametable scrolling (`$85F7`/`$86D9`/`$83C4`/`$824F`) are ported and verified against the oracle (`docs/ACTORS.md` §9o-§9q). The whole-loop chain `actor::tests::the_loop_matches_the_tas_from_stage_1_into_stage_4` replays the TAS byte for byte from frame 351 to 15720: stages 1, 2 and 3 with their bosses and cutscenes, into stage 4-1 (12753 loop frames, 1030 cutscene NMI waits), injecting **only the raster IRQ**: the area loads' leftover bytes are now built by the port's own loader image (`room::load_level`). Every actor type in the TAS inventory (§8b) is ported (2026-10-15). The firecheck pass fixed the weapon screen-edge bounce, the walk tail's stale X after a charge, weapon 4's bubble count and weapon 0's endless-metasprite freeze (which hangs the real game too, and now the port), and seeded random play of stage 1 (13 pinned runs, 24,659 loop frames) matches the oracle, weapon 5 included since its charge carries the CPU's overflow flag (`docs/ACTORS.md` §9g). The harness injects lag-frame NMIs like IRQs |
+| 0.5.0 audio | **done, tag `0.5.0`** (2026-10-15): the ported driver (write-exact against the game's over the whole TAS) plays every song and effect the game requests: the app hands each frame's `$40-$43` requests from the game's NMI to it. App tests pin the jump (`$24`, bank 4 `$8508`, with the driver's noise-channel writes), weapon fire (`$2D`, `$9D2D`) and damage (`$25`, `$82C6`) effects, each failing if requests are dropped; the title requests its own song `$01` (traced: frame 287, PC `$61B0`) and a stage start `$D980[area]` (`audio::tests::scenes_request_the_games_own_songs`) |
+| 0.6.0 stages 2-7 | **done, tag `0.6.0`** (2026-10-15; one release for all six stages, owner's call, see "Owner decisions made"): the whole-loop chain `actor::tests::the_loop_matches_the_tas_from_stage_1_to_the_ending` replays the TAS byte for byte from frame 351 to 41177: all 7 stages and 5 bosses, up to the loop frame type `$B8` arms the ending (`$BA = 6`): 35299 loop frames, 12 room changes, 17 next-area loads, 2060 script frames, injecting only the raster IRQ and lag-frame NMIs. Fixes on the way: riding `$CE3E`, crumbling `$CC6D`, second-class types `$06/$0C/$0E/$10`, type `$B8`, `$96`'s own-slot read, `$84`'s `$0401`, `$AC`'s off-screen X (`$A852`), area 17's class blob, spikes `$CAA9`/`$CD09` (`$CD09` unexercised). App tests play stages 4-7 through their rooms to each boss (`play.rs`) |
+| 1.0.0 | **done, tag `1.0.0`** (2026-10-15, after the owner's playtest): the ending is ported and in the chain (2026-10-15): type `$B8` sets `$BA = 6`, `$D967` copies the WRAM payload (`$99A9`) and jumps to `$6135`, which never returns: title, skyline, 28 credit lines, the last screen `$6656` (TAS 47938) and its hold; every frame matches the oracle to TAS 48026 (`actor/ending.rs`, `docs/SUBLEVELS.md` §7e), and the app plays it (`play::tests::beating_the_final_boss_plays_the_ending`). Weapon 5's charge waits on the CPU's real overflow flag (2026-10-15: V carried out of `$84AB`'s motion tails, `$C247` and `$DC87`, compared with the oracle's V every loop frame over the whole chain; `docs/ACTORS.md` §9g). Every one of the game's 100 handler types (`$02`-`$C8`) is ported (2026-10-15): the last three, `$46` (the `$42` boss's child), `$90` and `$92` (the `$8E` boss's burst), which the TAS never spawns, match the oracle in scenes where only the TAS's input changes (the pad released at the boss), so a slower player reaches them (`docs/CUTCONTENT.md` §3). The `rotj-core` readability pass is merged (slots, families, player, effects, weapons, the ending). The boot is ported (2026-10-15): power-on, the intro and its raster split (`$D3 = 9`), the title, the password screen (14 passwords, `$6E6C`), the attract mode and the sound test match the oracle at every NMI wait from power-on (`boot::tests`); the app powers on and plays them, every song from the game's own requests (`docs/ACTORS.md` §9s). Left: off-TAS random play now matches the oracle (2026-10-15): the sweep's 600 runs (every area start, weapons 0-5, seeds 1-3, a death run and a GAME OVER run per start) show no divergence after seven root-cause fixes (`docs/ACTORS.md` §9t: a spawn's no-free-slot exit, type `$54`'s weapon clear, spikes' `$A8` lost to a stale player copy, type `$1E`'s turn, motion 2's blocked side-jump and its third probe column, a lag-frame sound byte in the harness, and the oracle's PPU register reads); 126 runs plus the GAME OVER resets are pinned per stage (31 s in release). Known gap: an odd energy (only from a damage-1 block contact) makes the HUD read PPU registers mid-render, which neither the oracle nor the port models. Left: and the novelty-guided explorer (2000 branches, seed 1) reached 295 cells and 125 `(type, phase)` pairs, 116 cells and 5 pairs beyond the TAS's 589 and 246, with no divergence. The owner's playtest signed it off. The "bring your own ROM" pass follows as 1.0.1 (`docs/PLAN.md`) |
+| 1.0.1 | **done, tag `1.0.1`** (2026-10-16): bring your own ROM. The tracked tree carries none of the game (`tools/check-no-rom-data.py`: no 32-byte run of PRG or CHR, raw, hex or as words); the app and every test read the user's ROM through `crates/rotj-rom` (PRG+CHR MD5 `830111df…`; argument, `ROTJ_ROM`, cache, beside the exe, `raw/` in debug builds; status 2 and a message without one); `disasm/assemble.sh` generates the listing from it, still `OK byte-identical`; fceux captures became oracle runs pinned by committed digests (`*/digests.txt`), the tape is recorded under `target/tapes/`, and the ROM tables over 32 bytes in `collision.rs`/`levelmap.rs` are read from the ROM. Every Classic suite green with the ROM (670 tests, the release suite's 23), and a fresh clone without a ROM passes `cargo test --workspace` (the ROM tests skip). The Windows build ships as the exe alone |
+
+## Verified working
+
+| area | evidence |
+| --- | --- |
+| Gates | `.orchestration/gates.sh` (since 1.0.1, with the ROM in `raw/` or `ROTJ_ROM`): fmt, clippy pedantic at zero warnings, the release `--ignored` suite (the lockstep chain, 19 s, which records the state tape under `target/tapes/`, and the oracle's whole-game tests), `ROTJ_REQUIRE_ROM=1 cargo test --workspace` (670 tests on 2026-10-16), `tools/check-no-rom-data.py` (no tracked file carries 32 bytes of the ROM), `cargo deny check`, `disasm/assemble.sh` (generates the listing from the ROM, `OK byte-identical`), `tools/boot-check.sh`. Without a ROM `cargo test --workspace` passes with the ROM tests skipped, which is all public CI can run. fceux captures the tests once read are local (git-ignored); the tests produce the same bytes with the oracle and pin them to fceux by the committed digests in `*/digests.txt` (`tools/emu/digest.py`). `ROTJ_REQUIRE_ROM=1 ROTJ_RECORD_TAPE=1` is gone: the lockstep always writes the tape |
+| Playtest replays and picture parity | the app records a session's pads (`ROTJ_RECORD_INPUT=<dir> cargo run --release -p batman-rotj`, one `<millis>-level<N>.pads` per stage start); `ROTJ_REQUIRE_ROM=1 ROTJ_PLAYTEST=<file> cargo test --release -p rotj-core the_playtest_matches_the_oracle -- --ignored --nocapture` replays it in lockstep from power-on (`oracle::assert_playtest`: one pad per NMI wait, the RNG pinned to the app's, `ROTJ_LEVEL` as the game's own `$D3D8` level poke). Every lockstep also runs the app's own `Game::nmi` on a clone (its RNG, pads and counters must equal the game's) and applies its VRAM writes to a port-side `Ppu` compared with the oracle's nametables and palette at every NMI: on over the whole chain, no divergence. All 13 level starts match for 300 frames. Fixed on the way: the VRAM queue drains last-pushed first (`$C084`), the boss card's attribute row is read from `$D93E`, a level's first load sits over the boot payload (CHR `$F0-$F7`, not the ending's `$F8-$FF`) with the intro's raster bytes. Gaps: lag frames and VRAM writes by injected routines |
+| Boot | `tools/boot-check.sh` (and CI) must print `OK: still running after Ns` |
+| Title screen | the title the port boots into (reset, intro, title) renders the emulator's frame 300 with 0/57,344 pixels different (`play::tests::the_title_draws_the_emulators_frame`); the boot, intro, title, passwords, attract mode and sound test match the oracle at every NMI wait from power-on (`boot::tests`) |
+| Level map | decompressed from the ROM (bank 02 `$89FE` LZ stream over CHR), reproducing the captured map 4096/4096 bytes (`rotj_core::levelmap::map_from_rom`, `docs/LEVELDATA.md` §13). The loader picks its CHR set by area `$0400/2` alone from two 18-entry tables (`$8B63`, `$8B75`); forcing `$0400` at `$89FE` gives 0/4096 differences for 14 of 18 areas. Areas 4/10/12/17 are one-screen maps (their streams decode 16 metatile columns); in stages 2-2 and 5-2 (areas 4, 12) a stage actor, type `$56` (bank 11 `$9DF9`), clears the leftover columns after the load. Found with the oracle, which matches fceux's dumps there byte for byte (§13e, `rotj-oracle/tests/levels.rs`) |
+| Background animation | the "parallax" is CHR-bank animation: bank 14 `$D2B0` steps each animated slot `$E0-$E3` through a per-area sequence (stage 1-1: `$E3` cycles `$30-$37` every two frames), decoded from the CHR loader's records and ported (`palettes::background_animation_for_level`, `Stage::advance_background`); every gameplay capture's `$0C00-$0FFF` equals the predicted bank, and all gameplay `$2000/$2005/$2006` writes are in the NMI, so there is no raster split (§16) |
+| Attributes | generated from the CHR area definition (auto-tiler `$8B9E`/`$8E57`, class tables `$8ECF`/`$8EE1`): 0/640 vs the captured `$7600` for stage 1-1, and 0 differences on level blocks for 16 of 18 forced loads (`attributes_from_rom`, §13d). The port renders every page from it; the captured-attribute shortcut is gone. While scrolling, the NMI flusher `$C09C` writes one attribute column per 8 px step, rebuilt by bank 02 `$8000-$8143` as `(shadow & mask) | (page & ~mask)` over the entering metatile column; `streamed_attributes` reproduces every frame of three 554-frame scrolling runs (§13d) |
+| Stage 1-1 rendering | the whole sublevel (16 pages, 4096 px) from the decoded map; opening frame 0/57,344; rendered nametables match the captures at cameras 0/50/54 (`stage::tests`) |
+| Camera | `camera = player x - 112` (feet terms), clamped at the level edges, measured from captures (level x 56/109/185 -> scroll 0/0/54) |
+| Physics | the game's own fixed point: the y velocity is a signed byte in 1/16 px (`$046A`, sign `$0469`), gravity +6 per frame clamped to [-128, 127] (bank 4 `$8311`-`$8339`); jump impulse -43 and a held-A thrust of -22 on eligible frames (bank 4 `$8B78`: every other frame by `$F7` bit 7, window `$047D` < 4 held / < 2 released), so a tap rises 23 px and a hold 37 or 54 px; top speed 8704; the walk ramp `v += (target - v + 1) >> 1` gated by the six-frame timer `$047C`/`$A6`; airborne y = ground line + truncated displacement. Standstill and three hold lengths replay exactly through landing (`player.rs` tests, `docs/PHYSICS.md`). Down+A on flat ground is the same jump |
+| Collision | the game's rule: metatile id -> class `$7340[id]` (decoded per area from bank 14 `$C000` and bank 0 blobs, equal to the captured table) -> the `$C99D` wall / `$C93B` block handlers; 0 divergences over the 1722 probes of the stage 1-1 route (`rotj-oracle/tests/solids.rs`); the walk pins on the class-0 block at x 192 as captured |
+| Batman | real sprites, the decoded 42-state animation table, OAM byte-for-byte vs the capture; crouch (Down, `$04`) and aim-up (Up+B, `$46`) from captures |
+| HUD | live: energy `$0478`, meter `$0477`, icon `$F7` bit 7, verified against captured sprite sets and pixels |
+| Input | keyboard + gamepad, handed to the game in its own `$F6` order (Right bit 0, A bit 7; `NesButtons::game_byte`); until 2026-10-15 the app passed the controller's shift order, so Right jumped and A walked (found by the playtest replay's app-NMI check) |
+| Audio | 2A03 + DMC synth on the game clock through `bevy_audio`, driven by the ported music driver (`crates/rotj-music`): 769/769 writes for frames 600-700 at a unique offset; 2364 of 3468 for the whole capture. Ids 32+ take the loader's `$8105` path (header pointer in the driver bank); the frame-802 request is the jump effect `$24` from bank 4 `$84FD` (`LDA $046E / CMP #$03 / ... / STA $0042`), and the capture's `3,1,2,0` voice order is the driver's own (`docs/MUSIC.md`) |
+| Actors (data only) | spawn records decoded (`rotj actors`; `$D714` 12-byte records, pending schedule `$A2D4[$0400]` -> `$7410`); the slot window: 32 slots scanned as 0-15 and 24-31, `$7CC0` occupied/type, `$7CE0` schedule slot, `$7D50` state flags (bit 7 active, bit 6 done, dispatch through `ASL`), traced at frame 607 (`actors::live_slots`, `docs/ACTORS.md` §7d). The first capture with enemies drawn (`tools/emu/route-dense`, `INPUT=route`): the spawn routine (PC `$8879`-`$88F5`) fills slot 0 from record 7 (`$ACDC`, the soldier on the crate) at frame 846 and slot 3 from record 4 (`$ACB8`, a green enemy) at 894 (§7f, `actors::tests`) |
+| Actor core | `rotj_core::actor` (`docs/ACTORS.md` §9): every `$C247`/`$C145` call of route frames 841-999 plus poked clip, wrap, bottom-anchor and overflow cases reproduce the OAM page (`oam::tests`); column and room spawns reproduce every byte they change (`spawn::tests`); type `$0A` matches the oracle's actor loop byte for byte on route frames 894-995 (`k0a::tests::matches_the_oracle`). The harness brackets a routine with oracle peeks and compares every RAM/WRAM byte either side changed |
+| Oracle | `tools/rotj-oracle`: a 2A03 CPU, FME-7 (live IRQ), register-level PPU and DMC fetch model timed exactly like fceux 2.6.5's old PPU core; from power-on with `run1`'s recorded input it reproduces fceux's CPU RAM byte for byte for all 3000 frames, including the intro's IRQ chain and a DMC sample, and all 14786 APU writes; a gameplay capture (`oracle-route`, recorded input, no RAM pokes) replays from power-on to frame 900 with RAM, OAM and 3443 APU writes exact (`tests/run1.rs`, `tests/route.rs`; spec `docs/specs/2026-10-14-oracle-design.md` "Validation results"). Runs locally (needs `raw/`); write-only PPU registers and `$2004` read fceux 2.6.5's latch (checked against an fceux capture), and a `$2007` read during rendering is refused by name |
+| Whole-game input | the published TAS ([TASVideos 1087M](https://tasvideos.org/1087M), Aglar, FCEU 0.98.16, power-on start, ROM MD5 matches ours) replays in the oracle in sync: the area index `$0400` steps through all 18 areas (`$00`-`$22`) with no life lost, and at frame 2100 (stage 1-2) the oracle's RAM equals fceux's byte for byte. `tools/emu/fetch-tas.sh` fetches and converts it (git-ignored); `rotj-oracle/tests/tas.rs` pins stage 1-1 -> 1-2 and, with `--ignored`, every area (10 s in release). Every level, room and boss is now reachable for captures and oracle diffs |
+| Disassembly | recursive descent iterated to a fixed point, far calls resolved through the observed window map, and the game's 48 indirect-jump dispatch tables followed (reached code 4086 -> 9832 instructions; `disasm/MAP.md` §11). Observed register-write PCs, now attributed with the right window map and per-write state, are all instruction starts (`disasm/gen/check_observed.py`) and extend bank 0D (+33). Banks 02/04/05/0A keep the linear-sweep listing: seeding 02/0A from those PCs alone dropped the auto-tiler and the sound driver to data |
+| Cut content | song `$06` is defined, never requested (stage table bank 14 `$D980`, sound test bank 12 `$9C85`, inline requests) and loops every 176 frames; the survey's two Game Genie codes belong to other games (`docs/CUTCONTENT.md`) |
+
+## Next, in order
+
+1. **The 1.0 release candidate.** Every gate green on main, the novelty-guided
+   explorer's run clean, the owner's playtest signed off: **tagged `1.0.0`**
+   (2026-10-15).
+2. **1.0.1, bring your own ROM**: **tagged `1.0.1`** (2026-10-16).
+3. **1.1** per `docs/PLAN.md`: settings (frame pacing and vsync, sprite limit, palette,
+   widescreen), Bevy UI, and the re-architecture's first seams, under the Classic suites
+   (`docs/specs/2026-10-15-classic-and-enhanced-modes-design.md`).
+
+Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
+the port's own loop and collision (the app's legacy path is deleted), every level and
+room is built from the ROM and verified in the whole-game chain, and sound effects come
+from the game's own requests.
+
+## Leads not yet verified
+
+- **Odd player energy.** Only a damage-1 contact (a `$04`/`$06` block whose `$7EE0` has
+  bit 6 clear; whether any live record does is open) leaves an odd energy, which makes
+  the HUD gauge (`$DB9D`, table `$DC0F`) read PPU registers mid-render. The oracle
+  refuses a `$2007` read while rendering and the port draws the gauge from bank-14 bytes
+  (`docs/ACTORS.md` §9t).
+- **`$AC16` with no free slot in types `$14`, `$84` and `$90`** leaves a stale Y the
+  `shortcut:` comments say no scene reaches; no sweep run reaches them.
+- **`$2002`'s sprite-0 and overflow bits mid-render** are not modelled by the oracle.
+- **Bank 0 `$9E3C`** (variant 8 to `$AC16`) looks like dead code; whether another
+  `$AC16` caller passes 8 is open (`docs/CUTCONTENT.md` §3).
+- **Eight sound effects** with no request site found (`docs/CUTCONTENT.md` §5).
+- **`generate.py`'s far-call map** `OBSERVED_WINDOW_BANKS` still uses the
+  pre-correction window attribution (`disasm/MAP.md` §11).
+
+## Owner decisions pending
+
+None open (the 1.0.1 decisions were taken on 2026-10-16, below).
+
+## Owner decisions made
+
+- **1.0.1's open calls (2026-10-16)**, prepared in `docs/specs/2026-10-15-bring-your-own-rom-design.md`
+  section 9:
+  - **CI gets no ROM for now** (option C): parity stays the local `gates.sh` at every
+    merge and tag; public CI runs the ROM-less checks. A private companion ROM repo for CI
+    (option A) goes on the roadmap for when outside contributors appear (`docs/PLAN.md`).
+  - **The public repo starts from an orphan commit** of a release tree (option A); this
+    repo stays private with the history and the tags. Rewriting the history
+    (`git filter-repo`, option B) may follow later.
+  - **The palette stays, attributed** (`assets/graphics/palette-sources/ATTRIBUTION.md`,
+    README); the owner is asking FirebrandX.
+  - **The Gemini cut-content survey is not committed** (untracked, git-ignored, kept
+    locally); `docs/CUTCONTENT.md` holds what was verified from it.
+  - **The lost fceux evidence is accepted**: four of twelve attribute-stream dump records
+    and route2's room-change bytes, whose inputs were never recorded.
+  - **1.0.1 is tagged once every gate, the reviewer pass and the Windows check are green.**
+
+- **1.0 playtest signed off (2026-10-15).** The owner played the Windows build of main
+  (`7188ed0`): boot, title, passwords, stages, deaths, GAME OVER, pause, the app: "it feels
+  right"; 1.0.0 follows once every gate and the explorer's run are clean on the release commit.
+
+- **Classic Mode stays verified after 1.0 (2026-10-15).** NES parity becomes the
+  default "Classic Mode", guarded by every Classic suite at every merge and tag while
+  the code is re-architected; Enhanced Mode settings (frame rate, widescreen, ...) get
+  their own tests (`docs/specs/2026-10-15-classic-and-enhanced-modes-design.md`).
+
+- **1.0.0 waits for the owner's playtest (2026-10-15).** When the 1.0 work is done
+  and every gate passes, main stops at a release candidate; the owner playtests
+  (recording with `ROTJ_RECORD_INPUT`, replayed against the oracle) and the 1.0.0
+  release commit and tag follow their sign-off.
+- **Stages 2-7 ship as one release, `0.6.0` (2026-10-15).** They landed in one
+  merge (`cb07b36`); the PLAN's one-minor-per-stage ladder (0.6.0-0.11.0) is
+  collapsed into this tag, and the next release is 1.0.0.
+
+- **Lints and readability (2026-10-14).** Everything is readable by 1.0, the
+  music driver included. The app crate opts into the workspace lints and the
+  in-code allow blocks go; the one permitted suppression is
+  `clippy::needless_pass_by_value` inline on Bevy systems (rust-clippy#8940).
+  A post-1.0 refactor pass slims the code further.
+
+- **The TAS input is committed** with attribution (`tools/emu/tas/`, CC BY
+  2.0), so CI can run the whole-game tests (2026-10-14).
+- **Shipped randomness:** the game's own LFSR (`$C21C`), stepped a fixed number
+  of times per frame, the median measured along the TAS; diff tests keep
+  injecting the oracle's bytes (2026-10-14). It goes through
+  `actor::world::Rng::next_frame`.
+- **0.2.0** tagged by the orchestrator with the owner's approval (2026-10-14).
+
+## Decided autonomously (2026-10-14, owner may veto)
+
+- **Bring your own ROM (2026-10-16, 1.0.1).** Spec and plan
+  (`docs/specs/2026-10-15-bring-your-own-rom-design.md`, `docs/plans/2026-10-15-bring-your-own-rom.md`)
+  approved by stand-in reviewers, all required changes applied (the MD5 kept, written by
+  hand rather than a new crate). Nothing is extracted to disk: the app slices the ROM in
+  memory; the cache holds only the remembered ROM. A bad cached ROM is skipped rather than
+  fatal. The tape moved to `target/tapes/`. Found on the way: without a ROM, `cargo test
+  --workspace` was red at 1.0.0 (19 tests counted 0 oracle calls as a failure, and three
+  `expect`ed the ROM); CI never ran, so nothing showed it.
+
+- The oracle spec and plan (`docs/specs/2026-10-14-oracle-design.md`,
+  `docs/plans/2026-10-14-oracle.md`) were approved under the owner's delegation
+  after a reviewer-agent pass, not by the owner.
+- Release order stays stage by stage (every tag playable); the actor handlers
+  are ported system by system against the oracle, then stages are assembled.
+- Observed register-write PCs seed only banks that already have an entry
+  point (`disasm/MAP.md` §11).
+- The actor design and plan (`docs/specs/2026-10-14-actors-design.md`,
+  `docs/plans/2026-10-14-actors.md`) were approved by a stand-in reviewer under
+  the owner's delegation; the core was built to them.
+- The actor design and its follow-ups (slots 16-23 sharing, the second-class
+  system, the "level edits" change that moves the level map out of read-only
+  state) were approved by the orchestrator under the delegation.
+- (Superseded by 1.0.1: the app reads the user's ROM.) The app gets the PRG as a committed asset (`assets/prg.bin`), like the CHR
+  and music data already are; reproducible with the `rotj` extractor and loaded
+  through one function. The 1.0.1 "bring your own ROM" pass replaces all such
+  assets with a runtime read of the user's ROM.
+- **State tapes (2026-10-15; since 1.0.1 recorded locally, not committed).** Whole-TAS parity moves to a committed tape the
+  port replays without the oracle (CI covers it), checked by per-frame FNV-1a
+  state hashes; the lockstep stays the ground truth and checks the tape is fresh
+  (`docs/specs/2026-10-15-state-tape-design.md`, `docs/plans/2026-10-15-state-tape.md`).
+  Spec and plan approved by stand-in reviewers (all changes applied). Implemented
+  2026-10-15; the tape is stored gzip-compressed (`flate2`, a dev-dependency already
+  in the lock).
+- **Off-TAS verification (2026-10-15).** Spec and plan
+  (`docs/specs/2026-10-15-off-tas-verification-design.md`,
+  `docs/plans/2026-10-15-off-tas-verification.md`) approved by stand-in reviewers,
+  all required changes applied: seeded random play from every area start with every
+  weapon, and playtest replays from a fresh stage start with the RNG pinned to the
+  app's and the app's own NMI checked.
+  Implemented: the fresh start pins the title-dependent OAM page and `$FB` on the
+  oracle side to the app's values, like the RNG (they depend only on when Start was
+  pressed on the title, which the app's own title does not reproduce); picture parity
+  (spec section 4) added after a stand-in review.
+- **The lockstep chain's place in the gate (2026-10-15).** With the chain at the
+  ending it takes 8-10 min in a debug build, so it is `#[ignore]` and the gates run
+  it in release with `--ignored` (19 s) at every merge and tag; the state tape
+  covers the same run in every plain `cargo test` and CI. The oracle stays the
+  ground truth: the tape only replays what the lockstep recorded.
+- Claude subagents (Sonnet by default, Opus for foundation code) were used
+  alongside DeepSeek until the owner's Claude usage resets.
+
+## Known shortcuts
+
+Each is marked in the code with its upgrade path: `grep -rn 'shortcut:' crates`.
+The ones that affect behaviour: the title and a `ROTJ_LEVEL` start play area
+0's song (`audio.rs`; later songs come from the game's own `$41` requests); the spread's FME-7 latch write with no free slot is left out as unobservable (`weapons.rs`), not a shortcut; area 2's raster IRQ (`$E2A9`) is not
+modelled, so the app draws none of its mid-frame changes. The app's old
+`ROTJ_LEGACY` path is deleted (2026-10-15).
+
+## Bugs the checks missed
+
+Found by the owner's first playtests (2026-10-15); each is now pinned by a test.
+
+- **No sound on any real device since 0.5.0.** The app registered its synth source
+  with `init_asset` only, so Bevy never scheduled the system that plays an
+  `AudioPlayer<MusicSource>`; and the source returned `None` when its queue ran dry,
+  which ends a rodio source for good. Every test checked requests reaching the driver,
+  none a device (WSL has none). Fixed with `add_audio_source` and silence on a starved
+  queue (`audio::tests::bevy_audio_plays_the_music_source`, `decoder_drains_the_queue`).
+- **The synth played everything an octave high.** `ApuStream` clocked `Apu::tick`
+  (one APU cycle, two CPU cycles) at the CPU rate; the driver tests compare register
+  writes, which were right (`stream::tests::pulse_period_253_is_a440`, and the
+  triangle's).
+- **The wrong colour table.** The renderer used Nestopia's RGB-PPU palette (the
+  PlayChoice/Vs. look); Classic now uses FirebrandX's Composite Direct, measured from a
+  NES's composite output (`palette::tests::the_table_is_the_source_palette`). The pixel
+  tests compare palette indices, so they could not see it; a palette choice is a 1.1
+  setting.
+- **No bass or drum samples.** The app's synth never got the DMC sample bank
+  (`set_sample_rom`, the fixed `$E000-$FFFF` window), so the DMC read zeros: the
+  driver test had it, the app did not (`audio::tests::the_dmc_reads_the_games_samples`).
+- **Start held from the title paused the stage at once.** The app skipped the game's
+  stage-start sequence, so a held Start became a new press; resolved by porting the
+  boot, title and stage start (the app's interim input mask is gone).
+- **Scrambled controls in the app.** The pad reached the game in the controller's shift
+  order (Right jumped, A walked); fixed with the playtest replay's app-NMI check
+  (`NesButtons::game_byte`).
+- **A packaged build could not find its assets.** The app read `assets/` through a
+  path fixed at compile time; it now looks beside the executable first
+  (`assets_dir`), which the Windows build needs.
+- **0.1.0 could not run** (tagged 0.1.1).
+
+## Corrected facts
+
+- "The first area load sits over the ending's payload (`payload_image`, CHR
+  `$F8-$FF`)": after boot it is the intro/title payload, CHR `$F0-$F7` copied by bank 2
+  `$98FB` (`levelmap::boot_image`); `$F8-$FF` is the cutscene and ending payload.
+  `Level::from_rom`'s doc still says otherwise (lead, to fix).
+
+- "The `INC $20` at WRAM `$63D0` is the stage advance": it is the ending's skyline
+  loop counter (`$6361` runs 256 times, then `$63D7`); and `$D58F` (`$BA = 5`) is the
+  full-meter power-up, not the path into the ending (`docs/SUBLEVELS.md` §7e).
+
+- `tools/emu/run1` is not a no-input capture: it used `dump.lua`'s
+  `INPUT=plan` (Start pulses from frame 100, then Right/A/B). The oracle
+  replays that input.
+- The 15360 "fall cap" was the standstill jump's landing velocity, not a cap;
+  the game clamps the velocity byte to 127 (1/16 px).
+
+- `ppu-writes.csv` from `tools/emu/mapper.lua` logged `memory.readbyte(addr)`
+  for PPU register writes, which is the bus value, not what was written
+  (fixed 2026-10-14). Which writes happened and their PCs were right; the
+  value column of earlier captures is not.
+
+- "The auto-tile table entries past an area's id count are stale from the
+  previous level": they hold the map stream's bytes, which `$89FE` writes to
+  `$7000` before transposing them into the map (`docs/LEVELDATA.md` §15).
+- The `$9204` bit-packed table expands to ten digit glyphs, not a collision map.
+- `$06D3-$06D8` is the sound driver's page, not a score.
+- Lives (`$0482`) are not in the gameplay HUD.
+- The second screen's map is at `$6100` (screens are 256-byte pages from
+  `$6000`), not `$0E00`.
+- B does nothing at the level start; a differential capture shows no sprites
+  added. `$7DD0-$7DD2` are per-slot actor bytes (bank 8 `$8BBD` and others write
+  them; the room change clears them), not item bytes as first recorded. How
+  Batman gets a weapon is unknown (bank 5 `$8000` dispatches on `$0476`).
+- "The parallax is an FME-7 IRQ raster program, 21 arms per frame": wrong for
+  gameplay (the mapper shadow was misread; no gameplay capture arms the IRQ, and
+  `MAP.md` §3's handler addresses never execute). The IRQ *is* used in the
+  intro: the NMI writes `$81` to command `$D` in `run1` frames 60-95, fceux
+  enters the handler `$E2A9` 480 times in 3000 frames, and the chain at bank 2
+  `$95C9` writes `$2000/$2006` (`$08/$09 = $96A1` from frame 61).
+- "The y32-96 band is offset 32 px": a sparse-sky fitting artifact. Frames
+  800-802 write nothing at all to `$2000/$2005/$2006`.
+- "Everything in a dump belongs to the next frame": per component — CHR banks
+  yes (NMI rewrites them in vblank), OAM/palette/nametables no
+  (`tools/emu/check-frame.py` encodes the measured pairing).
+- "Seeding the descent with observed execution collapsed coverage (3274 -> 566
+  in bank 0)": an artifact of the harvest's backwards window map and
+  frame-final bank state (`disasm/MAP.md` §11). Corrected, the seeds are clean
+  and kept for banks that already have an entry.
+- "Physics runs in 1/16 px with launch -44 then -60": the game keeps 1/4096 px
+  and the launch is -43/-59 in 1/16 terms (`49f1c48`, `498c5ed`).
+- "Only metatile `$FF` is solid" and "the camera is a dead-zone follow": both
+  replaced by measured rules (`447e6a8`, `11672af`).

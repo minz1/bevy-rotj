@@ -1,0 +1,170 @@
+//! Type `$1E` (bank 8 `$9364`): hovers in place, faces the player, then rears a
+//! `$20` companion out to its side.
+
+use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::families::Brain;
+use crate::actor::slots::Body;
+use crate::actor::world::Cx;
+
+/// The frame-indexed metasprite pointer table (bank 8 `$94A0`), word-indexed by `$7E10`.
+const METASPRITES: u16 = 0x94A0;
+/// The companion slot type the `$9457` routine rears.
+const CHILD: u8 = 0x20;
+/// What `$9451` re-arms the freed schedule cell with.
+const REARM: u8 = 0x80;
+/// `$937F`'s gate: the sprite only rolls on frames where `$F1 & 3` is clear.
+const FRAME_MASK: u8 = 0x03;
+
+/// Type `$1E` keeps its whole state in [`Body`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct State;
+
+impl State {
+    /// One frame of the handler (`$9364`; `$7DD0` 0 hovers, 1 rears a child).
+    pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+        engine::load(body, work);
+        if engine::dying(kind, body, work, 0x80, cx) {
+            return;
+        }
+        work.attr = (body.flags | work.attr) & 0xDF;
+        if body.phase == 0 {
+            phase0(body, work, cx);
+        } else {
+            phase1(body, work, cx);
+        }
+        if engine::on_screen(work, cx.world) != Visibility::On {
+            engine::despawn(kind, body, REARM, cx.schedule);
+            return;
+        }
+        work.pointer = engine::rom_word(cx.prg, 8, METASPRITES + 2 * u16::from(body.counter));
+        engine::tile_bits(work, cx.prg);
+        engine::draw(work, 1, cx);
+        if work.anchor & 0x40 == 0 {
+            work.hitbox = 0x0A;
+            engine::contact(kind, body, work, 2, cx);
+        }
+        engine::end_frame(body, work);
+    }
+}
+
+/// Phase 0 (`$937F`): the RNG picks a sprite until the player comes level, then
+/// the actor rears a child.
+fn phase0(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+    if cx.world.frame & FRAME_MASK == 0 {
+        body.counter = if cx.world.rng[0] >= 0xE8 { 8 } else { 0 };
+    }
+    let dx = engine::player_dx(work, &cx.effects.player);
+    if dx.unsigned_abs() >= 0x200 {
+        face(work, dx);
+    }
+    if body.timer != 0 {
+        body.timer -= 1;
+    } else {
+        let dy = engine::player_dy(work, &cx.effects.player);
+        if (dy.unsigned_abs() >> 8) as u8 & 0x0F < 3 {
+            body.phase = 1;
+            body.anim = 0;
+        }
+    }
+}
+
+/// Phase 1 (`$93D0`): count to `$20` in `$7E90`, re-arming a `$20` child at 4.
+fn phase1(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+    if body.anim == 0 {
+        face(work, engine::player_dx(work, &cx.effects.player));
+    }
+    body.anim = body.anim.wrapping_add(1);
+    if body.anim == 4
+        && let Some(slot) = engine::free_child_slot(cx.slots)
+    {
+        spawn_child(body, slot, cx);
+    }
+    if body.anim == 0x20 {
+        body.phase = 0;
+        body.counter = 0;
+        body.timer = 0x80;
+    } else {
+        body.counter = body.anim >> 2;
+    }
+}
+
+/// Turns to face the player `dx` away (`$939C`; phase 0 only from `$200` away, phase 1's
+/// `$93D8` at any distance).
+fn face(work: &mut Work, dx: i16) {
+    work.attr = (work.attr & 0x03) | engine::face(dx);
+}
+
+/// Writes the `$20` companion into slot `slot` (16-23) as `$9457` does: `$200`
+/// to the side the parent faces, `$17F` above it, sharing its flags and CHR slot.
+fn spawn_child(parent: &Body, slot: usize, cx: &mut Cx<'_>) {
+    let child = &mut cx.slots.main[slot];
+    let facing_left = parent.flags & 0x40 != 0;
+    child.kind = CHILD;
+    child.body.flags = parent.flags;
+    child.body.x = if facing_left {
+        parent.x.wrapping_sub(0x200)
+    } else {
+        parent.x.wrapping_add(0x200)
+    };
+    child.body.y = parent.y.wrapping_sub(0x17F);
+    child.body.chr_slot = parent.chr_slot;
+    child.body.state = 0;
+    child.brain = Brain::new(CHILD);
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::actor::oracle::{Scene, assert_actor_phases};
+
+    /// Runs `$1E` from `frame` of the TAS. The `$20` children it rears are cleared
+    /// each loop (unported type `$20`).
+    fn tas_at(frame: u64) -> Option<Scene> {
+        let mut scene = Scene::tas(frame)?;
+        for slot in 16..24 {
+            scene
+                .machine
+                .bus
+                .trace
+                .pokes
+                .push((0xD450, 0x7CC0 + slot, 0));
+        }
+        Some(scene)
+    }
+
+    #[test]
+    fn matches_the_oracle() {
+        let Some(scene) = tas_at(3830) else {
+            return;
+        };
+        // The window runs past the hit actor's death into the `$10` item it
+        // becomes (`$A56E`'s tail), so the diff follows both handlers. Area 2's
+        // FME-7 IRQ fires inside the actor loop, so `brackets` drops those frames.
+        let coverage = assert_actor_phases(scene, 378, &[0x1E]);
+        assert_eq!(
+            (coverage.frames, coverage.occupied, coverage.drawn),
+            (242, 110, 225),
+            "{coverage:?}"
+        );
+        assert_eq!(
+            coverage.phases,
+            std::collections::BTreeMap::from([(0, 81), (1, 29)]),
+            "{coverage:?}"
+        );
+    }
+
+    /// The same kind from its spawn in stage 1-1 room 2 (`docs/ACTORS.md` §8b),
+    /// covering phase 0 before the player is level.
+    #[test]
+    fn matches_the_oracle_from_spawn() {
+        let Some(scene) = tas_at(781) else {
+            return;
+        };
+        let coverage = assert_actor_phases(scene, 20, &[0x1E]);
+        assert_eq!(
+            (coverage.occupied, coverage.drawn),
+            (19, 19),
+            "{coverage:?}"
+        );
+        assert_eq!(coverage.phases.get(&0), Some(&19), "{coverage:?}");
+    }
+}

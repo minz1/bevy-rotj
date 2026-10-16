@@ -1,0 +1,32 @@
+# cargo-deny configuration (schema current as of 0.20)
+[graph]
+targets = [{ triple = "x86_64-unknown-linux-gnu" }]
+all-features = true
+
+# Licenses not in `allow` are rejected by default in cargo-deny v2+.
+[licenses]
+version = 2
+allow = ["MIT", "MIT-0", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib", "Unicode-3.0", "CC0-1.0"]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+# Ignored advisories are all transitive through `bevy`/`winit` with no safe
+# upgrade available; each is re-evaluated when upstream dependency updates land.
+[advisories]
+version = 2
+ignore = [
+    # `paste` is unmaintained; cosmetic for us (build-time proc macro only).
+    { id = "RUSTSEC-2024-0436", reason = "transitive via winit/gilrs; no safe upgrade, low impact" },
+    # `ttf-parser` unmaintained; bevy_text still renders with it. Moving to
+    # `skrifa` is an upstream bevy change, we cannot fix it here.
+    { id = "RUSTSEC-2026-0192", reason = "transitive via bevy_text; no safe upgrade" },
+    # Decompression bomb in `ruzstd` (DoS only) — we never decode untrusted
+    # `.zst` input in-game; it is pulled as a debug-symbols reader.
+    { id = "RUSTSEC-2026-0344", reason = "transitive, no untrusted zstd path in the game" },
+]

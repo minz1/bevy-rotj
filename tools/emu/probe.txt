@@ -1,0 +1,20 @@
+fceux lua probe
+emu: addgamegenie debuggerloop debuggerloopstep delgamegenie emulating exec_count exec_time exit frameadvance framecount getdir getscreenpixel lagcount lagged loadrom message pause paused poweron print readonly registerafter registerbefore registerexit setlagflag setreadonly setrenderplanes softreset speedmode unpause
+memory: getregister legacywritebyte readbyte readbyterange readbytesigned readbyteunsigned readword readwordsigned readwordunsigned register registerexec registerexecute registerrun registerwrite setregister writebyte
+ppu: readbyte readbyterange
+rom: getfilename gethash readbyte readbyterange readbytesigned readbyteunsigned writebyte
+savestate: create load loadscriptdata object persist registerload registersave save
+joypad: get getdown getimmediate getup read readdown readimmediate readup set write
+gui: box drawbox drawimage drawline drawpixel drawrect drawtext gdoverlay gdscreenshot getpixel image line opacity parsecolor pixel popup rect register savescreenshot savescreenshotas setpixel text transparency writepixel
+movie: active close filename framecount getname getreadonly isfromsavestate ispoweron length load mode name play playback playbeginning playing readonly record recording replay rerecordcount rerecordcounting save setreadonly stop
+debugger: getcyclescount getinstructionscount getsymboloffset hitbreakpoint resetcyclescount resetinstructionscount
+zapper: read set
+memory.readbyte(0)                             true
+memory.readbyterange(0,16)                     true
+memory.registerwrite(0, f)                     true
+ppu.readbyte(0x2000)                           true
+ppu.readbyterange(0x2000,16)                   true
+emu.framecount()                               true
+emu.frameadvance()                             true
+joypad.set(1,{})                               true
+os.getenv('ROM')                               true
