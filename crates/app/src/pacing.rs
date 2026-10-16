@@ -1,17 +1,16 @@
-//! One picture per 60 Hz tick: each frame waits for its deadline, then reads the pad,
-//! runs the tick and draws, so a VRR display shows every tick for the same 1/60 s.
+//! One picture per 60 Hz tick. winit waits for each tick on its own fixed-rate schedule
+//! (`UpdateMode::Reactive`, a high-resolution timer on Windows) and hands over the OS's
+//! input events just before the update, so the tick reads a fresh pad.
 
 use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
+use bevy::winit::{UpdateMode, WinitSettings};
 
 /// The tick's length.
 pub const PERIOD: Duration = Duration::from_nanos(16_666_667);
 
-/// How much of a wait is slept rather than spun: the OS timer's slack.
-const SPIN: Duration = Duration::from_millis(1);
-
-/// The frame's work after the wait, in order.
+/// The frame's work, in order.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Step {
     /// The game's tick.
@@ -22,76 +21,72 @@ pub enum Step {
     Picture,
 }
 
-/// The deadline after `deadline`, once `now` has reached it: a period on, or a period from
-/// `now` after a stall of more than a period, so a stall never becomes a burst of ticks.
+/// Whether a frame starting at `now` runs a tick, the last having run at `last`: an
+/// update half a period or less after it (a redraw request) does not, so the game never
+/// runs two ticks in one period.
 #[must_use]
-pub fn next_deadline(deadline: Instant, now: Instant, period: Duration) -> Instant {
-    if now > deadline + period {
-        now + period
-    } else {
-        deadline + period
-    }
+pub fn tick_due(last: Option<Instant>, now: Instant) -> bool {
+    last.is_none_or(|last| now.duration_since(last) > PERIOD / 2)
 }
 
-/// Sleeps to [`SPIN`] short of `deadline`, then spins to it.
-fn wait_until(deadline: Instant) {
-    if let Some(sleep) = deadline
-        .checked_duration_since(Instant::now())
-        .and_then(|left| left.checked_sub(SPIN))
-    {
-        std::thread::sleep(sleep);
-    }
-    while Instant::now() < deadline {
-        std::hint::spin_loop();
-    }
-}
-
-#[derive(Resource)]
-struct Limiter {
-    deadline: Instant,
+/// When the last tick ran, and whether this frame runs one.
+#[derive(Resource, Default)]
+pub struct Clock {
+    last: Option<Instant>,
+    due: bool,
     log: Option<FrameLog>,
 }
 
-/// Frame intervals, summarised every [`FrameLog::EVERY`] frames (`ROTJ_FRAME_LOG=1`).
+/// The frame runs the game's tick and the music's frame.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Bevy system params, rust-clippy#8940"
+)]
+pub fn due(clock: Res<'_, Clock>) -> bool {
+    clock.due
+}
+
+/// Tick intervals, summarised every [`FrameLog::EVERY`] ticks (`ROTJ_FRAME_LOG=1`).
+#[derive(Default)]
 struct FrameLog {
-    last: Instant,
-    intervals: Vec<f64>,
+    count: u32,
+    sum: f64,
+    squares: f64,
+    worst: f64,
 }
 
 impl FrameLog {
-    const EVERY: usize = 300;
+    const EVERY: u32 = 300;
 
-    fn record(&mut self, now: Instant) {
-        self.intervals
-            .push((now - self.last).as_secs_f64() * 1000.0);
-        self.last = now;
-        if self.intervals.len() < Self::EVERY {
+    fn record(&mut self, ms: f64) {
+        self.count += 1;
+        self.sum += ms;
+        self.squares += ms * ms;
+        self.worst = self.worst.max(ms);
+        if self.count < Self::EVERY {
             return;
         }
-        let count = f64::from(u32::try_from(self.intervals.len()).expect("300"));
-        let mean = self.intervals.iter().sum::<f64>() / count;
-        let variance = self
-            .intervals
-            .iter()
-            .map(|ms| (ms - mean).powi(2))
-            .sum::<f64>()
-            / count;
-        let worst = self.intervals.iter().copied().fold(0.0, f64::max);
+        let count = f64::from(self.count);
+        let mean = self.sum / count;
+        let sd = (self.squares / count - mean * mean).max(0.0).sqrt();
         info!(
-            "frame interval over {count} frames: mean {mean:.3} ms, sd {:.3} ms, worst {worst:.3} ms",
-            variance.sqrt()
+            "frame interval over {count} frames: mean {mean:.3} ms, sd {sd:.3} ms, worst {:.3} ms",
+            self.worst
         );
-        self.intervals.clear();
+        *self = Self::default();
     }
 }
 
-fn wait(mut limiter: ResMut<'_, Limiter>) {
-    wait_until(limiter.deadline);
+fn start_frame(mut clock: ResMut<'_, Clock>) {
     let now = Instant::now();
-    limiter.deadline = next_deadline(limiter.deadline, now, PERIOD);
-    if let Some(log) = &mut limiter.log {
-        log.record(now);
+    clock.due = tick_due(clock.last, now);
+    if !clock.due {
+        return;
     }
+    if let (Some(last), Some(log)) = (clock.last, &mut clock.log) {
+        log.record(now.duration_since(last).as_secs_f64() * 1000.0);
+    }
+    clock.last = Some(now);
 }
 
 /// Paces the app's frames to the tick.
@@ -99,16 +94,25 @@ pub struct PacingPlugin;
 
 impl Plugin for PacingPlugin {
     fn build(&self, app: &mut App) {
-        let now = Instant::now();
+        let mode = UpdateMode::Reactive {
+            wait: PERIOD,
+            react_to_device_events: false,
+            react_to_user_events: false,
+            react_to_window_events: false,
+        };
         let log = std::env::var("ROTJ_FRAME_LOG")
             .is_ok_and(|value| value == "1")
-            .then(|| FrameLog {
-                last: now,
-                intervals: Vec::with_capacity(FrameLog::EVERY),
-            });
-        app.insert_resource(Limiter { deadline: now, log })
-            .add_systems(First, wait)
-            .configure_sets(Update, (Step::Game, Step::Music, Step::Picture).chain());
+            .then(FrameLog::default);
+        app.insert_resource(WinitSettings {
+            focused_mode: mode,
+            unfocused_mode: mode,
+        })
+        .insert_resource(Clock {
+            log,
+            ..Clock::default()
+        })
+        .add_systems(First, start_frame)
+        .configure_sets(Update, (Step::Game, Step::Music, Step::Picture).chain());
     }
 }
 
@@ -119,48 +123,21 @@ mod tests {
     const MS: Duration = Duration::from_millis(1);
 
     #[test]
-    fn on_time_advances_by_a_period() {
-        let t = Instant::now() + Duration::from_secs(1);
-        let early = t.checked_sub(3 * MS).expect("after the clock's start");
-        assert_eq!(next_deadline(t, early, PERIOD), t + PERIOD);
+    fn the_first_frame_ticks() {
+        assert!(tick_due(None, Instant::now()));
     }
 
     #[test]
-    fn a_little_late_keeps_the_rhythm() {
-        let t = Instant::now();
-        assert_eq!(next_deadline(t, t + 5 * MS, PERIOD), t + PERIOD);
+    fn a_frame_a_period_on_ticks_even_a_little_early() {
+        let last = Instant::now();
+        assert!(tick_due(Some(last), last + PERIOD));
+        assert!(tick_due(Some(last), last + 15 * MS));
     }
 
     #[test]
-    fn a_stall_resets_instead_of_bursting() {
-        let t = Instant::now();
-        let now = t + Duration::from_secs(3);
-        assert_eq!(next_deadline(t, now, PERIOD), now + PERIOD);
-    }
-
-    #[test]
-    #[ignore = "real time: run with --release --ignored"]
-    fn real_time_frames_average_a_sixtieth() {
-        let start = Instant::now();
-        let mut deadline = start;
-        let mut errors = Vec::new();
-        for _ in 0..600 {
-            wait_until(deadline);
-            let now = Instant::now();
-            errors.push((now - deadline).as_secs_f64() * 1000.0);
-            deadline = next_deadline(deadline, now, PERIOD);
-        }
-        let mean = start.elapsed().as_secs_f64() / 600.0;
-        errors.sort_by(f64::total_cmp);
-        println!(
-            "mean frame {:.4} ms, 99th percentile wake error {:.4} ms",
-            mean * 1000.0,
-            errors[594]
-        );
-        assert!(
-            (mean / PERIOD.as_secs_f64() - 1.0).abs() < 0.01,
-            "mean {mean}"
-        );
-        assert!(errors[594] < 0.5, "99th percentile {} ms", errors[594]);
+    fn a_redraw_soon_after_a_tick_does_not_tick() {
+        let last = Instant::now();
+        assert!(!tick_due(Some(last), last + MS));
+        assert!(!tick_due(Some(last), last + PERIOD / 2));
     }
 }

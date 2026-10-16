@@ -153,17 +153,24 @@ No setting: the app always shows one picture per tick, the NES's own behaviour. 
 against today's (Bevy at the display rate, the tick in `FixedUpdate` from wall time):
 on a VRR display (the owner's 170 Hz, G-Sync on, windowed) every picture lasts 16.67 ms
 instead of the 3-3-3-3-3-2 refresh cadence; on fixed-rate displays it is no worse, and
-input latency is the same.
+the pad is read fresh at each tick.
 
 - Module `crates/app/src/pacing.rs`. `tick` (`play.rs`) and `advance_music` (`audio.rs`)
   move from `FixedUpdate` to `Update`, once per frame in that order; `tick` does not run
   while the menu is open (`advance_music` then pushes silence, see "While open").
   `Time::<Fixed>` is no longer used.
-- A limiter system in `First` (before `PreUpdate` reads the pad) waits until its deadline:
-  `thread::sleep` to about 1 ms short, then a spin. `next_deadline(deadline, now, period)`
-  advances by 1/60 s; more than one period late, it resets to `now` (no bursts of catch-up
-  ticks). So a frame is: wait, read the pad, tick, draw, present; Bevy's pipelined rendering
-  draws it while the main thread waits for the next deadline.
+- winit waits for each tick: `WinitSettings` in `UpdateMode::Reactive` with a 1/60 s wait
+  and no wake-ups on events, a fixed-rate schedule that resets instead of bursting when
+  late, on a high-resolution waitable timer on Windows. It hands over the OS's input events
+  just before each update, so a frame is: wait, read the pad, tick, draw, present.
+  (Amended 2026-10-16 after review: the first design slept inside the update, after winit
+  had delivered the events, so a key reached the game about a frame late; the owner chose
+  this fix. Measured on the owner's idle machine: interval mean 16.667 ms, standard
+  deviation 0.19-0.21 ms, worst 17.5 ms; the sleep-and-spin limiter it replaces held
+  0.00 ms but read the keyboard late.)
+- A system in `First` decides whether the frame ticks: `tick_due(last, now)` is true
+  unless the last tick ran half a period or less ago, so an extra update (a redraw
+  request) never runs a second tick; `tick` and `advance_music` run only on such frames.
 - `desired_maximum_frame_latency` stays 1 (wgpu's lowest-latency value; 0 is not
   expressible in Bevy and DX12 takes 1-16).
 - The tick stays 60.0 Hz; the audio queue's two-sample nudge absorbs drift as today.
@@ -192,13 +199,14 @@ In the gates (unit and headless app tests):
    open and close no sample-to-sample step exceeds the last sample's level / 441 (the
    10 ms ramp's own step); the glyph table maps
    "SOUND TEST" to the sound test's tile bytes (with the ROM).
-6. Pacing: `next_deadline` on time, slightly late, more than a period late; an `--ignored`
-   real-time test of 600 frames with the 99th percentile wake error under 0.5 ms.
+6. Pacing: `tick_due` on the first frame, a period on (and a little early), and half a
+   period or less after a tick.
 
 Real output (the 1.0 lessons: check what the player sees and hears), on the owner's
 machine with the Windows exe launched from WSL:
 
-7. Pacing: `ROTJ_FRAME_LOG=1`, frame interval 16.67 ms ± 0.5.
+7. Pacing: `ROTJ_FRAME_LOG=1`, frame interval mean 16.67 ms, standard deviation under
+   0.5 ms.
 8. Pixels: a PowerShell capture of the window, measured in Python: with overscan hidden
    the picture is 224 lines times the whole multiple, shown 240; sampled RGB equals the
    chosen palette's table; the menu's pixels lie on the same grid.

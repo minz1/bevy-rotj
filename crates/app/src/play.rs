@@ -215,7 +215,12 @@ pub struct PlayPlugin;
 impl Plugin for PlayPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, power_on)
-            .add_systems(Update, tick.in_set(Step::Game).run_if(menu_closed))
+            .add_systems(
+                Update,
+                tick.in_set(Step::Game)
+                    .run_if(crate::pacing::due)
+                    .run_if(menu_closed),
+            )
             .add_systems(
                 Update,
                 (
