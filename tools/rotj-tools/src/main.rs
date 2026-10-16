@@ -344,19 +344,23 @@ fn preview(pattern_path: &Path, out: &Path) -> Result<()> {
     let mut palette = [0x0f; 32];
     palette[..4].copy_from_slice(&[0x0f, 0x00, 0x10, 0x30]);
 
+    let lines: Vec<rotj_core::render::Line> = (0..rotj_core::render::SCREEN_H)
+        .map(|y| rotj_core::render::Line {
+            v: u16::try_from(((y / 8) << 5) | ((y % 8) << 12)).expect("below 15 bits"),
+            mask: 0x0A,
+            chr: [0, 1, 2, 3, 4, 5, 6, 7],
+            sprite_chr: [0, 1, 2, 3, 4, 5, 6, 7],
+            ..rotj_core::render::Line::default()
+        })
+        .collect();
     let mut frame = rotj_core::render::Frame::new();
-    frame.background(
-        0..rotj_core::render::SCREEN_H,
-        &rotj_core::render::Background {
-            nametables: &nametables,
-            pattern: &pattern,
-            pattern_base: 0,
-            palette: &palette,
-            mirroring: rotj_core::render::Mirroring::Vertical,
-            scroll_x: 0,
-            scroll_y: 0,
-        },
-    );
+    frame.render(&rotj_core::render::Picture {
+        lines: &lines,
+        vram: &nametables,
+        palette: &palette,
+        oam: &[0; 256],
+        chr: &pattern,
+    });
     write_png(
         out,
         u32::try_from(rotj_core::render::SCREEN_W).expect("const tiny"),

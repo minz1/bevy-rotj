@@ -14,9 +14,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::{Context, Result, bail};
-use rotj_core::render::{
-    Background, Frame, Mirroring, NAMETABLE_BYTES, PALETTE_BYTES, SCREEN_H, SCREEN_W, Sprites,
-};
+use rotj_core::render::{Frame, Line, NAMETABLE_BYTES, PALETTE_BYTES, Picture, SCREEN_H, SCREEN_W};
 
 /// Scroll overrides for a render, so a scroll can be swept when hunting a
 /// match against an emulator frame.
@@ -230,35 +228,38 @@ fn sources(job: &Job) -> Result<Sources> {
 fn screen(job: &Job) -> Result<()> {
     let sources = sources(job)?;
     let mirroring = match job.mirroring.as_str() {
-        "vertical" | "v" => Mirroring::Vertical,
-        "horizontal" | "h" => Mirroring::Horizontal,
+        "vertical" | "v" => 0,
+        "horizontal" | "h" => 1,
         other => bail!("unknown mirroring `{other}`"),
     };
 
+    let lines: Vec<Line> = (0..SCREEN_H)
+        .map(|y| {
+            let x = sources.scroll_x % 512;
+            let y = (sources.scroll_y + u16::try_from(y).expect("line fits")) % 480;
+            Line {
+                v: (y / 240) << 11
+                    | (x / 256) << 10
+                    | (y % 240 / 8) << 5
+                    | (y % 8) << 12
+                    | (x % 256) >> 3,
+                fine_x: u8::try_from(x & 7).expect("masked to 3 bits"),
+                ctrl: sources.ctrl,
+                mask: if job.no_sprites { 0x0E } else { 0x1E },
+                chr: [0, 1, 2, 3, 4, 5, 6, 7],
+                sprite_chr: [0, 1, 2, 3, 4, 5, 6, 7],
+                mirroring,
+            }
+        })
+        .collect();
     let mut frame = Frame::new();
-    frame.background(
-        0..SCREEN_H,
-        &Background {
-            nametables: &sources.nametables,
-            pattern: &sources.pattern,
-            pattern_base: if sources.ctrl & 0x10 != 0 { 0x1000 } else { 0 },
-            palette: &sources.palette,
-            mirroring,
-            scroll_x: sources.scroll_x,
-            scroll_y: sources.scroll_y,
-        },
-    );
-    let sprite_rows = if job.no_sprites { 0..0 } else { 0..SCREEN_H };
-    frame.sprites(
-        sprite_rows,
-        &Sprites {
-            oam: &sources.oam,
-            pattern: &sources.pattern,
-            pattern_base: if sources.ctrl & 0x08 != 0 { 0x1000 } else { 0 },
-            tall: sources.ctrl & 0x20 != 0,
-            palette: &sources.palette,
-        },
-    );
+    frame.render(&Picture {
+        lines: &lines,
+        vram: &sources.nametables,
+        palette: &sources.palette,
+        oam: &sources.oam,
+        chr: &sources.pattern,
+    });
 
     for path in [&job.out, &job.indices] {
         if let Some(dir) = path.parent() {

@@ -110,6 +110,11 @@ fn next(counter: u16, overhead: u32) -> u32 {
 /// The handler `$D3` runs at this IRQ (by `$D4`): its writes and RAM changes, and the
 /// cycles to the next IRQ, or `None` when the frame's chain ends.
 fn handler(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32> {
+    debug_assert!(
+        scroll.room[3] <= 0x0D,
+        "raster IRQ $D3 = {:02X} is not ported",
+        scroll.room[3]
+    );
     match scroll.room[3] {
         0 => bands_and_parallax(scroll, frame, irq),
         1 => three_bands(scroll, frame, irq),
@@ -160,7 +165,7 @@ fn handler(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32> {
             None
         }
         0x0D => credits(scroll, irq),
-        d3 => panic!("raster IRQ $D3 = {d3:02X} is not ported"),
+        _ => None,
     }
 }
 
@@ -437,7 +442,8 @@ pub(crate) fn chain(scroll: &mut Scroll, frame: u8) -> Vec<(u32, Reg)> {
     writes
 }
 
-/// The frame's raster IRQs' RAM changes, when its NMI armed them (`$D0` bit 7).
+/// The frame's raster IRQs' RAM changes; the caller runs it when the NMI armed them
+/// (`$D0` bit 7).
 pub fn run_irqs(game: &mut Game) {
     let frame = game.world.frame;
     chain(&mut game.scroll, frame);

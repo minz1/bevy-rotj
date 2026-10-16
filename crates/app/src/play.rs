@@ -70,25 +70,28 @@ impl Play {
             forced,
         };
         let registers = raster::Registers::of(&play.game);
-        play.run_frame(&registers);
+        play.run_frame(registers);
         play
     }
 
     /// The game's frame up to its NMI wait, its direct PPU writes (made in vblank or
     /// with rendering off) and the lines the frame after `registers`' NMI is drawn with.
-    fn run_frame(&mut self, registers: &raster::Registers) {
+    fn run_frame(&mut self, registers: raster::Registers) {
+        let mut registers = registers;
         self.game.frame(&self.prg, &self.chr, &mut |_, _| {});
         if self.game.reset() {
             self.game = Game::power_on(self.forced);
             self.raster = false;
             self.game.frame(&self.prg, &self.chr, &mut |_, _| {});
+            registers = raster::Registers::of(&self.game);
         }
         let direct = std::mem::take(&mut self.game.effects.vram.direct);
         self.ppu.apply(&direct, self.game.scroll.mirroring);
-        self.lines = raster::lines(registers, &self.game);
+        self.lines = raster::lines(&registers, &self.game);
     }
 
-    /// The game at `level`'s first loop frame, its first page already in the nametables.
+    /// The game at the end of `level`'s first loop frame, its first page already in the
+    /// nametables.
     #[cfg(test)]
     #[must_use]
     pub fn start(prg: Vec<u8>, chr: Vec<u8>, level: usize) -> Play {
@@ -113,7 +116,7 @@ impl Play {
         self.ppu.apply(&vblank.writes, self.game.scroll.mirroring);
         let registers = raster::Registers::of(&self.game);
         self.oam = self.game.oam.page;
-        self.run_frame(&registers);
+        self.run_frame(registers);
         vblank.sound
     }
 
@@ -979,7 +982,7 @@ mod tests {
             }
             lag
         };
-        let (mut drawn, mut jittered, mut skipped) = (0, 0, 0);
+        let (mut drawn, mut jittered, mut unmatched, mut skipped) = (0, 0, 0, 0);
         let (mut ours, mut theirs) = (Frame::new(), Frame::new());
         for tick in 0..3000 {
             play.step(0);
@@ -1010,6 +1013,7 @@ mod tests {
                 }
             }
             jittered += usize::from(compared.contains(&false));
+            unmatched += compared.iter().filter(|&&c| !c).count();
             if lines.iter().all(|l| l.mask & 0x18 == 0) {
                 continue;
             }
@@ -1032,6 +1036,6 @@ mod tests {
             }
             drawn += 1;
         }
-        assert_eq!((drawn, jittered, skipped), (2937, 42, 15));
+        assert_eq!((drawn, jittered, unmatched, skipped), (2937, 42, 319, 15));
     }
 }

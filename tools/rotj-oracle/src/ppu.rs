@@ -438,4 +438,25 @@ mod tests {
         rig.ppu.set_vblank();
         assert_eq!((rig.ppu.oam_addr, rig.ppu.status & 0x80), (0, 0x80));
     }
+
+    #[test]
+    fn a_write_while_drawing_is_unmodelled() {
+        let mut rig = Rig::new();
+        rig.write(0x2004, 1);
+        rig.seek(0x2000);
+        rig.write(0x2007, 1);
+        assert_eq!(rig.ppu.unmodelled, 0);
+        rig.ppu.drawing = Some(10);
+        rig.write(0x2007, 1);
+        assert_eq!(rig.ppu.unmodelled, 1);
+        rig.write(0x2004, 1);
+        assert_eq!(rig.ppu.unmodelled, 2);
+        rig.ppu.drawing = None;
+        rig.write(0x2001, 0x1E);
+        assert_eq!(rig.ppu.unmodelled, 2);
+        for (bit, mask) in [0x20, 0x40, 0x80].into_iter().enumerate() {
+            rig.write(0x2001, mask);
+            assert_eq!(rig.ppu.unmodelled, 3 + u32::try_from(bit).unwrap());
+        }
+    }
 }

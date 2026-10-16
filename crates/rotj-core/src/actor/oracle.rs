@@ -208,6 +208,9 @@ fn drawn(l: &Line) -> Line {
     }
 }
 
+/// The most lines in one frame the IRQs' jitter may explain: one per band edge.
+const MOST_JITTERED: usize = 4;
+
 /// Every drawn field of `line` is one of `near`'s (each CHR bank on its own), its
 /// vertical scroll one of `own`'s; the nametable bit and coarse X come from different
 /// writes (`$2000`, `$2005`), so either may land first.
@@ -688,12 +691,17 @@ fn drop_rewritten_irqs(writes: &mut Writes, at: &PeekEvent) {
         .retain(|&(addr, _)| (0x100..0x200).contains(&addr) || peek_byte(at, addr) == last[&addr]);
 }
 
+/// The bytes the raster handlers own.
+const OWNED: [u16; 12] = [
+    0xD1, 0xD2, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xFC, 0xFD, 0xFF,
+];
+
 /// The last value `writes` leaves in each byte the raster handlers own.
 fn owned(writes: &Writes) -> BTreeMap<u16, u8> {
     writes
         .iter()
         .copied()
-        .filter(|(addr, _)| matches!(addr, 0xD1 | 0xD2 | 0xD4..=0xDA | 0xFC | 0xFD | 0xFF))
+        .filter(|(addr, _)| OWNED.contains(addr))
         .collect()
 }
 
@@ -742,8 +750,8 @@ pub(crate) trait Environment {
     fn injected(&mut self) -> BTreeMap<&'static str, usize>;
     /// Frames whose lines were compared with the oracle's, and how many of them had a
     /// line only the IRQs' jitter explains.
-    fn pictures(&self) -> (usize, usize) {
-        (0, 0)
+    fn pictures(&self) -> Pictures {
+        Pictures::default()
     }
 }
 
@@ -763,9 +771,9 @@ struct Lockstep {
     /// Which interrupts `irq_writes` holds: the raster IRQs', a lag frame's NMI's.
     irq_kinds: (bool, bool),
     irq_check: Option<IrqCheck>,
-    /// The last NMI's registers, the port's state then and its frame, whose lines are
-    /// compared at its loop's end.
-    registers: Option<(super::raster::Registers, State, u64)>,
+    /// The last NMI's registers, the port's state then and the oracle's picture of its
+    /// frame, compared at its loop's end.
+    registers: Option<(super::raster::Registers, State, Picture)>,
     /// Between the NMI wait's entry and its return, where the NMI is the frame's own.
     waiting: bool,
     /// The port's own state and the oracle's peek at `$D3F9`, for a run that starts there.
@@ -791,14 +799,13 @@ struct Lockstep {
     checked: usize,
     /// XORed into the first byte of the next NMI's direct VRAM writes, to prove the check.
     flip_direct: u8,
-    /// Frames whose lines matched the oracle's ([`Lockstep::compare_lines`]).
-    pictures: usize,
-    /// Of those, frames with a line only the IRQs' jitter explains.
-    jittered: usize,
+    pictures: Pictures,
+    /// XORed into the port's `$D1` after its raster IRQs, to prove [`Lockstep::compare_irq_ram`].
+    flip_irq: u8,
 }
 
-/// At the NMI wait: the RAM the port's own raster IRQs leave, the bytes they own that
-/// the oracle's IRQs before the wait left (the rest run during the wait), and whether
+/// At the NMI wait: the RAM the port's own raster IRQs leave, the bytes they own as the
+/// oracle's IRQs before the wait left them (the rest run during the wait), and whether
 /// any raster IRQ ran before it.
 struct IrqCheck {
     port: Box<[u8; 2048]>,
@@ -862,8 +869,8 @@ impl Lockstep {
             ppu: Ppu::new(),
             checked: 0,
             flip_direct: 0,
-            pictures: 0,
-            jittered: 0,
+            pictures: Pictures::default(),
+            flip_irq: 0,
         }
     }
 
@@ -881,17 +888,15 @@ impl Lockstep {
         registers: &super::raster::Registers,
         before: &State,
         game: &State,
-        frame: u64,
+        oracle: &Picture,
     ) {
+        let frame = oracle.frame;
         assert_eq!(
             self.scene.machine.bus.ppu.unmodelled,
             0,
             "frame {frame}: the oracle's PPU was written mid-frame in a way its lines do not show (OAM, VRAM or palette, or colour emphasis){}",
             self.context()
         );
-        let Some(oracle) = self.scene.pictures.iter().find(|p| p.frame == frame) else {
-            return;
-        };
         if oracle.lines.is_empty() {
             return;
         }
@@ -905,7 +910,7 @@ impl Lockstep {
             l
         };
         let port: Vec<Line> = port.iter().map(normal).collect();
-        let raced: Vec<Line> = super::raster::lines(registers, before)
+        let before: Vec<Line> = super::raster::lines(registers, before)
             .iter()
             .map(normal)
             .collect();
@@ -921,7 +926,7 @@ impl Lockstep {
                 .map(normal)
                 .collect()
         };
-        let mut jittered = false;
+        let (mut jittered, mut raced) = (0, false);
         for (y, line) in port.iter().enumerate() {
             let own = states(y);
             if own.contains(line) {
@@ -932,8 +937,12 @@ impl Lockstep {
                 .filter(|&n| n < 240)
                 .flat_map(states)
                 .collect();
-            if own.contains(&raced[y]) || mixes(line, &own, &near) {
-                jittered = true;
+            if own.contains(&before[y]) {
+                raced = true;
+                continue;
+            }
+            if mixes(line, &own, &near) {
+                jittered += 1;
                 continue;
             }
             panic!(
@@ -944,8 +953,17 @@ impl Lockstep {
                 self.context()
             );
         }
-        self.pictures += 1;
-        self.jittered += usize::from(jittered);
+        assert!(
+            jittered <= MOST_JITTERED,
+            "frame {frame}: {jittered} lines only the IRQs' jitter explains{}",
+            self.context()
+        );
+        let pictures = &mut self.pictures;
+        pictures.frames += 1;
+        pictures.jittered += usize::from(jittered > 0);
+        pictures.lines += jittered;
+        pictures.most = pictures.most.max(jittered);
+        pictures.raced += usize::from(raced);
     }
 
     /// The bytes the raster handlers own, as the port's own [`super::raster::run_irqs`]
@@ -965,6 +983,9 @@ impl Lockstep {
             return;
         }
         want.extend(owned(&self.irq_writes));
+        let mut port = port;
+        port[0xD1] ^= std::mem::take(&mut self.flip_irq);
+        self.pictures.irqs += 1;
         for (&addr, &value) in &want {
             assert_eq!(
                 port[usize::from(addr)],
@@ -1093,20 +1114,26 @@ impl Lockstep {
 
     /// Writes the interrupts' bytes over `game`, skipping a byte whose value at the injection point differs from the last value an interrupt wrote there; the stack page is always injected.
     fn inject_irqs_at(&mut self, game: &mut State, at: &PeekEvent) {
-        if let Some((registers, before, frame)) = self.registers.take() {
-            self.compare_lines(&registers, &before, game, frame);
+        if let Some((registers, before, picture)) = self.registers.take() {
+            self.compare_lines(&registers, &before, game, &picture);
         }
         let mut writes = std::mem::take(&mut self.irq_writes);
         drop_rewritten_irqs(&mut writes, at);
         let (raster, lag) = std::mem::take(&mut self.irq_kinds);
         self.irq_check = (!lag).then(|| {
+            let (mut ram, mut wram) = (self.memory.ram.clone(), self.memory.wram.clone());
+            game.project_into(&mut ram, &mut wram);
+            let mut oracle: BTreeMap<u16, u8> = OWNED
+                .iter()
+                .map(|&addr| (addr, ram[usize::from(addr)]))
+                .collect();
+            oracle.extend(owned(&writes));
             let mut port = game.clone();
             super::raster::run_irqs(&mut port);
-            let (mut ram, mut wram) = (self.memory.ram.clone(), self.memory.wram.clone());
             port.project_into(&mut ram, &mut wram);
             IrqCheck {
                 port: ram,
-                oracle: owned(&writes),
+                oracle,
                 raster,
             }
         });
@@ -1152,6 +1179,7 @@ impl Lockstep {
         self.ppu = ppu_of(&event);
         self.irq_writes.clear();
         self.irq_kinds = (false, false);
+        self.registers = None;
         self.memory.lift()
     }
 }
@@ -1258,7 +1286,21 @@ impl Environment for Lockstep {
             }
         }
         self.compare_vram(&woke);
-        self.registers = Some((super::raster::Registers::of(game), game.clone(), woke.frame));
+        let picture = self
+            .scene
+            .pictures
+            .iter()
+            .find(|p| p.frame == woke.frame)
+            .expect("the NMI's frame among the oracle's last pictures")
+            .clone();
+        let unread =
+            self.registers
+                .replace((super::raster::Registers::of(game), game.clone(), picture));
+        assert!(
+            unread.is_none(),
+            "frame {}: the last NMI's lines were never compared",
+            woke.frame
+        );
     }
 
     fn outside(&mut self, game: &mut State, outside: super::Outside) {
@@ -1348,8 +1390,8 @@ impl Environment for Lockstep {
         std::mem::take(&mut self.injected)
     }
 
-    fn pictures(&self) -> (usize, usize) {
-        (self.pictures, self.jittered)
+    fn pictures(&self) -> Pictures {
+        self.pictures
     }
 }
 
@@ -1594,10 +1636,23 @@ pub(crate) struct GameRun {
     pub reset: bool,
     /// A draw hung the port's game and the oracle's loop never waited for an NMI again.
     pub hung: bool,
-    /// Frames whose 240 lines matched the oracle's.
-    pub pictures: usize,
-    /// Of those, frames with a line only the raster IRQs' jitter explains.
+    pub pictures: Pictures,
+}
+
+/// What a lockstep's picture checks compared.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Pictures {
+    /// Frames whose 240 lines matched the oracle's ([`Lockstep::compare_lines`]).
+    pub frames: usize,
+    /// Of those, frames with a line only the IRQs' jitter explains, those lines, and the
+    /// most in one frame.
     pub jittered: usize,
+    pub lines: usize,
+    pub most: usize,
+    /// Frames with a line drawn from the NMI's state, a byte the loop wrote after an IRQ read it.
+    pub raced: usize,
+    /// Frames whose raster IRQ bytes were compared ([`Lockstep::compare_irq_ram`]).
+    pub irqs: usize,
 }
 
 /// Runs the port's [`Game::frame`](super::Game::frame) chained from one lift at the
@@ -1628,6 +1683,15 @@ pub(crate) fn assert_game_recording(scene: Scene, frames: u64) -> (GameRun, Tape
 
 /// [`assert_game`] with the first byte of the first direct VRAM write the port's NMI
 /// hands out flipped, which the VRAM compare must catch.
+/// [`assert_game`] with the port's `$D1` flipped after its first raster IRQs, which
+/// the IRQ compare must catch.
+pub(crate) fn assert_game_with_a_flipped_raster_byte(scene: Scene, frames: u64) -> GameRun {
+    let (prg, chr) = (scene.prg(), scene.machine.bus.cart.chr.clone());
+    let mut lock = Lockstep::new(scene, frames, None);
+    lock.flip_irq = 0xFF;
+    run_game(&mut lock, &prg, &chr)
+}
+
 pub(crate) fn assert_game_with_a_flipped_direct_write(scene: Scene, frames: u64) -> GameRun {
     let (prg, chr) = (scene.prg(), scene.machine.bus.cart.chr.clone());
     let mut lock = Lockstep::new(scene, frames, None);
@@ -1831,7 +1895,7 @@ pub(crate) fn run_game(env: &mut impl Environment, prg: &[u8], chr: &[u8]) -> Ga
         }
     }
     run.injected = env.injected();
-    (run.pictures, run.jittered) = env.pictures();
+    run.pictures = env.pictures();
     run
 }
 

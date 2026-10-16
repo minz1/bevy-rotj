@@ -514,7 +514,19 @@ mod tests {
             (35299, 12, 1, 17, 8901, 0, 1),
             "{run:?}"
         );
-        assert_eq!((run.pictures, run.jittered), (47315, 2318), "{run:?}");
+        let pictures = run.pictures;
+        assert_eq!(
+            (
+                pictures.frames,
+                pictures.jittered,
+                pictures.lines,
+                pictures.most,
+                pictures.raced,
+                pictures.irqs
+            ),
+            (47332, 2318, 2362, 2, 0, 31268),
+            "{run:?}"
+        );
         let injected: Vec<_> = run.injected.keys().copied().collect();
         assert_eq!(
             injected,
@@ -1838,6 +1850,22 @@ mod tests {
         let message = caught.expect_err("the flipped byte is caught");
         let message = message.downcast_ref::<String>().expect("a formatted panic");
         assert!(message.contains("VRAM table"), "{message}");
+    }
+
+    /// The port's `$D1` flipped after its first raster IRQs in stage 1-2 (area 2, `$D3`
+    /// 0) is caught by the IRQ compare.
+    #[test]
+    #[ignore = "a lockstep into stage 1-2; the gates run it in release with --ignored"]
+    fn a_changed_raster_byte_is_caught() {
+        let Some(scene) = Scene::tas(2150) else {
+            return;
+        };
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            super::oracle::assert_game_with_a_flipped_raster_byte(scene, 300)
+        }));
+        let message = caught.expect_err("the flipped byte is caught");
+        let message = message.downcast_ref::<String>().expect("a formatted panic");
+        assert!(message.contains("$00D1 after the raster IRQs"), "{message}");
     }
 
     /// `$3F10`/`$3F14` land on entries 0 and 4 in the port's `Ppu` as in the oracle's

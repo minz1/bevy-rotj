@@ -526,4 +526,20 @@ mod tests {
                 .all(|event| event.pc == 0xE000 || event.pc == 0xE002)
         );
     }
+
+    #[test]
+    fn render_address_follows_the_ppu() {
+        let program = [
+            0xA9, 0x1E, 0x8D, 0x01, 0x20, 0xA0, 0x03, 0xA2, 0x00, 0xCA, 0xD0, 0xFD, 0x88, 0xD0,
+            0xF8, 0xA9, 0x24, 0x8D, 0x06, 0x20, 0xA9, 0x00, 0x8D, 0x06, 0x20, 0x4C, 0x19, 0xE0,
+        ];
+        let mut machine = Machine::power_on(cart(&program, &SPIN));
+        machine.dead_frames = 0;
+        let log = machine.run_frame(0);
+        let v: Vec<u16> = log.lines[10..15].iter().map(|line| line.v).collect();
+        assert_eq!(v, [0x2020, 0x3020, 0x4020, 0x3400, 0x4400]);
+        let drawn = log.lines[12];
+        let after = Line { v: 0x2400, ..drawn };
+        assert_eq!(log.splits, [(12, drawn, after)]);
+    }
 }
