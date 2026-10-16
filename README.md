@@ -17,9 +17,9 @@ None of the game is in this repository or in the downloads. You need your copy o
 
 Each [release](https://github.com/minz1/bevy-rotj/releases) has a Windows exe and a
 Linux one. Put your ROM next to the exe, or drop it onto the exe (on Linux, pass it as
-the first argument); `ROTJ_ROM=/path/to/rom.nes` works too. Nothing is written to your
-machine, so the ROM stays where you put it. If no ROM is found, the exe says where it
-looked.
+the first argument); `ROTJ_ROM=/path/to/rom.nes` works too. The ROM stays where you put
+it; the only file the game writes is `settings.ron`, next to the exe, when you close the
+settings menu. If no ROM is found, the exe says where it looked.
 
 ## Build from source
 
@@ -43,8 +43,18 @@ workspace still builds and tests (the ROM tests skip). If you add the ROM later,
 | B (weapon) | Z / J    | West or East |
 | Start      | Enter    | Start |
 | Select     | Shift    | Select |
+| Settings   | Esc / F1 | Guide, or click the right stick |
 
-The window is resizable and the picture stays at an integer scale. If the renderer
+Esc opens the settings menu anywhere, and so does Select while the game is paused:
+volume, overscan, palette, the sprite limit and vsync. Everything starts the way the NES
+looked: a TV's overscan hides 8 lines at the top and bottom, the colours are Composite
+Direct, and more than 8 sprites on a line flicker. Turn the sprite limit off and the
+flicker from it goes. Pick FILE as the palette to use your own 64-colour `.pal`, saved
+as `palette.pal` next to the exe.
+
+The window is resizable and the picture stays at an integer scale. The game shows one
+picture per 60 Hz tick, so on a variable-refresh display (G-Sync, FreeSync) every frame
+lasts the same 1/60 s. If the renderer
 misbehaves, `ROTJ_RENDER_BACKEND=gl` (or `vulkan`) picks a wgpu backend. `ROTJ_LEVEL=1..12`
 starts on a later level; `ROTJ_RECORD_INPUT=<dir>` records your pads for a replay against
 the original.

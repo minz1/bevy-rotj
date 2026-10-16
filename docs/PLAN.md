@@ -39,12 +39,14 @@ workspace version in `Cargo.toml` and the in-game version string are the same.
 | 1.0.3 | The ROM embedded at build time: a self-contained exe (the owner's call, 2026-10-16) | **tagged** |
 | 1.0.4 | ROM-less builds find the ROM at start-up (argument, `ROTJ_ROM`, beside the exe), and each release carries ROM-less Windows and Linux exes (the owner's design, 2026-10-16) | **tagged** |
 | 1.0.5 | The owner's playtest of 1.0.4: integer scaling, no audio pops (the output filter and a queue that follows the device), opposite directions as the game reads them | **tagged** |
-| 1.1.0 | Settings menu (volume, CRT filters, FPS modes, widescreen) | |
-| 1.2.0 | Chapter select and passwords | |
-| 1.3.0 | Prototype music (enhanced mode) | |
-| 1.4.0 | Post-game bonus levels authored in Tiled, NES-strict | |
-| 1.5.0 onward | Enhanced look for the bonus levels, prototype bosses, alternate ending, cut-content restorations, overworld map: one minor release each, in the order they land | |
-| then | Enhanced effects: native-resolution render upscaled and interpolated, 2D lighting at the player's resolution (Classic untouched) | |
+| 1.1.0 | The settings file and menu, one picture per tick (`docs/specs/2026-10-16-settings-menu-design.md`), then the game's HUD, pause, title and password screens in NES-styled Bevy UI (spec 2) | spec 1 on main |
+| 1.1.x | Modernisation, one patch per step, no behaviour change (owner, 2026-10-16: "replace the NES stuff ALL with modern patterns and modern tech"): the GPU renderer (Bevy tilemaps and sprites; the GPU's readback must equal `Frame`), the game loop on Bevy schedules and `States`, the player as a character (enum state machines, the ECS pilot), actors as entities family by family, levels as assets (an importer run on the player's ROM at build time), scripts as data, input as actions | |
+| 1.2.0 onward | Enhanced features, each once its prerequisite has landed: interpolated motion and a `frame_rate` setting (after the GPU renderer and actors as entities), CRT filters (after the renderer), widescreen (after actors and levels), remastered audio | |
+| then | Chapter select and passwords (revisit: the game's own password screen is ported) | |
+| then | Prototype music (enhanced mode) | |
+| then | Post-game bonus levels authored in Tiled, NES-strict | |
+| then | Enhanced look for the bonus levels, prototype bosses, alternate ending, cut-content restorations, overworld map: one minor release each, in the order they land | |
+| then | Enhanced effects: native-resolution render upscaled, 2D lighting at the player's resolution (Classic untouched) | |
 | then | Community tools: a level editor on the bonus-level format, then level sharing | |
 | maybe | A Robin or Nightwing mode: the player becomes a character definition, Batman the verified Classic one; a minor release unless it breaks saves or the level format | |
 | 2.0.0 | Reserved for the first breaking change to the public interface (see Versioning) | |
@@ -122,7 +124,7 @@ behaviour (the 1/16-pixel fixed point, the camera, one-hit deaths) arrive as Enh
 Mode settings layered over it (`docs/specs/2026-10-15-classic-and-enhanced-modes-design.md`). `disasm/` stays byte-identical as a baseline check, with ROM patches as
 separate artifacts.
 
-**Widescreen (1.1.0, decided 2026-10-14).** A settings option that widens the
+**Widescreen (decided 2026-10-14; an Enhanced feature after 1.1.x).** A settings option that widens the
 view past the NES's 256 px; classic 256 px stays the default. The extra columns
 come from the level map the port already streams, but actors spawn as the level
 pages forward (`docs/ACTORS.md` §5a), timed for a 256 px screen, so the spawn
@@ -216,7 +218,7 @@ ROMs in `raw/` (untracked): the NES original, the SNES prototype
 and the Genesis retail port (`… (USA).md`). The 16-bit platforming itself is not
 worth porting — only these four things are.
 
-### Prototype music (1.3.0, small)
+### Prototype music (after the Enhanced features, small)
 
 The prototype carries arrangements of NES tunes that its engine never calls
 (title intro ID 01, transition jingles IDs 09/0C).
@@ -232,7 +234,7 @@ The prototype carries arrangements of NES tunes that its engine never calls
   They belong in enhanced mode. A faithful-mode version would mean *hand-
   arranging* them for our 2A03 synth (creative work, optional).
 
-### Chapter select and passwords (1.2.0, small)
+### Chapter select and passwords (after the Enhanced features, small)
 
 The Genesis retail build hides a level select behind `xy00` passwords
 (stage `x`, sub-area `y`); the Game Boy port has three disabled passwords.
@@ -245,7 +247,7 @@ The Genesis retail build hides a level select behind `xy00` passwords
   under the same rule.
 - **Verification:** our own UI; parity does not apply.
 
-### Prototype boss encounters (1.5.0 onward, large — a project, not an extraction)
+### Prototype boss encounters (later, large — a project, not an extraction)
 
 The prototype's Joker fights use new AI. This is 65816 code in an *unfinished*
 build, so "extracting the routines" is not the right framing:
@@ -263,7 +265,7 @@ build, so "extracting the routines" is not the right framing:
 - **Scope proposal:** one boss as a proof, then the rest. Deliver as a
   "Prototype Boss" toggle and/or a boss-rush mode.
 
-### Alternate ending (1.5.0 onward, moderate)
+### Alternate ending (later, moderate)
 
 The prototype has a different ending sequence.
 
@@ -273,7 +275,7 @@ The prototype has a different ending sequence.
 - **Verification:** assets verified against the emulator; the sequence itself is
   our implementation, so it is documented as an enhancement, not parity.
 
-### Bonus levels (1.4.0, decided 2026-10-14)
+### Bonus levels (after the chapter select and prototype music, decided 2026-10-14)
 
 Post-game levels built from the content the game never used: the unused NES
 tileset, and level *shapes* taken from the SNES prototype where its layouts
@@ -314,8 +316,8 @@ tile from 64, with 8 sprites per scanline, while the SNES is 4bpp/15-bit; and th
 SNES audio is sampled, not the 2A03's synth. So everything above lands as an
 *enhanced mode* alongside the faithful one, sharing the same game logic.
 
-The settings menu (1.1.0) and the chapter select (1.2.0) come first, then the
-enhancement work above. User's goal,
+The settings menu (1.1.0), the modernisation (1.1.x) and the Enhanced features come
+first, then the enhancement work above. User's goal,
 in their words: "i don't want to leave anything on the cutting room floor".
 
 ## Cut content and cross-platform reference (after 1.1.0)

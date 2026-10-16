@@ -311,6 +311,7 @@ fn line(font: &Font, text: &str, tint: Color) -> impl Bundle {
     (
         Node {
             flex_direction: FlexDirection::Row,
+            height: Val::Px(16.0),
             ..default()
         },
         Children::spawn(SpawnIter(glyphs.into_iter())),
