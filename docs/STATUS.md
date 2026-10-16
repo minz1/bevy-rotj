@@ -1,4 +1,4 @@
-# Status — where 1.0.4 stands
+# Status — where 1.0.5 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -22,12 +22,13 @@ Last reconciled 2026-10-16 (agent merges are recorded here as they land).
 | 1.0.2 | **done, tag `1.0.2`** (2026-10-16): the picture. The owner's playtest of 1.0.1 showed garbage in the stage 1 boss's status bar and warping at the top of stage 1. The game runs FME-7 raster IRQ chains (`$E2A9`, a handler per `$D3`) in 12 areas and the port modelled four; every check compared RAM, nametables and palette, never the lines the PPU draws. Now `actor/raster.rs` runs all of them (`$D3` 0-`$0D`) and builds the 240 line states of every frame; the oracle records the same per line, pinned to fceux's pixels on all 48,100 TAS frames (`tools/rotj-oracle/tests/picture.rs`, 0 differing); every lockstep (the chain, random play, the sweep, the explorer, playtests) compares the port's lines with the oracle's each frame, and the app's own composition is compared pixel for pixel over the boot, title and attract (`play::tests::the_app_draws_like_the_oracle_from_power_on`). The PPU mask shadow `$FE` is modelled (the continue screen and GAME OVER blanked nothing before). Off the TAS, with lines compared (2026-10-16): the sweep's 600 runs show no divergence after one lockstep fix (an NMI that ran past the first IRQ's counter let that IRQ in before the loop woke, and the lockstep injected its bytes as the NMI's, so the port's own IRQ model ran it a second time; its bytes now stay with the frame's IRQs; stage 5's `28821` seed 3 weapon 4 is pinned), and three runs freeze as the game does (weapon 0's charge, `docs/ACTORS.md` §9t), the oracle with them; the explorer (2000 branches, seed 1) reached the same 295 cells and 125 pairs with no divergence |
 | 1.0.3 | **done, tag `1.0.3`** (2026-10-16): the ROM embedded at build time (the owner's call). `crates/app/build.rs` finds the ROM by `rotj_rom::locate` (`ROTJ_ROM`, which must be an absolute path, else `raw/`), checks its PRG+CHR MD5 and compiles PRG and CHR into the exe, which then runs on its own; a named but missing or wrong ROM fails the build. Without a ROM the workspace still builds, lints and tests (public CI), and that exe says it was built without one and exits 2. 1.0.1's start-up search, its cache and the exe's argument are gone with their tests; the tests read the ROM by the same rule as the build. An exe built this way contains the game and is never shared (`docs/specs/2026-10-16-embedded-rom-design.md`) |
 | 1.0.4 | **done, tag `1.0.4`** (2026-10-16): downloads. The build-time embedding stays as 1.0.3 has it; an exe built without a ROM now finds it at start-up (`rotj_rom::Rom::load`): the first argument (a file dropped on the exe), then `ROTJ_ROM`, then a `.nes` beside the exe. A named file that is missing or wrong is an error; a bad file beside the exe is noted and the search goes on; with none the exe says where it looked and exits 2 (waiting for Enter on Windows). No cache and no `raw/` at start-up: nothing is written to the player's machine. `.github/workflows/release.yml` builds the ROM-less Linux and Windows (mingw cross-build) exes on a pushed tag, strips them and attaches them to the GitHub release; 1.0.4 is the first release with binaries (`docs/specs/2026-10-16-embedded-rom-design.md`, "Amendment") |
+| 1.0.5 | **done, tag `1.0.5`** (2026-10-16): the owner's playtest of 1.0.4. The picture letterboxes at the largest whole multiple of 256x240 that fits the window, on whole pixels (`main.rs` `integer_view`, `fit_camera`); `AutoMin` had stretched it to about 5.7x, so pixels were 5 or 6 screen pixels wide and dithered backgrounds shimmered as the camera scrolled. The pops: the app made 734 samples per 60 Hz frame (44,040/s) for a device playing 44,100/s, and every underrun dropped a signal that sat near 0.5 of full scale (no output filter) to zero; now `ApuStream` has the console's 90 Hz high-pass and 14 kHz low-pass (the NES-001's 440 Hz high-pass is left out by the owner's ear: it takes the bass), the frame makes 735 samples nudged by 2 to hold three frames queued, and the source waits for the queue and holds its last sample when it runs dry. Left+Right (or Up+Down) held together: `Game::nmi` now ANDs the new presses with the raw read as `$C1DB` does (the owner's playtest replays clean) |
 
 ## Verified working
 
 | area | evidence |
 | --- | --- |
-| Gates | `.orchestration/gates.sh` (since 1.0.1, with the ROM in `raw/` or `ROTJ_ROM`, which since 1.0.3 the app's build embeds): fmt, clippy pedantic at zero warnings, the release `--ignored` suite of rotj-core, rotj-oracle and the app (the lockstep chain, 19 s, which records the state tape under `target/tapes/` and since 1.0.2 compares every frame's lines; the oracle's whole-game tests; the oracle's picture against fceux's on all 48,100 TAS frames; the app's pixels against the oracle's from power-on), `ROTJ_REQUIRE_ROM=1 cargo test --workspace` (676 tests at 1.0.3, 682 at 1.0.4), `tools/check-no-rom-data.py` (no tracked file carries 32 bytes of the ROM), `cargo deny check`, `disasm/assemble.sh` (generates the listing from the ROM, `OK byte-identical`), `tools/boot-check.sh`. Without a ROM `cargo test --workspace` passes with the ROM tests skipped, which is all public CI can run, and the exe built and run without one exits 2 with its "no usable ROM found" message (CI's boot job; each release's manual checks also take a fresh clone without a ROM, whose exe must then boot from `ROTJ_ROM`, the first argument and a ROM beside it). fceux captures the tests once read are local (git-ignored); the tests produce the same bytes with the oracle and pin them to fceux by the committed digests in `*/digests.txt` (`tools/emu/digest.py`). `ROTJ_REQUIRE_ROM=1 ROTJ_RECORD_TAPE=1` is gone: the lockstep always writes the tape |
+| Gates | `.orchestration/gates.sh` (since 1.0.1, with the ROM in `raw/` or `ROTJ_ROM`, which since 1.0.3 the app's build embeds): fmt, clippy pedantic at zero warnings, the release `--ignored` suite of rotj-core, rotj-oracle and the app (the lockstep chain, 19 s, which records the state tape under `target/tapes/` and since 1.0.2 compares every frame's lines; the oracle's whole-game tests; the oracle's picture against fceux's on all 48,100 TAS frames; the app's pixels against the oracle's from power-on), `ROTJ_REQUIRE_ROM=1 cargo test --workspace` (676 tests at 1.0.3, 682 at 1.0.4, 687 at 1.0.5), `tools/check-no-rom-data.py` (no tracked file carries 32 bytes of the ROM), `cargo deny check`, `disasm/assemble.sh` (generates the listing from the ROM, `OK byte-identical`), `tools/boot-check.sh`. Without a ROM `cargo test --workspace` passes with the ROM tests skipped, which is all public CI can run, and the exe built and run without one exits 2 with its "no usable ROM found" message (CI's boot job; each release's manual checks also take a fresh clone without a ROM, whose exe must then boot from `ROTJ_ROM`, the first argument and a ROM beside it). fceux captures the tests once read are local (git-ignored); the tests produce the same bytes with the oracle and pin them to fceux by the committed digests in `*/digests.txt` (`tools/emu/digest.py`). `ROTJ_REQUIRE_ROM=1 ROTJ_RECORD_TAPE=1` is gone: the lockstep always writes the tape |
 | Playtest replays and picture parity | the app records a session's pads (`ROTJ_RECORD_INPUT=<dir> cargo run --release -p batman-rotj`, one `<millis>-level<N>.pads` per stage start); `ROTJ_REQUIRE_ROM=1 ROTJ_PLAYTEST=<file> cargo test --release -p rotj-core the_playtest_matches_the_oracle -- --ignored --nocapture` replays it in lockstep from power-on (`oracle::assert_playtest`: one pad per NMI wait, the RNG pinned to the app's, `ROTJ_LEVEL` as the game's own `$D3D8` level poke). Every lockstep also runs the app's own `Game::nmi` on a clone (its RNG, pads and counters must equal the game's) and applies its VRAM writes to a port-side `Ppu` compared with the oracle's nametables and palette at every NMI: on over the whole chain, no divergence. All 13 level starts match for 300 frames. Fixed on the way: the VRAM queue drains last-pushed first (`$C084`), the boss card's attribute row is read from `$D93E`, a level's first load sits over the boot payload (CHR `$F0-$F7`, not the ending's `$F8-$FF`) with the intro's raster bytes. Since 1.0.2 every lockstep also compares the 240 lines each frame is drawn with (`Lockstep::compare_lines`: scroll, `$2000`, `$2001`, the CHR banks per line, split lines either state), asserts the port's own raster IRQs leave the bytes the game's did (`compare_irq_ram`), and fails on a mid-frame PPU write the line model cannot show. Gaps: lag frames and loads with the NMI off (the port takes no CPU time, so a replay drifts once the game drops a frame: the owner's 1.0.1 recording diverges at 119 s), VRAM writes by injected routines |
 | Boot | `tools/boot-check.sh` (and CI) must print `OK: still running after Ns`, or for an exe built and run without a ROM (CI) `OK: built and run without a ROM` |
 | Title screen | the title the port boots into (reset, intro, title) renders the emulator's frame 300 with 0/57,344 pixels different (`play::tests::the_title_draws_the_emulators_frame`); the boot, intro, title, passwords, attract mode and sound test match the oracle at every NMI wait from power-on (`boot::tests`) |
@@ -58,6 +59,7 @@ Last reconciled 2026-10-16 (agent merges are recorded here as they land).
    **1.0.2, the raster splits and per-line picture checks**: **tagged `1.0.2`** (2026-10-16).
    **1.0.3, the ROM embedded at build time**: **tagged `1.0.3`** (2026-10-16).
    **1.0.4, the start-up fallback and release downloads**: **tagged `1.0.4`** (2026-10-16).
+   **1.0.5, integer scaling, the pops and opposite directions**: **tagged `1.0.5`** (2026-10-16).
 3. **1.1** per `docs/PLAN.md`: settings (frame pacing and vsync, sprite limit, palette,
    widescreen), Bevy UI, and the re-architecture's first seams, under the Classic suites
    (`docs/specs/2026-10-15-classic-and-enhanced-modes-design.md`).
@@ -89,6 +91,11 @@ None open (the 1.0.1 decisions were taken on 2026-10-16, below).
 
 ## Owner decisions made
 
+- **1.0.5 (2026-10-16, after the owner's playtest of 1.0.4).** The picture letterboxes at
+  a whole multiple (over filling the window with a sharp-bilinear stretch). The output
+  filter is the 90 Hz high-pass and 14 kHz low-pass only: with the NES-001's 440 Hz
+  high-pass the music sounded thin and high to the owner. Overscan (lines 0-7 and
+  232-239, which a TV hides) is shown as the PPU draws it until 1.1's settings.
 - **1.0.4: ROM-less builds find the ROM at start-up, and releases carry downloads
   (2026-10-16, the owner's design).** One rule: an embedded ROM wins; without one, the exe
   tries the first argument, `ROTJ_ROM`, then a `.nes` beside the exe. No cache and no
@@ -242,8 +249,18 @@ The port takes no CPU time: no lag frames, and a load with the NMI off takes no 
 
 ## Bugs the checks missed
 
-Found by the owner's first playtests (2026-10-15, and 1.0.1's on 2026-10-16); each is now
-pinned by a test.
+Found by the owner's first playtests (2026-10-15, and 1.0.1's and 1.0.4's on 2026-10-16);
+each is now pinned by a test.
+
+- **The picture shimmered and the sound popped (1.0.4).** Both sat outside every check:
+  the pixel tests compare the 256x240 frame, not how the window scales it (`AutoMin`, about
+  5.7x on the owner's screen), and the audio tests compare register writes and the synth,
+  not the queue feeding the device (44,040 samples a second against 44,100, each underrun a
+  step of about half full scale). Pinned by `the_picture_scales_by_whole_multiples_on_whole_pixels`,
+  `a_held_level_settles_to_zero`, `the_frame_size_follows_the_queue` and
+  `an_underrun_holds_the_last_sample_and_refills`. The same playtest's replay found the
+  port's `pressed` wrong with Left and Right held together
+  (`opposite_directions_press_from_the_raw_read`).
 
 - **The boss status bar was garbage, and stage 1 warped at the top (1.0.1).** The game
   splits the screen with FME-7 IRQ chains in 12 areas (per-band scroll, a `$2006` jump to

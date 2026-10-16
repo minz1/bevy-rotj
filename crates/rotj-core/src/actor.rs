@@ -275,7 +275,7 @@ impl Game {
         if held & 0x0C == 0x0C {
             held &= 0xF7;
         }
-        world.pressed = (held ^ world.pad) & held;
+        world.pressed = (held ^ world.pad) & pad;
         world.pad = held;
         let effects = &mut self.effects;
         let sound = [
@@ -1924,5 +1924,18 @@ mod tests {
         let writes = game.nmi(0).writes;
         let bytes: Vec<_> = writes.iter().map(|write| write.bytes[1]).collect();
         assert_eq!(bytes, [0x06, 0x26]);
+    }
+
+    /// `$C1DB` masks Left+Right (and Up+Down) out of the held pad but ANDs the new
+    /// presses with the raw read: at playtest frame 9667 Right comes back as pressed.
+    #[test]
+    fn opposite_directions_press_from_the_raw_read() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let mut game = super::room::start(&rom.prg, &rom.chr, 0);
+        game.nmi(0xC1);
+        game.nmi(0xC3);
+        assert_eq!((game.world.pad, game.world.pressed), (0xC2, 0x03));
     }
 }

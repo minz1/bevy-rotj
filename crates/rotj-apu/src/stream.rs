@@ -2,11 +2,14 @@
 //! audio devices want 44.1/48 kHz, so this resamples the APU's output for the
 //! audio callback.
 //!
-//! Output is the mixer's level directly: [`crate::mixer`] yields `0.0` at
-//! silence and `0.0..=1.0` while channels play, which is already the shape
-//! `rodio`/`cpal` want (`f32` in `-1.0..=1.0`), so a silent APU is a silent
-//! stream. (The hardware's own analog output has a small DC offset; the port
-//! does not reproduce that.)
+//! Output is the mixer's level (`0.0..=1.0`, [`crate::mixer`]) through the console's
+//! first output filters: a first-order high-pass at 90 Hz and a low-pass at 14 kHz.
+//! The high-pass removes the DC a held level carries (the DMC's, a stopped
+//! triangle's), so the stream is centred on zero and a silent APU is a silent stream.
+//! The NES-001's second high-pass, at 440 Hz, is left out: it takes most of the
+//! triangle's bass line.
+
+use std::f32::consts::TAU;
 
 use crate::apu::Apu;
 
@@ -24,19 +27,71 @@ pub struct ApuStream {
     sample_rate: u32,
     /// APU ticks clocked so far (diagnostics, and the tests' timing check).
     ticks: u64,
+    high: HighPass,
+    low: LowPass,
+}
+
+/// A first-order high-pass filter.
+#[derive(Debug, Clone, Copy)]
+struct HighPass {
+    k: f32,
+    last_in: f32,
+    out: f32,
+}
+
+impl HighPass {
+    fn new(hz: f32, rate: f32) -> HighPass {
+        let rc = 1.0 / (TAU * hz);
+        HighPass {
+            k: rc / (rc + 1.0 / rate),
+            last_in: 0.0,
+            out: 0.0,
+        }
+    }
+
+    fn apply(&mut self, x: f32) -> f32 {
+        self.out = self.k * (self.out + x - self.last_in);
+        self.last_in = x;
+        self.out
+    }
+}
+
+/// A first-order low-pass filter.
+#[derive(Debug, Clone, Copy)]
+struct LowPass {
+    k: f32,
+    out: f32,
+}
+
+impl LowPass {
+    fn new(hz: f32, rate: f32) -> LowPass {
+        let dt = 1.0 / rate;
+        LowPass {
+            k: dt / (1.0 / (TAU * hz) + dt),
+            out: 0.0,
+        }
+    }
+
+    fn apply(&mut self, x: f32) -> f32 {
+        self.out += self.k * (x - self.out);
+        self.out
+    }
 }
 
 impl ApuStream {
-    /// Stream `apu` at `sample_rate` Hz.
+    /// Stream `apu` at `sample_rate` Hz (below 65536).
     #[must_use]
     pub fn new(apu: Apu, sample_rate: u32) -> Self {
         assert!(sample_rate > 0, "sample rate must be positive");
+        let rate = f32::from(u16::try_from(sample_rate).expect("a sample rate below 65536 Hz"));
         Self {
             apu,
             ticks_per_sample: NTSC_APU_HZ / f64::from(sample_rate),
             carry: 0.0,
             sample_rate,
             ticks: 0,
+            high: HighPass::new(90.0, rate),
+            low: LowPass::new(14_000.0, rate),
         }
     }
 
@@ -65,7 +120,7 @@ impl ApuStream {
             self.ticks += 1;
             self.carry -= 1.0;
         }
-        self.apu.output()
+        self.low.apply(self.high.apply(self.apu.output()))
     }
 
     /// Fill `out` with the next samples (the audio-callback shape).
@@ -184,5 +239,22 @@ mod tests {
         }
         let hz = hz(stream);
         assert!((435..=445).contains(&hz), "{hz} Hz");
+    }
+
+    /// A held DMC level is DC: the console's high-pass filter settles it to silence, so
+    /// the stream is centred on zero and a dropout to zero is no step.
+    #[test]
+    fn a_held_level_settles_to_zero() {
+        let mut stream = ApuStream::new(Apu::new(), 44_100);
+        stream.apu_mut().write(0x4011, 0x40);
+        stream.apu_mut().write(0x4015, 0x10);
+        let mut buffer = vec![0.0; 22_050];
+        stream.fill(&mut buffer);
+        assert!(buffer[0] > 0.1, "the step passes at first: {}", buffer[0]);
+        assert!(
+            buffer[22_049].abs() < 0.001,
+            "then settles: {}",
+            buffer[22_049]
+        );
     }
 }

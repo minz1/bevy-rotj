@@ -27,10 +27,28 @@ use rotj_apu::stream::ApuStream;
 
 /// Output sample rate.
 const SAMPLE_RATE: u32 = 44_100;
-/// Samples a frame is worth at [`SAMPLE_RATE`] (44,100 / 60.0988).
-const SAMPLES_PER_FRAME: usize = 734;
+/// Samples a frame of the app's 60 Hz game clock is worth at [`SAMPLE_RATE`].
+const SAMPLES_PER_FRAME: usize = 735;
 /// How much mixed audio stays queued, in samples (a quarter second).
 const QUEUE_CAPACITY: usize = (SAMPLE_RATE / 4) as usize;
+/// The queue the frame size steers toward and playback waits for: three frames, enough
+/// to ride out the game clock's jitter against the device's.
+const QUEUE_TARGET: usize = 3 * SAMPLES_PER_FRAME;
+/// How many samples a frame may run over or under [`SAMPLES_PER_FRAME`].
+const NUDGE: usize = 2;
+const _: () = assert!(SAMPLES_PER_FRAME * 60 == SAMPLE_RATE as usize);
+
+/// Samples for the next frame: a frame's worth, [`NUDGE`] more or fewer while the queue
+/// is half a frame off [`QUEUE_TARGET`], so production follows the device's clock.
+fn samples_for(queued: usize) -> usize {
+    if queued + SAMPLES_PER_FRAME / 2 < QUEUE_TARGET {
+        SAMPLES_PER_FRAME + NUDGE
+    } else if queued > QUEUE_TARGET + SAMPLES_PER_FRAME / 2 {
+        SAMPLES_PER_FRAME - NUDGE
+    } else {
+        SAMPLES_PER_FRAME
+    }
+}
 
 /// The 2A03 with the DMC's sample bank (the fixed `$E000-$FFFF` window), without
 /// which the DMC reads zeros and the bass and drums samples are silent.
@@ -72,7 +90,6 @@ impl SampleQueue {
     }
 
     /// Samples currently queued.
-    #[cfg(test)]
     fn len(&self) -> usize {
         self.0.lock().map_or(0, |queue| queue.len())
     }
@@ -115,31 +132,42 @@ impl Music {
         }
     }
 
-    /// Advances one game frame: tick the driver, apply its writes, then render a
-    /// frame's worth of samples.
+    /// Advances one game frame: tick the driver, apply its writes, then render about a
+    /// frame's worth of samples ([`samples_for`]).
     pub fn advance_frame(&mut self) {
         for write in self.driver.tick() {
             self.stream.apu_mut().write(write.addr, write.value);
         }
-        let mut buffer = [0.0_f32; SAMPLES_PER_FRAME];
-        self.stream.fill(&mut buffer);
-        for sample in buffer {
+        let mut buffer = [0.0_f32; SAMPLES_PER_FRAME + NUDGE];
+        let buffer = &mut buffer[..samples_for(self.queue.len())];
+        self.stream.fill(buffer);
+        for &sample in &*buffer {
             self.queue.push(sample);
         }
     }
 }
 
-/// A Bevy audio source that drains [`SampleQueue`].
+/// A Bevy audio source that drains [`SampleQueue`] once it holds [`QUEUE_TARGET`].
 pub struct QueueSource {
     queue: SampleQueue,
+    playing: bool,
+    last: f32,
 }
 
 impl Iterator for QueueSource {
     type Item = Sample;
 
-    /// Silence while the queue is empty: `None` would end the source for good.
+    /// The last sample while the queue fills (from empty, or after running dry), so a
+    /// gap is a held level and never a step; `None` would end the source for good.
     fn next(&mut self) -> Option<Self::Item> {
-        Some(self.queue.pop().unwrap_or(0.0))
+        self.playing = self.playing || self.queue.len() >= QUEUE_TARGET;
+        if self.playing {
+            match self.queue.pop() {
+                Some(sample) => self.last = sample,
+                None => self.playing = false,
+            }
+        }
+        Some(self.last)
     }
 }
 
@@ -173,6 +201,8 @@ impl Decodable for MusicSource {
     fn decoder(&self) -> Self::Decoder {
         QueueSource {
             queue: self.queue.clone(),
+            playing: false,
+            last: 0.0,
         }
     }
 }
@@ -287,17 +317,50 @@ mod tests {
     }
 
     #[test]
-    fn decoder_drains_the_queue() {
+    fn decoder_waits_for_the_queue_then_drains_it() {
         let queue = SampleQueue::default();
-        queue.push(0.5);
         let source = MusicSource {
             queue: queue.clone(),
         };
         let mut decoder = source.decoder();
+        queue.push(0.5);
+        assert_eq!(decoder.next(), Some(0.0), "silent until the queue fills");
+        assert_eq!(queue.len(), 1, "and nothing taken meanwhile");
+        for _ in 1..QUEUE_TARGET {
+            queue.push(0.25);
+        }
         assert_eq!(decoder.next(), Some(0.5));
-        assert_eq!(decoder.next(), Some(0.0), "starved: silence, never the end");
         assert_eq!(decoder.channels().get(), 1);
         assert_eq!(decoder.sample_rate().get(), SAMPLE_RATE);
+    }
+
+    #[test]
+    fn an_underrun_holds_the_last_sample_and_refills() {
+        let queue = SampleQueue::default();
+        let mut decoder = MusicSource {
+            queue: queue.clone(),
+        }
+        .decoder();
+        for _ in 0..QUEUE_TARGET {
+            queue.push(0.25);
+        }
+        for _ in 0..QUEUE_TARGET {
+            assert_eq!(decoder.next(), Some(0.25));
+        }
+        assert_eq!(
+            decoder.next(),
+            Some(0.25),
+            "starved: the last sample, never a step"
+        );
+        queue.push(0.5);
+        assert_eq!(decoder.next(), Some(0.25), "refilling: still held");
+    }
+
+    #[test]
+    fn the_frame_size_follows_the_queue() {
+        assert_eq!(samples_for(0), SAMPLES_PER_FRAME + NUDGE);
+        assert_eq!(samples_for(QUEUE_TARGET), SAMPLES_PER_FRAME);
+        assert_eq!(samples_for(QUEUE_TARGET * 2), SAMPLES_PER_FRAME - NUDGE);
     }
 
     /// The ported driver, ticked on the game's own clock, produces real,

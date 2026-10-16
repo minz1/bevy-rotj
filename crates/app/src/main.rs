@@ -11,7 +11,7 @@ use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
 use bevy::time::Fixed;
-use bevy::window::{Window, WindowResolution};
+use bevy::window::{PrimaryWindow, Window, WindowResolution};
 
 /// The user's ROM: embedded at build time or, in a build without one, found at start-up.
 #[derive(Resource)]
@@ -96,8 +96,8 @@ fn main() {
                     // No explicit resolution: a fixed 1024x960 window fails to
                     // present on some Wayland/WSLg setups (the event loop dies
                     // with "Exit Failure: 1" after broken-pipe errors). The
-                    // camera below letterboxes the picture instead, so any
-                    // window size works and stays integer-scalable.
+                    // camera letterboxes the picture at a whole multiple
+                    // instead (`fit_camera`), so any window size works.
                     resolution: WindowResolution::default().with_scale_factor_override(1.0),
                     // One queued frame, not Bevy's two: a frame less of input lag.
                     desired_maximum_frame_latency: std::num::NonZeroU32::new(1),
@@ -111,6 +111,7 @@ fn main() {
     .insert_resource(RomData(rom))
     .init_state::<GameState>()
     .add_systems(Startup, spawn_camera)
+    .add_systems(Update, fit_camera)
     .add_plugins((audio::AudioPlugin, input::InputPlugin, play::PlayPlugin));
 
     // The display image is made before the app runs, so every system can rely on it.
@@ -121,20 +122,61 @@ fn main() {
     app.insert_resource(screen).run();
 }
 
-/// `Camera2d` covering the world; sprites use world units = NES pixels.
-///
-/// The projection shows at least the 4x-scaled screen (1024x960 world units),
-/// so the whole picture is visible and centred in whatever window size the
-/// compositor gives us, with letterboxing.
+/// `Camera2d` over the 4x-scaled screen quad (1024x960 world units), sized to the
+/// window by [`fit_camera`].
 fn spawn_camera(mut commands: Commands<'_, '_>) {
     commands.spawn((
         Camera2d,
         Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::AutoMin {
-                min_width: 1024.0,
-                min_height: 960.0,
-            },
+            scaling_mode: ScalingMode::WindowSize,
             ..OrthographicProjection::default_2d()
         }),
     ));
+}
+
+/// The projection's world units per pixel that show the 256x240 picture at the largest
+/// whole multiple fitting a `width` x `height` window (at least 1), and the camera
+/// offset that puts the picture's edges on whole pixels when a side is odd.
+fn integer_view(width: f32, height: f32) -> (f32, Vec2) {
+    let multiple = (width / 256.0)
+        .floor()
+        .min((height / 240.0).floor())
+        .max(1.0);
+    let scale = 4.0 / multiple;
+    let half_if_odd = |side: f32| if side % 2.0 >= 1.0 { 0.5 } else { 0.0 };
+    (
+        scale,
+        Vec2::new(half_if_odd(width), half_if_odd(height)) * scale,
+    )
+}
+
+/// Letterboxes the picture at a whole multiple ([`integer_view`]): every NES pixel the
+/// same size, so nothing shimmers as the camera scrolls.
+fn fit_camera(
+    windows: Query<'_, '_, &Window, (With<PrimaryWindow>, Changed<Window>)>,
+    mut cameras: Query<'_, '_, (&mut Projection, &mut Transform), With<Camera2d>>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let (scale, offset) = integer_view(window.width(), window.height());
+    for (mut projection, mut transform) in &mut cameras {
+        if let Projection::Orthographic(orthographic) = &mut *projection {
+            orthographic.scale = scale;
+        }
+        transform.translation = offset.extend(transform.translation.z);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_picture_scales_by_whole_multiples_on_whole_pixels() {
+        assert_eq!(integer_view(1659.0, 1400.0), (0.8, Vec2::new(0.4, 0.0)));
+        assert_eq!(integer_view(1280.0, 1200.0), (0.8, Vec2::ZERO));
+        assert_eq!(integer_view(1280.0, 1199.0), (1.0, Vec2::new(0.0, 0.5)));
+        assert_eq!(integer_view(100.0, 100.0), (4.0, Vec2::ZERO));
+    }
 }

@@ -8,12 +8,12 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-rotj-apu = { path = "../rotj-apu", version = "1.0.4" }
+rotj-apu = { path = "../rotj-apu", version = "1.0.5" }
 tracing.workspace = true
 
 [dev-dependencies]
-rotj-core = { path = "../rotj-core", version = "1.0.4" }
-rotj-rom = { path = "../rotj-rom", version = "1.0.4" }
+rotj-core = { path = "../rotj-core", version = "1.0.5" }
+rotj-rom = { path = "../rotj-rom", version = "1.0.5" }
 
 [lints]
 workspace = true
