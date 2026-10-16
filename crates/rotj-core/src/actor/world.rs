@@ -33,6 +33,52 @@ pub struct View {
 
 pub use crate::collision::Level;
 
+/// The selected weapon (`$0476`), which picks the projectiles' handler (bank 5 `$801B`). The
+/// manual's names were never matched to RAM; each is named for what it does.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Weapon {
+    /// The default single shot (likely the Cross Bow).
+    #[default]
+    Bolt = 0,
+    /// Turns toward a target (the manual's homing Batarang).
+    Homing = 1,
+    /// Flies on, pushing its speed toward a cruise, and splits at a wall or when spent.
+    Splitter = 2,
+    /// Two parts that weave as they fly.
+    Wave = 3,
+    /// Three parts at once (likely the Shield Star).
+    ThreeWay = 4,
+    /// The power-up's weapon.
+    Super = 5,
+    /// Not a weapon: the power-up's closing pieces, flown by the same loop.
+    PowerUpPieces = 6,
+}
+
+impl Weapon {
+    const ALL: [Weapon; 7] = [
+        Weapon::Bolt,
+        Weapon::Homing,
+        Weapon::Splitter,
+        Weapon::Wave,
+        Weapon::ThreeWay,
+        Weapon::Super,
+        Weapon::PowerUpPieces,
+    ];
+
+    /// The RAM value, and the index into the game's per-weapon tables.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    /// The weapon a RAM value holds, if it is one.
+    #[must_use]
+    pub fn from_byte(byte: u8) -> Option<Weapon> {
+        Weapon::ALL.get(usize::from(byte)).copied()
+    }
+}
+
 /// What the player is doing (`$046E`), which picks his handler (bank 4 `$96C3`).
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -214,14 +260,14 @@ pub struct Effects {
     pub song: u8,
     /// The player, as earlier handlers this frame left him.
     pub player: Player,
-    /// Selected weapon (`$0476`).
-    pub weapon: u8,
+    /// The selected weapon (`$0476`).
+    pub weapon: Weapon,
     /// Lives left after this one (`$0482`).
     pub lives: u8,
     /// Second meter (`$0477`).
     pub meter: u8,
-    /// Weapon kept across the level end (`$0483`).
-    pub stored_weapon: u8,
+    /// The weapon kept across the level end and the power-up (`$0483`).
+    pub stored_weapon: Weapon,
     /// Screen transition selector (`$BA`).
     pub transition: u8,
     /// The transition's parameter (`$BB`).
@@ -540,7 +586,7 @@ impl Cx<'_> {
 mod layout {
     use super::{
         Effects, Level, Motion, PROJECTILE_ARRAYS, Player, Projectile, Schedule, View, Vram,
-        VramWrite, World,
+        VramWrite, Weapon, World,
     };
 
     fn word(ram: &[u8; 2048], hi: usize) -> u16 {
@@ -694,10 +740,10 @@ mod layout {
                 music: ram[0x40],
                 song: ram[0x41],
                 player: Player::lift(ram),
-                weapon: ram[0x476],
+                weapon: Weapon::from_byte(ram[0x476]).expect("a weapon 0-6 at $0476"),
                 lives: ram[0x482],
                 meter: ram[0x477],
-                stored_weapon: ram[0x483],
+                stored_weapon: Weapon::from_byte(ram[0x483]).expect("a weapon 0-6 at $0483"),
                 transition: ram[0xBA],
                 transition_arg: ram[0xBB],
                 busy: ram[0xAF],
@@ -747,10 +793,10 @@ mod layout {
             ram[0x40] = self.music;
             ram[0x41] = self.song;
             self.player.project(ram);
-            ram[0x476] = self.weapon;
+            ram[0x476] = self.weapon.byte();
             ram[0x482] = self.lives;
             ram[0x477] = self.meter;
-            ram[0x483] = self.stored_weapon;
+            ram[0x483] = self.stored_weapon.byte();
             ram[0xBA] = self.transition;
             ram[0xBB] = self.transition_arg;
             ram[0xAF] = self.busy;
@@ -846,7 +892,16 @@ mod layout {
 
 #[cfg(test)]
 mod tests {
-    use super::{Motion, Rng};
+    use super::{Motion, Rng, Weapon};
+
+    #[test]
+    fn weapon_bytes_round_trip() {
+        for byte in 0..=6 {
+            let weapon = Weapon::from_byte(byte).expect("a weapon");
+            assert_eq!(weapon.byte(), byte);
+        }
+        assert!((7..=255).all(|byte| Weapon::from_byte(byte).is_none()));
+    }
 
     #[test]
     fn motion_bytes_round_trip() {

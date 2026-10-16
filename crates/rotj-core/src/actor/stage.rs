@@ -5,7 +5,7 @@ use super::Game;
 use super::cutscene::Cutscene;
 use super::engine::{draw, rom_byte, rom_word};
 use super::room;
-use super::world::{Motion, VramWrite};
+use super::world::{Motion, VramWrite, Weapon};
 
 /// The stage-end script's state (`$0408-$040C`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -36,8 +36,8 @@ pub fn stage_end(game: &mut Game, prg: &[u8]) -> bool {
             if x >= 0x2000 || (x >= 0x1F60 && game.effects.player.facing & 0x40 == 0) {
                 game.effects.music = 0xFC;
                 end.phase = 1;
-                for weapon in &mut game.effects.projectiles {
-                    weapon.kind = 0;
+                for projectile in &mut game.effects.projectiles {
+                    projectile.kind = 0;
                 }
                 game.effects.player.flags[0] = 0;
                 game.effects.attack &= 0x80;
@@ -182,8 +182,8 @@ impl PowerUp {
         let effects = &mut game.effects;
         if self.frames == 0 {
             effects.sound[0] = 0x31;
-            for weapon in &mut effects.projectiles {
-                weapon.kind = 0;
+            for projectile in &mut effects.projectiles {
+                projectile.kind = 0;
             }
             effects.attack &= 0x80;
             effects.stage_end.timer = effects.scroll_lock;
@@ -216,7 +216,7 @@ impl PowerUp {
         effects.stage_args[1] = player.motion.byte();
         player.motion = Motion::PoweringUp;
         game.world.frame_odd = true;
-        effects.weapon = 6;
+        effects.weapon = Weapon::PowerUpPieces;
         let (x, y) = (player.x, player.y);
         for (index, piece) in (0..4u16).zip(effects.projectiles.iter_mut()) {
             let byte = |table: u16| rom_byte(prg, 14, table + index);
@@ -1059,7 +1059,7 @@ impl Continue {
                 }
                 Countdown::Clear => {
                     game.effects.attack = 0;
-                    game.effects.weapon = 0;
+                    game.effects.weapon = Weapon::Bolt;
                     self.step = Countdown::Continued;
                 }
                 Countdown::Continued => return Outcome::Continued,

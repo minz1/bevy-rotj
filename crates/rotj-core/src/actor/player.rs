@@ -7,7 +7,7 @@
 
 use super::collision::{self, Probe};
 use super::engine::{self, Work, adc_overflows, rom_byte, rom_word, sub_overflows16};
-use super::world::{Cx, Motion, Player, Projectile};
+use super::world::{Cx, Motion, Player, Projectile, Weapon};
 
 /// Test-only branch coverage; the test asserts and reports which paths ran.
 #[cfg(test)]
@@ -663,12 +663,12 @@ impl Port<'_, '_> {
                 if self.cx.effects.meter & 0x80 != 0 {
                     let weapon = self.cx.effects.stored_weapon;
                     self.cx.effects.weapon = weapon;
-                    self.cx.effects.attack = if weapon != 0 { 0x80 } else { 0 };
+                    self.cx.effects.attack = if weapon == Weapon::Bolt { 0 } else { 0x80 };
                     self.player.flags[0] &= 0x7F;
                     self.player.flags[2] = 0x40;
                     self.player.hurt_timer = 0x40;
-                    for weapon in &mut self.cx.effects.projectiles {
-                        weapon.kind = 0;
+                    for projectile in &mut self.cx.effects.projectiles {
+                        projectile.kind = 0;
                     }
                     for i in 0..3u16 {
                         self.cx.effects.palette[0x11 + usize::from(i)] = self.rb(0x9662 + i);
@@ -852,7 +852,7 @@ impl Port<'_, '_> {
     /// `$9AF5`: fires the player's projectile into the first free `$7BD0` slot.
     fn spawn_shot(&mut self) {
         let weapon = self.cx.effects.weapon;
-        let start = self.rb(0x9B08 + u16::from(weapon & 0x0F));
+        let start = self.rb(0x9B08 + u16::from(weapon.byte()));
         let Some(slot) = (0..=usize::from(start))
             .rev()
             .find(|&slot| self.cx.effects.projectiles[slot].kind == 0)
@@ -907,7 +907,7 @@ impl Port<'_, '_> {
         let (a_hi, b_hi, carry) = if aim_up { y_adc } else { x_adc };
         self.work.cpu_overflow = adc_overflows(a_hi, b_hi, carry);
         let projectile = &mut self.cx.effects.projectiles[slot];
-        projectile.kind = weapon.wrapping_add(1) << 1;
+        projectile.kind = (weapon.byte() + 1) << 1;
         projectile.level_x_hi = x_hi;
         projectile.level_x_lo = x_lo;
         projectile.level_y_hi = y_hi;
@@ -915,9 +915,13 @@ impl Port<'_, '_> {
         if aim_up {
             projectile.attr = 0;
         }
-        assert!(weapon < 6, "$9AF5 has no handler for weapon ${weapon:02X}");
+        assert_ne!(
+            weapon,
+            Weapon::PowerUpPieces,
+            "$9AF5 has no handler for the pieces"
+        );
         let table = if aim_up { 0x9EB5 } else { 0x9EC1 };
-        let handler = self.rw(table + u16::from(weapon) * 2);
+        let handler = self.rw(table + u16::from(weapon.byte()) * 2);
         #[cfg(test)]
         super::oracle::seen(handler);
         self.cx.effects.sound[0] = match handler {
@@ -1145,13 +1149,17 @@ impl Port<'_, '_> {
         };
         let left = u8::try_from(slot).expect("slot below 16");
         let weapon = self.cx.effects.weapon;
-        assert!(weapon < 6, "$9A56 has no handler for weapon ${weapon:02X}");
+        assert_ne!(
+            weapon,
+            Weapon::PowerUpPieces,
+            "$9A56 has no handler for the pieces"
+        );
         let charge = |projectile: &mut Projectile| {
-            projectile.kind = 0x80;
+            projectile.kind = super::weapons::CHARGE_START;
             projectile.part_timer = 0;
             projectile.flags = 0xE0;
         };
-        let handler = self.rw(0x9A75 + u16::from(weapon) * 2);
+        let handler = self.rw(0x9A75 + u16::from(weapon.byte()) * 2);
         #[cfg(test)]
         super::oracle::seen(handler);
         match handler {
@@ -2238,13 +2246,13 @@ impl Port<'_, '_> {
         if effects.hud & 0x80 == 0 {
             effects.attack = 0;
             self.player.flags[0] = 0;
-            effects.weapon = 0;
+            effects.weapon = Weapon::Bolt;
             return;
         }
-        if effects.weapon == 5 {
+        if effects.weapon == Weapon::Super {
             effects.weapon = effects.stored_weapon;
         }
-        if effects.weapon != 0 {
+        if effects.weapon != Weapon::Bolt {
             effects.attack = 0x80;
         }
         self.player.flags[0] = 0;

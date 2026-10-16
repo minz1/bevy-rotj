@@ -1124,10 +1124,10 @@ handlers are ported in `rotj_core::actor::weapons`; `step` reuses `engine::draw`
 | --- | --- | --- |
 | `$9E13` | `integrate` | adds `$7D00:$7D10` to `$7BB0:$7BC0` (level x) and `$7D20:$7EB0` to `$7C60:$7C70` (level y), into `$90-$93` |
 | `$9E46` | `project` | the `A = 0` call only: dx/dy minus the camera; off-screen frees the slot, on-screen writes `$94/$95` and `$7B80/$7B90` |
-| `$8029` | `zero` | `$0476` 0: the fired projectile, including its spent sprite (`$8080`) |
-| `$8170` | `one` | `$0476` 1: handler 0's flight and bounce, steered by `$8288` (below); types `$80`-`$82` are its charged attack `$847D` |
-| `$8891` | `two` | `$0476` 2: boomerang; wall bounce `$8993`, the 4-part split `$89AC`/`$89D7`, the `$7CB0`/`$7C20` velocity trim, two sprite pointers |
-| `$8D39` | `three` | `$0476` 3: missile; wall bounce `$8E65`, the screen-edge bounce `$8DD8`/`$8DF3`/`$8E42`, three sprite pointers |
+| `$8029` | `bolt` (was `zero`) | `$0476` 0: the fired projectile, including its spent sprite (`$8080`) |
+| `$8170` | `homing` (was `one`) | `$0476` 1: handler 0's flight and bounce, steered by `$8288` (below); types `$80`-`$82` are its charged attack `$847D` |
+| `$8891` | `splitter` (was `two`) | `$0476` 2: the splitter (not a boomerang: it never turns back); wall bounce `$8993`, the 4-part split `$89AC`/`$89D7`, the `$7CB0`/`$7C20` velocity trim, two sprite pointers |
+| `$8D39` | `wave` (was `three`) | `$0476` 3: the wave, two weaving parts (not a homing missile); wall bounce `$8E65`, the weave `$8DD8`/`$8DF3`/`$8E42` (once read as a screen-edge bounce: it reads only `$7F40` and the velocity), three sprite pointers |
 
 **Arrays.** The bracket touches `$7B80`, `$7B90`, `$7BB0`, `$7BC0`, `$7BD0`,
 `$7C20`, `$7C60`, `$7C70`, `$7C80`, `$7CB0`, `$7D00`, `$7D10`, `$7D20`,
@@ -1152,12 +1152,12 @@ random sign) is ported like handler 3's `$8E65` (which takes `$F9` bit 7);
 frame had set `$7CB0` to `timer << 1 | 1`; the game's `LSR; SEC; ROL` is
 `timer | 1`.
 
-**The missile's screen-edge bounce.** `$8DD8` (x) and `$8E0E` (y) step the
+**The wave's weave** (once called a screen-edge bounce: it reads no position). `$8DD8` (x) and `$8E0E` (y) step the
 velocity's low byte by 4 (down while `$7F40` bit 7 is clear, else up) and keep it
 in `$7F40` when it lands in `$40-$BF`; each `BMI`/`BEQ` after `STA $7F40,X` tests the `CMP #$C0`/`CMP #$40`
 before it, not the stored byte. So a step down always ends the bounce, and a
 step up on x goes on to y unless it landed on `$40`. The port had followed the
-stored byte: a deflected missile falling into the window (`$7F40` bit 7 clear,
+stored byte: a deflected wave part falling into the window (`$7F40` bit 7 clear,
 low byte `$40-$7F`) got a step down and a step up, 4 more than the game's
 (walking right and firing from TAS 470 with the old bounce:
 `$7EB6` port 4C, oracle 48, at frame 603). `firing_scenes_match_the_oracle`

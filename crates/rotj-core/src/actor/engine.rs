@@ -2,7 +2,7 @@
 
 use super::oam::{DrawCall, Metasprite};
 use super::slots::Body;
-use super::world::{Cx, Effects, Level, Motion, Player, Schedule, World};
+use super::world::{Cx, Effects, Level, Motion, Player, Schedule, Weapon, World};
 use crate::actors::bank_slice;
 
 /// The zero-page working set `$90-$A6`, carried from slot to slot as the game's is.
@@ -540,54 +540,54 @@ pub fn contact(kind: &mut u8, body: &mut Body, work: &mut Work, damage: u8, cx: 
             player.energy = player.energy.wrapping_sub(damage);
         }
     }
-    weapon_scan(body, work, cx);
+    projectile_hits(body, work, cx);
 }
 
 /// Checks the player's projectiles against the actor: shields deflect, others hurt (`$AA57`).
-pub fn weapon_scan(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+pub fn projectile_hits(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     let hitbox = u16::from(work.hitbox);
     let [seed, noise] = cx.world.rng;
     for index in (0..16).rev() {
-        let weapon = cx.effects.projectiles[index];
-        if weapon.kind == 0 || weapon.flags & 0x80 != 0 {
+        let projectile = cx.effects.projectiles[index];
+        if projectile.kind == 0 || projectile.flags & 0x80 != 0 {
             continue;
         }
-        if work.screen_x.abs_diff(weapon.screen_x) >= rom_byte(cx.prg, 13, 0xABD0 + hitbox) {
+        if work.screen_x.abs_diff(projectile.screen_x) >= rom_byte(cx.prg, 13, 0xABD0 + hitbox) {
             continue;
         }
-        let near_y = if work.screen_y < weapon.screen_y {
-            weapon.screen_y - work.screen_y < 5
+        let near_y = if work.screen_y < projectile.screen_y {
+            projectile.screen_y - work.screen_y < 5
         } else {
-            work.screen_y - weapon.screen_y < rom_byte(cx.prg, 13, 0xABC1 + hitbox)
+            work.screen_y - projectile.screen_y < rom_byte(cx.prg, 13, 0xABC1 + hitbox)
         };
         if !near_y {
             continue;
         }
-        let weapon = &mut cx.effects.projectiles[index];
+        let projectile = &mut cx.effects.projectiles[index];
         if body.contact & 0x80 != 0 {
-            if weapon.flags & 0x20 != 0 {
+            if projectile.flags & 0x20 != 0 {
                 continue;
             }
             cx.effects.sound[0] = 0x3C;
-            weapon.flags |= 0xE0;
-            let away_right = if weapon.vx == 0 {
+            projectile.flags |= 0xE0;
+            let away_right = if projectile.vx == 0 {
                 noise & 0x01 == 0
             } else {
-                weapon.vx < 0
+                projectile.vx < 0
             };
-            weapon.vx = if away_right {
+            projectile.vx = if away_right {
                 i16::from(noise & 0x3F)
             } else {
                 i16::from_be_bytes([0xFF, !(noise & 0x3F)])
             };
-            weapon.state |= 0x40;
-            weapon.timer = 0x20;
-            weapon.vy = i16::from_be_bytes([0xFF, !(seed & 0x7F)]);
+            projectile.state |= 0x40;
+            projectile.timer = 0x20;
+            projectile.vy = i16::from_be_bytes([0xFF, !(seed & 0x7F)]);
             continue;
         }
         cx.effects.sound[0] = 0x38;
-        spend(weapon, seed);
-        let (health, killed) = body.health.overflowing_sub(u16::from(weapon.damage));
+        spend(projectile, seed);
+        let (health, killed) = body.health.overflowing_sub(u16::from(projectile.damage));
         body.health = health;
         if killed {
             die(body, work, cx);
@@ -599,23 +599,23 @@ pub fn weapon_scan(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 }
 
 /// A projectile that hit bounces off and is spent (`$B108`).
-fn spend(weapon: &mut super::world::Projectile, rng_f9: u8) {
-    if weapon.flags & 0x40 != 0 {
+fn spend(projectile: &mut super::world::Projectile, rng_f9: u8) {
+    if projectile.flags & 0x40 != 0 {
         return;
     }
-    weapon.flags |= 0x80;
+    projectile.flags |= 0x80;
     let random = if rng_f9 & 0x80 == 0 { 0x20 } else { -0x20 };
-    if weapon.timer & 0x80 == 0 {
-        weapon.vx = if weapon.vx < 0 { 0x20 } else { -0x20 };
-        weapon.vy = random;
+    if projectile.timer & 0x80 == 0 {
+        projectile.vx = if projectile.vx < 0 { 0x20 } else { -0x20 };
+        projectile.vy = random;
     } else {
-        weapon.vy = 0x20;
-        weapon.vx = random;
+        projectile.vy = 0x20;
+        projectile.vx = random;
     }
-    weapon.state = 0x80;
-    weapon.attr = 0;
-    weapon.param = 0;
-    weapon.timer = 4;
+    projectile.state = 0x80;
+    projectile.attr = 0;
+    projectile.param = 0;
+    projectile.timer = 4;
 }
 
 /// The player's attack lands: 8 off the actor's health, then a flash or death (`$AA2C`).
@@ -696,23 +696,23 @@ pub fn boss_contact(amount: u16, mode: u8, body: &mut Body, work: &Work, cx: &mu
     }
     let hitbox = u16::from(work.hitbox);
     for index in (0..16).rev() {
-        let weapon = &mut cx.effects.projectiles[index];
-        if weapon.kind == 0 || weapon.flags & 0x80 != 0 {
+        let projectile = &mut cx.effects.projectiles[index];
+        if projectile.kind == 0 || projectile.flags & 0x80 != 0 {
             continue;
         }
-        if work.screen_x.abs_diff(weapon.screen_x) >= rom_byte(cx.prg, 13, 0xB103 + hitbox) {
+        if work.screen_x.abs_diff(projectile.screen_x) >= rom_byte(cx.prg, 13, 0xB103 + hitbox) {
             continue;
         }
-        let near_y = if work.screen_y < weapon.screen_y {
-            weapon.screen_y - work.screen_y < 3
+        let near_y = if work.screen_y < projectile.screen_y {
+            projectile.screen_y - work.screen_y < 3
         } else {
-            work.screen_y - weapon.screen_y < rom_byte(cx.prg, 13, 0xB0FE + hitbox)
+            work.screen_y - projectile.screen_y < rom_byte(cx.prg, 13, 0xB0FE + hitbox)
         };
         if !near_y {
             continue;
         }
-        spend(weapon, cx.world.rng[0]);
-        let damage = weapon.damage << 4;
+        spend(projectile, cx.world.rng[0]);
+        let damage = projectile.damage << 4;
         return boss_damaged(damage, body, cx);
     }
     0
@@ -850,8 +850,8 @@ pub fn level_end(effects: &mut Effects) {
     player.death_timer = 0;
     player.death_flags = 0;
     effects.attack = 0;
-    for weapon in &mut effects.projectiles {
-        weapon.kind = 0;
+    for projectile in &mut effects.projectiles {
+        projectile.kind = 0;
     }
 }
 
@@ -988,11 +988,12 @@ pub fn collect(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
     match body.state & 0x7F {
         0..=3 => {
             if player_flags & 0x80 == 0 {
-                effects.weapon = (body.state & 0x7F) + 1;
+                effects.weapon =
+                    Weapon::from_byte((body.state & 0x7F) + 1).expect("a pickup gives weapons 1-4");
             }
             effects.attack = 0x80;
-            for weapon in &mut effects.projectiles {
-                weapon.kind = 0;
+            for projectile in &mut effects.projectiles {
+                projectile.kind = 0;
             }
         }
         4 => {

@@ -8,6 +8,7 @@ use super::cutscene::{ScreenClear, copy_frame, draw_block, draw_sprite};
 use super::oam::Mark;
 use super::sound_test::SoundTest;
 use super::stage::{Fade, NextArea, blackout, queue_palette};
+use crate::actor::world::Weapon;
 use crate::levelmap::BOOT_FIRST_BANK;
 
 /// The WRAM byte at `addr` once `$98C3` has copied the payload (CHR `$F0-$F7`, in order).
@@ -1037,7 +1038,7 @@ fn show_banks(game: &mut Game, chr: &[u8]) {
 fn new_game(game: &mut Game) {
     game.world.room = 0;
     let effects = &mut game.effects;
-    effects.weapon = 0;
+    effects.weapon = Weapon::Bolt;
     effects.cutscene_id = 0;
     effects.meter = 0xFE;
     effects.player.energy = 0x0E;
