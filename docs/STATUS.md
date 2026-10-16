@@ -83,6 +83,17 @@ None open (the 1.0.1 decisions were taken on 2026-10-16, below).
 
 ## Owner decisions made
 
+- **1.0.2: the ROM is embedded at build time (2026-10-16).** The owner wants a
+  self-contained exe: `build.rs` reads the ROM (`ROTJ_ROM` or `raw/`), checks its MD5 and
+  compiles it in; 1.0.1's start-up search and cache go. A build without a ROM still
+  compiles (public CI) and says so when run. Consequence accepted: an exe built this way
+  contains the game and is not shared; others build it with their own ROM. A first-run
+  importer (shareable exe) stays possible later, with 1.1's "ROM decoder becomes an importer".
+- **The public repository is `github.com/minz1/bevy-rotj` (2026-10-16)**: one orphan
+  commit of the 1.0.1 tree (`6d948c6`, tag `1.0.1`); the development history up to it is
+  kept locally only (branch `private-history`, tags 0.1.1-1.0.1). Licenses: MIT or
+  Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`).
+
 - **1.0.1's open calls (2026-10-16)**, prepared in `docs/specs/2026-10-15-bring-your-own-rom-design.md`
   section 9:
   - **CI gets no ROM for now** (option C): parity stays the local `gates.sh` at every
