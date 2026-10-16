@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use bevy::prelude::*;
 use rotj_core::actor::world::Ppu;
 use rotj_core::actor::{Game, Script, raster};
-use rotj_core::render::{Frame, Line, Picture};
+use rotj_core::render::{Frame, Line, MAX_SPRITES_PER_LINE, Picture};
 
 use crate::input::NesInput;
 use crate::screen::{Screen, screen_frame, screen_image};
@@ -143,13 +143,16 @@ impl Play {
     /// and sprites, line by line as the NMI and the raster IRQs set them.
     pub fn compose(&self, frame: &mut Frame) {
         let vram = self.ppu.nametables.concat();
-        frame.render(&Picture {
-            lines: &self.lines,
-            vram: &vram,
-            palette: &self.ppu.palette,
-            oam: &self.oam,
-            chr: &self.chr,
-        });
+        frame.render(
+            &Picture {
+                lines: &self.lines,
+                vram: &vram,
+                palette: &self.ppu.palette,
+                oam: &self.oam,
+                chr: &self.chr,
+            },
+            MAX_SPRITES_PER_LINE,
+        );
     }
 }
 
@@ -1018,13 +1021,16 @@ mod tests {
                 continue;
             }
             play.compose(&mut ours);
-            theirs.render(&Picture {
-                lines: &lines,
-                vram: &m.bus.ppu.vram,
-                palette: &m.bus.ppu.palette,
-                oam: &m.bus.ppu.oam,
-                chr: &m.bus.cart.chr,
-            });
+            theirs.render(
+                &Picture {
+                    lines: &lines,
+                    vram: &m.bus.ppu.vram,
+                    palette: &m.bus.ppu.palette,
+                    oam: &m.bus.ppu.oam,
+                    chr: &m.bus.cart.chr,
+                },
+                MAX_SPRITES_PER_LINE,
+            );
             for y in (0..240).filter(|&y| compared[y]) {
                 let row = y * SCREEN_W..(y + 1) * SCREEN_W;
                 assert_eq!(

@@ -139,15 +139,16 @@ impl Picture<'_> {
 
 impl Frame {
     /// Renders a frame line by line from what the PPU had on each line: the background
-    /// from the line's scroll and banks, then up to eight sprites per line, the lowest
-    /// OAM index in front, behind the background where their priority bit says, clipped
-    /// at the right edge and by `$2001`'s left-8 bits.
-    pub fn render(&mut self, picture: &Picture<'_>) {
+    /// from the line's scroll and banks, then up to `sprites_per_line` sprites per line
+    /// (the PPU's [`MAX_SPRITES_PER_LINE`]), the lowest OAM index in front, behind the
+    /// background where their priority bit says, clipped at the right edge and by
+    /// `$2001`'s left-8 bits.
+    pub fn render(&mut self, picture: &Picture<'_>, sprites_per_line: usize) {
         self.clear();
         let mut bg = [0u8; SCREEN_W];
         for (y, line) in picture.lines.iter().enumerate().take(SCREEN_H) {
             self.background_line(picture, line, y, &mut bg);
-            self.sprite_line(picture, line, y, &bg);
+            self.sprite_line(picture, line, y, &bg, sprites_per_line);
         }
     }
 
@@ -184,7 +185,14 @@ impl Frame {
         }
     }
 
-    fn sprite_line(&mut self, picture: &Picture<'_>, line: &Line, y: usize, bg: &[u8; SCREEN_W]) {
+    fn sprite_line(
+        &mut self,
+        picture: &Picture<'_>,
+        line: &Line,
+        y: usize,
+        bg: &[u8; SCREEN_W],
+        sprites_per_line: usize,
+    ) {
         if line.mask & 0x10 == 0 {
             return;
         }
@@ -194,7 +202,7 @@ impl Frame {
         let found = (0..64)
             .map(|i| &picture.oam[i * 4..i * 4 + 4])
             .filter(|oam| (usize::from(oam[0]) + 1..usize::from(oam[0]) + 1 + height).contains(&y))
-            .take(MAX_SPRITES_PER_LINE);
+            .take(sprites_per_line);
         for oam in found {
             let (attr, x0) = (oam[2], usize::from(oam[3]));
             let row = y - usize::from(oam[0]) - 1;
@@ -281,15 +289,22 @@ mod tests {
         }
 
         fn render(&self) -> Frame {
+            self.render_with(MAX_SPRITES_PER_LINE)
+        }
+
+        fn render_with(&self, sprites_per_line: usize) -> Frame {
             let lines = [self.line; SCREEN_H];
             let mut frame = Frame::new();
-            frame.render(&Picture {
-                lines: &lines,
-                vram: &self.vram,
-                palette: &self.palette,
-                oam: &self.oam,
-                chr: &self.chr,
-            });
+            frame.render(
+                &Picture {
+                    lines: &lines,
+                    vram: &self.vram,
+                    palette: &self.palette,
+                    oam: &self.oam,
+                    chr: &self.chr,
+                },
+                sprites_per_line,
+            );
             frame
         }
     }
@@ -483,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn only_eight_sprites_show_on_a_line() {
+    fn nine_sprites_on_a_line_draw_eight_with_the_limit_and_nine_without() {
         let mut scene = Scene::new();
         scene.solid(0, 1, 1);
         scene.palette[0] = 0x0F;
@@ -495,5 +510,8 @@ mod tests {
         assert_eq!(at(&frame, 56, 1), 0x16);
         assert_eq!(at(&frame, 64, 1), 0x0F);
         assert_eq!(at(&frame, 64, 9), 0x0F);
+        let frame = scene.render_with(64);
+        assert_eq!(at(&frame, 64, 1), 0x16);
+        assert_eq!(at(&frame, 64, 8), 0x16);
     }
 }
