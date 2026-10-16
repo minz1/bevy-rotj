@@ -72,12 +72,35 @@ pub fn rgba_into(indices: &[u8], rgb: &Rgb, out: &mut [u8]) {
     }
 }
 
-/// The first visible line and how many show.
+/// The part of the 256x240 picture that shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Visible {
+    /// The first column and line shown.
+    pub x: usize,
+    /// The first line shown.
+    pub y: usize,
+    /// Columns shown.
+    pub width: usize,
+    /// Lines shown.
+    pub height: usize,
+}
+
+/// What a TV shows (8 pixels off each edge) or the whole picture.
 #[must_use]
-pub const fn visible_lines(overscan: Overscan) -> (usize, usize) {
+pub const fn visible(overscan: Overscan) -> Visible {
     match overscan {
-        Overscan::Hidden => (8, 224),
-        Overscan::Shown => (0, SCREEN_H),
+        Overscan::Hidden => Visible {
+            x: 8,
+            y: 8,
+            width: SCREEN_W - 16,
+            height: SCREEN_H - 16,
+        },
+        Overscan::Shown => Visible {
+            x: 0,
+            y: 0,
+            width: SCREEN_W,
+            height: SCREEN_H,
+        },
     }
 }
 
@@ -160,15 +183,15 @@ pub fn apply_settings(
         return;
     }
     colours.set_if_neq(colours_for(settings.palette, dir.0.as_deref()));
-    let (first, count) = visible_lines(settings.overscan);
+    let shown = visible(settings.overscan);
     for mut sprite in &mut quads {
         sprite.rect = Some(Rect::new(
-            0.0,
-            pixels(first),
-            pixels(SCREEN_W),
-            pixels(first + count),
+            pixels(shown.x),
+            pixels(shown.y),
+            pixels(shown.x + shown.width),
+            pixels(shown.y + shown.height),
         ));
-        sprite.custom_size = Some(Vec2::new(pixels(SCREEN_W), pixels(count)) * 4.0);
+        sprite.custom_size = Some(Vec2::new(pixels(shown.width), pixels(shown.height)) * 4.0);
     }
     let mode = if settings.vsync {
         PresentMode::AutoVsync

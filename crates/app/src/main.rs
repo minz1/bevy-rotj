@@ -145,13 +145,13 @@ fn spawn_camera(mut commands: Commands<'_, '_>) {
     ));
 }
 
-/// The projection's world units per pixel that show the 256-pixel-wide picture of `lines`
-/// lines at the largest whole multiple fitting a `width` x `height` window (at least 1),
-/// and the camera offset that puts the picture's edges on whole pixels when a side is odd.
-fn integer_view(width: f32, height: f32, lines: f32) -> (f32, Vec2) {
-    let multiple = (width / 256.0)
+/// The projection's world units per pixel that show a `picture` (columns, lines) at the
+/// largest whole multiple fitting a `width` x `height` window (at least 1), and the camera
+/// offset that puts the picture's edges on whole pixels when a side is odd.
+fn integer_view(width: f32, height: f32, picture: Vec2) -> (f32, Vec2) {
+    let multiple = (width / picture.x)
         .floor()
-        .min((height / lines).floor())
+        .min((height / picture.y).floor())
         .max(1.0);
     let scale = 4.0 / multiple;
     let half_if_odd = |side: f32| if side % 2.0 >= 1.0 { 0.5 } else { 0.0 };
@@ -179,9 +179,9 @@ fn fit_camera(
     if !window.is_changed() && !settings.is_changed() {
         return;
     }
-    let (_, lines) = screen::visible_lines(settings.overscan);
-    let lines = f32::from(u16::try_from(lines).expect("at most 240"));
-    let (scale, offset) = integer_view(window.width(), window.height(), lines);
+    let shown = screen::visible(settings.overscan);
+    let picture = Vec2::new(screen::pixels(shown.width), screen::pixels(shown.height));
+    let (scale, offset) = integer_view(window.width(), window.height(), picture);
     ui_scale.0 = 4.0 / scale;
     for (mut projection, mut transform) in &mut cameras {
         if let Projection::Orthographic(orthographic) = &mut *projection {
@@ -195,19 +195,24 @@ fn fit_camera(
 mod tests {
     use super::*;
 
+    const FULL: Vec2 = Vec2::new(256.0, 240.0);
+    const TV: Vec2 = Vec2::new(240.0, 224.0);
+
     #[test]
     fn the_picture_scales_by_whole_multiples_on_whole_pixels() {
         assert_eq!(
-            integer_view(1659.0, 1400.0, 240.0),
+            integer_view(1659.0, 1400.0, FULL),
             (0.8, Vec2::new(0.4, 0.0))
         );
-        assert_eq!(integer_view(1280.0, 1200.0, 240.0), (0.8, Vec2::ZERO));
+        assert_eq!(integer_view(1280.0, 1200.0, FULL), (0.8, Vec2::ZERO));
         assert_eq!(
-            integer_view(1280.0, 1199.0, 240.0),
+            integer_view(1280.0, 1199.0, FULL),
             (1.0, Vec2::new(0.0, 0.5))
         );
-        assert_eq!(integer_view(100.0, 100.0, 240.0), (4.0, Vec2::ZERO));
-        assert_eq!(integer_view(1280.0, 1150.0, 224.0), (0.8, Vec2::ZERO));
-        assert_eq!(integer_view(1280.0, 1150.0, 240.0), (1.0, Vec2::ZERO));
+        assert_eq!(integer_view(100.0, 100.0, FULL), (4.0, Vec2::ZERO));
+        assert_eq!(integer_view(1280.0, 1150.0, TV), (0.8, Vec2::ZERO));
+        assert_eq!(integer_view(1280.0, 1150.0, FULL), (1.0, Vec2::ZERO));
+        assert_eq!(integer_view(1200.0, 1120.0, TV), (0.8, Vec2::ZERO));
+        assert_eq!(integer_view(1200.0, 1120.0, FULL), (1.0, Vec2::ZERO));
     }
 }

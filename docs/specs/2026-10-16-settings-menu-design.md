@@ -114,8 +114,10 @@ so 14 text rows fit in 224 lines. Spec 2 reuses the atlas.
 squared curve, so the steps sound even), the same place the menu's fades apply. One master
 volume: the 2A03 mixes music and effects on the same channels.
 
-**overscan.** `Hidden` shows lines 8-231: the screen quad's `Sprite::rect` crops the image
-and `integer_view` fits 256x224 (a larger whole multiple in the same window). `Shown` is
+**overscan.** `Hidden` shows the middle 240x224 (8 pixels off each edge, as a TV; the
+sides added after the owner's playtest showed the scroll seam at the right edge): the
+screen quad's `Sprite::rect` crops the image and `integer_view` fits 240x224 (a larger
+whole multiple in the same window). `Shown` is
 today's 240 lines. The game's frame, the tests and the replays always draw and check all
 240 lines.
 

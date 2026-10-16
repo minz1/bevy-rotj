@@ -11,7 +11,7 @@ use crate::RomData;
 use crate::input::{NesButtons, NesInput};
 use crate::pacing::Step;
 use crate::play::Play;
-use crate::screen::{Colours, pixels, visible_lines};
+use crate::screen::{Colours, pixels, visible};
 use crate::settings::{Overscan, PaletteChoice, Settings, SettingsDir, save};
 
 /// The menu's lines, in order.
@@ -381,7 +381,7 @@ fn draw(
     if !shown.menu.open && !hint {
         return;
     }
-    let (first, count) = visible_lines(shown.settings.overscan);
+    let area = visible(shown.settings.overscan);
     commands
         .spawn((
             Overlay,
@@ -395,8 +395,8 @@ fn draw(
         ))
         .with_children(|root| {
             root.spawn(Node {
-                width: Val::Px(256.0),
-                height: Val::Px(pixels(count)),
+                width: Val::Px(pixels(area.width)),
+                height: Val::Px(pixels(area.height)),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 ..default()
@@ -406,7 +406,7 @@ fn draw(
                     picture.spawn((
                         Node {
                             position_type: PositionType::Absolute,
-                            top: Val::Px(pixels(HINT_ROW - first)),
+                            top: Val::Px(pixels(HINT_ROW - area.y)),
                             ..default()
                         },
                         children![line(&font, HINT, Color::WHITE)],
@@ -507,7 +507,7 @@ mod tests {
     fn the_box_fits_the_smallest_view() {
         let width = pixels(COLUMNS * 8) + 2.0 * (PAD + BORDER);
         let height = pixels((ROWS.len() + 2) * 16) + 2.0 * (PAD + BORDER);
-        assert!(width <= 256.0 && height <= 224.0, "{width}x{height}");
+        assert!(width <= 240.0 && height <= 224.0, "{width}x{height}");
         let longest = ROWS
             .iter()
             .map(|label| VALUE_COLUMN.max(label.len()) + "COMPOSITE".len())

@@ -47,7 +47,7 @@ workspace still builds and tests (the ROM tests skip). If you add the ROM later,
 
 Esc opens the settings menu anywhere, and so does Select while the game is paused:
 volume, overscan, palette, the sprite limit and vsync. Everything starts the way the NES
-looked: a TV's overscan hides 8 lines at the top and bottom, the colours are Composite
+looked: a TV's overscan hides 8 pixels at every edge, the colours are Composite
 Direct, and more than 8 sprites on a line flicker. Turn the sprite limit off and the
 flicker from it goes. Pick FILE as the palette to use your own 64-colour `.pal`, saved
 as `palette.pal` next to the exe.
