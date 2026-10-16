@@ -1,6 +1,6 @@
 # Port plan — Batman: Return of the Joker → Rust/Bevy
 
-Status: **1.0.2 tagged** (the whole game byte-exact against the oracle, boot to ending, read from the user's own ROM, every frame's picture checked line by line; `docs/STATUS.md`
+Status: **1.0.3 tagged** (the whole game byte-exact against the oracle, boot to ending, built with the user's own ROM, every frame's picture checked line by line; `docs/STATUS.md`
 is the source of truth). **1.0 means full-game parity** (all 7 stages, 5 bosses,
 every actor behaviour, the complete soundtrack). Intermediate minor checkpoints are
 tagged as they land. After 1.0.0 only Classic Mode is bound by parity
@@ -36,7 +36,7 @@ workspace version in `Cargo.toml` and the in-game version string are the same.
 | **1.0.0** | **Full-game parity**: all stages, bosses, music, HUD, endings | **tagged** |
 | 1.0.1 | The "bring your own ROM" pass (below), so the repo can be public. 1.0.x releases keep parity | **tagged** |
 | 1.0.2 | The raster splits of all 12 areas (the boss status bars), and every frame's lines checked against the oracle, the oracle's against fceux's pixels | **tagged** |
-| 1.0.3 | The ROM embedded at build time: a self-contained exe (the owner's call, 2026-10-16) | |
+| 1.0.3 | The ROM embedded at build time: a self-contained exe (the owner's call, 2026-10-16) | **tagged** |
 | 1.1.0 | Settings menu (volume, CRT filters, FPS modes, widescreen) | |
 | 1.2.0 | Chapter select and passwords | |
 | 1.3.0 | Prototype music (enhanced mode) | |
