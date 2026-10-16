@@ -84,9 +84,11 @@ loop frame's sprites up (`Script::StageEnded`, `PowerUp`).
   that frame or the frame before. The game draws it on odd frames, so it shows steadily
   while the HUD is up, and goes at most one frame after the HUD does.
 - Each entry's art and colours come from the line it starts on, as the compositor's: its
-  tile pair through `lines[y + 1].sprite_chr` and the sprite table `ctrl` selects, its four
-  colours from palette RAM's sprite set (attribute bits 0-1) with `mask`'s greyscale, through
-  the chosen palette table, colour 0 transparent; `ImageNode` flips for attribute bits 6-7.
+  tile pair through `lines[y + 1].sprite_chr` and the table its tile number's bit 0 selects
+  (8x16 mode ignores `ctrl`'s sprite-table bit), its four colours from palette RAM's sprite
+  set (attribute bits 0-1) with `mask`'s greyscale, through the chosen palette table,
+  colour 0 transparent; `ImageNode` flips for attribute bits 6-7. An entry on a line with
+  sprites off (`mask & 0x10 == 0`) is not shown, as the PPU would not show it.
 - Tile atlases: a shared CHR-to-atlas builder (one 4 KiB pattern table as 128 8x16 tiles in
   one 4-colour palette, a 128x128 image), kept for the keys (banks, colours) the shown
   entries use this frame and dropped when no shown entry uses them, so the pause's cycling

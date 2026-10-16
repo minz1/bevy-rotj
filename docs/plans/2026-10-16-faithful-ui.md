@@ -13,7 +13,10 @@ atlases built from the player's CHR.
 **Tech Stack:** Rust, Bevy 0.20 `bevy_ui`, serde/ron (existing).
 
 **Spec:** `docs/specs/2026-10-16-faithful-ui-design.md` (approved with changes by the Opus
-stand-in, changes applied).
+stand-in, changes applied). This plan: approved with changes by the Opus stand-in (applied
+below: the clone test clears the OAM, Task 2 checks the OAM against the state before each
+step, the label carry-over lives in `Play::step`, sprites-off lines and the x range, the
+8x16 table rule, the menu row index, fewer files).
 
 ## Global Constraints
 
@@ -29,8 +32,8 @@ stand-in, changes applied).
 
 ## Review Focus
 
-1. An OAM page that overflows on an even frame (`finish` parks nothing): the marks of the
-   entries left from the previous frame must still match their bytes (Task 1 test).
+1. A frame that places exactly 63 entries (`left` 0, so `finish` parks nothing) and then
+   drops a piece at the edge: that entry's mark must be its last writer's (Task 1 test).
 2. Faithful with the HUD hidden (`effects.hud & 0x80`, a boss room): no stale label carried
    over beyond one frame (Task 3 test).
 3. Switching `ui` while paused or mid-password: the UI appears or the game's sprites return
@@ -57,24 +60,25 @@ stand-in, changes applied).
   `OamBuilder { pub marks: [Mark; 64], pub marking: Mark, .. }`.
 
 - [ ] **Step 1: Failing tests** in `oam.rs`:
-  - `draw_marks_what_it_places_and_not_what_it_drops`: a two-piece metasprite with one
-    piece at x past `width`, `marking = Hud`: the placed entry (`next / 4` before the
-    draw) is `Hud`, the entry after it `Scene`.
+  - `draw_marks_the_entries_it_writes`: a two-piece metasprite, the second piece at x past
+    `width`, `marking = Hud`: the first entry is `Hud`; the dropped piece's entry (written
+    but not advanced past) is `Hud` before `finish` and `Scene` after (parked).
   - `finish_keeps_drawn_marks_and_clears_parked_ones`: draw one piece as `Pause`, `finish`:
     that entry still `Pause`, every parked entry `Scene`.
   - `clear_makes_every_mark_scene`.
-  - `an_overflowed_page_keeps_its_marks`: fill the page past 63 entries on an even frame
-    as `Hud`; after `finish` (which parks nothing) every entry is still `Hud`.
+  - `a_full_page_keeps_its_last_writers_marks`: 63 pieces as `Pause`, then one dropped at
+    the edge as `Hud` (`left` 0, `finish` parks nothing): that entry is `Hud`.
   With the ROM, in `actor.rs` tests (a level start, `room::start(..., 0)`), 4 loop frames:
-  - `the_hud_marks_exactly_its_pieces`: the HUD is the loop frame's first draw, so a clone
-    of the game taken before `Game::frame`, given `marking = Hud` and run through
-    `frame::draw_hud` alone, places the same entries; the real frame's `Hud`/`Label`
-    entries equal the clone's non-`Scene` entries as a multiset of `(y, tile, attr, x)`,
-    with `Label` present on odd frames only.
+  - `the_hud_marks_exactly_its_pieces`: the HUD is the loop frame's first draw. Each
+    frame: `game.nmi(0); let mut c = game.clone(); c.oam.clear(); c.oam.marking =
+    Mark::Hud; frame::draw_hud(&mut c, prg);` then the real `game.frame(..)`. The real
+    frame's `Hud` entries equal the clone's `Hud` entries, and its `Label` entries the
+    clone's `Label` entries, each as a multiset of `(y, tile, attr, x)`; `Label` entries
+    exist on odd frames only.
   The pause card, title cursor and password entry are checked in Task 2's app sessions.
 - [ ] **Step 2: Run** `cargo test -p rotj-core oam::` → compile errors.
-- [ ] **Step 3: Implement.** `draw` sets `self.marks[usize::from(next >> 2)] = self.marking`
-  next to the `next` advance. `finish`'s parking loop sets `Scene` on each entry it parks.
+- [ ] **Step 3: Implement.** `draw` sets `self.marks[entry >> 2] = self.marking` where it
+  writes the entry's bytes (oam.rs:173). `finish`'s parking loop sets `Scene` on each entry it parks.
   `new` and `lift` start all `Scene`, `marking: Scene`. The callers set `marking` and reset
   it to `Scene` after (including `draw_hud`'s early returns: set it at the call site in
   `actor.rs`, and inside `draw_hud` only switch to `Label` and back to `Hud` around the
@@ -86,45 +90,56 @@ stand-in, changes applied).
 ### Task 2: The chain's invariants for marked sprites
 
 **Files:**
-- Modify: the release chain test in `crates/rotj-core/src/actor.rs` tests (the TAS chain
-  loop) and the app's scripted sessions in `crates/app/src/play.rs` tests
+- Modify: `crates/rotj-core/src/actor/oracle.rs` (`Lockstep::compare_lines`, oracle.rs:894:
+  the hook every lockstep frame passes through, with `before.oam` and
+  `raster::lines(registers, game)`), `crates/app/src/play.rs` (`Play` gains
+  `marks: [Mark; 64]`, copied with `oam` in `step` and set in `running`) and its tests
 
 **Interfaces:**
 - Produces: `fn assert_marked_drawable(oam: &OamBuilder, lines: &[Line])` (test helper in
   rotj-core, `pub(crate)` or `#[cfg(test)] pub`): for every entry with a non-`Scene` mark,
   `attr & 0x20 == 0`, `lines[y + 1].ctrl & 0x20 != 0`, and `lines[y + 1..y + 17]` share one
-  `sprite_chr` (rows past 239 ignored).
+  `sprite_chr` (rows past 239 ignored), and `8 <= x <= 240` (clear of the black sides and
+  of `$2001`'s left-8 clip, so Faithful matches Classic there).
 
-- [ ] **Step 1:** Call it every frame of the TAS chain with the frame's raster lines
-  (`raster::lines`), and every frame of three app sessions: power-on to the title and
+- [ ] **Step 1:** Call it every lockstep frame (the chain counts the `Hud` and `Label`
+  entries it saw and asserts both are above 0, so the invariants cannot pass on nothing),
+  and every frame of three app sessions, checking `play.oam`/`play.marks`/`play.lines`
+  against the screen state read *before* each `step` (the OAM `step` copies is the frame
+  before it): power-on to the title and
   10 frames of cursor moves; title → PASSWORD → enter four letters and submit a wrong one;
   stage 1-1 start → Start (pause) → 30 frames → Start. In those sessions also: while
   paused every visible (y < `$EF`) entry is marked `Pause`; on the title every visible entry
-  is `Title` (the cursor's 2 pieces); on the password screen the `Password` entries number
-  9 while the letters show, 6 for the rejection, 0 otherwise, and every other visible entry
-  is `Scene`.
+  is `Title`; on the password screen the `Password` entries number 0, 6 or 9 on every frame
+  and 6 and 9 each occur (a different count is a constant to correct from the ROM, not a
+  redesign), every other visible entry `Scene`.
 - [ ] **Step 2: Run** the release `--ignored` suites of rotj-core and the app. Expected:
-  PASS (if not, the spec's assumption broke: stop and redesign that element).
+  PASS (a broken drawability invariant means the spec's assumption broke for that element:
+  stop and redesign it).
 - [ ] **Step 3: Commit** `The marked sprites are drawable as UI on every frame`.
 
 ### Task 3: The UI in the app
 
 **Files:**
-- Create: `crates/app/src/ui.rs` (the overlay), `crates/app/src/atlas.rs` (CHR to tile
-  atlas, shared with the GPU renderer later)
+- Create: `crates/app/src/ui.rs` (the overlay and its tile atlases)
 - Modify: `settings.rs` (`ui` key, `UiStyle { Classic, Faithful }`, `Fields`), `settings-1.1.0.ron`
-  (add `ui: Classic`), `menu.rs` (row `UI`), `play.rs` (copy marks in `step`; park in
-  `compose` when Faithful; expose `shown_marks()`, `shown_oam()`, `lines()`, `palette()`),
-  `main.rs` (plugin)
+  (add `ui: Classic`), `menu.rs` (row `UI` at index 5, before `BACK`), `play.rs` (park in
+  `compose` when Faithful; `label: Vec<[u8; 4]>`, the previous step's `Label` entries, kept
+  in `step`; `oam`, `marks`, `label`, `lines` and the PPU palette `pub(crate)`), `main.rs`
+  (plugin)
 
 **Interfaces:**
 - Consumes: Task 1's `Mark`, `OamBuilder::marks`.
-- Produces: `atlas::tiles(chr: &[u8], banks: [u8; 4], colours: [[u8; 3]; 4]) -> Image`
+- Produces: `ui::tiles(chr: &[u8], banks: [u8; 4], colours: [[u8; 3]; 4]) -> Image`
   (128 8x16 tiles of one 4 KiB pattern table, 16 x 8 grid, colour 0 transparent);
   `pub enum UiStyle { Classic, Faithful }` (`#[default] Classic`); `Play::compose(&self,
-  frame, sprites_per_line, park: bool)`; `ui::Shown` (the entries to show: `(entry, y,
-  tile, attr, x, mark)` plus their line's banks and colours) and
-  `fn shown(oam, marks, lines, palette, rgb, label_last_frame: bool) -> Vec<Piece>`.
+  frame, sprites_per_line, park: bool)`; `ui::Shown { y, tile, attr, x, banks: [u8; 4],
+  colours: [[u8; 3]; 4] }` and `fn shown(oam: &[u8; 256], marks: &[Mark; 64], label:
+  &[[u8; 4]], lines: &[Line], palette: &[u8; 32], rgb: &Rgb) -> Vec<Shown>`: the non-Scene
+  visible entries plus the carried label when this step drew none, skipping entries whose
+  line `lines[y + 1].mask & 0x10 == 0` (sprites off). In 8x16 mode the table is `tile & 1`,
+  the banks `sprite_chr[4 * (tile & 1)..][..4]`, the cell `tile >> 1`, the colours
+  `palette[0x10 + 4 * (attr & 3) + v]` (`& 0x30` when `mask & 1`).
 
 - [ ] **Step 1: Failing tests:**
   - settings: `(ui: Faithful)` loads; the fixture has `ui: Classic`; an unknown `ui: Modern`
@@ -133,9 +148,11 @@ stand-in, changes applied).
   - play: `classic_keeps_the_games_oam` (park false: the display copy equals the game's);
     `faithful_parks_exactly_the_marked_entries` (a stage frame: non-Scene entries' y is
     `$F4` in the copy, the rest equal).
-  - ui: `the_label_carries_over_one_frame` (shown on the frame after it was drawn, not two
-    frames after); `positions_follow_the_visible_area` (x 250 → 242 with Hidden, OAM y 4 →
-    -3 with Hidden, i.e. clipped above); `the_atlas_cache_keeps_only_this_frames_keys`.
+  - play: `the_label_carries_over_one_step` (`Play::step` keeps the last step's `Label`
+    entries for one step, then drops them).
+  - ui: `shown_skips_lines_with_sprites_off`; `positions_follow_the_visible_area` (x 250
+    stays 250 in both modes; OAM y 4 → -3 with Hidden, clipped above);
+    `the_atlas_cache_keeps_only_this_frames_keys`.
   - atlas: a known tile pair's pixels from a synthetic CHR (no ROM): value 0 transparent,
     1-3 the three colours, the bottom half from tile `top | 1`.
 - [ ] **Step 2: Run** `cargo test -p batman-rotj` → FAIL.
@@ -145,7 +162,8 @@ stand-in, changes applied).
   overlay and spawns, inside a full-window centring root and a `visible`-sized NES-pixel
   container with `Overflow::clip()` and a `GlobalZIndex` below the menu's, one absolutely
   positioned 8x16 `ImageNode` per entry on its atlas (flips from attr bits 6-7). The label
-  carry-over keeps the previous shown frame's `Label` entries for one frame.
+  carry-over is `Play::label`, so extra updates without a tick change nothing. The UI root
+  gets `GlobalZIndex(-1)`, below the menu (which has none).
 - [ ] **Step 4: Run** `cargo test -p batman-rotj`; clippy. Expected: PASS.
 - [ ] **Step 5: Commit** `Faithful UI: the game's own UI sprites as Bevy UI`.
 
@@ -160,7 +178,7 @@ stand-in, changes applied).
 - [ ] **Step 3: Docs:** STATUS (a 1.1.0 row replacing "1.1.0, spec 1": both specs and their
   evidence), PLAN (1.1.0 tagged), README (the `UI` setting).
 - [ ] **Step 4: Version 1.1.0:** workspace `version`, every internal dependency's
-  `version = "1.0.5"` to `"1.1.0"`, `Cargo.lock`; the in-game version string if any (as the
+  `version = "1.0.5"` to `"1.1.0"` (19 lines, `tools/*` included), `Cargo.lock` (as the
   1.0.5 release commit did: `git show 8e9fd31 --stat`). Commit `Release 1.1.0`.
 - [ ] **Step 5: Release checks:** gates on the release commit; a fresh clone without a ROM
   in the scratchpad (clippy, `cargo test --workspace`, `cargo build -p batman-rotj`, the exe
