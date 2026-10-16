@@ -18,7 +18,7 @@ pub struct Screen {
     image: Handle<Image>,
     dirty: bool,
     /// Lines whose 8 pixels at each side show black, as a TV's edge would hide them.
-    edges: [bool; SCREEN_H],
+    pub(crate) edges: [bool; SCREEN_H],
 }
 
 impl Screen {
@@ -147,11 +147,6 @@ pub fn screen_image(screen: &Screen) -> Handle<Image> {
 pub fn screen_frame(screen: &mut Screen) -> &mut Frame {
     screen.dirty = true;
     &mut screen.frame
-}
-
-/// Marks the lines whose sides show black.
-pub fn set_edges(screen: &mut Screen, edges: [bool; SCREEN_H]) {
-    screen.edges = edges;
 }
 
 /// A black 256x240 RGBA image.

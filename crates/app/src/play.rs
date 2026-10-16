@@ -42,8 +42,8 @@ fn forced_level() -> Option<u8> {
 pub struct Play {
     game: Game,
     prg: Vec<u8>,
-    chr: Vec<u8>,
-    ppu: Ppu,
+    pub(crate) chr: Vec<u8>,
+    pub(crate) ppu: Ppu,
     /// The NMI armed the raster IRQ (`$D0` bit 7), so this frame is split.
     raster: bool,
     /// The lines the PPU draws this frame with, and the sprites its NMI copied.
@@ -184,16 +184,6 @@ impl Play {
             }
         }
         oam
-    }
-
-    /// The palette RAM the picture is drawn with.
-    pub(crate) fn palette(&self) -> &[u8; 32] {
-        &self.ppu.palette
-    }
-
-    /// The CHR the picture is drawn from.
-    pub(crate) fn chr(&self) -> &[u8] {
-        &self.chr
     }
 }
 
@@ -357,7 +347,7 @@ fn draw(play: Option<Res<'_, Play>>, settings: Res<'_, Settings>, mut screen: Re
         let edges = std::array::from_fn(|y| {
             hidden && play.lines.get(y).is_some_and(crate::screen::scrolled)
         });
-        crate::screen::set_edges(&mut screen, edges);
+        screen.edges = edges;
     }
 }
 

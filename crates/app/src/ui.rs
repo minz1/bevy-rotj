@@ -42,9 +42,9 @@ pub struct Shown {
     pub key: Key,
 }
 
-/// The marked sprites the PPU would show, plus the label carried over from the step before
-/// when this one drew none: each with the banks and colours of the line it starts on, as
-/// the PPU draws it in 8x16 mode.
+/// The marked sprites the PPU would show, the label carried from the step before (when this
+/// one drew none) first and the rest in OAM order, which the overlay draws back to front so
+/// the lowest entry wins as on the PPU; each in its line's banks and colours, 8x16 mode.
 #[must_use]
 pub fn shown(
     oam: &[u8; 256],
@@ -62,8 +62,10 @@ pub fn shown(
     let marked = (0..64)
         .filter(|&entry| marks[entry] != Mark::Scene)
         .map(|entry| -> [u8; 4] { oam[entry * 4..entry * 4 + 4].try_into().expect("4 bytes") });
-    marked
-        .chain(carried.iter().copied())
+    carried
+        .iter()
+        .copied()
+        .chain(marked)
         .filter_map(|[y, tile, attr, x]| {
             let line = lines.get(usize::from(y) + 1)?;
             if line.mask & 0x10 == 0 {
@@ -76,7 +78,11 @@ pub fn shown(
             let grey = if line.mask & 1 != 0 { 0x30 } else { 0x3F };
             let colours = std::array::from_fn(|v| {
                 let entry = palette[0x10 + 4 * usize::from(attr & 3) + v] & grey;
-                rgb[usize::from(entry)]
+                if v == 0 {
+                    [0; 3]
+                } else {
+                    rgb[usize::from(entry)]
+                }
             });
             Some(Shown {
                 y,
@@ -178,7 +184,7 @@ fn show(
             &play.marks,
             &play.label,
             &play.lines,
-            play.palette(),
+            &play.ppu.palette,
             &colours.rgb,
         ),
         _ => Vec::new(),
@@ -210,13 +216,14 @@ fn show(
         .clone();
     for key in keys {
         if !art.atlases.images.contains_key(&key) {
-            let image = art.images.add(tiles(play.chr(), &key));
+            let image = art.images.add(tiles(&play.chr, &key));
             art.atlases.images.insert(key, image);
         }
     }
     let area = visible(settings.overscan);
     let sprites: Vec<_> = pieces
         .iter()
+        .rev()
         .map(|piece| {
             let at = position(piece, area);
             let mut image = ImageNode::from_atlas_image(
@@ -316,6 +323,10 @@ mod tests {
             "odd tiles from the $1000 table"
         );
         assert_eq!(pieces[0].key.colours[1], [0x16; 3]);
+        assert_eq!(
+            pieces[0].key.colours[0], [0; 3],
+            "colour 0 is clear, whatever the backdrop"
+        );
         let grey = shown(
             &oam_with(1, [19, 0x10, 3, 24]),
             &hud_marks(),
