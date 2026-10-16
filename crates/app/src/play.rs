@@ -128,6 +128,12 @@ impl Play {
         matches!(&self.game.script, Some(Script::Boot(boot)) if !boot.done())
     }
 
+    /// True while the game's own pause is up (Start in the loop, `$9C37`).
+    #[must_use]
+    pub fn paused(&self) -> bool {
+        matches!(self.game.script, Some(Script::Pause(_)))
+    }
+
     /// The game.
     #[cfg(test)]
     #[must_use]
@@ -209,7 +215,7 @@ pub struct PlayPlugin;
 impl Plugin for PlayPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, power_on)
-            .add_systems(Update, tick.in_set(Step::Game))
+            .add_systems(Update, tick.in_set(Step::Game).run_if(menu_closed))
             .add_systems(
                 Update,
                 (
@@ -221,6 +227,15 @@ impl Plugin for PlayPlugin {
                     .in_set(Step::Picture),
             );
     }
+}
+
+/// The game runs unless the settings menu is open.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Bevy system params, rust-clippy#8940"
+)]
+pub(crate) fn menu_closed(menu: Res<'_, crate::menu::Menu>) -> bool {
+    !menu.open
 }
 
 /// Powers the game on, records its pads if asked (`ROTJ_RECORD_INPUT`) and shows it.
@@ -245,7 +260,7 @@ fn power_on(mut commands: Commands<'_, '_>, screen: Res<'_, Screen>, rom: Res<'_
     clippy::needless_pass_by_value,
     reason = "Bevy system params, rust-clippy#8940"
 )]
-fn tick(
+pub(crate) fn tick(
     input: Res<'_, NesInput>,
     play: Option<ResMut<'_, Play>>,
     recorder: Option<ResMut<'_, Recorder>>,
@@ -256,7 +271,7 @@ fn tick(
     let Some(mut play) = play else {
         return;
     };
-    let pad = input.buttons.game_byte();
+    let pad = input.game_byte();
     if let Some(mut recorder) = recorder {
         recorder.record(pad);
     }
@@ -412,6 +427,27 @@ mod tests {
     fn start(level: usize) -> Option<Play> {
         let rom = rotj_rom::for_test()?;
         Some(Play::start(rom.prg.clone(), rom.chr.clone(), level))
+    }
+
+    #[test]
+    fn paused_follows_the_games_pause() {
+        let Some(mut play) = play() else {
+            return;
+        };
+        for _ in 0..30 {
+            play.step(0);
+        }
+        assert!(!play.paused());
+        play.step(0x10);
+        for _ in 0..5 {
+            play.step(0);
+        }
+        assert!(play.paused(), "Start pauses");
+        play.step(0x10);
+        for _ in 0..5 {
+            play.step(0);
+        }
+        assert!(!play.paused(), "Start again resumes");
     }
 
     /// Arms `$BA`/`$BB` and runs the script that follows to its end.

@@ -2,6 +2,7 @@
 
 mod audio;
 mod input;
+mod menu;
 mod pacing;
 mod play;
 mod screen;
@@ -118,6 +119,7 @@ fn main() {
     .add_systems(Update, fit_camera)
     .add_plugins((
         pacing::PacingPlugin,
+        menu::MenuPlugin,
         audio::AudioPlugin,
         input::InputPlugin,
         play::PlayPlugin,
@@ -169,6 +171,7 @@ fn fit_camera(
     windows: Query<'_, '_, Ref<'_, Window>, With<PrimaryWindow>>,
     settings: Res<'_, settings::Settings>,
     mut cameras: Query<'_, '_, (&mut Projection, &mut Transform), With<Camera2d>>,
+    mut ui_scale: ResMut<'_, UiScale>,
 ) {
     let Ok(window) = windows.single() else {
         return;
@@ -179,6 +182,7 @@ fn fit_camera(
     let (_, lines) = screen::visible_lines(settings.overscan);
     let lines = f32::from(u16::try_from(lines).expect("at most 240"));
     let (scale, offset) = integer_view(window.width(), window.height(), lines);
+    ui_scale.0 = 4.0 / scale;
     for (mut projection, mut transform) in &mut cameras {
         if let Projection::Orthographic(orthographic) = &mut *projection {
             orthographic.scale = scale;

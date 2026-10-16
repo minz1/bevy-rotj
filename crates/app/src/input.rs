@@ -52,6 +52,8 @@ pub struct NesInput {
     pub pressed: NesButtons,
     /// Buttons that were released since the previous frame.
     pub released: NesButtons,
+    /// Held buttons the game does not see until they are released.
+    hidden: u8,
 }
 
 impl NesInput {
@@ -60,6 +62,18 @@ impl NesInput {
         self.pressed = NesButtons(buttons.0 & !self.buttons.0);
         self.released = NesButtons(!buttons.0 & self.buttons.0);
         self.buttons = buttons;
+        self.hidden &= buttons.0;
+    }
+
+    /// Hides every button held now from the game until it is released.
+    pub fn hide_held(&mut self) {
+        self.hidden = self.buttons.0;
+    }
+
+    /// The pad the game reads: held buttons less the hidden ones, in its `$F6` order.
+    #[must_use]
+    pub const fn game_byte(self) -> u8 {
+        NesButtons(self.buttons.0 & !self.hidden).game_byte()
     }
 }
 
@@ -177,6 +191,19 @@ mod tests {
         assert!(input.released.contains(NesButtons::START));
         assert!(!input.pressed.contains(NesButtons::A));
         assert!(input.buttons.contains(NesButtons::A));
+    }
+
+    #[test]
+    fn hidden_buttons_stay_hidden_until_released() {
+        let mut input = NesInput::default();
+        input.update(NesButtons(NesButtons::A | NesButtons::RIGHT));
+        input.hide_held();
+        input.update(NesButtons(NesButtons::A | NesButtons::RIGHT));
+        assert_eq!(input.game_byte(), 0);
+        input.update(NesButtons(NesButtons::RIGHT));
+        assert_eq!(input.game_byte(), 0);
+        input.update(NesButtons(NesButtons::A | NesButtons::RIGHT));
+        assert_eq!(input.game_byte(), 0x80);
     }
 
     #[test]

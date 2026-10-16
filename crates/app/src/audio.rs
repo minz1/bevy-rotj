@@ -261,9 +261,18 @@ fn start_music(
     clippy::needless_pass_by_value,
     reason = "Bevy system params, rust-clippy#8940"
 )]
-fn advance_music(mut music: ResMut<'_, Music>, settings: Res<'_, crate::settings::Settings>) {
+fn advance_music(
+    mut music: ResMut<'_, Music>,
+    settings: Res<'_, crate::settings::Settings>,
+    menu: Res<'_, crate::menu::Menu>,
+) {
     music.start();
-    music.advance_frame(true, gain(settings.volume));
+    let gain = if menu.open {
+        0.0
+    } else {
+        gain(settings.volume)
+    };
+    music.advance_frame(!menu.open, gain);
 }
 
 #[cfg(test)]

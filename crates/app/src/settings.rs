@@ -106,6 +106,15 @@ pub fn load(dir: &Path) -> Settings {
     }
 }
 
+/// Writes `settings` to `dir` through a temporary file, so a crash never leaves half a file.
+pub fn save(dir: &Path, settings: &Settings) -> std::io::Result<()> {
+    let text = ron::ser::to_string_pretty(settings, ron::ser::PrettyConfig::default())
+        .map_err(std::io::Error::other)?;
+    let temporary = dir.join(format!("{FILE}.tmp"));
+    fs::write(&temporary, text)?;
+    fs::rename(&temporary, dir.join(FILE))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +139,21 @@ mod tests {
         let dir = dir("none");
         assert_eq!(load(&dir), Settings::default());
         assert_eq!(fs::read_dir(&dir).expect("dir").count(), 0);
+    }
+
+    #[test]
+    fn settings_round_trip() {
+        let dir = dir("round-trip");
+        let settings = Settings {
+            volume: 35,
+            overscan: Overscan::Shown,
+            palette: PaletteChoice::Ntsc,
+            sprite_limit: false,
+            vsync: false,
+        };
+        save(&dir, &settings).expect("save");
+        assert_eq!(load(&dir), settings);
+        assert!(!dir.join("settings.ron.tmp").exists());
     }
 
     #[test]
@@ -167,5 +191,13 @@ mod tests {
         let settings: Settings =
             ron::from_str(include_str!("../settings-1.1.0.ron")).expect("1.1.0's file");
         assert_eq!(settings, Settings::default());
+    }
+
+    #[test]
+    fn an_unwritable_dir_is_an_error_not_a_panic() {
+        let dir = dir("unwritable");
+        let file = dir.join("not-a-dir");
+        fs::write(&file, "").expect("write");
+        assert!(save(&file, &Settings::default()).is_err());
     }
 }
