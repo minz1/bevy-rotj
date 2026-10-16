@@ -45,13 +45,16 @@ fn line(l: &rotj_oracle::Line) -> Line {
 
 fn render(m: &Machine, lines: &[Line]) -> Vec<u8> {
     let mut frame = Frame::new();
-    frame.render(&Picture {
-        lines,
-        vram: &m.bus.ppu.vram,
-        palette: &m.bus.ppu.palette,
-        oam: &m.bus.ppu.oam,
-        chr: &m.bus.cart.chr,
-    });
+    frame.render(
+        &Picture {
+            lines,
+            vram: &m.bus.ppu.vram,
+            palette: &m.bus.ppu.palette,
+            oam: &m.bus.ppu.oam,
+            chr: &m.bus.cart.chr,
+        },
+        rotj_core::render::MAX_SPRITES_PER_LINE,
+    );
     frame.indices()[SHOWN].to_vec()
 }
 

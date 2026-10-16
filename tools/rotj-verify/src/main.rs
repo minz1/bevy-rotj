@@ -253,13 +253,16 @@ fn screen(job: &Job) -> Result<()> {
         })
         .collect();
     let mut frame = Frame::new();
-    frame.render(&Picture {
-        lines: &lines,
-        vram: &sources.nametables,
-        palette: &sources.palette,
-        oam: &sources.oam,
-        chr: &sources.pattern,
-    });
+    frame.render(
+        &Picture {
+            lines: &lines,
+            vram: &sources.nametables,
+            palette: &sources.palette,
+            oam: &sources.oam,
+            chr: &sources.pattern,
+        },
+        rotj_core::render::MAX_SPRITES_PER_LINE,
+    );
 
     for path in [&job.out, &job.indices] {
         if let Some(dir) = path.parent() {

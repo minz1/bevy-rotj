@@ -354,13 +354,16 @@ fn preview(pattern_path: &Path, out: &Path) -> Result<()> {
         })
         .collect();
     let mut frame = rotj_core::render::Frame::new();
-    frame.render(&rotj_core::render::Picture {
-        lines: &lines,
-        vram: &nametables,
-        palette: &palette,
-        oam: &[0; 256],
-        chr: &pattern,
-    });
+    frame.render(
+        &rotj_core::render::Picture {
+            lines: &lines,
+            vram: &nametables,
+            palette: &palette,
+            oam: &[0; 256],
+            chr: &pattern,
+        },
+        rotj_core::render::MAX_SPRITES_PER_LINE,
+    );
     write_png(
         out,
         u32::try_from(rotj_core::render::SCREEN_W).expect("const tiny"),
