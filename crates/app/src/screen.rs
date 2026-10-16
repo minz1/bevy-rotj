@@ -51,29 +51,17 @@ impl Default for Colours {
 
 /// The table for `choice`; `File` reads `<dir>/palette.pal` each time it is asked for.
 #[must_use]
-pub fn colours(choice: PaletteChoice, dir: Option<&Path>) -> Colours {
-    let rgb = match choice {
-        PaletteChoice::CompositeDirect => NES_PALETTE,
-        PaletteChoice::RgbPpu => RGB_PPU,
-        PaletteChoice::Ntsc => ntsc(),
-        PaletteChoice::File => {
-            let file = dir.and_then(|dir| std::fs::read(dir.join("palette.pal")).ok());
-            return match file.as_deref().and_then(from_pal) {
-                Some(rgb) => Colours {
-                    rgb,
-                    file_missing: false,
-                },
-                None => Colours {
-                    rgb: NES_PALETTE,
-                    file_missing: true,
-                },
-            };
-        }
+pub fn colours_for(choice: PaletteChoice, dir: Option<&Path>) -> Colours {
+    let (rgb, file_missing) = match choice {
+        PaletteChoice::CompositeDirect => (NES_PALETTE, false),
+        PaletteChoice::RgbPpu => (RGB_PPU, false),
+        PaletteChoice::Ntsc => (ntsc(), false),
+        PaletteChoice::File => dir
+            .and_then(|dir| std::fs::read(dir.join("palette.pal")).ok())
+            .and_then(|bytes| from_pal(&bytes))
+            .map_or((NES_PALETTE, true), |rgb| (rgb, false)),
     };
-    Colours {
-        rgb,
-        file_missing: false,
-    }
+    Colours { rgb, file_missing }
 }
 
 /// Opaque RGBA for each palette-RAM value in `indices`, through `rgb`.
@@ -171,7 +159,7 @@ pub fn apply_settings(
     if !settings.is_changed() {
         return;
     }
-    colours.set_if_neq(self::colours(settings.palette, dir.0.as_deref()));
+    colours.set_if_neq(colours_for(settings.palette, dir.0.as_deref()));
     let (first, count) = visible_lines(settings.overscan);
     for mut sprite in &mut quads {
         sprite.rect = Some(Rect::new(
@@ -194,7 +182,8 @@ pub fn apply_settings(
     }
 }
 
-fn pixels(count: usize) -> f32 {
+/// `count` pixels as a length.
+pub fn pixels(count: usize) -> f32 {
     f32::from(u16::try_from(count).expect("a screen's worth"))
 }
 
@@ -227,17 +216,17 @@ mod tests {
             rgb: NES_PALETTE,
             file_missing: true,
         };
-        assert_eq!(colours(PaletteChoice::File, Some(&dir)), missing);
+        assert_eq!(colours_for(PaletteChoice::File, Some(&dir)), missing);
         std::fs::write(dir.join("palette.pal"), [0x11; 192]).expect("write");
         assert_eq!(
-            colours(PaletteChoice::File, Some(&dir)),
+            colours_for(PaletteChoice::File, Some(&dir)),
             Colours {
                 rgb: [[0x11; 3]; 64],
                 file_missing: false
             }
         );
         std::fs::remove_file(dir.join("palette.pal")).expect("remove");
-        assert_eq!(colours(PaletteChoice::File, Some(&dir)), missing);
-        assert_eq!(colours(PaletteChoice::File, None), missing);
+        assert_eq!(colours_for(PaletteChoice::File, Some(&dir)), missing);
+        assert_eq!(colours_for(PaletteChoice::File, None), missing);
     }
 }

@@ -23,6 +23,8 @@ pub const ATTRIBUTE_OFFSET: usize = 960;
 pub const SPRITE_PALETTE_OFFSET: usize = 0x10;
 /// Most sprites the PPU can show on one scanline.
 pub const MAX_SPRITES_PER_LINE: usize = 8;
+/// Sprites in OAM, so a per-line limit of this many is no limit.
+pub const OAM_SPRITES: usize = 64;
 
 /// A reusable frame buffer: RGBA output and the palette-RAM value behind every
 /// pixel (for exact verification against emulator output).
@@ -199,7 +201,7 @@ impl Frame {
         let tall = line.ctrl & 0x20 != 0;
         let height = if tall { 16 } else { 8 };
         let mut drawn = [false; SCREEN_W];
-        let found = (0..64)
+        let found = (0..OAM_SPRITES)
             .map(|i| &picture.oam[i * 4..i * 4 + 4])
             .filter(|oam| (usize::from(oam[0]) + 1..usize::from(oam[0]) + 1 + height).contains(&y))
             .take(sprites_per_line);

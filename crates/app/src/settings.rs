@@ -2,17 +2,17 @@
 //! public interface (`docs/PLAN.md` "Versioning"): a later release must read this file.
 
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 use bevy::prelude::*;
+use ron::value::RawValue;
 use serde::{Deserialize, Serialize};
 
 const FILE: &str = "settings.ron";
 
 /// Presentation settings; the defaults are the NES's behaviour, or 1.0's where it had none.
-#[derive(Resource, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(default)]
+#[derive(Resource, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     /// Master volume, 0-100.
     pub volume: u8,
@@ -86,11 +86,8 @@ pub fn load(dir: &Path) -> Settings {
             return Settings::default();
         }
     };
-    match ron::from_str::<Settings>(&text) {
-        Ok(mut settings) => {
-            settings.volume = settings.volume.min(100);
-            settings
-        }
+    match parse(&text) {
+        Ok(settings) => settings,
         Err(error) => {
             let backup = dir.join(format!("{FILE}.bak"));
             warn!(
@@ -106,12 +103,46 @@ pub fn load(dir: &Path) -> Settings {
     }
 }
 
+/// Each setting's raw value, so one this release cannot read leaves the others.
+#[derive(Deserialize)]
+struct Fields {
+    volume: Option<Box<RawValue>>,
+    overscan: Option<Box<RawValue>>,
+    palette: Option<Box<RawValue>>,
+    sprite_limit: Option<Box<RawValue>>,
+    vsync: Option<Box<RawValue>>,
+}
+
+/// The settings `text` holds that this release reads, each on its own: a value it does
+/// not know (a newer release's) keeps that setting's default, not every setting's.
+fn parse(text: &str) -> ron::error::SpannedResult<Settings> {
+    fn read<T: serde::de::DeserializeOwned>(raw: Option<Box<RawValue>>, into: &mut T) {
+        if let Some(value) = raw.and_then(|raw| raw.into_rust().ok()) {
+            *into = value;
+        }
+    }
+    let fields: Fields = ron::Options::default()
+        .with_default_extension(ron::extensions::Extensions::IMPLICIT_SOME)
+        .from_str(text)?;
+    let mut settings = Settings::default();
+    let mut volume = u16::from(settings.volume);
+    read(fields.volume, &mut volume);
+    settings.volume = u8::try_from(volume.min(100)).expect("at most 100");
+    read(fields.overscan, &mut settings.overscan);
+    read(fields.palette, &mut settings.palette);
+    read(fields.sprite_limit, &mut settings.sprite_limit);
+    read(fields.vsync, &mut settings.vsync);
+    Ok(settings)
+}
+
 /// Writes `settings` to `dir` through a temporary file, so a crash never leaves half a file.
 pub fn save(dir: &Path, settings: &Settings) -> std::io::Result<()> {
     let text = ron::ser::to_string_pretty(settings, ron::ser::PrettyConfig::default())
         .map_err(std::io::Error::other)?;
     let temporary = dir.join(format!("{FILE}.tmp"));
-    fs::write(&temporary, text)?;
+    let mut file = fs::File::create(&temporary)?;
+    file.write_all(text.as_bytes())?;
+    file.sync_all()?;
     fs::rename(&temporary, dir.join(FILE))
 }
 
@@ -184,12 +215,27 @@ mod tests {
     #[test]
     fn volume_is_clamped() {
         assert_eq!(load_text("loud", "(volume: 250)").1.volume, 100);
+        assert_eq!(load_text("louder", "(volume: 300)").1.volume, 100);
+    }
+
+    #[test]
+    fn a_value_this_release_does_not_know_keeps_the_rest() {
+        let (dir, settings) = load_text(
+            "newer",
+            "(volume: 40, palette: Hdr, overscan: Shown, vsync: maybe)",
+        );
+        let expected = Settings {
+            volume: 40,
+            overscan: Overscan::Shown,
+            ..Settings::default()
+        };
+        assert_eq!(settings, expected);
+        assert!(!dir.join("settings.ron.bak").exists(), "the file is kept");
     }
 
     #[test]
     fn the_1_1_0_file_parses() {
-        let settings: Settings =
-            ron::from_str(include_str!("../settings-1.1.0.ron")).expect("1.1.0's file");
+        let settings = parse(include_str!("../settings-1.1.0.ron")).expect("1.1.0's file");
         assert_eq!(settings, Settings::default());
     }
 

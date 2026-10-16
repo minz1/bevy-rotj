@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use bevy::prelude::*;
 use rotj_core::actor::world::Ppu;
 use rotj_core::actor::{Game, Script, raster};
-use rotj_core::render::{Frame, Line, MAX_SPRITES_PER_LINE, Picture};
+use rotj_core::render::{Frame, Line, MAX_SPRITES_PER_LINE, OAM_SPRITES, Picture};
 
 use crate::input::NesInput;
 use crate::pacing::Step;
@@ -300,7 +300,7 @@ fn draw(play: Option<Res<'_, Play>>, settings: Res<'_, Settings>, mut screen: Re
         let limit = if settings.sprite_limit {
             MAX_SPRITES_PER_LINE
         } else {
-            64
+            OAM_SPRITES
         };
         play.compose(screen_frame(&mut screen), limit);
     }

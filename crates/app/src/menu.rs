@@ -11,7 +11,7 @@ use crate::RomData;
 use crate::input::{NesButtons, NesInput};
 use crate::pacing::Step;
 use crate::play::Play;
-use crate::screen::{Colours, visible_lines};
+use crate::screen::{Colours, pixels, visible_lines};
 use crate::settings::{Overscan, PaletteChoice, Settings, SettingsDir, save};
 
 /// The menu's lines, in order.
@@ -418,10 +418,6 @@ fn draw(
         });
 }
 
-fn pixels(count: usize) -> f32 {
-    f32::from(u16::try_from(count).expect("a screen's worth"))
-}
-
 /// The settings menu.
 pub struct MenuPlugin;
 
@@ -433,10 +429,10 @@ impl Plugin for MenuPlugin {
                 Update,
                 (
                     steer.before(Step::Game),
-                    load_font.run_if(resource_changed::<Colours>),
-                    draw,
-                )
-                    .chain(),
+                    (load_font.run_if(resource_changed::<Colours>), draw)
+                        .chain()
+                        .in_set(Step::Picture),
+                ),
             );
     }
 }
@@ -455,6 +451,27 @@ mod tests {
             tiles,
             [0x0C, 0x0A, 0x2C, 0x38, 0x14, 0x00, 0x1C, 0x24, 0x0C, 0x1C]
         );
+    }
+
+    #[test]
+    fn every_glyph_the_menu_draws_has_pixels() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let atlas = font_atlas(&rom.chr, &rotj_core::palette::NES_PALETTE);
+        let data = atlas.data.expect("pixels");
+        let lit = |cell: usize| {
+            (0..16).any(|y| {
+                (0..8).any(|x| {
+                    let at = (((cell / 8) * 16 + y) * 64 + (cell % 8) * 8 + x) * 4;
+                    data[at + 3] != 0
+                })
+            })
+        };
+        for c in ('A'..='Z').chain('0'..='9').chain(['?', '-', '.']) {
+            assert!(lit(glyph(c).expect("in the font")), "{c:?} is blank");
+        }
+        assert!(!lit(BLANK));
     }
 
     #[test]

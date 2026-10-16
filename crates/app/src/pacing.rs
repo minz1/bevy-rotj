@@ -161,5 +161,6 @@ mod tests {
             (mean / PERIOD.as_secs_f64() - 1.0).abs() < 0.01,
             "mean {mean}"
         );
+        assert!(errors[594] < 0.5, "99th percentile {} ms", errors[594]);
     }
 }
