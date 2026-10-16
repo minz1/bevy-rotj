@@ -37,6 +37,14 @@ const QUEUE_TARGET: usize = 3 * SAMPLES_PER_FRAME;
 /// How many samples a frame may run over or under [`SAMPLES_PER_FRAME`].
 const NUDGE: usize = 2;
 const _: () = assert!(SAMPLES_PER_FRAME * 60 == SAMPLE_RATE as usize);
+/// How far the applied gain moves per sample: full to silent in 10 ms.
+const FADE_STEP: f32 = 1.0 / 441.0;
+
+/// The gain for a 0-100 volume, squared so the steps sound even.
+#[must_use]
+pub fn gain(volume: u8) -> f32 {
+    (f32::from(volume) / 100.0).powi(2)
+}
 
 /// Samples for the next frame: a frame's worth, [`NUDGE`] more or fewer while the queue
 /// is half a frame off [`QUEUE_TARGET`], so production follows the device's clock.
@@ -103,6 +111,8 @@ pub struct Music {
     driver: rotj_music::Music,
     started: bool,
     queue: SampleQueue,
+    /// The gain applied to the last sample, ramping toward the asked one.
+    gain: f32,
 }
 
 impl Music {
@@ -114,6 +124,7 @@ impl Music {
             driver: rotj_music::Music::from_prg(prg),
             started: false,
             queue,
+            gain: 0.0,
         }
     }
 
@@ -132,17 +143,21 @@ impl Music {
         }
     }
 
-    /// Advances one game frame: tick the driver, apply its writes, then render about a
-    /// frame's worth of samples ([`samples_for`]).
-    pub fn advance_frame(&mut self) {
-        for write in self.driver.tick() {
-            self.stream.apu_mut().write(write.addr, write.value);
+    /// Advances one game frame: tick the driver (unless the game is frozen) and apply its
+    /// writes, then render about a frame's worth of samples ([`samples_for`]), the gain
+    /// moving toward `gain` by at most [`FADE_STEP`] a sample.
+    pub fn advance_frame(&mut self, run_driver: bool, gain: f32) {
+        if run_driver {
+            for write in self.driver.tick() {
+                self.stream.apu_mut().write(write.addr, write.value);
+            }
         }
         let mut buffer = [0.0_f32; SAMPLES_PER_FRAME + NUDGE];
         let buffer = &mut buffer[..samples_for(self.queue.len())];
         self.stream.fill(buffer);
         for &sample in &*buffer {
-            self.queue.push(sample);
+            self.gain += (gain - self.gain).clamp(-FADE_STEP, FADE_STEP);
+            self.queue.push(sample * self.gain);
         }
     }
 }
@@ -242,9 +257,13 @@ fn start_music(
 }
 
 /// Inits the driver on the first tick, then advances the synth one frame.
-fn advance_music(mut music: ResMut<'_, Music>) {
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Bevy system params, rust-clippy#8940"
+)]
+fn advance_music(mut music: ResMut<'_, Music>, settings: Res<'_, crate::settings::Settings>) {
     music.start();
-    music.advance_frame();
+    music.advance_frame(true, gain(settings.volume));
 }
 
 #[cfg(test)]
@@ -376,7 +395,7 @@ mod tests {
         music.start();
         music.request(0x04);
         for _ in 0..600 {
-            music.advance_frame();
+            music.advance_frame(true, 1.0);
         }
         assert!(music.started, "the driver was asked for a song");
         // 600 frames of 44.1 kHz audio, bounded by the queue's capacity.
@@ -384,6 +403,76 @@ mod tests {
         let peak = drain_peak(&queue);
         assert!(peak > 0.05, "the music is audible (peak {peak})");
         assert!(peak <= 1.0, "and stays in range");
+    }
+
+    /// One frame of `music`, its samples appended to `samples`.
+    fn frame(music: &mut Music, samples: &mut Vec<f32>, run: bool, gain: f32) {
+        music.advance_frame(run, gain);
+        while let Some(sample) = music.queue.pop() {
+            samples.push(sample);
+        }
+    }
+
+    /// The title song at full gain for 60 frames, then `frames` with the menu open and
+    /// as many closed again: every sample pushed, where the open began, the driver then,
+    /// and the synth after.
+    fn menu_round_trip(frames: usize) -> Option<(Vec<f32>, usize, rotj_music::Music, Music)> {
+        let rom = rotj_rom::for_test()?;
+        let mut music = Music::new(SampleQueue::default(), &rom.prg);
+        music.start();
+        music.request(0x01);
+        let mut samples = Vec::new();
+        for _ in 0..60 {
+            frame(&mut music, &mut samples, true, 1.0);
+        }
+        let (opened, driver) = (samples.len(), music.driver.clone());
+        for _ in 0..frames {
+            frame(&mut music, &mut samples, false, 0.0);
+        }
+        let closed = samples.len();
+        for _ in 0..frames {
+            frame(&mut music, &mut samples, true, 1.0);
+        }
+        assert!(samples[opened + 441..closed].iter().all(|&s| s == 0.0));
+        Some((samples, opened, driver, music))
+    }
+
+    #[test]
+    fn the_menu_fades_out_and_back_in_without_a_step() {
+        let Some((samples, opened, _, _)) = menu_round_trip(10) else {
+            return;
+        };
+        let step = |pair: &[f32]| (pair[1] - pair[0]).abs();
+        let music = samples[441..opened]
+            .windows(2)
+            .map(step)
+            .fold(0.0, f32::max);
+        let worst = samples[opened..].windows(2).map(step).fold(0.0, f32::max);
+        assert!(music > 0.0, "the song plays before the menu opens");
+        assert!(
+            worst <= music + FADE_STEP,
+            "a step of {worst}, the music's {music}"
+        );
+    }
+
+    #[test]
+    fn the_driver_does_not_run_while_open() {
+        let Some((_, _, mut at_open, mut music)) = menu_round_trip(10) else {
+            return;
+        };
+        for _ in 0..10 {
+            at_open.tick();
+        }
+        for _ in 0..30 {
+            assert_eq!(music.driver.tick(), at_open.tick());
+        }
+    }
+
+    #[test]
+    fn gain_is_squared() {
+        assert!((gain(100) - 1.0).abs() < f32::EPSILON);
+        assert!((gain(50) - 0.25).abs() < f32::EPSILON);
+        assert!(gain(0).abs() < f32::EPSILON);
     }
 
     /// Drains a queue, returning the loudest sample seen.
