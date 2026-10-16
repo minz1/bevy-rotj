@@ -7,7 +7,7 @@ use std::path::Path;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, PrimaryWindow};
 use rotj_core::palette::{NES_PALETTE, RGB_PPU, Rgb, from_pal, ntsc};
-use rotj_core::render::{Frame, SCREEN_H, SCREEN_W};
+use rotj_core::render::{Frame, Line, SCREEN_H, SCREEN_W};
 
 use crate::settings::{Overscan, PaletteChoice, Settings, SettingsDir};
 
@@ -17,6 +17,8 @@ pub struct Screen {
     frame: Frame,
     image: Handle<Image>,
     dirty: bool,
+    /// Lines whose 8 pixels at each side show black, as a TV's edge would hide them.
+    edges: [bool; SCREEN_H],
 }
 
 impl Screen {
@@ -27,6 +29,7 @@ impl Screen {
             frame: Frame::new(),
             image: images.add(blank_image()),
             dirty: true,
+            edges: [false; SCREEN_H],
         }
     }
 }
@@ -64,12 +67,28 @@ pub fn colours_for(choice: PaletteChoice, dir: Option<&Path>) -> Colours {
     Colours { rgb, file_missing }
 }
 
-/// Opaque RGBA for each palette-RAM value in `indices`, through `rgb`.
-pub fn rgba_into(indices: &[u8], rgb: &Rgb, out: &mut [u8]) {
-    for (pixel, &index) in out.as_chunks_mut::<4>().0.iter_mut().zip(indices) {
-        let [r, g, b] = rgb[usize::from(index & 0x3F)];
-        pixel.copy_from_slice(&[r, g, b, 0xFF]);
+/// Opaque RGBA for each palette-RAM value in `indices`, through `rgb`; black at the 8
+/// pixels on each side of the lines `edges` marks.
+pub fn rgba_into(indices: &[u8], rgb: &Rgb, edges: &[bool], out: &mut [u8]) {
+    let pixels = out.as_chunks_mut::<4>().0.iter_mut().zip(indices);
+    for (at, (pixel, &index)) in pixels.enumerate() {
+        let edge = edges.get(at / SCREEN_W) == Some(&true)
+            && !(8..SCREEN_W - 8).contains(&(at % SCREEN_W));
+        let colour = if edge {
+            [0, 0, 0]
+        } else {
+            rgb[usize::from(index & 0x3F)]
+        };
+        pixel[..3].copy_from_slice(&colour);
+        pixel[3] = 0xFF;
     }
+}
+
+/// A line drawn scrolled sideways: the column the game is still writing shows at its
+/// edges, which a TV's overscan hid.
+#[must_use]
+pub const fn scrolled(line: &Line) -> bool {
+    line.v & 0x1F != 0 || line.fine_x != 0
 }
 
 /// The part of the 256x240 picture that shows.
@@ -85,14 +104,15 @@ pub struct Visible {
     pub height: usize,
 }
 
-/// What a TV shows (8 pixels off each edge) or the whole picture.
+/// What a TV shows (8 lines off the top and bottom; the sides of scrolled lines go
+/// black instead, so a static screen's full width shows) or the whole picture.
 #[must_use]
 pub const fn visible(overscan: Overscan) -> Visible {
     match overscan {
         Overscan::Hidden => Visible {
-            x: 8,
+            x: 0,
             y: 8,
-            width: SCREEN_W - 16,
+            width: SCREEN_W,
             height: SCREEN_H - 16,
         },
         Overscan::Shown => Visible {
@@ -129,6 +149,11 @@ pub fn screen_frame(screen: &mut Screen) -> &mut Frame {
     &mut screen.frame
 }
 
+/// Marks the lines whose sides show black.
+pub fn set_edges(screen: &mut Screen, edges: [bool; SCREEN_H]) {
+    screen.edges = edges;
+}
+
 /// A black 256x240 RGBA image.
 fn blank_image() -> Image {
     use bevy::asset::RenderAssetUsages;
@@ -162,7 +187,7 @@ pub fn upload_frame(
     if let Some(mut image) = images.get_mut(&screen.image)
         && let Some(data) = image.data.as_mut()
     {
-        rgba_into(screen.frame.indices(), &colours.rgb, data);
+        rgba_into(screen.frame.indices(), &colours.rgb, &screen.edges, data);
     }
     screen.dirty = false;
 }
@@ -226,8 +251,36 @@ mod tests {
         let mut frame = Frame::new();
         play.compose(&mut frame, rotj_core::render::MAX_SPRITES_PER_LINE);
         let mut ours = vec![0; frame.rgba().len()];
-        rgba_into(frame.indices(), &NES_PALETTE, &mut ours);
+        rgba_into(frame.indices(), &NES_PALETTE, &[], &mut ours);
         assert!(ours == frame.rgba(), "the upload differs from Frame::rgba");
+    }
+
+    #[test]
+    fn marked_lines_show_black_sides() {
+        let indices = vec![0x30; SCREEN_W * 2];
+        let mut out = vec![0; SCREEN_W * 2 * 4];
+        rgba_into(&indices, &NES_PALETTE, &[false, true], &mut out);
+        let at = |x: usize, y: usize| out[(y * SCREEN_W + x) * 4];
+        assert_eq!([at(0, 0), at(255, 0)], [0xFF, 0xFF]);
+        assert_eq!(
+            [at(7, 1), at(8, 1), at(247, 1), at(248, 1)],
+            [0, 0xFF, 0xFF, 0]
+        );
+    }
+
+    #[test]
+    fn only_lines_scrolled_sideways_hide_their_sides() {
+        let line = |v, fine_x| Line {
+            v,
+            fine_x,
+            ..Line::default()
+        };
+        assert!(
+            !scrolled(&line(0x0400 | 0x20, 0)),
+            "a whole screen, any table or row"
+        );
+        assert!(scrolled(&line(1, 0)));
+        assert!(scrolled(&line(0, 3)));
     }
 
     #[test]

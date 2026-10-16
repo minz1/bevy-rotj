@@ -196,7 +196,7 @@ mod tests {
     use super::*;
 
     const FULL: Vec2 = Vec2::new(256.0, 240.0);
-    const TV: Vec2 = Vec2::new(240.0, 224.0);
+    const TV: Vec2 = Vec2::new(256.0, 224.0);
 
     #[test]
     fn the_picture_scales_by_whole_multiples_on_whole_pixels() {
@@ -212,7 +212,5 @@ mod tests {
         assert_eq!(integer_view(100.0, 100.0, FULL), (4.0, Vec2::ZERO));
         assert_eq!(integer_view(1280.0, 1150.0, TV), (0.8, Vec2::ZERO));
         assert_eq!(integer_view(1280.0, 1150.0, FULL), (1.0, Vec2::ZERO));
-        assert_eq!(integer_view(1200.0, 1120.0, TV), (0.8, Vec2::ZERO));
-        assert_eq!(integer_view(1200.0, 1120.0, FULL), (1.0, Vec2::ZERO));
     }
 }

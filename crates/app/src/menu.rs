@@ -507,7 +507,7 @@ mod tests {
     fn the_box_fits_the_smallest_view() {
         let width = pixels(COLUMNS * 8) + 2.0 * (PAD + BORDER);
         let height = pixels((ROWS.len() + 2) * 16) + 2.0 * (PAD + BORDER);
-        assert!(width <= 240.0 && height <= 224.0, "{width}x{height}");
+        assert!(width <= 256.0 && height <= 224.0, "{width}x{height}");
         let longest = ROWS
             .iter()
             .map(|label| VALUE_COLUMN.max(label.len()) + "COMPOSITE".len())

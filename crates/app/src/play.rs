@@ -308,6 +308,11 @@ fn draw(play: Option<Res<'_, Play>>, settings: Res<'_, Settings>, mut screen: Re
             OAM_SPRITES
         };
         play.compose(screen_frame(&mut screen), limit);
+        let hidden = settings.overscan == crate::settings::Overscan::Hidden;
+        let edges = std::array::from_fn(|y| {
+            hidden && play.lines.get(y).is_some_and(crate::screen::scrolled)
+        });
+        crate::screen::set_edges(&mut screen, edges);
     }
 }
 
