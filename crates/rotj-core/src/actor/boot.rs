@@ -5,6 +5,7 @@
 use super::Game;
 use super::attract::Attract;
 use super::cutscene::{ScreenClear, copy_frame, draw_block, draw_sprite};
+use super::oam::Mark;
 use super::sound_test::SoundTest;
 use super::stage::{Fade, NextArea, blackout, queue_palette};
 use crate::levelmap::BOOT_FIRST_BANK;
@@ -918,11 +919,13 @@ impl Boot {
         for (pointer, x, y) in PASSWORD_SPRITES {
             draw_sprite(game, read, pointer, x, y);
         }
+        game.oam.marking = Mark::Password;
         match self.shown {
             Shown::Letters => draw_sprite(game, read, BUFFER, 0x48, 0xE0),
             Shown::Rejected => draw_sprite(game, read, REJECTED, 0x48, 0xE0),
             Shown::Nothing => {}
         }
+        game.oam.marking = Mark::Scene;
         game.oam.finish();
     }
 
@@ -955,6 +958,7 @@ impl Boot {
 
     /// The title's frame (`$61F7-$621A`): the cursor drawn, the sprites parked, the palette.
     fn draw_title(&self, game: &mut Game, chr: &[u8]) {
+        game.oam.marking = Mark::Title;
         draw_sprite(
             game,
             |addr| payload_byte(chr, addr),
@@ -962,6 +966,7 @@ impl Boot {
             self.choice,
             0x94,
         );
+        game.oam.marking = Mark::Scene;
         game.oam.finish();
         queue_palette(game);
     }

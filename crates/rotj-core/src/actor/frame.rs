@@ -3,6 +3,7 @@
 
 use super::Game;
 use super::engine::{draw, rom_word};
+use super::oam::Mark;
 
 /// The background CHR animation (its switch `$0401` and the palette shadow are in
 /// [`Effects`](super::world::Effects)).
@@ -32,7 +33,9 @@ pub fn draw_hud(game: &mut Game, prg: &[u8]) {
     work.screen_y = 0x20;
     if cx.world.frame_odd {
         work.pointer = rom_word(prg, 14, 0xDC1F);
+        cx.oam.marking = Mark::Label;
         draw(work, 14, &mut cx);
+        cx.oam.marking = Mark::Hud;
     }
     let energy = cx.effects.player.energy;
     if energy & 0x80 == 0 && (energy != 0 || cx.world.frame & 8 == 0) {

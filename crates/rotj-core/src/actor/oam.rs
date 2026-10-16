@@ -87,6 +87,25 @@ pub struct DrawCall {
     pub bottom: bool,
 }
 
+/// Which of the game's drawers placed an OAM entry: metadata beside the page, not RAM, so a
+/// renderer can show the game's own UI sprites another way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Mark {
+    /// The level, its actors and everything not below.
+    #[default]
+    Scene,
+    /// The HUD's energy and meter gauges.
+    Hud,
+    /// The HUD's L/E label, drawn on odd frames.
+    Label,
+    /// The pause card.
+    Pause,
+    /// The title's cursor.
+    Title,
+    /// The password screen's entry or its rejection.
+    Password,
+}
+
 /// The game's OAM page and its allocator.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OamBuilder {
@@ -107,6 +126,10 @@ pub struct OamBuilder {
     pub chr: [u8; 8],
     /// Visible width in pixels; pieces outside `0..width` are dropped.
     pub width: i16,
+    /// The drawer that last wrote each entry.
+    pub marks: [Mark; 64],
+    /// The drawer drawing now.
+    pub marking: Mark,
 }
 
 impl Default for OamBuilder {
@@ -128,6 +151,8 @@ impl OamBuilder {
             start: 0,
             chr: [0; 8],
             width: 256,
+            marks: [Mark::Scene; 64],
+            marking: Mark::Scene,
         }
     }
 
@@ -171,6 +196,7 @@ impl OamBuilder {
             let x = call.x + i16::from(dx);
             cpu_overflow = adc_overflows(dx.cast_unsigned(), call.x.to_le_bytes()[0], false);
             self.page[entry] = y;
+            self.marks[entry >> 2] = self.marking;
             self.page[entry + 2] = attr;
             self.page[entry + 3] = x.to_le_bytes()[0];
             if !(0..self.width).contains(&x) {
@@ -207,6 +233,7 @@ impl OamBuilder {
             let mut count = self.left;
             loop {
                 self.page[usize::from(entry)] = PARKED_Y;
+                self.marks[usize::from(entry >> 2)] = Mark::Scene;
                 entry = entry.wrapping_add(NEXT_ENTRY);
                 count = count.wrapping_sub(1);
                 if count & 0x80 != 0 {
@@ -257,6 +284,8 @@ impl OamBuilder {
             start: ram[0x471],
             chr: ram[0xE0..0xE8].try_into().expect("8 bytes"),
             width: 256,
+            marks: [Mark::Scene; 64],
+            marking: Mark::Scene,
         }
     }
 
@@ -431,6 +460,84 @@ mod tests {
         let endless = Metasprite::from_rom(&prg, 1, 0xA010).expect("decodes");
         assert!(endless.endless);
         assert_eq!(endless.pieces.len(), 64);
+    }
+
+    fn one_piece_at(dx: i8) -> Piece {
+        Piece {
+            tile: 1,
+            dx,
+            attr: 0,
+            dy: -16,
+        }
+    }
+
+    fn sprite(pieces: Vec<Piece>) -> Metasprite {
+        Metasprite {
+            chr: 0,
+            pieces,
+            endless: false,
+        }
+    }
+
+    fn at(x: i16) -> DrawCall {
+        DrawCall {
+            x,
+            y: 0x40,
+            attr: 0,
+            tile: 0,
+            chr_slot: 0,
+            bottom: false,
+        }
+    }
+
+    #[test]
+    fn draw_marks_the_entries_it_writes() {
+        let mut oam = OamBuilder::new();
+        oam.marking = Mark::Hud;
+        oam.draw(
+            &sprite(vec![one_piece_at(0), one_piece_at(100)]),
+            at(200),
+            false,
+        );
+        let dropped = usize::from(NEXT_ENTRY >> 2);
+        assert_eq!((oam.marks[0], oam.marks[dropped]), (Mark::Hud, Mark::Hud));
+        oam.marking = Mark::Scene;
+        oam.finish();
+        assert_eq!((oam.marks[0], oam.marks[dropped]), (Mark::Hud, Mark::Scene));
+    }
+
+    #[test]
+    fn finish_keeps_drawn_marks_and_clears_parked_ones() {
+        let mut oam = OamBuilder::new();
+        oam.marks = [Mark::Hud; 64];
+        oam.marking = Mark::Pause;
+        oam.draw(&sprite(vec![one_piece_at(0)]), at(16), false);
+        oam.finish();
+        assert_eq!(oam.marks[0], Mark::Pause);
+        assert!(oam.marks[1..].iter().all(|&mark| mark == Mark::Scene));
+    }
+
+    #[test]
+    fn clear_makes_every_mark_scene() {
+        let mut oam = OamBuilder::new();
+        oam.marks = [Mark::Title; 64];
+        oam.clear();
+        assert_eq!(oam.marks, [Mark::Scene; 64]);
+    }
+
+    #[test]
+    fn a_full_page_keeps_its_last_writers_marks() {
+        let mut oam = OamBuilder::new();
+        oam.marking = Mark::Pause;
+        for _ in 0..63 {
+            oam.draw(&sprite(vec![one_piece_at(0)]), at(16), false);
+        }
+        assert_eq!(oam.left, 0);
+        let last = usize::from(oam.next >> 2);
+        oam.marking = Mark::Hud;
+        oam.draw(&sprite(vec![one_piece_at(100)]), at(200), false);
+        oam.finish();
+        assert_eq!(oam.marks[last], Mark::Hud);
     }
 
     #[test]

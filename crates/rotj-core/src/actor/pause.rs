@@ -3,7 +3,7 @@
 
 use super::Game;
 use super::engine::{draw, draw_metasprite, rom_byte, rom_word};
-use super::oam::Metasprite;
+use super::oam::{Mark, Metasprite};
 
 /// The area name's metasprite the pause builds in WRAM (`$7FD0-$7FE1`).
 pub const NAME: u16 = 0x7FD0;
@@ -85,7 +85,9 @@ impl Pause {
 
     /// One paused frame (`$9C70-$9C85`): the sprites, the colour stepped, the palette.
     fn frame(&mut self, game: &mut Game, prg: &[u8]) {
+        game.oam.marking = Mark::Pause;
         draw_screen(game, prg);
+        game.oam.marking = Mark::Scene;
         self.colour += 1;
         if self.colour >= 0x2D {
             self.colour = 0x20;

@@ -184,7 +184,9 @@ impl Game {
             self.script = Some(Script::Pause(pause));
             return;
         }
+        self.oam.marking = oam::Mark::Hud;
         frame::draw_hud(self, prg);
+        self.oam.marking = oam::Mark::Scene;
         step_second(prg, self);
         let unported = |second: &slots::Second| {
             second.kind != 0 && matches!(second.brain, families::Brain::Unported)
@@ -1908,6 +1910,51 @@ mod tests {
             (oracle[0], oracle[4], oracle[0x1D]),
             (port[0], port[4], port[0x1D])
         );
+    }
+
+    /// The entries `mark` holds, as `(y, tile, attr, x)` sorted.
+    fn marked(oam: &super::oam::OamBuilder, mark: super::oam::Mark) -> Vec<[u8; 4]> {
+        let mut entries: Vec<[u8; 4]> = (0..64)
+            .filter(|&entry| oam.marks[entry] == mark)
+            .map(|entry| {
+                oam.page[entry * 4..entry * 4 + 4]
+                    .try_into()
+                    .expect("4 bytes")
+            })
+            .collect();
+        entries.sort_unstable();
+        entries
+    }
+
+    /// The HUD is a loop frame's first draw, so `draw_hud` alone on the frame's start
+    /// (its OAM cleared) places what the frame marks `Hud` and `Label`.
+    #[test]
+    fn the_hud_marks_exactly_its_pieces() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let mut game = super::room::start(&rom.prg, &rom.chr, 0);
+        let mut labels = 0;
+        for _ in 0..8 {
+            game.nmi(0);
+            let mut alone = game.clone();
+            alone.oam.clear();
+            alone.oam.marking = super::oam::Mark::Hud;
+            super::frame::draw_hud(&mut alone, &rom.prg);
+            game.frame(&rom.prg, &rom.chr, &mut |_, _| {});
+            for mark in [super::oam::Mark::Hud, super::oam::Mark::Label] {
+                assert_eq!(
+                    marked(&game.oam, mark),
+                    marked(&alone.oam, mark),
+                    "{mark:?}"
+                );
+            }
+            let label = marked(&game.oam, super::oam::Mark::Label);
+            assert_eq!(!label.is_empty(), alone.world.frame_odd);
+            labels += usize::from(!label.is_empty());
+            assert_ne!(marked(&game.oam, super::oam::Mark::Hud).len(), 0);
+        }
+        assert_eq!(labels, 4, "the label on every other frame");
     }
 
     /// The stage 1 boss card queues the palette, then its first fade (`$BB65`, `$BBF8`);
