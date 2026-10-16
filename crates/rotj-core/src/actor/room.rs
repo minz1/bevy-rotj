@@ -588,6 +588,7 @@ pub fn start(prg: &[u8], chr: &[u8], level: usize) -> Game {
     // shortcut: Batman's sprite banks as stage 1-1 starts with them; the player draw sets them.
     game.oam.chr[5..8].copy_from_slice(&[0xF5, 0xF6, 0xF7]);
     game.scroll.ppu_ctrl = 0xA8;
+    game.scroll.mask = 0x18;
     parameters(&mut game, prg);
     game
 }

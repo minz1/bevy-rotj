@@ -75,6 +75,7 @@ impl SoundTest {
                 }
                 Step::Mask => {
                     game.scroll.ppu_ctrl = (game.scroll.ppu_ctrl & 0x78) | 0x20;
+                    game.scroll.mask = 0;
                     self.step = Step::Screen;
                 }
                 Step::Screen => {
@@ -82,6 +83,7 @@ impl SoundTest {
                     self.step = Step::Draw;
                 }
                 Step::Draw => {
+                    game.scroll.mask = 0x18;
                     self.draw(game, prg);
                     self.step = Step::Running;
                 }
@@ -117,7 +119,10 @@ impl SoundTest {
                 EFFECT_ROW => {
                     game.effects.sound[0] = rom_byte(prg, 12, EFFECTS + u16::from(self.effect));
                 }
-                _ => self.step = Step::Exit,
+                _ => {
+                    game.scroll.mask = 0;
+                    self.step = Step::Exit;
+                }
             }
         } else if pressed & 0x40 != 0 {
             game.effects.music = 0xFF;

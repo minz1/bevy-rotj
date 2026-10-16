@@ -34,6 +34,9 @@ pub struct Scroll {
     pub fixed_rows: [u8; 16],
     /// The nametable arrangement the NMI applies (`$EC`).
     pub mirroring: u8,
+    /// The PPU mask the NMI applies (`$FE`): `$18` shows the background and sprites
+    /// with the left 8 pixels clipped, `$1E` without the clip, 0 nothing.
+    pub mask: u8,
     /// The room's parameters (`$D0-$DC`).
     pub room: [u8; 13],
     /// The room's first schedule column (`$0403`).
@@ -552,6 +555,7 @@ mod layout {
                 fixed_quads: ram[0x60..0x68].try_into().expect("8 bytes"),
                 fixed_rows: ram[0x70..0x80].try_into().expect("16 bytes"),
                 mirroring: ram[0xEC],
+                mask: ram[0xFE],
                 room: ram[0xD0..0xDD].try_into().expect("13 bytes"),
                 start: ram[0x403],
             }
@@ -571,6 +575,7 @@ mod layout {
             ram[0x60..0x68].copy_from_slice(&self.fixed_quads);
             ram[0x70..0x80].copy_from_slice(&self.fixed_rows);
             ram[0xEC] = self.mirroring;
+            ram[0xFE] = self.mask;
             ram[0xD0..0xDD].copy_from_slice(&self.room);
             ram[0x403] = self.start;
         }

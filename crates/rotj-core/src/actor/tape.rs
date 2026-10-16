@@ -1,6 +1,6 @@
 //! State tapes: what a lockstep run injected and the state hashes it checked, for replay without the oracle.
 
-use super::oracle::{PPU_MASK, SCRATCH};
+use super::oracle::SCRATCH;
 use crate::digest::fnv1a;
 
 const MAGIC: u32 = 0x5441_5045;
@@ -61,11 +61,10 @@ pub(crate) fn loop_hash(ram: &[u8; 2048], wram: &[u8; 8192]) -> u64 {
     fnv1a(&memory)
 }
 
-/// The hash of what a script frame compares: RAM alone, scratch and the mask shadow zeroed.
+/// The hash of what a script frame compares: RAM alone, scratch zeroed.
 pub(crate) fn script_hash(ram: &[u8; 2048]) -> u64 {
     let mut ram = *ram;
     clear_scratch(&mut ram);
-    ram[PPU_MASK] = 0;
     fnv1a(&ram)
 }
 
@@ -251,11 +250,11 @@ mod tests {
     }
 
     #[test]
-    fn script_hash_ignores_the_mask_shadow() {
+    fn script_hash_sees_the_mask_shadow() {
         let zero = [0; 2048];
         let mut mask = zero;
         mask[0xFE] = 0x1E;
-        assert_eq!(script_hash(&mask), script_hash(&zero));
+        assert_ne!(script_hash(&mask), script_hash(&zero));
     }
 
     #[test]

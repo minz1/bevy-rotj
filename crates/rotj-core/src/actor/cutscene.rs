@@ -129,6 +129,7 @@ impl Cutscene {
                     room[1] = payload_byte(chr, at);
                     room[2] = payload_byte(chr, at + 1);
                     room[0] = 0x80;
+                    game.scroll.mask = 0x1E;
                     self.step = Step::Sliding;
                     return false;
                 }
@@ -231,6 +232,7 @@ pub(super) fn copy_frame(game: &mut Game, prg: &[u8], frame: u8, first: u8) {
             game.display.prg_windows[0] = 0xC0;
             game.scroll.room[0] = 0;
             game.scroll.ppu_ctrl &= 0x7B;
+            game.scroll.mask = 0;
         }
         1 => game.scroll.ppu_ctrl |= 0x80,
         _ => super::stage::blackout(game, prg),
@@ -268,6 +270,7 @@ impl ScreenClear {
                 game.scroll.mirroring = 0;
                 game.scroll.scroll_x = 0;
                 game.scroll.scroll_y = 0;
+                game.scroll.mask = 0;
                 game.scroll.ppu_ctrl = 0xA8;
                 game.oam.clear();
                 game.effects.vram.push(0x3F00, 0, &[0x0F; 32]);
@@ -348,58 +351,4 @@ pub(super) fn draw_sprite_with(
         bottom: false,
     };
     game.oam.draw(&sprite, call, game.world.frame_odd);
-}
-
-/// The raster IRQs (bank 15 `$E2A9`) of the frame being shown, as the main thread
-/// sees them. The intro's split (`$D3 = 9`, bank 2 `$95C9`) ends each frame at `$96AF`,
-/// sliding each of its five bands' scroll `$D5-$D9` on by `$20`, `$28`, `$40`, `$50`
-/// and `$58` until it wraps, which sets the band's bit in `$DA` and parks it at 0. The
-/// cutscene's split (`$D3 = $0A`, bank 2 `$9731`) ends each frame at
-/// `$977D`, sliding the top band's scroll `$D5` 8 px toward 0, then the bottom band's
-/// `$D6` round to 0 (`$DA` bits 0 and 1 start each slide). The ending's title split
-/// (`$0C`, `$97DD`) changes nothing past its frame; its credits' parallax (`$0D`,
-/// `$9820`) steps the bands' scrolls `$D5:$D6`, `$D7:$D8` and `$D9:$DA` by `$80`,
-/// `$100` and `$40` (1/256 px) and the top band's `$FD` to `$D6` (`$985B`).
-pub fn raster_irqs(game: &mut Game) {
-    // shortcut: area 2's split (`$D3` 0-8) is not run.
-    let room = &mut game.scroll.room;
-    match room[3] {
-        0x09 => {
-            room[4] = 0;
-            for (band, step) in [0x20, 0x28, 0x40, 0x50, 0x58].into_iter().enumerate() {
-                let bit = 1 << band;
-                if room[10] & bit != 0 {
-                    continue;
-                }
-                let (scroll, wrapped) = room[5 + band].overflowing_add(step);
-                room[5 + band] = if wrapped { 0 } else { scroll };
-                if wrapped {
-                    room[10] |= bit;
-                }
-            }
-        }
-        0x0A => {
-            room[4] = 0;
-            if room[10] & 1 != 0 || room[5] != 0 {
-                room[10] &= 0xFE;
-                room[5] = room[5].wrapping_sub(8);
-            } else if room[10] & 2 != 0 || room[6] != 0 {
-                let (scroll, wrapped) = room[6].overflowing_add(8);
-                room[6] = scroll;
-                if wrapped {
-                    room[10] &= 0xFD;
-                }
-            }
-        }
-        0x0C => room[4] = 0,
-        0x0D => {
-            room[4] = 0;
-            for (at, step) in [(5, 0x80), (7, 0x100), (9, 0x40)] {
-                let scroll = u16::from_le_bytes([room[at], room[at + 1]]).wrapping_add(step);
-                [room[at], room[at + 1]] = scroll.to_le_bytes();
-            }
-            game.scroll.scroll_x = room[6];
-        }
-        _ => {}
-    }
 }

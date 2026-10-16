@@ -43,8 +43,6 @@ import sys
 
 ROM = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "raw",
                                     "Batman - Return of the Joker (USA).nes"))
-if len(sys.argv) > 1:
-    ROM = os.path.abspath(sys.argv[1])
 OUT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 HEADER_SIZE = 16
@@ -821,4 +819,6 @@ def main():
 
 
 if __name__ == '__main__':
+    if len(sys.argv) > 1:
+        ROM = os.path.abspath(sys.argv[1])
     main()

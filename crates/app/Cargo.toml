@@ -20,5 +20,8 @@ bevy.workspace = true
 ron.workspace = true
 serde.workspace = true
 
+[dev-dependencies]
+rotj-oracle = { version = "1.0.1", path = "../../tools/rotj-oracle" }
+
 [lints]
 workspace = true

@@ -13,6 +13,7 @@ pub mod oam;
 pub(crate) mod oracle;
 pub mod pause;
 pub mod player;
+pub mod raster;
 pub mod room;
 pub mod scroll;
 pub mod slots;
@@ -513,6 +514,7 @@ mod tests {
             (35299, 12, 1, 17, 8901, 0, 1),
             "{run:?}"
         );
+        assert_eq!((run.pictures, run.jittered), (47315, 2318), "{run:?}");
         let injected: Vec<_> = run.injected.keys().copied().collect();
         assert_eq!(
             injected,

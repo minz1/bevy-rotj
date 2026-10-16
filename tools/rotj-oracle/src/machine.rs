@@ -239,6 +239,7 @@ impl Machine {
         self.add_cycles(stall);
         self.cpu.cycles += u64::from(stall);
         self.bus.pc = self.cpu.pc;
+        self.bus.cycle = u32::try_from(self.cpu.cycles - self.frame_start).unwrap_or(u32::MAX);
         let cycles = self.cpu.step(&mut self.bus);
         let dma = std::mem::take(&mut self.bus.dma_stall);
         self.cpu.cycles += u64::from(dma);

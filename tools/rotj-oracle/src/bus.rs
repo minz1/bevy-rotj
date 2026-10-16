@@ -208,6 +208,8 @@ pub struct WriteEvent {
     pub addr: u16,
     /// Value written.
     pub value: u8,
+    /// CPU cycles since the frame began when the writing instruction started.
+    pub cycle: u32,
 }
 
 /// A traced instruction.
@@ -274,6 +276,8 @@ pub struct NesBus {
     pub ppu: Ppu,
     pub(crate) pad: u8,
     pub(crate) pc: u16,
+    /// CPU cycles since the frame began when the running instruction started.
+    pub(crate) cycle: u32,
     pub(crate) apu_log: Vec<WriteLog>,
     pub(crate) dma_stall: u32,
     /// DMC sample fetches.
@@ -296,6 +300,7 @@ impl NesBus {
             ppu: Ppu::default(),
             pad: 0,
             pc: 0,
+            cycle: 0,
             apu_log: Vec::new(),
             dma_stall: 0,
             dmc: Dmc::default(),
@@ -353,6 +358,7 @@ impl Bus for NesBus {
                 bank: self.fme7.bank_at(self.pc, self.cart.prg.len()),
                 addr,
                 value,
+                cycle: self.cycle,
             };
             self.trace.writes.push(event);
         }
@@ -548,6 +554,7 @@ mod tests {
             bank,
             addr,
             value,
+            cycle: 0,
         };
         assert_eq!(
             bus.trace.writes,

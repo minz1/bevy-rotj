@@ -413,6 +413,7 @@ impl Boot {
         match step {
             Intro::Enter => {
                 game.scroll.ppu_ctrl = 0xA8;
+                game.scroll.mask = 0;
                 self.clear = ScreenClear::new(0);
                 self.step = Step::Intro(Intro::Clear);
             }
@@ -437,6 +438,7 @@ impl Boot {
             }
             Intro::BanksHold => self.step = Step::Intro(Intro::Show),
             Intro::Show => {
+                game.scroll.mask = 0x1E;
                 queue_palette(game);
                 self.step = Step::Slide(Slide::Setup);
             }
@@ -578,6 +580,7 @@ impl Boot {
                 TitleSetup::Blocks(0)
             }
             TitleSetup::Blocks(12) => {
+                game.scroll.mask = 0x1E;
                 self.step = Step::TitleSetup(TitleSetup::Show);
                 return false;
             }
@@ -673,6 +676,7 @@ impl Boot {
                 }
             }
             Title::Blank => {
+                game.scroll.mask = 0;
                 self.clear = ScreenClear::new(0);
                 if self.choice != GAME_START {
                     self.step = Step::Password(Password::Clear);
@@ -727,6 +731,7 @@ impl Boot {
                 self.shown = Shown::Letters;
                 self.draw_password(game, chr);
                 game.effects.palette = palette(chr, PASSWORD_PALETTE);
+                game.scroll.mask = 0x1E;
                 self.fade = Fade::new(true, false);
                 self.step = Step::Password(Password::FadeIn);
                 return false;
@@ -1211,7 +1216,7 @@ mod tests {
                 oracle.frame
             );
             if raster {
-                super::super::cutscene::raster_irqs(&mut game);
+                super::super::raster::run_irqs(&mut game);
             }
             game.nmi(0);
             raster = game.scroll.room[0] & 0x80 != 0;

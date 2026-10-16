@@ -14,6 +14,8 @@ enum Action {
     StopMusic,
     /// A song (`$41`).
     Song(u8),
+    /// The PPU mask the NMI applies (`$FE`).
+    Mask(u8),
     /// A sound effect (`$42`).
     Sound(u8),
     /// The palette faded out to the dark one (`$C2E1`).
@@ -88,6 +90,7 @@ const SCRIPT: &[Action] = &[
     Action::Fill(BUFFER_FILL, BUFFER_FILL_TAIL),
     Action::Blocks(SCREEN_BLOCKS, 5),
     Action::Split,
+    Action::Mask(0x1E),
     Action::FadeIn,
     Action::Wait(0x90),
     Action::Buffer(0x689C, 6),
@@ -109,6 +112,7 @@ const SCRIPT: &[Action] = &[
     Action::Palette(0x6AB4),
     Action::Buffer(0x6AB4, 32),
     Action::Watcher,
+    Action::Mask(0x1E),
     Action::FadeIn,
     Action::Skyline,
     Action::Watch(0x5F),
@@ -127,6 +131,7 @@ const SCRIPT: &[Action] = &[
     Action::Palette(0x6CF2),
     Action::Blocks(0x6B02, 5),
     Action::Parallax,
+    Action::Mask(0x1E),
     Action::WalkIn,
     Action::FadeIn,
     Action::Walk(0xA0),
@@ -140,6 +145,7 @@ const SCRIPT: &[Action] = &[
     Action::Banks(0x7103, 4),
     Action::Palette(0x7107),
     Action::Blocks(0x70C3, 2),
+    Action::Mask(0x1E),
     Action::FadeIn,
     Action::Wait(0x180),
     Action::FadeOut,
@@ -147,6 +153,7 @@ const SCRIPT: &[Action] = &[
     Action::Clear(0),
     Action::Palette(0x7127),
     Action::Blocks(0x7147, 3),
+    Action::Mask(0x1E),
     Action::FadeIn,
     Action::Hold,
 ];
@@ -354,6 +361,7 @@ impl Ending {
         match action {
             Action::StopMusic => game.effects.music = 0xFF,
             Action::Song(song) => game.effects.song = song,
+            Action::Mask(mask) => game.scroll.mask = mask,
             Action::Sound(sound) => game.effects.sound[0] = sound,
             Action::Banks(table, count) => {
                 for (i, shadow) in (0..u16::from(count)).zip(&mut game.oam.chr) {

@@ -9,11 +9,9 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::*;
-use rotj_core::actor::scroll::Scroll;
 use rotj_core::actor::world::Ppu;
-use rotj_core::actor::{Game, Script, cutscene};
-use rotj_core::render::{Background, Frame, Mirroring, SCREEN_H, Sprites};
-use std::ops::Range;
+use rotj_core::actor::{Game, Script, raster};
+use rotj_core::render::{Frame, Line, Picture};
 
 use crate::input::NesInput;
 use crate::screen::{Screen, screen_frame, screen_image};
@@ -45,6 +43,9 @@ pub struct Play {
     ppu: Ppu,
     /// The NMI armed the raster IRQ (`$D0` bit 7), so this frame is split.
     raster: bool,
+    /// The lines the PPU draws this frame with, and the sprites its NMI copied.
+    lines: Vec<Line>,
+    oam: [u8; 256],
     /// The level forced at `$D3D8`, kept for the boot after a reset.
     forced: Option<u8>,
 }
@@ -53,14 +54,38 @@ impl Play {
     /// The game at power-on; `forced` overrides the level the title starts.
     #[must_use]
     pub fn power_on(prg: Vec<u8>, chr: Vec<u8>, forced: Option<u8>) -> Play {
-        Play {
-            game: Game::power_on(forced),
+        Play::running(Game::power_on(forced), prg, chr, Ppu::new(), forced)
+    }
+
+    /// `game` run to its first NMI wait.
+    fn running(game: Game, prg: Vec<u8>, chr: Vec<u8>, ppu: Ppu, forced: Option<u8>) -> Play {
+        let mut play = Play {
+            oam: game.oam.page,
+            game,
             prg,
             chr,
-            ppu: Ppu::new(),
+            ppu,
             raster: false,
+            lines: Vec::new(),
             forced,
+        };
+        let registers = raster::Registers::of(&play.game);
+        play.run_frame(&registers);
+        play
+    }
+
+    /// The game's frame up to its NMI wait, its direct PPU writes (made in vblank or
+    /// with rendering off) and the lines the frame after `registers`' NMI is drawn with.
+    fn run_frame(&mut self, registers: &raster::Registers) {
+        self.game.frame(&self.prg, &self.chr, &mut |_, _| {});
+        if self.game.reset() {
+            self.game = Game::power_on(self.forced);
+            self.raster = false;
+            self.game.frame(&self.prg, &self.chr, &mut |_, _| {});
         }
+        let direct = std::mem::take(&mut self.game.effects.vram.direct);
+        self.ppu.apply(&direct, self.game.scroll.mirroring);
+        self.lines = raster::lines(registers, &self.game);
     }
 
     /// The game at `level`'s first loop frame, its first page already in the nametables.
@@ -72,32 +97,23 @@ impl Play {
         let page = std::mem::take(&mut game.effects.vram.direct);
         ppu.apply(&page, game.scroll.mirroring);
         ppu.palette = game.effects.palette;
-        Play {
-            game,
-            prg,
-            chr,
-            ppu,
-            raster: false,
-            forced: None,
-        }
+        Play::running(game, prg, chr, ppu, None)
     }
 
-    /// One frame of the game and its NMI, with joypad 1 held as `pad`; the sound
-    /// requests the NMI hands the driver (`$40-$43`, 0 for none). A reset (GAME OVER,
+    /// The last frame's raster IRQs, an NMI with joypad 1 held as `pad` and the frame of
+    /// the game after it, whose lines it keeps for [`Play::compose`]; the sound requests
+    /// the NMI hands the driver (`$40-$43`, 0 for none). A reset (GAME OVER,
     /// `JMP ($FFFC)`) runs on into the boot's first frame.
     pub fn step(&mut self, pad: u8) -> [u8; 4] {
-        self.game.frame(&self.prg, &self.chr, &mut |_, _| {});
-        if self.game.reset() {
-            self.game = Game::power_on(self.forced);
-            self.raster = false;
-            self.game.frame(&self.prg, &self.chr, &mut |_, _| {});
-        }
         if self.raster {
-            cutscene::raster_irqs(&mut self.game);
+            raster::run_irqs(&mut self.game);
         }
         let vblank = self.game.nmi(pad);
         self.raster = self.game.scroll.room[0] & 0x80 != 0;
         self.ppu.apply(&vblank.writes, self.game.scroll.mirroring);
+        let registers = raster::Registers::of(&self.game);
+        self.oam = self.game.oam.page;
+        self.run_frame(&registers);
         vblank.sound
     }
 
@@ -120,165 +136,18 @@ impl Play {
         &mut self.game
     }
 
-    /// Composes the picture from the game's PPU state.
+    /// Composes the picture the PPU draws from the game's state: its nametables, palette
+    /// and sprites, line by line as the NMI and the raster IRQs set them.
     pub fn compose(&self, frame: &mut Frame) {
-        let scroll = &self.game.scroll;
-        let mut pattern = vec![0u8; 8 * 1024];
-        for (i, &bank) in self.game.oam.chr.iter().enumerate() {
-            let src = usize::from(bank) * 1024;
-            pattern[i * 1024..(i + 1) * 1024].copy_from_slice(&self.chr[src..src + 1024]);
-        }
-        let mut tables = Vec::with_capacity(2048);
-        let (first, second, mirroring) = match scroll.mirroring & 3 {
-            0 => (0, 1, Mirroring::Vertical),
-            1 => (0, 1, Mirroring::Horizontal),
-            2 => (0, 0, Mirroring::Vertical),
-            _ => (1, 1, Mirroring::Vertical),
-        };
-        tables.extend_from_slice(&self.ppu.nametables[first]);
-        tables.extend_from_slice(&self.ppu.nametables[second]);
-        frame.clear();
-        let scroll_y = u16::from((scroll.ppu_ctrl >> 1) & 1) * 240 + u16::from(scroll.scroll_y);
-        let scroll_x = u16::from(scroll.ppu_ctrl & 1) * 256 + u16::from(scroll.scroll_x);
-        let Split {
-            bands,
-            sprite_lines,
-            row_from,
-        } = split(scroll, scroll_x, self.raster);
-        for (lines, scroll_x) in bands {
-            let scroll_y = match row_from {
-                Some((at, row)) if lines.start >= at => {
-                    let at = u16::try_from(at).expect("a scanline");
-                    (row + 480 - at) % 480
-                }
-                _ => scroll_y,
-            };
-            frame.background(
-                lines,
-                &Background {
-                    nametables: &tables,
-                    pattern: &pattern,
-                    pattern_base: 0,
-                    palette: &self.ppu.palette,
-                    mirroring,
-                    scroll_x,
-                    scroll_y,
-                },
-            );
-        }
-        frame.sprites(
-            sprite_lines,
-            &Sprites {
-                oam: &self.game.oam.page,
-                pattern: &pattern,
-                pattern_base: 0x1000,
-                tall: true,
-                palette: &self.ppu.palette,
-            },
-        );
+        let vram = self.ppu.nametables.concat();
+        frame.render(&Picture {
+            lines: &self.lines,
+            vram: &vram,
+            palette: &self.ppu.palette,
+            oam: &self.oam,
+            chr: &self.chr,
+        });
     }
-}
-
-/// How the raster split divides the picture: the background's bands `(lines, x
-/// scroll)`, the lines sprites show on, and the line from which a `$2006` write points
-/// the background at a nametable row.
-struct Split {
-    bands: Vec<(Range<usize>, u16)>,
-    sprite_lines: Range<usize>,
-    row_from: Option<(usize, u16)>,
-}
-
-/// The split the NMI armed (`raster`) for this picture: the intro's (`$D3 = 9`), the
-/// cutscene's (`$0A`) and the ending's (`$0C`, `$0D`), or one band at `scroll_x`.
-fn split(scroll: &Scroll, scroll_x: u16, raster: bool) -> Split {
-    let mut bands = vec![(0..SCREEN_H, scroll_x)];
-    let mut sprite_lines = 0..SCREEN_H;
-    // From this line on the background shows this nametable row (a `$2006` write).
-    let mut row_from: Option<(usize, u16)> = None;
-    if raster {
-        let room = &scroll.room;
-        let table = |bit: u8| u16::from((scroll.ppu_ctrl | bit) & 1) * 256;
-        let first = usize::from(u16::from_le_bytes([room[1], room[2]]));
-        let line = |cycles: usize| split_line(first + cycles);
-        // Each band runs from one `(start line, x scroll)` breakpoint to the next.
-        let bands_of = |points: &[(usize, u16)]| -> Vec<(Range<usize>, u16)> {
-            (0..points.len())
-                .map(|i| {
-                    let (start, scroll) = points[i];
-                    let end = points.get(i + 1).map_or(SCREEN_H, |point| point.0);
-                    (start..end, scroll)
-                })
-                .collect()
-        };
-        match room[3] {
-            0x09 => {
-                let start = line(0);
-                let band = |shift: u8, x: u8| table(room[10] >> shift) + u16::from(x);
-                bands = bands_of(&[
-                    (0, scroll_x),
-                    (start, u16::from(room[5])),
-                    (line(0x480), band(1, room[6])),
-                    (line(0x780), band(2, room[7])),
-                    (line(0xA80), band(3, room[8])),
-                    (line(0xD80), band(4, room[9])),
-                    (line(0x1080), band(3, room[8])),
-                    (line(0x1380), band(2, room[7])),
-                    (line(0x1680), band(1, room[6])),
-                    (line(0x1980), band(0, room[5])),
-                    (line(0x1F80), table(1)),
-                ]);
-                row_from = Some((start, INTRO_ROW));
-            }
-            0x0A => {
-                bands = bands_of(&[
-                    (0, scroll_x),
-                    (line(0), table(room[10]) + u16::from(room[5])),
-                    (line(0x1000), table(room[10] >> 1) + u16::from(room[6])),
-                    (line(0x2000), 0),
-                ]);
-            }
-            0x0C => {
-                let end = line(0x4000);
-                bands = bands_of(&[
-                    (0, scroll_x),
-                    (line(0), table(1) + u16::from(room[5])),
-                    (end, table(0)),
-                ]);
-                sprite_lines = 0..end;
-            }
-            0x0D => {
-                bands = bands_of(&[
-                    (0, scroll_x),
-                    (line(0), table(0) + u16::from(room[8])),
-                    (line(0x1000), table(0) + u16::from(room[10])),
-                    (line(0x1700), table(0) + u16::from(room[8])),
-                    (line(0x2700), table(0)),
-                ]);
-            }
-            _ => {}
-        }
-    }
-    Split {
-        bands,
-        sprite_lines,
-        row_from,
-    }
-}
-
-/// The nametable row the intro's first raster IRQ points the PPU at (`$2006 = $2240`,
-/// bank 2 `$95FA`): row 18, fine y 2.
-const INTRO_ROW: u16 = 146;
-
-/// The scanline a raster IRQ splits at `cycles` CPU cycles after the NMI: the first
-/// at `$D1:$D2`, each next as its handler arms it (bank 2 `$98AD`). The cutscene's
-/// three come `$1000` apart; the ending's title split (`$0C`) hides the sprites below
-/// its second, and its credits' parallax (`$0D`) splits four bands.
-fn split_line(cycles: usize) -> usize {
-    // shortcut: a fixed 60-cycle NMI and IRQ entry latency, not cycle-timed.
-    ((cycles + 60) * 3)
-        .div_ceil(341)
-        .saturating_sub(21)
-        .min(SCREEN_H)
 }
 
 /// A session's pads for a replay against the oracle: one byte per [`Play::step`], the
@@ -1066,5 +935,103 @@ mod tests {
     fn a_missing_directory_records_nothing() {
         let dir = temp_dir("recorder-missing").join("absent");
         assert!(Recorder::open(&dir, 0).is_none());
+    }
+
+    fn line(l: &rotj_oracle::Line) -> Line {
+        Line {
+            v: l.v,
+            fine_x: l.fine_x,
+            ctrl: l.ctrl,
+            mask: l.mask,
+            chr: l.chr,
+            sprite_chr: l.sprite_chr,
+            mirroring: l.mirroring,
+        }
+    }
+
+    /// From power-on with no input (the intro, the title, the attract mode's demo and
+    /// its pages), the app's every frame is the oracle's: its lines through the same
+    /// renderer, from the app's own sequence of IRQs, NMI and loop, the sprites its NMI
+    /// copied and the VRAM it wrote. Each tick is the oracle's next frame whose NMI woke
+    /// the game's wait: a frame with no NMI (the boot and loads run with it off) or one
+    /// whose NMI came before the game waited for it (a lag frame) is skipped, as the port
+    /// takes no time for either. A split line is compared in the state the app draws it
+    /// with; a line no state of which is the app's (a write the IRQs' jitter carries
+    /// across the line's end) is counted, not compared. Blank lines draw only the
+    /// backdrop, and blank frames are not compared: the boot's show the power-on
+    /// palette, which the hardware leaves undefined.
+    #[test]
+    #[ignore = "3000 frames of the oracle (release, 5 s); the gates run it in release with --ignored"]
+    fn the_app_draws_like_the_oracle_from_power_on() {
+        let (Some(mut play), Some(mut m)) = (powered_on(None), rotj_oracle::power_on()) else {
+            return;
+        };
+        m.bus.trace.peeks = vec![0xC232, 0xC23F, 0xE1D0];
+        let mut waiting = false;
+        let mut lagged = |m: &mut rotj_oracle::Machine| {
+            let mut lag = false;
+            for peek in m.bus.trace.peeked.drain(..) {
+                match peek.pc {
+                    0xC232 => waiting = true,
+                    0xC23F => waiting = false,
+                    _ => lag |= !waiting,
+                }
+            }
+            lag
+        };
+        let (mut drawn, mut jittered, mut skipped) = (0, 0, 0);
+        let (mut ours, mut theirs) = (Frame::new(), Frame::new());
+        for tick in 0..3000 {
+            play.step(0);
+            let mut log = m.run_frame(0);
+            while lagged(&mut m) || log.nmis == 0 {
+                skipped += 1;
+                log = m.run_frame(0);
+            }
+            if log.lines.is_empty() {
+                continue;
+            }
+            let mut lines: Vec<Line> = log.lines.iter().map(line).collect();
+            let mut compared = [true; 240];
+            for (y, mine) in play.lines.iter().enumerate() {
+                let states = std::iter::once(lines[y]).chain(
+                    log.splits
+                        .iter()
+                        .filter(|s| s.0 == y)
+                        .flat_map(|s| [line(&s.1), line(&s.2)]),
+                );
+                let blank = |l: &Line| l.mask & 0x18 == 0;
+                match states
+                    .into_iter()
+                    .find(|s| s == mine || blank(s) && blank(mine))
+                {
+                    Some(state) => lines[y] = state,
+                    None => compared[y] = false,
+                }
+            }
+            jittered += usize::from(compared.contains(&false));
+            if lines.iter().all(|l| l.mask & 0x18 == 0) {
+                continue;
+            }
+            play.compose(&mut ours);
+            theirs.render(&Picture {
+                lines: &lines,
+                vram: &m.bus.ppu.vram,
+                palette: &m.bus.ppu.palette,
+                oam: &m.bus.ppu.oam,
+                chr: &m.bus.cart.chr,
+            });
+            for y in (0..240).filter(|&y| compared[y]) {
+                let row = y * SCREEN_W..(y + 1) * SCREEN_W;
+                assert_eq!(
+                    ours.indices()[row.clone()],
+                    theirs.indices()[row],
+                    "tick {tick} (oracle frame {}): line {y}",
+                    m.frame
+                );
+            }
+            drawn += 1;
+        }
+        assert_eq!((drawn, jittered, skipped), (2937, 42, 15));
     }
 }

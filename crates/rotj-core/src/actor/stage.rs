@@ -484,6 +484,7 @@ impl NextArea {
                     return;
                 }
                 Step::Show => {
+                    game.scroll.mask |= 0x18;
                     self.step = Step::Enter;
                     return;
                 }
@@ -571,6 +572,7 @@ impl NextArea {
 fn hide_for_banner(game: &mut Game, prg: &[u8]) {
     game.scroll.mirroring = 2;
     game.scroll.room[0] = 0;
+    game.scroll.mask = 0;
     game.scroll.ppu_ctrl &= 0x7C;
     game.effects.music = 0xFF;
     blackout(game, prg);
@@ -587,6 +589,7 @@ fn show_banner(game: &mut Game, prg: &[u8]) {
         *shadow = bank;
     }
     game.scroll.ppu_ctrl |= 0x80;
+    game.scroll.mask = 0x18;
 }
 
 /// The area start (bank 13 `$B200`) up to its scroll reset (`$BE6E`), over what
@@ -605,6 +608,7 @@ fn clear_for_area(game: &mut Game) {
     game.oam.clear();
     game.scroll.room[0] = 0;
     game.scroll.ppu_ctrl &= 0x7F;
+    game.scroll.mask = 0;
 }
 
 /// The boss room's start (bank 13 `$BB3D`, `$0404` bit 7), one frame per
@@ -684,7 +688,10 @@ impl BossIntro {
                 game.scroll.ppu_ctrl = (game.scroll.ppu_ctrl & 0xFC) | 0x80;
                 self.step = Intro::Show;
             }
-            Intro::Show => self.step = Intro::Start,
+            Intro::Show => {
+                game.scroll.mask |= 0x18;
+                self.step = Intro::Start;
+            }
             Intro::Start => {
                 game.effects.song = 0x0A;
                 let sprites = game.effects.stage_args[0];
@@ -992,6 +999,7 @@ impl Continue {
                 Countdown::Setup => {
                     game.scroll.mirroring = 2;
                     game.scroll.room[0] = 0;
+                    game.scroll.mask &= 0xE7;
                     game.scroll.ppu_ctrl &= 0x7C;
                     game.effects.music = 0xFF;
                     blackout(game, prg);
@@ -1013,7 +1021,10 @@ impl Continue {
                     game.scroll.ppu_ctrl |= 0x80;
                     self.step = Countdown::Show;
                 }
-                Countdown::Show => self.step = Countdown::First,
+                Countdown::Show => {
+                    game.scroll.mask |= 0x18;
+                    self.step = Countdown::First;
+                }
                 Countdown::First => {
                     (self.phase, self.digit, self.timer) = (0, 9, 0x30);
                     (self.speed, self.offset) = (0, 0);
@@ -1079,6 +1090,7 @@ impl Continue {
                 Countdown::Over => {
                     game.effects.music = 0xFF;
                     game.scroll.ppu_ctrl &= 0x7F;
+                    game.scroll.mask &= 0xE7;
                     self.step = Countdown::OverDraw;
                 }
                 Countdown::OverDraw => {
@@ -1086,7 +1098,10 @@ impl Continue {
                     game.scroll.ppu_ctrl |= 0x80;
                     self.step = Countdown::OverShow;
                 }
-                Countdown::OverShow => self.step = Countdown::OverPalette,
+                Countdown::OverShow => {
+                    game.scroll.mask |= 0x18;
+                    self.step = Countdown::OverPalette;
+                }
                 Countdown::OverPalette => {
                     game.effects.song = 0x08;
                     room::build_palette(prg, 0x1B, 0, &mut game.effects.palette);

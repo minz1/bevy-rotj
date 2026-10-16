@@ -125,6 +125,7 @@ impl Attract {
             }
             Step::Leave(start) => {
                 if self.ended.is_none() {
+                    game.scroll.mask = 0;
                     game.effects.music = 0xFF;
                     self.ended = Some(start);
                 }
@@ -151,6 +152,7 @@ impl Attract {
                 self.step = Step::First;
             }
             Step::First => {
+                game.scroll.mask = 0x18;
                 game.scroll.scroll_x = 0;
                 game.scroll.scroll_y = 0;
                 build_palette(prg, 0x28, 0x13, &mut game.effects.palette);
@@ -198,9 +200,11 @@ impl Attract {
                 if self.copied == 0 {
                     self.reset_counts();
                     game.scroll.ppu_ctrl &= 0xFC;
+                    game.scroll.mask = 0;
                     game.oam.clear();
                 }
                 if self.copy_page(game, chr, STORY + 0x400, 0x2400) {
+                    game.scroll.mask = 0x18;
                     for (shadow, bank) in game.oam.chr[..4].iter_mut().zip(0x78..) {
                         *shadow = bank;
                     }
@@ -247,9 +251,11 @@ impl Attract {
                     }
                     self.reset_counts();
                     game.scroll.ppu_ctrl &= 0xFC;
+                    game.scroll.mask = 0;
                     game.oam.clear();
                 }
                 if self.copy_page(game, chr, CITY, 0x2000) {
+                    game.scroll.mask = 0x18;
                     for (shadow, bank) in game.oam.chr[..4].iter_mut().zip(0x64..) {
                         *shadow = bank;
                     }
@@ -455,6 +461,7 @@ fn stop(game: &mut Game) {
     game.display.prg_windows[0] = 0xC0;
     game.scroll.room[0] = 0;
     game.scroll.ppu_ctrl &= 0x7B;
+    game.scroll.mask = 0;
 }
 
 /// The copies with NMIs off (`$9B51`, `$9BA8`): both nametables written from CHR
