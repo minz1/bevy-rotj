@@ -15,6 +15,7 @@ use rotj_core::render::{Frame, Line, MAX_SPRITES_PER_LINE, Picture};
 
 use crate::input::NesInput;
 use crate::screen::{Screen, screen_frame, screen_image};
+use crate::settings::Settings;
 use crate::{GameState, RomData};
 
 /// A level to start on instead of the title's, from `ROTJ_LEVEL` (0-12), forced where
@@ -141,7 +142,7 @@ impl Play {
 
     /// Composes the picture the PPU draws from the game's state: its nametables, palette
     /// and sprites, line by line as the NMI and the raster IRQs set them.
-    pub fn compose(&self, frame: &mut Frame) {
+    pub fn compose(&self, frame: &mut Frame, sprites_per_line: usize) {
         let vram = self.ppu.nametables.concat();
         frame.render(
             &Picture {
@@ -151,7 +152,7 @@ impl Play {
                 oam: &self.oam,
                 chr: &self.chr,
             },
-            MAX_SPRITES_PER_LINE,
+            sprites_per_line,
         );
     }
 }
@@ -208,7 +209,15 @@ impl Plugin for PlayPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, power_on)
             .add_systems(FixedUpdate, tick)
-            .add_systems(Update, (draw, crate::screen::upload_frame).chain());
+            .add_systems(
+                Update,
+                (
+                    crate::screen::apply_settings,
+                    draw,
+                    crate::screen::upload_frame,
+                )
+                    .chain(),
+            );
     }
 }
 
@@ -265,9 +274,18 @@ fn tick(
     }
 }
 
-fn draw(play: Option<Res<'_, Play>>, mut screen: ResMut<'_, Screen>) {
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Bevy system params, rust-clippy#8940"
+)]
+fn draw(play: Option<Res<'_, Play>>, settings: Res<'_, Settings>, mut screen: ResMut<'_, Screen>) {
     if let Some(play) = play {
-        play.compose(screen_frame(&mut screen));
+        let limit = if settings.sprite_limit {
+            MAX_SPRITES_PER_LINE
+        } else {
+            64
+        };
+        play.compose(screen_frame(&mut screen), limit);
     }
 }
 
@@ -424,7 +442,7 @@ mod tests {
 
     fn picture(play: &Play) -> Vec<u8> {
         let mut frame = Frame::new();
-        play.compose(&mut frame);
+        play.compose(&mut frame, MAX_SPRITES_PER_LINE);
         frame.indices().to_vec()
     }
 
@@ -552,7 +570,7 @@ mod tests {
         }
         assert_eq!(play.game().world.room, 2, "the room change never ran");
         let mut frame = Frame::new();
-        play.compose(&mut frame);
+        play.compose(&mut frame, MAX_SPRITES_PER_LINE);
         assert!(frame.rgba().iter().any(|&byte| byte != 0));
     }
 
@@ -683,7 +701,7 @@ mod tests {
             play.step(0x01);
         }
         let mut frame = Frame::new();
-        play.compose(&mut frame);
+        play.compose(&mut frame, MAX_SPRITES_PER_LINE);
         let backdrop = frame.indices()[0];
         assert!(
             frame.indices().iter().any(|&pixel| pixel != backdrop),
@@ -707,7 +725,7 @@ mod tests {
         for tick in 0..7000 {
             requests.extend(play.step(0).into_iter().filter(|&id| id != 0));
             if tick % 100 == 50 {
-                play.compose(&mut frame);
+                play.compose(&mut frame, MAX_SPRITES_PER_LINE);
                 samples.push(frame.indices().to_vec());
             }
         }
@@ -1020,7 +1038,7 @@ mod tests {
             if lines.iter().all(|l| l.mask & 0x18 == 0) {
                 continue;
             }
-            play.compose(&mut ours);
+            play.compose(&mut ours, MAX_SPRITES_PER_LINE);
             theirs.render(
                 &Picture {
                     lines: &lines,

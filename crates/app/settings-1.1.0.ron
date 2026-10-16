@@ -1,0 +1,7 @@
+(
+    volume: 100,
+    overscan: Hidden,
+    palette: CompositeDirect,
+    sprite_limit: true,
+    vsync: true,
+)

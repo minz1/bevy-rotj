@@ -4,6 +4,7 @@ mod audio;
 mod input;
 mod play;
 mod screen;
+mod settings;
 
 use bevy::camera::{OrthographicProjection, Projection, ScalingMode};
 use bevy::image::ImagePlugin;
@@ -84,6 +85,8 @@ enum GameState {
 
 fn main() {
     let rom = rom_or_exit();
+    let dir = settings::exe_dir();
+    let saved = dir.as_deref().map(settings::load).unwrap_or_default();
     let mut app = App::new();
     app.add_plugins(
         // Nearest-neighbor for everything — pixel-art game, global default.
@@ -109,6 +112,9 @@ fn main() {
     // NES logic ticks at 60 Hz — bevy's FixedUpdate default is 64.
     .insert_resource(Time::<Fixed>::from_hz(60.0))
     .insert_resource(RomData(rom))
+    .insert_resource(saved)
+    .init_resource::<screen::Colours>()
+    .insert_resource(settings::SettingsDir(dir))
     .init_state::<GameState>()
     .add_systems(Startup, spawn_camera)
     .add_systems(Update, fit_camera)
@@ -134,13 +140,13 @@ fn spawn_camera(mut commands: Commands<'_, '_>) {
     ));
 }
 
-/// The projection's world units per pixel that show the 256x240 picture at the largest
-/// whole multiple fitting a `width` x `height` window (at least 1), and the camera
-/// offset that puts the picture's edges on whole pixels when a side is odd.
-fn integer_view(width: f32, height: f32) -> (f32, Vec2) {
+/// The projection's world units per pixel that show the 256-pixel-wide picture of `lines`
+/// lines at the largest whole multiple fitting a `width` x `height` window (at least 1),
+/// and the camera offset that puts the picture's edges on whole pixels when a side is odd.
+fn integer_view(width: f32, height: f32, lines: f32) -> (f32, Vec2) {
     let multiple = (width / 256.0)
         .floor()
-        .min((height / 240.0).floor())
+        .min((height / lines).floor())
         .max(1.0);
     let scale = 4.0 / multiple;
     let half_if_odd = |side: f32| if side % 2.0 >= 1.0 { 0.5 } else { 0.0 };
@@ -150,16 +156,26 @@ fn integer_view(width: f32, height: f32) -> (f32, Vec2) {
     )
 }
 
-/// Letterboxes the picture at a whole multiple ([`integer_view`]): every NES pixel the
-/// same size, so nothing shimmers as the camera scrolls.
+/// Letterboxes the visible lines at a whole multiple ([`integer_view`]): every NES pixel
+/// the same size, so nothing shimmers as the camera scrolls.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Bevy system params, rust-clippy#8940"
+)]
 fn fit_camera(
-    windows: Query<'_, '_, &Window, (With<PrimaryWindow>, Changed<Window>)>,
+    windows: Query<'_, '_, Ref<'_, Window>, With<PrimaryWindow>>,
+    settings: Res<'_, settings::Settings>,
     mut cameras: Query<'_, '_, (&mut Projection, &mut Transform), With<Camera2d>>,
 ) {
     let Ok(window) = windows.single() else {
         return;
     };
-    let (scale, offset) = integer_view(window.width(), window.height());
+    if !window.is_changed() && !settings.is_changed() {
+        return;
+    }
+    let (_, lines) = screen::visible_lines(settings.overscan);
+    let lines = f32::from(u16::try_from(lines).expect("at most 240"));
+    let (scale, offset) = integer_view(window.width(), window.height(), lines);
     for (mut projection, mut transform) in &mut cameras {
         if let Projection::Orthographic(orthographic) = &mut *projection {
             orthographic.scale = scale;
@@ -174,9 +190,17 @@ mod tests {
 
     #[test]
     fn the_picture_scales_by_whole_multiples_on_whole_pixels() {
-        assert_eq!(integer_view(1659.0, 1400.0), (0.8, Vec2::new(0.4, 0.0)));
-        assert_eq!(integer_view(1280.0, 1200.0), (0.8, Vec2::ZERO));
-        assert_eq!(integer_view(1280.0, 1199.0), (1.0, Vec2::new(0.0, 0.5)));
-        assert_eq!(integer_view(100.0, 100.0), (4.0, Vec2::ZERO));
+        assert_eq!(
+            integer_view(1659.0, 1400.0, 240.0),
+            (0.8, Vec2::new(0.4, 0.0))
+        );
+        assert_eq!(integer_view(1280.0, 1200.0, 240.0), (0.8, Vec2::ZERO));
+        assert_eq!(
+            integer_view(1280.0, 1199.0, 240.0),
+            (1.0, Vec2::new(0.0, 0.5))
+        );
+        assert_eq!(integer_view(100.0, 100.0, 240.0), (4.0, Vec2::ZERO));
+        assert_eq!(integer_view(1280.0, 1150.0, 224.0), (0.8, Vec2::ZERO));
+        assert_eq!(integer_view(1280.0, 1150.0, 240.0), (1.0, Vec2::ZERO));
     }
 }
