@@ -261,7 +261,7 @@ pub struct Effects {
     /// Which of the four CHR shadows animate, by bit (`$0401`); type `$84` clears it.
     pub animated: u8,
     /// The player's projectiles (the `$7BD0` slots).
-    pub weapons: [Weapon; 16],
+    pub projectiles: [Projectile; 16],
     /// The area name's metasprite the pause builds (`$7FD0-$7FE1`).
     pub pause_name: [u8; 18],
     /// `$7FF1`, zeroed with the pause's name.
@@ -385,7 +385,7 @@ impl Vram {
 
 /// One of the player's projectiles, as the actor contact scan sees it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Weapon {
+pub struct Projectile {
     /// Type, 0 when free (`$7BD0`).
     pub kind: u8,
     /// Screen x (`$7B80`).
@@ -425,12 +425,12 @@ pub struct Weapon {
 }
 
 /// The weapon arrays, 16 wide each.
-pub const WEAPON_ARRAYS: [u16; 19] = [
+pub const PROJECTILE_ARRAYS: [u16; 19] = [
     0x7BD0, 0x7B80, 0x7B90, 0x7F30, 0x7F20, 0x7D00, 0x7D10, 0x7D20, 0x7EB0, 0x7C80, 0x7CB0, 0x7C20,
     0x7F40, 0x7F50, 0x7F60, 0x7BB0, 0x7BC0, 0x7C60, 0x7C70,
 ];
 
-impl Weapon {
+impl Projectile {
     /// The weapon's byte in `array` (one of [`WEAPON_ARRAYS`]).
     #[must_use]
     pub fn byte(&self, array: u16) -> u8 {
@@ -527,20 +527,20 @@ impl Cx<'_> {
     /// The byte at a slot-array address, wherever the game's layout puts it.
     #[must_use]
     pub fn byte(&self, addr: u16) -> u8 {
-        super::slots::read(self.slots, &self.effects.weapons, addr)
+        super::slots::read(self.slots, &self.effects.projectiles, addr)
     }
 
     /// Writes the byte at a slot-array address.
     pub fn set_byte(&mut self, addr: u16, value: u8) {
-        super::slots::write(self.slots, &mut self.effects.weapons, addr, value);
+        super::slots::write(self.slots, &mut self.effects.projectiles, addr, value);
     }
 }
 
 #[cfg(test)]
 mod layout {
     use super::{
-        Effects, Level, Motion, Player, Schedule, View, Vram, VramWrite, WEAPON_ARRAYS, Weapon,
-        World,
+        Effects, Level, Motion, PROJECTILE_ARRAYS, Player, Projectile, Schedule, View, Vram,
+        VramWrite, World,
     };
 
     fn word(ram: &[u8; 2048], hi: usize) -> u16 {
@@ -682,9 +682,9 @@ mod layout {
 
     impl Effects {
         pub(crate) fn lift(ram: &[u8; 2048], wram: &[u8; 8192]) -> Effects {
-            let weapons = std::array::from_fn(|i| {
-                let mut weapon = Weapon::default();
-                for array in WEAPON_ARRAYS {
+            let projectiles = std::array::from_fn(|i| {
+                let mut weapon = Projectile::default();
+                for array in PROJECTILE_ARRAYS {
                     weapon.set_byte(array, wram[usize::from(array - 0x6000) + i]);
                 }
                 weapon
@@ -720,7 +720,7 @@ mod layout {
                 palette: ram[0x4E0..0x500].try_into().expect("32 bytes"),
                 palette_dirty: ram[0xB5],
                 animated: ram[0x401],
-                weapons,
+                projectiles,
                 pause_name: wram[0x1FD0..0x1FE2].try_into().expect("18 bytes"),
                 pause_aux: wram[0x1FF1],
                 level: Level {
@@ -781,8 +781,8 @@ mod layout {
             wram[0x1FD0..0x1FE2].copy_from_slice(&self.pause_name);
             wram[0x1FF1] = self.pause_aux;
             self.vram.project(ram);
-            for (i, weapon) in self.weapons.iter().enumerate() {
-                for array in WEAPON_ARRAYS {
+            for (i, weapon) in self.projectiles.iter().enumerate() {
+                for array in PROJECTILE_ARRAYS {
                     wram[usize::from(array - 0x6000) + i] = weapon.byte(array);
                 }
             }

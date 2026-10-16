@@ -7,7 +7,7 @@
 
 use super::collision::{self, Probe};
 use super::engine::{self, Work, adc_overflows, rom_byte, rom_word, sub_overflows16};
-use super::world::{Cx, Motion, Player, Weapon};
+use super::world::{Cx, Motion, Player, Projectile};
 
 /// Test-only branch coverage; the test asserts and reports which paths ran.
 #[cfg(test)]
@@ -31,7 +31,7 @@ thread_local! {
 }
 
 /// The shared tail of the forward shots (`$9D65`, `$9D8C`): no y motion.
-fn shot_ahead(projectile: &mut Weapon, damage: u8) {
+fn shot_ahead(projectile: &mut Projectile, damage: u8) {
     projectile.damage = damage;
     projectile.vy = 0;
     projectile.state = 0;
@@ -40,7 +40,7 @@ fn shot_ahead(projectile: &mut Weapon, damage: u8) {
 }
 
 /// A part's start at its source's level position (`$9F5B`).
-fn at_source(projectile: &mut Weapon, source: &Weapon) {
+fn at_source(projectile: &mut Projectile, source: &Projectile) {
     projectile.level_x_hi = source.level_x_hi;
     projectile.level_x_lo = source.level_x_lo;
     projectile.level_y_hi = source.level_y_hi;
@@ -667,7 +667,7 @@ impl Port<'_, '_> {
                     self.player.flags[0] &= 0x7F;
                     self.player.flags[2] = 0x40;
                     self.player.hurt_timer = 0x40;
-                    for weapon in &mut self.cx.effects.weapons {
+                    for weapon in &mut self.cx.effects.projectiles {
                         weapon.kind = 0;
                     }
                     for i in 0..3u16 {
@@ -855,7 +855,7 @@ impl Port<'_, '_> {
         let start = self.rb(0x9B08 + u16::from(weapon & 0x0F));
         let Some(slot) = (0..=usize::from(start))
             .rev()
-            .find(|&slot| self.cx.effects.weapons[slot].kind == 0)
+            .find(|&slot| self.cx.effects.projectiles[slot].kind == 0)
         else {
             return;
         };
@@ -906,7 +906,7 @@ impl Port<'_, '_> {
         };
         let (a_hi, b_hi, carry) = if aim_up { y_adc } else { x_adc };
         self.work.cpu_overflow = adc_overflows(a_hi, b_hi, carry);
-        let projectile = &mut self.cx.effects.weapons[slot];
+        let projectile = &mut self.cx.effects.projectiles[slot];
         projectile.kind = weapon.wrapping_add(1) << 1;
         projectile.level_x_hi = x_hi;
         projectile.level_x_lo = x_lo;
@@ -945,13 +945,13 @@ impl Port<'_, '_> {
             0x9BCE => self.shot_up(slot, -0x40, 1),
             0x9BF5 => {
                 self.shot_up(slot, -0x20, 2);
-                self.cx.effects.weapons[slot].param = self.target();
+                self.cx.effects.projectiles[slot].param = self.target();
             }
             0x9C06 => self.shot_up(slot, -0x10, 2),
             0x9C2E => {
                 let vx = [word(self, 0x9E07, 0x9E05), word(self, 0x9E08, 0x9E06)];
                 let target = [self.rb(0x9E07), self.rb(0x9E08)];
-                let part = |projectile: &mut Weapon, y: usize| {
+                let part = |projectile: &mut Projectile, y: usize| {
                     projectile.vy = -0x40;
                     projectile.timer = 0xFF;
                     projectile.vx = vx[y];
@@ -960,8 +960,8 @@ impl Port<'_, '_> {
                     projectile.param = target[y];
                     projectile.damage = 2;
                 };
-                part(&mut self.cx.effects.weapons[slot], 1);
-                let source = self.cx.effects.weapons[slot];
+                part(&mut self.cx.effects.projectiles[slot], 1);
+                let source = self.cx.effects.projectiles[slot];
                 self.spawn_parts(1, |projectile, _| {
                     part(projectile, 0);
                     projectile.kind = 1;
@@ -970,7 +970,7 @@ impl Port<'_, '_> {
             }
             0x9C7E => {
                 let vx = [0, 1, 2].map(|n| word(self, 0x9CD6 + n, 0x9CD3 + n));
-                let part = |projectile: &mut Weapon, n: usize| {
+                let part = |projectile: &mut Projectile, n: usize| {
                     projectile.vy = -0x40;
                     projectile.vx = vx[n];
                     projectile.timer = 0x80;
@@ -980,8 +980,8 @@ impl Port<'_, '_> {
                     projectile.kind = 0x0A;
                     projectile.damage = 1;
                 };
-                part(&mut self.cx.effects.weapons[slot], 2);
-                let source = self.cx.effects.weapons[slot];
+                part(&mut self.cx.effects.projectiles[slot], 2);
+                let source = self.cx.effects.projectiles[slot];
                 self.spawn_parts(2, |projectile, n| {
                     part(projectile, n);
                     at_source(projectile, &source);
@@ -989,7 +989,7 @@ impl Port<'_, '_> {
             }
             0x9CD9 => {
                 let vx = word(self, 0x9D1D + fan, 0x9D0D + fan);
-                let projectile = &mut self.cx.effects.weapons[slot];
+                let projectile = &mut self.cx.effects.projectiles[slot];
                 projectile.vy = -0x40;
                 projectile.vx = vx;
                 projectile.timer = 0x80;
@@ -1013,7 +1013,7 @@ impl Port<'_, '_> {
                     self.rb(0x9DFF + right),
                     word(self, 0x9E03 + right, 0x9D48 + right),
                 );
-                let projectile = &mut self.cx.effects.weapons[slot];
+                let projectile = &mut self.cx.effects.projectiles[slot];
                 projectile.attr = attr;
                 projectile.vx = vx;
                 shot_ahead(projectile, 1);
@@ -1021,7 +1021,7 @@ impl Port<'_, '_> {
             0x9D4A => {
                 let vx = word(self, 0x9E03 + right, 0x9D6D + right);
                 let target = self.target();
-                let projectile = &mut self.cx.effects.weapons[slot];
+                let projectile = &mut self.cx.effects.projectiles[slot];
                 projectile.vx = vx;
                 projectile.param = target;
                 shot_ahead(projectile, 1);
@@ -1031,7 +1031,7 @@ impl Port<'_, '_> {
                     self.rb(0x9DFF + right),
                     word(self, 0x9E03 + right, 0x9D9E + right),
                 );
-                let projectile = &mut self.cx.effects.weapons[slot];
+                let projectile = &mut self.cx.effects.projectiles[slot];
                 projectile.attr = attr;
                 projectile.vx = vx;
                 shot_ahead(projectile, 2);
@@ -1043,7 +1043,7 @@ impl Port<'_, '_> {
                     self.rb(0x9DFF + right),
                     word(self, 0x9E03 + right, 0x9E01 + right),
                 );
-                let part = |projectile: &mut Weapon, y: usize| {
+                let part = |projectile: &mut Projectile, y: usize| {
                     projectile.vy = vy[y];
                     projectile.param = target[y];
                     projectile.damage = 2;
@@ -1053,8 +1053,8 @@ impl Port<'_, '_> {
                     projectile.attr = attr;
                     projectile.vx = vx;
                 };
-                part(&mut self.cx.effects.weapons[slot], 1);
-                let source = self.cx.effects.weapons[slot];
+                part(&mut self.cx.effects.projectiles[slot], 1);
+                let source = self.cx.effects.projectiles[slot];
                 self.spawn_parts(1, |projectile, _| {
                     part(projectile, 0);
                     projectile.kind = 1;
@@ -1067,7 +1067,7 @@ impl Port<'_, '_> {
                     word(self, 0x9E07 + left, 0x9E05 + left),
                 );
                 let vy = [0, 1, 2].map(|n| word(self, 0x9E6F + n, 0x9E6C + n));
-                let part = |projectile: &mut Weapon, n: usize| {
+                let part = |projectile: &mut Projectile, n: usize| {
                     projectile.vx = vx;
                     projectile.attr = attr;
                     projectile.kind = 0x0A;
@@ -1077,8 +1077,8 @@ impl Port<'_, '_> {
                     projectile.flags = 0;
                     projectile.damage = 1;
                 };
-                part(&mut self.cx.effects.weapons[slot], 2);
-                let source = self.cx.effects.weapons[slot];
+                part(&mut self.cx.effects.projectiles[slot], 2);
+                let source = self.cx.effects.projectiles[slot];
                 self.spawn_parts(2, |projectile, n| {
                     part(projectile, n);
                     at_source(projectile, &source);
@@ -1090,7 +1090,7 @@ impl Port<'_, '_> {
                     self.rb(0x9DFF + left),
                     word(self, 0x9E07 + left, 0x9E05 + left),
                 );
-                let projectile = &mut self.cx.effects.weapons[slot];
+                let projectile = &mut self.cx.effects.projectiles[slot];
                 projectile.vy = vy;
                 projectile.state = 0;
                 projectile.timer = 0;
@@ -1105,7 +1105,7 @@ impl Port<'_, '_> {
 
     /// The shared tail of the upward shots (`$9BCE`, `$9C0E`): `vy` up, no x motion.
     fn shot_up(&mut self, slot: usize, vy: i16, damage: u8) {
-        let projectile = &mut self.cx.effects.weapons[slot];
+        let projectile = &mut self.cx.effects.projectiles[slot];
         projectile.vy = vy;
         projectile.timer = 0x80;
         projectile.flags = 0;
@@ -1117,10 +1117,10 @@ impl Port<'_, '_> {
     /// Fills the free slots below 16, highest first, with the parts numbered
     /// `last - 1` down to 0 (`$9C39`, `$9C8D`, `$9AAD`). Returns the X it leaves:
     /// part 0's slot, or `$FF` when the slots ran out.
-    fn spawn_parts(&mut self, last: usize, mut part: impl FnMut(&mut Weapon, usize)) -> u8 {
+    fn spawn_parts(&mut self, last: usize, mut part: impl FnMut(&mut Projectile, usize)) -> u8 {
         let mut free = (0..16u8)
             .rev()
-            .filter(|&slot| self.cx.effects.weapons[usize::from(slot)].kind == 0)
+            .filter(|&slot| self.cx.effects.projectiles[usize::from(slot)].kind == 0)
             .collect::<Vec<_>>()
             .into_iter();
         let mut left = 0xFF;
@@ -1128,7 +1128,7 @@ impl Port<'_, '_> {
             let Some(slot) = free.next() else {
                 return 0xFF;
             };
-            part(&mut self.cx.effects.weapons[usize::from(slot)], n);
+            part(&mut self.cx.effects.projectiles[usize::from(slot)], n);
             left = slot;
         }
         left
@@ -1139,14 +1139,14 @@ impl Port<'_, '_> {
     fn spawn_melee(&mut self) -> u8 {
         let Some(slot) = (0..16)
             .rev()
-            .find(|&slot| self.cx.effects.weapons[slot].kind == 0)
+            .find(|&slot| self.cx.effects.projectiles[slot].kind == 0)
         else {
             return 0xFF;
         };
         let left = u8::try_from(slot).expect("slot below 16");
         let weapon = self.cx.effects.weapon;
         assert!(weapon < 6, "$9A56 has no handler for weapon ${weapon:02X}");
-        let charge = |projectile: &mut Weapon| {
+        let charge = |projectile: &mut Projectile| {
             projectile.kind = 0x80;
             projectile.part_timer = 0;
             projectile.flags = 0xE0;
@@ -1157,7 +1157,7 @@ impl Port<'_, '_> {
         match handler {
             0x9A81 => {
                 self.cx.effects.sound[0] = 0x2E;
-                let projectile = &mut self.cx.effects.weapons[slot];
+                let projectile = &mut self.cx.effects.projectiles[slot];
                 charge(projectile);
                 projectile.param = 0;
                 projectile.part = 0;
@@ -1166,18 +1166,18 @@ impl Port<'_, '_> {
             }
             0x9AA0 => {
                 self.cx.effects.sound[0] = 0x30;
-                let orbit = |projectile: &mut Weapon, n: usize| {
+                let orbit = |projectile: &mut Projectile, n: usize| {
                     charge(projectile);
                     projectile.part = u8::try_from(n).expect("four parts");
                     projectile.param = 0;
                     projectile.vx = 0;
                     projectile.vy = 0;
                 };
-                orbit(&mut self.cx.effects.weapons[slot], 3);
+                orbit(&mut self.cx.effects.projectiles[slot], 3);
                 return self.spawn_parts(3, orbit);
             }
             0x9AE3 => {
-                let projectile = &mut self.cx.effects.weapons[slot];
+                let projectile = &mut self.cx.effects.projectiles[slot];
                 charge(projectile);
                 projectile.damage = 0;
             }

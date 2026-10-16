@@ -36,7 +36,7 @@ pub fn stage_end(game: &mut Game, prg: &[u8]) -> bool {
             if x >= 0x2000 || (x >= 0x1F60 && game.effects.player.facing & 0x40 == 0) {
                 game.effects.music = 0xFC;
                 end.phase = 1;
-                for weapon in &mut game.effects.weapons {
+                for weapon in &mut game.effects.projectiles {
                     weapon.kind = 0;
                 }
                 game.effects.player.flags[0] = 0;
@@ -182,7 +182,7 @@ impl PowerUp {
         let effects = &mut game.effects;
         if self.frames == 0 {
             effects.sound[0] = 0x31;
-            for weapon in &mut effects.weapons {
+            for weapon in &mut effects.projectiles {
                 weapon.kind = 0;
             }
             effects.attack &= 0x80;
@@ -218,12 +218,12 @@ impl PowerUp {
         game.world.frame_odd = true;
         effects.weapon = 6;
         let (x, y) = (player.x, player.y);
-        for (index, piece) in (0..4u16).zip(effects.weapons.iter_mut()) {
+        for (index, piece) in (0..4u16).zip(effects.projectiles.iter_mut()) {
             let byte = |table: u16| rom_byte(prg, 14, table + index);
             let word = |hi: u16, lo: u16| u16::from_be_bytes([byte(hi), byte(lo)]);
             let [x_hi, x_lo] = x.wrapping_add(word(0xD6B3, 0xD6AF)).to_be_bytes();
             let [y_hi, y_lo] = y.wrapping_add(word(0xD6BB, 0xD6B7)).to_be_bytes();
-            *piece = super::world::Weapon {
+            *piece = super::world::Projectile {
                 kind: 6,
                 flags: 0xE0,
                 damage: 0,

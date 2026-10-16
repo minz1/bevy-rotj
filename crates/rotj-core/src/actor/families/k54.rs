@@ -23,7 +23,7 @@ impl State {
         let player = &mut cx.effects.player;
         if player.motion == Motion::Dying {
             // `$9D50`: only the projectiles' types (`$7BD0`) are cleared.
-            for weapon in &mut cx.effects.weapons {
+            for weapon in &mut cx.effects.projectiles {
                 weapon.kind = 0;
             }
             return;

@@ -1,7 +1,7 @@
 //! Actor slots: the 24 main slots the actor loop runs, and the 8 second-class slots.
 
 use crate::actor::families::Brain;
-use crate::actor::world::{WEAPON_ARRAYS, Weapon};
+use crate::actor::world::{PROJECTILE_ARRAYS, Projectile};
 use crate::actors::ActorSpawn;
 
 /// The per-slot arrays the spawners and the engine share (`docs/ACTORS.md` §9).
@@ -77,7 +77,7 @@ pub(crate) const PRESSED: u16 = 0x7F10;
 enum Owner {
     Kind(usize),
     Slot(usize, u16),
-    Weapon(usize, u16),
+    Projectile(usize, u16),
     Spare(usize),
 }
 
@@ -91,7 +91,7 @@ fn find_owner(addr: u16) -> Option<Owner> {
         .iter()
         .map(|&a| (a, 32))
         .chain(NARROW.iter().map(|&a| (a, 16)))
-        .chain(WEAPON_ARRAYS.iter().map(|&a| (a, 16)))
+        .chain(PROJECTILE_ARRAYS.iter().map(|&a| (a, 16)))
         .chain([(KINDS, 32), (SPARE, 32)]);
     let (base, width) = arrays
         .filter(|&(base, _)| base <= addr)
@@ -104,8 +104,8 @@ fn find_owner(addr: u16) -> Option<Owner> {
         Owner::Kind(offset)
     } else if base == SPARE {
         Owner::Spare(offset)
-    } else if WEAPON_ARRAYS.contains(&base) {
-        Owner::Weapon(offset, base)
+    } else if PROJECTILE_ARRAYS.contains(&base) {
+        Owner::Projectile(offset, base)
     } else {
         Owner::Slot(offset, base)
     })
@@ -113,23 +113,23 @@ fn find_owner(addr: u16) -> Option<Owner> {
 
 /// The byte at a slot-array address, wherever the game's layout puts it.
 #[must_use]
-pub fn read(slots: &Slots, weapons: &[Weapon; 16], addr: u16) -> u8 {
+pub fn read(slots: &Slots, projectiles: &[Projectile; 16], addr: u16) -> u8 {
     match owner(addr) {
-        Owner::Weapon(index, array) => weapons[index].byte(array),
+        Owner::Projectile(index, array) => projectiles[index].byte(array),
         _ => slots.byte(addr),
     }
 }
 
 /// [`read`], or `None` for an address no slot array owns.
 #[must_use]
-pub fn owned(slots: &Slots, weapons: &[Weapon; 16], addr: u16) -> Option<u8> {
-    find_owner(addr).map(|_| read(slots, weapons, addr))
+pub fn owned(slots: &Slots, projectiles: &[Projectile; 16], addr: u16) -> Option<u8> {
+    find_owner(addr).map(|_| read(slots, projectiles, addr))
 }
 
 /// Writes the byte at a slot-array address.
-pub fn write(slots: &mut Slots, weapons: &mut [Weapon; 16], addr: u16, value: u8) {
+pub fn write(slots: &mut Slots, projectiles: &mut [Projectile; 16], addr: u16, value: u8) {
     match owner(addr) {
-        Owner::Weapon(index, array) => weapons[index].set_byte(array, value),
+        Owner::Projectile(index, array) => projectiles[index].set_byte(array, value),
         _ => slots.set_byte(addr, value),
     }
 }
@@ -144,7 +144,7 @@ impl Slots {
             Owner::Slot(slot, array) if slot < 24 => self.main[slot].body.byte(array),
             Owner::Slot(slot, array) => self.second[slot - 24].body.byte(array),
             Owner::Spare(at) => self.spare[at],
-            Owner::Weapon(..) => panic!("${addr:04X} is a weapon array"),
+            Owner::Projectile(..) => panic!("${addr:04X} is a weapon array"),
         }
     }
 
@@ -156,7 +156,7 @@ impl Slots {
             Owner::Slot(slot, array) if slot < 24 => self.main[slot].body.set_byte(array, value),
             Owner::Slot(slot, array) => self.second[slot - 24].body.set_byte(array, value),
             Owner::Spare(at) => self.spare[at] = value,
-            Owner::Weapon(..) => panic!("${addr:04X} is a weapon array"),
+            Owner::Projectile(..) => panic!("${addr:04X} is a weapon array"),
         }
     }
 }
@@ -172,10 +172,15 @@ pub fn own_field(addr: u16, slot: usize) -> Option<u16> {
 }
 
 /// Fills a slot 16-23's 16-wide fields from the arrays they alias.
-pub(crate) fn load_aliases(body: &mut Body, index: usize, slots: &Slots, weapons: &[Weapon; 16]) {
+pub(crate) fn load_aliases(
+    body: &mut Body,
+    index: usize,
+    slots: &Slots,
+    projectiles: &[Projectile; 16],
+) {
     if index >= 16 {
         for array in NARROW {
-            body.set_byte(array, read(slots, weapons, array + slot_offset(index)));
+            body.set_byte(array, read(slots, projectiles, array + slot_offset(index)));
         }
     }
 }
@@ -185,11 +190,16 @@ pub(crate) fn store_aliases(
     body: &Body,
     index: usize,
     slots: &mut Slots,
-    weapons: &mut [Weapon; 16],
+    projectiles: &mut [Projectile; 16],
 ) {
     if index >= 16 {
         for array in NARROW {
-            write(slots, weapons, array + slot_offset(index), body.byte(array));
+            write(
+                slots,
+                projectiles,
+                array + slot_offset(index),
+                body.byte(array),
+            );
         }
     }
 }

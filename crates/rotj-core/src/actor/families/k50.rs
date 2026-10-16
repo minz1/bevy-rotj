@@ -32,7 +32,7 @@ impl State {
         cx.effects.player.stage_script = 0x80;
         cx.effects.attack &= 0x80;
         cx.effects.misc_flag = 0;
-        for weapon in &mut cx.effects.weapons {
+        for weapon in &mut cx.effects.projectiles {
             weapon.kind = 0;
         }
         if body.anim.is_multiple_of(4) {

@@ -465,7 +465,12 @@ impl Routine<'_> {
             })
             .unwrap_or_default();
         if index < 24 {
-            super::slots::load_aliases(&mut slot.body, index, &state.slots, &state.effects.weapons);
+            super::slots::load_aliases(
+                &mut slot.body,
+                index,
+                &state.slots,
+                &state.effects.projectiles,
+            );
         }
         let mut cx = Cx {
             prg: self.prg,
@@ -482,7 +487,7 @@ impl Routine<'_> {
                 &slot.body,
                 index,
                 &mut state.slots,
-                &mut state.effects.weapons,
+                &mut state.effects.projectiles,
             );
             state.slots.main[index] = slot;
         }

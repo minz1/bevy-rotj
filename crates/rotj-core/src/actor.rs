@@ -318,7 +318,7 @@ pub fn step_actors(prg: &[u8], game: &mut Game) {
         }
         let mut slot = std::mem::take(&mut slots.main[index]);
         slots.main[index].kind = slot.kind;
-        slots::load_aliases(&mut slot.body, index, slots, &effects.weapons);
+        slots::load_aliases(&mut slot.body, index, slots, &effects.projectiles);
         let mut cx = Cx {
             prg,
             world,
@@ -331,7 +331,7 @@ pub fn step_actors(prg: &[u8], game: &mut Game) {
         work.slot = u8::try_from(index).expect("24 main slots");
         let running = slot.kind;
         families::step(&mut slot, work, &mut cx);
-        slots::store_aliases(&slot.body, index, slots, &mut effects.weapons);
+        slots::store_aliases(&slot.body, index, slots, &mut effects.projectiles);
         if slot.kind != 0 || slots.main[index].kind == running {
             slots.main[index] = slot;
         }

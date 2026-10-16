@@ -6,7 +6,7 @@ use super::engine::{rom_byte, rom_word};
 use super::slots::Slots;
 use super::spawn::{SpawnTable, spawn_row};
 use super::stage::Fade;
-use super::world::{Effects, Motion, Schedule, View, VramWrite, Weapon, World};
+use super::world::{Effects, Motion, Projectile, Schedule, View, VramWrite, World};
 use crate::actors::spawn_schedule;
 use crate::collision::rows_from_rom;
 
@@ -443,7 +443,7 @@ impl PageDraw {
 pub fn load(game: &mut Game, prg: &[u8]) {
     let (area, room) = (game.world.area, game.world.room);
     game.slots = Slots::default();
-    game.effects.weapons = [Weapon::default(); 16];
+    game.effects.projectiles = [Projectile::default(); 16];
     game.effects.pause_name = [0; 18];
     game.effects.pause_aux = 0;
     let record = rom_word(
@@ -678,7 +678,7 @@ fn wram_7000(game: &Game) -> [u8; 0x1000] {
     image[0x600..0xA00].copy_from_slice(&level.attributes);
     level.unpack_unread(&mut image);
     for (addr, byte) in (0x7B00..).zip(&mut image[0xB00..]) {
-        *byte = super::slots::owned(&game.slots, &game.effects.weapons, addr).unwrap_or(0);
+        *byte = super::slots::owned(&game.slots, &game.effects.projectiles, addr).unwrap_or(0);
     }
     image[0xFD0..0xFE2].copy_from_slice(&game.effects.pause_name);
     image[0xFF1] = game.effects.pause_aux;

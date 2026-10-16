@@ -56,7 +56,12 @@ mod tests {
                 let mut state = State::lift(begin);
                 let mut taken = std::mem::take(&mut state.slots.main[slot]);
                 state.slots.main[slot].kind = taken.kind;
-                load_aliases(&mut taken.body, slot, &state.slots, &state.effects.weapons);
+                load_aliases(
+                    &mut taken.body,
+                    slot,
+                    &state.slots,
+                    &state.effects.projectiles,
+                );
                 let mut cx = Cx {
                     prg: &prg,
                     world: &state.world,
@@ -71,7 +76,7 @@ mod tests {
                     &taken.body,
                     slot,
                     &mut state.slots,
-                    &mut state.effects.weapons,
+                    &mut state.effects.projectiles,
                 );
                 state.slots.main[slot] = taken;
                 let (_, wram) = state.project(begin);

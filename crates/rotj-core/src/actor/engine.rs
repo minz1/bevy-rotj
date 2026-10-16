@@ -548,7 +548,7 @@ pub fn weapon_scan(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     let hitbox = u16::from(work.hitbox);
     let [seed, noise] = cx.world.rng;
     for index in (0..16).rev() {
-        let weapon = cx.effects.weapons[index];
+        let weapon = cx.effects.projectiles[index];
         if weapon.kind == 0 || weapon.flags & 0x80 != 0 {
             continue;
         }
@@ -563,7 +563,7 @@ pub fn weapon_scan(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         if !near_y {
             continue;
         }
-        let weapon = &mut cx.effects.weapons[index];
+        let weapon = &mut cx.effects.projectiles[index];
         if body.contact & 0x80 != 0 {
             if weapon.flags & 0x20 != 0 {
                 continue;
@@ -599,7 +599,7 @@ pub fn weapon_scan(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 }
 
 /// A projectile that hit bounces off and is spent (`$B108`).
-fn spend(weapon: &mut super::world::Weapon, rng_f9: u8) {
+fn spend(weapon: &mut super::world::Projectile, rng_f9: u8) {
     if weapon.flags & 0x40 != 0 {
         return;
     }
@@ -696,7 +696,7 @@ pub fn boss_contact(amount: u16, mode: u8, body: &mut Body, work: &Work, cx: &mu
     }
     let hitbox = u16::from(work.hitbox);
     for index in (0..16).rev() {
-        let weapon = &mut cx.effects.weapons[index];
+        let weapon = &mut cx.effects.projectiles[index];
         if weapon.kind == 0 || weapon.flags & 0x80 != 0 {
             continue;
         }
@@ -850,7 +850,7 @@ pub fn level_end(effects: &mut Effects) {
     player.death_timer = 0;
     player.death_flags = 0;
     effects.attack = 0;
-    for weapon in &mut effects.weapons {
+    for weapon in &mut effects.projectiles {
         weapon.kind = 0;
     }
 }
@@ -991,7 +991,7 @@ pub fn collect(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
                 effects.weapon = (body.state & 0x7F) + 1;
             }
             effects.attack = 0x80;
-            for weapon in &mut effects.weapons {
+            for weapon in &mut effects.projectiles {
                 weapon.kind = 0;
             }
         }
