@@ -1,6 +1,6 @@
 # Port plan — Batman: Return of the Joker → Rust/Bevy
 
-Status: **1.0.5 tagged** (the whole game byte-exact against the oracle, boot to ending, built with the user's own ROM, every frame's picture checked line by line; `docs/STATUS.md`
+Status: **1.1.0 tagged** (the whole game byte-exact against the oracle, boot to ending, built with the user's own ROM, every frame's picture checked line by line; `docs/STATUS.md`
 is the source of truth). **1.0 means full-game parity** (all 7 stages, 5 bosses,
 every actor behaviour, the complete soundtrack). Intermediate minor checkpoints are
 tagged as they land. After 1.0.0 only Classic Mode is bound by parity
@@ -39,7 +39,7 @@ workspace version in `Cargo.toml` and the in-game version string are the same.
 | 1.0.3 | The ROM embedded at build time: a self-contained exe (the owner's call, 2026-10-16) | **tagged** |
 | 1.0.4 | ROM-less builds find the ROM at start-up (argument, `ROTJ_ROM`, beside the exe), and each release carries ROM-less Windows and Linux exes (the owner's design, 2026-10-16) | **tagged** |
 | 1.0.5 | The owner's playtest of 1.0.4: integer scaling, no audio pops (the output filter and a queue that follows the device), opposite directions as the game reads them | **tagged** |
-| 1.1.0 | The settings file and menu, one picture per tick (`docs/specs/2026-10-16-settings-menu-design.md`), then the game's HUD, pause, title and password screens in NES-styled Bevy UI (spec 2) | spec 1 on main |
+| 1.1.0 | The settings file and menu, one picture per tick (`docs/specs/2026-10-16-settings-menu-design.md`), and the game's own HUD, pause card, title cursor and password entry as Bevy UI, the HUD label steady (`docs/specs/2026-10-16-faithful-ui-design.md`) | **tagged** |
 | 1.1.x | Modernisation, one patch per step, no behaviour change (owner, 2026-10-16: "replace the NES stuff ALL with modern patterns and modern tech"): the GPU renderer (Bevy tilemaps and sprites; the GPU's readback must equal `Frame`), the game loop on Bevy schedules and `States`, the player as a character (enum state machines, the ECS pilot), actors as entities family by family, levels as assets (an importer run on the player's ROM at build time), scripts as data, input as actions | |
 | 1.2.0 onward | Enhanced features, each once its prerequisite has landed: interpolated motion and a `frame_rate` setting (after the GPU renderer and actors as entities), CRT filters (after the renderer), widescreen (after actors and levels), remastered audio | |
 | then | Chapter select and passwords (revisit: the game's own password screen is ported) | |

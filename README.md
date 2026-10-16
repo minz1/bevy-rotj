@@ -46,11 +46,12 @@ workspace still builds and tests (the ROM tests skip). If you add the ROM later,
 | Settings   | Esc / F1 | Guide, or click the right stick |
 
 Esc opens the settings menu anywhere, and so does Select while the game is paused:
-volume, overscan, palette, the sprite limit and vsync. Everything starts the way the NES
+volume, overscan, palette, the sprite limit, vsync and the UI. Everything starts the way the NES
 looked: a TV's overscan hides 8 lines at the top and bottom and the scroll seam at the sides, the colours are Composite
 Direct, and more than 8 sprites on a line flicker. Turn the sprite limit off and the
 flicker from it goes. Pick FILE as the palette to use your own 64-colour `.pal`, saved
-as `palette.pal` next to the exe.
+as `palette.pal` next to the exe. UI set to FAITHFUL draws the game's own HUD, pause card
+and menus as Bevy UI, and the HUD's L/E letters stop flickering.
 
 The window is resizable and the picture stays at an integer scale. The game shows one
 picture per 60 Hz tick, so on a variable-refresh display (G-Sync, FreeSync) every frame
