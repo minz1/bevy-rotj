@@ -82,13 +82,14 @@ game for the pad it receives, and the recorder records what it received.
 is released, so the A or B that closed the menu is not a jump or a shot.
 
 **Look.** A bordered box centred on the picture: black (`$0F`) fill, white (`$30`) text and
-border, a cursor arrow, colours from the active palette. Bevy UI laid out in NES pixels and
+border, the cursor row white and the others grey (`$10`; the font has no arrow), colours
+from the active palette. Bevy UI laid out in NES pixels and
 scaled by the picture's whole multiple (`UiScale`, from `integer_view`), so a menu pixel is
 a game pixel; the box always lies within the 224 lines visible with overscan hidden.
 
 ```
         SETTINGS
-  > VOLUME          100
+    VOLUME          100   (the cursor row: white; the rest grey)
     OVERSCAN        HIDE
     PALETTE         COMPOSITE
     SPRITE LIMIT    ON
@@ -126,8 +127,10 @@ colours for the tests. In `rotj_core::palette`:
 - `RGB_PPU`: the 2C03 RGB PPU (PlayChoice, Vs. System), its 3-bit-per-channel levels as
   the NESdev wiki documents them; hardware data, no palette file;
 - `ntsc()`: computed from the composite signal: each colour's 12-phase square wave at the
-  2C02's documented voltage levels, decoded to YIQ, then RGB (FCC matrix) and gamma 2.2,
-  fixed parameters (no knobs);
+  2C02's documented voltage levels, demodulated to YUV and RGB as the NESdev wiki's
+  "NTSC video" decoder does, with no gamma
+  step (the signal is already gamma-encoded for a TV, as sRGB is) and fixed parameters
+  (no knobs);
 - `File`: `palette.pal` beside the exe, read at start-up and when chosen; 192 bytes, or
   1536 (the emphasis variants, of which the first 192 are used); any other size is
   `NO FILE`. Players bring their own, so the repo ships no third-party palette beyond
