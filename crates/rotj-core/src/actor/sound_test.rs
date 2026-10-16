@@ -9,6 +9,8 @@ use super::engine::rom_byte;
 use super::stage::blackout;
 use super::world::VramWrite;
 use crate::actor::button;
+use crate::actors::bank_slice;
+use crate::ppulist::WriteList;
 
 /// Its screen's direct writes (`$9BEB`), palette (`$9C36`), cursor (`$9C56`, at x `$68`
 /// and a row's y from `$9C62`), the number's metasprite (`$9C65`) and tiles (`$9C6B`),
@@ -173,16 +175,12 @@ fn show_screen(game: &mut Game, prg: &[u8]) {
         flags: 0,
         bytes: vec![0; 0x400],
     });
-    let mut at = TEXT;
-    while rom(at) & 0x80 == 0 {
-        let count = rom(at + 2);
-        direct.push(VramWrite {
-            addr: u16::from_be_bytes([rom(at), rom(at + 1)]),
-            flags: 0,
-            bytes: (0..u16::from(count)).map(|i| rom(at + 3 + i)).collect(),
-        });
-        at += 3 + u16::from(count);
-    }
+    let text = bank_slice(prg, 12, TEXT & 0x1FFF).expect("the sound test's text");
+    direct.extend(WriteList::new(text).map(|run| VramWrite {
+        addr: run.addr,
+        flags: 0,
+        bytes: run.data.to_vec(),
+    }));
     for (i, shadow) in (0..).zip(&mut game.oam.chr) {
         *shadow = rom(BANKS + i);
     }

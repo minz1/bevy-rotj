@@ -1110,6 +1110,20 @@ mod layout {
     }
 }
 
+/// Adds the signed velocity byte at `velocity` to the position split across `hi`:`lo`
+/// (the four-part bursts' parts, `$08` and `$92`), returning the new position.
+pub fn move_by_velocity(body: &mut Body, lo: u16, hi: u16, velocity: u16) -> u16 {
+    let velocity = body.byte(velocity);
+    let (low, carry) = body.byte(lo).overflowing_add(velocity);
+    body.set_byte(lo, low);
+    let high = body
+        .byte(hi)
+        .wrapping_add(if velocity & 0x80 != 0 { 0xFF } else { 0 })
+        .wrapping_add(u8::from(carry));
+    body.set_byte(hi, high);
+    u16::from_be_bytes([high, low])
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::oracle::{Routine, Scene, assert_routine};

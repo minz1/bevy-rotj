@@ -7,7 +7,7 @@ use super::cutscene::draw_sprite_with;
 use super::engine::{rom_byte, rom_word};
 use super::room::build_palette;
 use super::stage::{Fade, blackout, queue_palette};
-use super::world::VramWrite;
+use super::world::{VramWrite, set_first_colours};
 
 /// The buttons that leave the attract mode while held (`$F6 & $D0`).
 const HELD_TO_LEAVE: u8 = 0xD0;
@@ -348,9 +348,7 @@ impl Attract {
         game.scroll.scroll_x = 0;
         game.scroll.scroll_y = 0;
         build_palette(prg, background, sprites, &mut game.effects.palette);
-        for first in game.effects.palette.iter_mut().step_by(4) {
-            *first = 3;
-        }
+        set_first_colours(&mut game.effects.palette, 3);
         self.fade = Fade::new(true, false);
     }
 
@@ -492,8 +490,6 @@ fn draw_figure(game: &mut Game, prg: &[u8]) {
 
 /// Every set's first colour `$0F`, then the dark palette (`$9F69`).
 fn dark(game: &mut Game, prg: &[u8]) {
-    for first in game.effects.palette.iter_mut().step_by(4) {
-        *first = 0x0F;
-    }
+    set_first_colours(&mut game.effects.palette, 0x0F);
     blackout(game, prg);
 }

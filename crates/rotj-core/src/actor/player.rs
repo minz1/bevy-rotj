@@ -7,7 +7,7 @@
 
 use super::collision::{self, Probe};
 use super::engine::{self, Work, adc_overflows, rom_byte, rom_word, sub_overflows16};
-use super::world::{Cx, Motion, Player, Projectile, Weapon, pose};
+use super::world::{Cx, Motion, Player, Projectile, Weapon, pose, set_first_colours};
 use crate::actor::button;
 
 /// Test-only branch coverage; the test asserts and reports which paths ran.
@@ -677,9 +677,7 @@ impl Port<'_, '_> {
                     for i in 0..3u16 {
                         self.cx.effects.palette[0x11 + usize::from(i)] = self.rb(0x9662 + i);
                     }
-                    for i in (0..0x1Dusize).step_by(4) {
-                        self.cx.effects.palette[i] = 0x0F;
-                    }
+                    set_first_colours(&mut self.cx.effects.palette, 0x0F);
                     self.cx.effects.palette_dirty = 0x80;
                 }
             }
@@ -2329,9 +2327,7 @@ impl Port<'_, '_> {
                 } else {
                     0x0F
                 };
-                for first in self.cx.effects.palette.iter_mut().step_by(4) {
-                    *first = colour;
-                }
+                set_first_colours(&mut self.cx.effects.palette, colour);
                 let effects = &mut *self.cx.effects;
                 effects.vram.push(0x3F00, 0, &effects.palette);
                 // `$C34B` -> `$C0C6`: its `ADC #$00` on the return address's high byte ($C3).

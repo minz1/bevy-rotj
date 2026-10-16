@@ -159,11 +159,10 @@ impl Play {
     /// Composes the picture the PPU draws from the game's state: its nametables, palette
     /// and sprites, line by line as the NMI and the raster IRQs set them.
     pub fn compose(&self, frame: &mut Frame, sprites_per_line: usize, park: bool) {
-        let vram = self.ppu.nametables.concat();
         frame.render(
             &Picture {
                 lines: &self.lines,
-                vram: &vram,
+                vram: self.ppu.nametables.as_flattened(),
                 palette: &self.ppu.palette,
                 oam: &self.display_oam(park),
                 chr: &self.chr,

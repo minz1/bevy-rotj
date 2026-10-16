@@ -6,7 +6,9 @@ use super::engine::{rom_byte, rom_word};
 use super::slots::Slots;
 use super::spawn::{SpawnTable, spawn_row};
 use super::stage::Fade;
-use super::world::{Effects, Motion, Projectile, Schedule, View, VramWrite, World};
+use super::world::{
+    Effects, Motion, Projectile, Schedule, View, VramWrite, World, set_first_colours,
+};
 use crate::actors::spawn_schedule;
 use crate::collision::rows_from_rom;
 
@@ -457,9 +459,7 @@ pub fn load(game: &mut Game, prg: &[u8]) {
     let kept: [u8; 3] = game.effects.palette[17..20].try_into().expect("3 bytes");
     build_palette(prg, byte(0), sprites, &mut game.effects.palette);
     game.effects.palette[17..20].copy_from_slice(&kept);
-    for entry in game.effects.palette.iter_mut().step_by(4) {
-        *entry = 0x0F;
-    }
+    set_first_colours(&mut game.effects.palette, 0x0F);
     for (i, bank) in game.oam.chr[..4].iter_mut().enumerate() {
         *bank = byte(1 + u16::try_from(i).expect("< 4"));
     }

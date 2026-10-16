@@ -43,8 +43,8 @@ impl State {
             let record = parts + 12 * u16::from(3 - part);
             let at = |i: u16| engine::rom_word(cx.prg, HOME_BANK, record + 2 * i);
             let (x_lo, x_hi, y_lo, y_hi, vx, vy) = (at(0), at(1), at(2), at(3), at(4), at(5));
-            work.x = integrate(body, x_lo, x_hi, vx);
-            work.y = integrate(body, y_lo, y_hi, vy);
+            work.x = engine::move_by_velocity(body, x_lo, x_hi, vx);
+            work.y = engine::move_by_velocity(body, y_lo, y_hi, vy);
             let fallen = body.byte(vy).wrapping_add(GRAVITY);
             let clamped = body.sprite & 0x80 != 0 && fallen & 0x80 != 0;
             body.set_byte(vy, if clamped { 0x7F } else { fallen });
@@ -60,19 +60,6 @@ impl State {
             *kind = 0;
         }
     }
-}
-
-/// Adds a part's signed velocity byte to its position; returns the 16-bit pair.
-fn integrate(body: &mut Body, lo: u16, hi: u16, velocity: u16) -> u16 {
-    let velocity = body.byte(velocity);
-    let (low, carry) = body.byte(lo).overflowing_add(velocity);
-    body.set_byte(lo, low);
-    let high = body
-        .byte(hi)
-        .wrapping_add(if velocity & 0x80 != 0 { 0xFF } else { 0 })
-        .wrapping_add(u8::from(carry));
-    body.set_byte(hi, high);
-    u16::from_be_bytes([high, low])
 }
 
 #[cfg(test)]

@@ -5,6 +5,7 @@ use super::Game;
 use super::engine::{draw, draw_metasprite, rom_byte, rom_word};
 use super::oam::{Mark, Metasprite};
 use crate::actor::button;
+use crate::actor::world::set_first_colours;
 
 /// The area name's metasprite the pause builds in WRAM (`$7FD0-$7FE1`).
 pub const NAME: u16 = 0x7FD0;
@@ -109,9 +110,7 @@ impl Pause {
             *colour = rom_byte(prg, 8, 0x9DC2 + i);
         }
         palette[22] = self.colour;
-        for first in palette.iter_mut().step_by(4) {
-            *first = 0x0F;
-        }
+        set_first_colours(&mut palette, 0x0F);
         game.effects.vram.push(0x3F00, 0, &palette);
     }
 }

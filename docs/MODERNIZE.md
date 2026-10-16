@@ -209,6 +209,18 @@ New candidates, each to be classified (state, flags, table index) before it chan
   (probes two tiles off the player's y; check the axis before naming it), `stun`, `bit`
   (the 6502 `BIT` flag mirror kept for its N/V side effects: name what each caller tests).
 
+### Done in 1.1.x (2026-10-16)
+
+- #9 the duplicate `integrate` (`k08`, `k92`) is `engine::move_by_velocity`.
+- #10 the 12 "every set's first colour" loops are `world::set_first_colours`. The three
+  palette helpers it grouped are not duplicates: `queue_faded` lowers bright colours to a
+  cap and keeps the first colours, `queue_whitened` raises dark ones to a cap and sets the
+  first colours, `queue_dimmed` subtracts `$10`; they stay, `queue_faded` without its `Vec`.
+- #11 `stage::text` and the sound test's loop decode with `ppulist::WriteList`, which now
+  stops at bit 7 as the game's `BMI` does (the two lists it was verified on are theirs).
+- #12 `Play::compose` reads the nametables flat instead of copying 2 KiB a frame.
+- New: `engine::spend` nearly repeats `weapons::bounce_off_wall`.
+
 ## Leads (could not verify)
 
 - **Compositor swap (#5):** the well-known tilemap crates are Bevy 0.19 (only `bevy_simple_tilemap` 0.21.0 targets 0.20, unevaluated), and the picture

@@ -11,7 +11,7 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::{Cx, Motion};
+use crate::actor::world::{Cx, Motion, set_first_colours};
 
 /// The single body draw's metasprite pointers (`$910E`), by `$F1` bits 2-3.
 const BODY_DRAW: u16 = 0x910E;
@@ -217,7 +217,7 @@ fn gate(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             cx.set_byte(0x7CC0 + index, 0);
         }
     }
-    set_palette(cx, 0x0F);
+    set_first_colours(&mut cx.effects.palette, 0x0F);
 }
 
 /// `$8E04`: the shared draw, boss contact and hit-flash tail.
@@ -251,12 +251,12 @@ fn tail(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     match body.counter {
         0 => {}
         0x80.. => {
-            set_palette(cx, 0x32);
+            set_first_colours(&mut cx.effects.palette, 0x32);
             queue_palette(cx);
             body.counter = 0x40;
         }
         0x40..=0x7F => {
-            set_palette(cx, 0x0F);
+            set_first_colours(&mut cx.effects.palette, 0x0F);
             queue_palette(cx);
             body.counter = 0x07;
         }
@@ -272,13 +272,6 @@ fn shape_draw(body: &Body, work: &mut Work, cx: &mut Cx<'_>) {
     engine::draw(work, DRAW_BANK, cx);
 }
 
-/// `$8ECF`: set every palette's first colour.
-fn set_palette(cx: &mut Cx<'_>, value: u8) {
-    for first in cx.effects.palette.iter_mut().step_by(4) {
-        *first = value;
-    }
-}
-
 /// `$C34B`: queue the palette shadow, but only while the VRAM queue has room.
 fn queue_palette(cx: &mut Cx<'_>) {
     if cx.effects.vram.top < 0x70 {
@@ -290,7 +283,7 @@ fn queue_palette(cx: &mut Cx<'_>) {
 
 /// `$8F37`: palette `$0F`, then a type `$B8` into the highest free slot 0-15.
 fn spawn_b8(body: &mut Body, cx: &mut Cx<'_>) {
-    set_palette(cx, 0x0F);
+    set_first_colours(&mut cx.effects.palette, 0x0F);
     let Some(slot) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0) else {
         return;
     };

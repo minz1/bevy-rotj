@@ -10,7 +10,7 @@ use super::collision::{self, Probe};
 use super::engine::{self, Work, rom_byte, rom_word};
 use super::scroll::Scroll;
 use super::slots;
-use super::world::{Cx, Motion, Projectile, Weapon};
+use super::world::{Cx, Motion, Projectile, Weapon, set_first_colours};
 use crate::actor::button;
 
 /// A charged attack's first stage, every weapon's: the `kind` the player's charge writes.
@@ -884,9 +884,7 @@ fn super_flash(slot: usize, cx: &mut Cx<'_>) {
     } else {
         0x0F
     };
-    for colour in cx.effects.palette.iter_mut().step_by(4) {
-        *colour = first;
-    }
+    set_first_colours(&mut cx.effects.palette, first);
     cx.effects.palette_dirty = 0x80;
 }
 
@@ -910,9 +908,7 @@ fn super_end_attack(slot: usize, cx: &mut Cx<'_>, scroll: &mut Scroll) {
         effects.palette[17 + usize::from(i)] = rom_byte(cx.prg, 5, 0x9D21 + i);
     }
     effects.scroll_lock = effects.projectiles[slot].timer;
-    for colour in effects.palette.iter_mut().step_by(4) {
-        *colour = 0x0F;
-    }
+    set_first_colours(&mut effects.palette, 0x0F);
     effects.palette_dirty = 0x80;
     effects.busy = 0;
     for projectile in &mut effects.projectiles {

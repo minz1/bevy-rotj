@@ -9,7 +9,7 @@ use super::oam::Mark;
 use super::sound_test::SoundTest;
 use super::stage::{Fade, NextArea, blackout, queue_palette};
 use crate::actor::button;
-use crate::actor::world::Weapon;
+use crate::actor::world::{Weapon, set_first_colours};
 use crate::levelmap::BOOT_FIRST_BANK;
 
 /// The WRAM byte at `addr` once `$98C3` has copied the payload (CHR `$F0-$F7`, in order).
@@ -384,9 +384,7 @@ impl Boot {
                 self.step = Step::Power(Power::Palette);
             }
             Power::Palette => {
-                for first in game.effects.palette.iter_mut().step_by(4) {
-                    *first = 0x0F;
-                }
+                set_first_colours(&mut game.effects.palette, 0x0F);
                 blackout(game, prg);
                 self.step = Step::Power(Power::Payload);
             }

@@ -5,8 +5,10 @@ use super::Game;
 use super::cutscene::Cutscene;
 use super::engine::{draw, rom_byte, rom_word};
 use super::room;
-use super::world::{Motion, VramWrite, Weapon};
+use super::world::{Motion, VramWrite, Weapon, set_first_colours};
 use crate::actor::button;
+use crate::actors::bank_slice;
+use crate::ppulist::WriteList;
 
 /// The stage-end script's state (`$0408-$040C`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -143,15 +145,12 @@ pub(super) fn queue_palette(game: &mut Game) {
 
 /// Queues the palette with every colour's brightness capped at `cap` (`$C30A`, `X = $FF`).
 fn queue_faded(game: &mut Game, cap: u8) {
-    let faded: Vec<u8> = (game.effects.palette.iter().enumerate())
-        .map(|(i, &colour)| {
-            if i.is_multiple_of(4) || colour < cap {
-                colour
-            } else {
-                (colour & 0x0F) | cap
-            }
-        })
-        .collect();
+    let mut faded = game.effects.palette;
+    for (i, colour) in faded.iter_mut().enumerate() {
+        if !i.is_multiple_of(4) && *colour >= cap {
+            *colour = (*colour & 0x0F) | cap;
+        }
+    }
     game.effects.vram.push(0x3F00, 0, &faded);
 }
 
@@ -197,9 +196,7 @@ impl PowerUp {
         self.frames += 1;
         let flash = u16::from(effects.stage_end.phase.is_multiple_of(4));
         let colour = rom_byte(prg, 14, 0xD60B + flash);
-        for first in effects.palette.iter_mut().step_by(4) {
-            *first = colour;
-        }
+        set_first_colours(&mut effects.palette, colour);
         effects.palette_dirty = 0x80;
         super::scroll::step(game, prg);
         super::frame::queue_palette(game);
@@ -842,9 +839,7 @@ impl BossIntro {
         room::parameters(game, prg);
         game.oam.clear();
         let effects = &mut game.effects;
-        for first in effects.palette.iter_mut().step_by(4) {
-            *first = 0x0F;
-        }
+        set_first_colours(&mut effects.palette, 0x0F);
         for i in 0..3u8 {
             effects.palette[17 + usize::from(i)] = rom_byte(prg, 13, 0xBE4B + u16::from(i));
         }
@@ -905,26 +900,20 @@ fn banner(prg: &[u8], area: u8) -> Vec<VramWrite> {
 /// The first nametable cleared (`$90FB`) and a bank-2 text table's runs written
 /// straight to the PPU: each a big-endian address, a count and the bytes, up to an
 /// address with bit 7 set.
-fn text(prg: &[u8], mut at: u16) -> Vec<VramWrite> {
-    let mut writes = vec![VramWrite {
+fn text(prg: &[u8], at: u16) -> Vec<VramWrite> {
+    let list = bank_slice(prg, 2, at & 0x1FFF).expect("a bank-2 text table");
+    let runs = WriteList::new(list).map(|run| VramWrite {
+        addr: run.addr,
+        flags: 0,
+        bytes: run.data.to_vec(),
+    });
+    std::iter::once(VramWrite {
         addr: 0x2000,
         flags: 0,
         bytes: vec![0; 1024],
-    }];
-    while rom_byte(prg, 2, at) & 0x80 == 0 {
-        let addr = rom_word(prg, 2, at).swap_bytes();
-        let count = rom_byte(prg, 2, at + 2);
-        let bytes = (0..u16::from(count))
-            .map(|i| rom_byte(prg, 2, at + 3 + i))
-            .collect();
-        writes.push(VramWrite {
-            addr,
-            flags: 0,
-            bytes,
-        });
-        at += 3 + u16::from(count);
-    }
-    writes
+    })
+    .chain(runs)
+    .collect()
 }
 
 /// What a frame of the [`Continue`] screen ended in.

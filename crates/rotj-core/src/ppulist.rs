@@ -2,8 +2,9 @@
 //! `$2006`/`$2007` to fill nametables and palettes (`disasm/MAP.md` §4/§5).
 //!
 //! A list is a sequence of entries, each `hi, lo` (a PPU address, big-endian
-//! like the PPU's own address latch), `count`, then `count` data bytes. `$FF`
-//! where a new entry's `hi` would be terminates the list.
+//! like the PPU's own address latch), `count`, then `count` data bytes. A byte with
+//! bit 7 set where a new entry's `hi` would be terminates the list (the game tests it
+//! with `BMI`; its lists end in `$FF`, and no PPU address's high byte has bit 7 set).
 //!
 //! Format recovered from the ROM bytes and confirmed against two independent
 //! derivations: the lists at bank 02 `$91B7` and bank 0C `$9BEB` end exactly
@@ -37,7 +38,7 @@ impl<'a> WriteList<'a> {
     /// terminated within `data`.
     #[must_use]
     pub const fn end_offset(&self) -> Option<usize> {
-        if self.pos < self.data.len() && self.data[self.pos] == 0xFF {
+        if self.pos < self.data.len() && self.data[self.pos] & 0x80 != 0 {
             Some(self.pos + 1)
         } else {
             None
@@ -50,7 +51,7 @@ impl<'a> Iterator for WriteList<'a> {
 
     fn next(&mut self) -> Option<Entry<'a>> {
         let hi = *self.data.get(self.pos)?;
-        if hi == 0xFF {
+        if hi & 0x80 != 0 {
             return None;
         }
         let lo = *self.data.get(self.pos + 1)?;

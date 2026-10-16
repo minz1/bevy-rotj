@@ -145,6 +145,13 @@ impl Motion {
     }
 }
 
+/// Sets every 4-colour set's first entry (the colour pixel 0 mirrors) of a palette shadow.
+pub fn set_first_colours(palette: &mut [u8; 32], colour: u8) {
+    for first in palette.iter_mut().step_by(4) {
+        *first = colour;
+    }
+}
+
 /// The bits of the player's pose (`$047F`).
 pub mod pose {
     /// A turn is pending.
