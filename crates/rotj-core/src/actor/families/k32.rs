@@ -9,7 +9,7 @@
 
 use crate::actor::engine::{self, Proximity, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, Motion};
 
 /// The transition selector it arms (`$89CF`).
 const TRANSITION: u8 = 3;
@@ -92,7 +92,7 @@ fn transition(body: &Body, cx: &mut Cx<'_>) {
         effects.attack = if effects.stored_weapon != 0 { 0x80 } else { 0 };
         effects.player.flags[0] &= 0x7F;
     }
-    if effects.player.motion == 0x0B {
+    if effects.player.motion == Motion::Flying {
         effects.player.energy = 0x0E;
     }
 }

@@ -6,7 +6,7 @@ use super::engine::{rom_byte, rom_word};
 use super::slots::Slots;
 use super::spawn::{SpawnTable, spawn_row};
 use super::stage::Fade;
-use super::world::{Effects, Schedule, View, VramWrite, Weapon, World};
+use super::world::{Effects, Motion, Schedule, View, VramWrite, Weapon, World};
 use crate::actors::spawn_schedule;
 use crate::collision::rows_from_rom;
 
@@ -491,7 +491,7 @@ pub fn load(game: &mut Game, prg: &[u8]) {
     game.effects.vram.origin = 0x2000;
     game.effects.attack &= 0x80;
     player.vx = 0;
-    player.motion = 0;
+    player.motion = Motion::Standing;
     player.pose = 0;
     player.flags[2] = 0;
     player.flags[1] = 0;
@@ -817,8 +817,8 @@ pub fn parameters(game: &mut Game, prg: &[u8]) {
     let player = &mut game.effects.player;
     match rom_word(prg, 14, data + 29) {
         0xDA0E => {}
-        0xDA0F => (player.motion, player.stage_script) = (0x0A, 0xE0),
-        0xD9FF => (player.anim, player.motion, player.stage_script) = (0x85, 0x0B, 0xA0),
+        0xDA0F => (player.motion, player.stage_script) = (Motion::Held, 0xE0),
+        0xD9FF => (player.anim, player.motion, player.stage_script) = (0x85, Motion::Flying, 0xA0),
         other => panic!("room handler ${other:04X} ($D9FC) is not ported"),
     }
 }

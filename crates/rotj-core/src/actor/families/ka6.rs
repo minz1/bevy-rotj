@@ -8,7 +8,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, Motion};
 
 /// Primary metasprite pointers (`$87C1`), by `$F1` bit 2.
 const METASPRITES: u16 = 0x87C1;
@@ -63,7 +63,7 @@ impl State {
 /// `$8530`: stand still, then leave for phase 1 unless the level state is `$09`.
 fn phase0(body: &mut Body, cx: &mut Cx<'_>) {
     body.sprite = 0;
-    if cx.effects.player.motion != 0x09 {
+    if cx.effects.player.motion != Motion::BossEntry {
         body.vx_drift = 0x10;
         body.phase = 1;
     }

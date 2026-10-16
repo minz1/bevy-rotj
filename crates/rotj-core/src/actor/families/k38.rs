@@ -8,7 +8,7 @@ use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, Motion};
 
 /// The phase -> next-phase table (`$911F`), indexed by the `$7E90` counter.
 const NEXT_PHASE: u16 = 0x911F;
@@ -93,7 +93,7 @@ fn face(work: &mut Work, cx: &Cx<'_>) {
 /// `$8D9F`: stand, then leave unless the level state is `$09`.
 fn phase0(body: &mut Body, cx: &mut Cx<'_>) {
     body.sprite = 4;
-    if cx.effects.player.motion != 0x09 {
+    if cx.effects.player.motion != Motion::BossEntry {
         advance(body, cx.prg);
     }
 }

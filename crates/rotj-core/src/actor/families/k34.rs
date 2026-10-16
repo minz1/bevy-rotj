@@ -5,7 +5,7 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, Motion};
 
 /// The metasprite pointers, indexed by `$7D90` (bank 11 `$8A88`).
 const METASPRITES: u16 = 0x8A88;
@@ -34,7 +34,7 @@ impl State {
 
         // $8A2A: the level is ending, or the display value is finished: reset it.
         let [b2, b3] = cx.effects.boss_pool;
-        let ending = cx.effects.player.motion == 0x07;
+        let ending = cx.effects.player.motion == Motion::Dying;
         if ending || b3 & 0x80 != 0 || (b2 | b3) == 0 {
             if !ending {
                 cx.effects.music = 0xFF;

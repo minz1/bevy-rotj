@@ -4,6 +4,7 @@
 use super::Game;
 use super::engine::{draw, rom_word};
 use super::oam::Mark;
+use crate::actor::world::Motion;
 
 /// The background CHR animation (its switch `$0401` and the palette shadow are in
 /// [`Effects`](super::world::Effects)).
@@ -21,7 +22,7 @@ pub struct Display {
 
 /// Draws the energy and meter gauges (`$DB9D`).
 pub fn draw_hud(game: &mut Game, prg: &[u8]) {
-    if game.effects.hud & 0x80 != 0 || game.effects.player.motion == 7 {
+    if game.effects.hud & 0x80 != 0 || game.effects.player.motion == Motion::Dying {
         return;
     }
     let (mut cx, work) = game.parts(prg);

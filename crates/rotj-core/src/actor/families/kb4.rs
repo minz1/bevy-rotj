@@ -11,7 +11,7 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, Motion};
 
 /// The single body draw's metasprite pointers (`$910E`), by `$F1` bits 2-3.
 const BODY_DRAW: u16 = 0x910E;
@@ -77,7 +77,7 @@ impl State {
 /// `$8C8B`: hold until the player reaches motion 9, then animate.
 fn phase0(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     cx.oam.chr[7] = 0xD1;
-    if cx.effects.player.motion != 0x09 {
+    if cx.effects.player.motion != Motion::BossEntry {
         body.phase = 1;
         body.anim = 0;
     }

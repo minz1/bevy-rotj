@@ -11,7 +11,7 @@
 use crate::actor::engine::{self, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, Motion};
 
 const KIND: u8 = 0x42;
 const HOME_BANK: u8 = 11;
@@ -40,7 +40,6 @@ const BAR_Y: u8 = 0x4F;
 const CHARGED: u8 = 0xC0;
 const CONTACT: u16 = 0x00E0;
 const KNOCK: i16 = 0x40;
-const LEVEL_STATE_FROZEN: u8 = 0x09;
 
 /// Type `$42` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -141,7 +140,7 @@ fn decay_drift(body: &mut Body, work: &mut Work) {
 
 /// `$954A`: on even frames shoot, on odd frames charge; at `$C0` start phase 2.
 fn charge(body: &mut Body, cx: &mut Cx<'_>) {
-    if cx.effects.player.motion == LEVEL_STATE_FROZEN {
+    if cx.effects.player.motion == Motion::BossEntry {
         return;
     }
     if !cx.world.frame_odd {

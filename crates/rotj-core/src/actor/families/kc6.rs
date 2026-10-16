@@ -3,7 +3,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, Motion};
 
 const METASPRITES: u16 = 0x9A16;
 const DRIFT: i16 = 0x18;
@@ -43,7 +43,7 @@ impl State {
                     player.x = body.x;
                     player.y = WARP_Y;
                     player.vy = 6;
-                    player.motion = 0;
+                    player.motion = Motion::Standing;
                     player.stage_script = 0;
                     *kind = 0;
                 }

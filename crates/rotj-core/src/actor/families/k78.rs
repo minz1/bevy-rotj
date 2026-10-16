@@ -11,7 +11,7 @@
 use crate::actor::engine::Work;
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, Motion};
 
 /// The player's row that wakes the handler (`$0462` must reach `$0C`).
 const ROW: u8 = 0x0C;
@@ -19,8 +19,6 @@ const ROW: u8 = 0x0C;
 const SPAWNED: u8 = 0x80;
 /// The type the `$8D84` helper spawns.
 const MARKER: u8 = 0x7A;
-/// The player's motion (`$046E`) that frees the slot after the spawn.
-const LEVEL_END: u8 = 0x07;
 
 /// Type `$78` keeps its whole state in [`Body`] (`$7DD0` only).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -41,7 +39,7 @@ impl State {
         }
         body.phase = SPAWNED;
         spawn_marker(body, player.x, cx);
-        if player.motion == LEVEL_END {
+        if player.motion == Motion::Dying {
             *kind = 0;
         }
     }

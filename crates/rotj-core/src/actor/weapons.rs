@@ -10,7 +10,7 @@ use super::collision::{self, Probe};
 use super::engine::{self, Work, rom_byte, rom_word};
 use super::scroll::Scroll;
 use super::slots;
-use super::world::{Cx, Weapon};
+use super::world::{Cx, Motion, Weapon};
 
 /// One call of the bank-5 weapons routine (`$D444` -> `$D447`).
 pub fn step(work: &mut Work, cx: &mut Cx<'_>) {
@@ -72,7 +72,8 @@ fn pieces(work: &mut Work, cx: &mut Cx<'_>) {
         player.flash_timer = 0;
         effects.busy = 0;
         effects.scroll_lock = effects.stage_end.timer;
-        player.motion = effects.stage_args[1];
+        player.motion =
+            Motion::from_byte(effects.stage_args[1]).expect("the motion the power-up saved");
         if lit {
             for i in 0..3u8 {
                 effects.palette[17 + usize::from(i)] = rom_byte(prg, 5, 0x9E10 + u16::from(i));
@@ -504,7 +505,7 @@ fn launch(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     cx.effects.attack &= 0x80;
     let pad = cx.world.pad;
     let direction = if pad.trailing_zeros() >= 4 {
-        if cx.effects.player.motion == 6 {
+        if cx.effects.player.motion == Motion::AimingUp {
             3
         } else {
             u16::from(faces_left(cx))
@@ -541,8 +542,8 @@ fn throw(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
 /// `$86A5`: puts the charge in front of the player (`$9EA7` when aiming up, else
 /// the `$8726`-`$8762` offsets by motion), in its slot and the working position.
 fn in_front(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
-    let motion = u16::from(cx.effects.player.motion);
-    let (x, y) = if cx.effects.player.motion == 6 {
+    let motion = u16::from(cx.effects.player.motion.byte());
+    let (x, y) = if cx.effects.player.motion == Motion::AimingUp {
         above(cx)
     } else {
         let dx = if faces_left(cx) {
@@ -641,12 +642,12 @@ fn unleash(slot: usize, work: &Work, cx: &mut Cx<'_>, scroll: &mut Scroll) -> bo
             weapon.flags = 0xE0;
         }
     }
-    let (x, y) = if cx.effects.player.motion == 6 {
+    let (x, y) = if cx.effects.player.motion == Motion::AimingUp {
         #[cfg(test)]
         super::oracle::seen(0x97F9);
         above(cx)
     } else {
-        let motion = u16::from(cx.effects.player.motion);
+        let motion = u16::from(cx.effects.player.motion.byte());
         beside_player(
             cx,
             ahead(cx, motion),
@@ -1171,10 +1172,10 @@ fn brew(slot: usize, cx: &mut Cx<'_>) {
         return;
     };
     cx.effects.sound[0] = 0x3F;
-    let (x, y) = if cx.effects.player.motion == 6 {
+    let (x, y) = if cx.effects.player.motion == Motion::AimingUp {
         above(cx)
     } else {
-        let motion = u16::from(cx.effects.player.motion);
+        let motion = u16::from(cx.effects.player.motion.byte());
         beside_player(
             cx,
             ahead(cx, motion),
@@ -1222,8 +1223,8 @@ fn blow(slot: usize, vx: i16, cx: &mut Cx<'_>) {
 /// offset from the player: ahead of him (velocity `$9ED6[4/5]`) or, aiming up,
 /// `$FD70` above him (`$9ED6[3]`, `$7F60` bit 7 marking it vertical).
 fn let_go(slot: usize, cx: &mut Cx<'_>) {
-    let motion = u16::from(cx.effects.player.motion);
-    let (aim_up, left) = (cx.effects.player.motion == 6, faces_left(cx));
+    let motion = u16::from(cx.effects.player.motion.byte());
+    let (aim_up, left) = (cx.effects.player.motion == Motion::AimingUp, faces_left(cx));
     let (x, y, pick) = if aim_up {
         (0, 0xFD70, 3)
     } else {
@@ -1392,8 +1393,8 @@ fn orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     let (back_lo, carry) = (!lo).overflowing_add(1);
     let (back_hi, round) = (!hi).overflowing_add(u8::from(carry));
     let back = u16::from_be_bytes([back_hi, back_lo]);
-    let motion = u16::from(cx.effects.player.motion);
-    (work.x, work.y) = if cx.effects.player.motion == 6 {
+    let motion = u16::from(cx.effects.player.motion.byte());
+    (work.x, work.y) = if cx.effects.player.motion == Motion::AimingUp {
         #[cfg(test)]
         super::oracle::seen(0x8AFF);
         let dx = if faces_left(cx) { 0xFFE0 } else { 0x0020 };
@@ -1427,7 +1428,7 @@ fn orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     #[cfg(test)]
     super::oracle::seen(0x8BCB);
     cx.effects.sound[0] = 0x2F;
-    let (aim_up, left) = (cx.effects.player.motion == 6, faces_left(cx));
+    let (aim_up, left) = (cx.effects.player.motion == Motion::AimingUp, faces_left(cx));
     let weapon = &mut cx.effects.weapons[slot];
     weapon.kind = 0x81;
     [weapon.level_x_hi, weapon.level_x_lo] = work.x.to_be_bytes();
@@ -1472,8 +1473,8 @@ fn charge(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
         cx.effects.weapons[slot].kind = 0;
         return true;
     }
-    let motion = u16::from(cx.effects.player.motion);
-    (work.x, work.y) = if cx.effects.player.motion == 6 {
+    let motion = u16::from(cx.effects.player.motion.byte());
+    (work.x, work.y) = if cx.effects.player.motion == Motion::AimingUp {
         #[cfg(test)]
         super::oracle::seen(0x8F16);
         let dx = if faces_left(cx) { 0xFFE0 } else { 0x0020 };
@@ -1532,9 +1533,9 @@ fn spread(slot: usize, cx: &mut Cx<'_>) -> bool {
     let source = cx.effects.weapons[slot];
     let angle = u16::from(source.part);
     let along = word(cx, 0x91A2 + angle, 0x9192 + angle).cast_signed();
-    let motion = u16::from(cx.effects.player.motion);
+    let motion = u16::from(cx.effects.player.motion.byte());
     let left = faces_left(cx);
-    let (x, y) = if cx.effects.player.motion == 6 {
+    let (x, y) = if cx.effects.player.motion == Motion::AimingUp {
         #[cfg(test)]
         super::oracle::seen(0x9023);
         beside_player(cx, if left { 0xFFE0 } else { 0x0020 }, 0xFBF0)
@@ -1554,7 +1555,7 @@ fn spread(slot: usize, cx: &mut Cx<'_>) -> bool {
     weapon.flags = 0xE0;
     [weapon.level_x_hi, weapon.level_x_lo] = x.to_be_bytes();
     [weapon.level_y_hi, weapon.level_y_lo] = y.to_be_bytes();
-    if cx.effects.player.motion == 6 {
+    if cx.effects.player.motion == Motion::AimingUp {
         weapon.vx = along;
         weapon.vy = -0x50;
         weapon.timer = 0x80;

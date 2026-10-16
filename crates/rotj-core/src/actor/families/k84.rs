@@ -10,7 +10,7 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, Motion};
 
 /// The `$94BA` table, indexed by the parent's `$7D90` high nibble.
 const MAP_TABLE: u16 = 0x94BA;
@@ -41,7 +41,7 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$9361`; the `$7DD0` phase counts 0-2).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-        if cx.effects.player.motion == 0x07 {
+        if cx.effects.player.motion == Motion::Dying {
             *kind = 0;
             return;
         }

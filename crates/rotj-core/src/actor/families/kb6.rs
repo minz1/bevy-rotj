@@ -12,7 +12,7 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, Motion};
 
 /// The metasprite pointer table, read in the handler's own bank (`$932A`),
 /// indexed by `$7C30` (0-10).
@@ -37,8 +37,6 @@ const SPAWN_TYPES: u16 = 0x938C;
 const SPAWN_STATES: u16 = 0x93C4;
 /// The queue room `$9249` needs before it runs (`$0181` >= `$70`).
 const VRAM_ROOM: u8 = 0x70;
-/// Player motion that keeps phase 0 (`$046E` != `$09` leaves it).
-const HELD_MOTION: u8 = 0x09;
 
 /// Type `$B6` keeps its whole state in [`Body`] (`$7DD0` phase, `$7E90` counter,
 /// `$7E10` latch, `$7C30` sprite frame).
@@ -65,7 +63,7 @@ impl State {
         match body.phase {
             0 => {
                 body.sprite = (cx.world.frame >> 2) & 3;
-                if cx.effects.player.motion != HELD_MOTION {
+                if cx.effects.player.motion != Motion::BossEntry {
                     body.phase = 1;
                     body.anim = 0;
                 }

@@ -7,7 +7,7 @@
 
 use super::collision::{self, Probe};
 use super::engine::{self, Work, adc_overflows, rom_byte, rom_word, sub_overflows16};
-use super::world::{Cx, Player, Weapon};
+use super::world::{Cx, Motion, Player, Weapon};
 
 /// Test-only branch coverage; the test asserts and reports which paths ran.
 #[cfg(test)]
@@ -24,7 +24,7 @@ macro_rules! hit {
 #[cfg(test)]
 thread_local! {
     /// Seen branches: bit 0 script exit, 1 ceiling snap, 2 wall-ahead block,
-    /// 3 motion-4 landing, 4 walk ramp, 5 ride stood, 6 landing response,
+    /// 3 slide off a ledge, 4 airborne x ramp, 5 ride stood, 6 landing response,
     /// 7 air -> 3, 8 air -> 5, 9 damage response. Per thread, so tests running
     /// beside each other do not mix their paths.
     pub(crate) static PATHS: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(0) };
@@ -120,10 +120,10 @@ pub fn step_move(pad: u8, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
         player.flags[2] = 0xC0;
         cx.effects.attack &= 0x80;
         player.hurt_timer = 0x20;
-        if player.motion == 5 {
-            player.motion = 3;
+        if player.motion == Motion::Falling {
+            player.motion = Motion::Jumping;
         }
-        if player.motion < 3 {
+        if player.motion.on_foot() {
             work.ax = if player.facing & 0x40 == 0 {
                 i16::from_be_bytes([0xFF, 0xE0])
             } else {
@@ -134,7 +134,7 @@ pub fn step_move(pad: u8, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
 
     gravity(&mut player, work);
     player.moved = 0x80;
-    if player.motion == 3 || player.motion == 5 {
+    if player.motion == Motion::Jumping || player.motion == Motion::Falling {
         player.vx = work.ax;
     } else {
         player.vx = player.vx.wrapping_add(work.ax);
@@ -173,7 +173,7 @@ fn wall_ahead(player: &mut Player, work: &mut Work, probe: &mut Probe, cx: &mut 
         probe.y = work.y.wrapping_sub(0x80);
         blocked = wall(player, work, probe, direction, cx) < 0x80;
     }
-    if !blocked && player.motion != 4 && player.motion != 1 {
+    if !blocked && player.motion != Motion::Sliding && player.motion != Motion::Crouching {
         probe.y = work.y.wrapping_sub(0x0220);
         blocked = wall(player, work, probe, direction, cx) < 0x80;
     }
@@ -257,8 +257,8 @@ fn floor(player: &mut Player, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_
 
 /// The walk intent and its ±2 ramp (`$801F-$809A`); returns the target index.
 fn walk_intent(pad: u8, player: &mut Player) -> usize {
-    if player.motion == 3 {
-        // Already walking: ramp the velocity by 2 a frame, in place.
+    if player.motion == Motion::Jumping {
+        // Jumping: ramp the x velocity by 2 a frame, in place.
         if player.pose & 0x80 == 0 && player.flags[2] & 0x80 == 0 && pad & 0x03 != 0 {
             hit!(4);
             let lo = player.vx.to_be_bytes()[1];
@@ -289,14 +289,14 @@ fn walk_intent(pad: u8, player: &mut Player) -> usize {
 
 /// The walk response after a platform or stop (`$83BE`), for motion 3 and 5.
 fn landing_response(pad: u8, player: &mut Player) {
-    if player.motion != 3 && player.motion != 5 {
+    if player.motion != Motion::Jumping && player.motion != Motion::Falling {
         return;
     }
     hit!(6);
     player.vx >>= 1;
     if pad & 0x04 != 0 {
         player.walk_timer = 0xFF;
-        player.motion = 1;
+        player.motion = Motion::Crouching;
         player.pose &= 0x40;
         player.pose_timer = player.pose;
         player.pose_step = player.pose;
@@ -309,7 +309,7 @@ fn landing_response(pad: u8, player: &mut Player) {
         if (pressed ^ player.facing) & 0x80 == 0 {
             stop(player);
         } else {
-            player.motion = 2;
+            player.motion = Motion::Walking;
             player.pose_timer = 0;
             player.pose_step = 0;
             player.pose = (player.pose & 0x40) | 0x10;
@@ -325,7 +325,7 @@ fn landing_response(pad: u8, player: &mut Player) {
 fn stop(player: &mut Player) {
     player.pose_timer = 0;
     player.pose_step = 0;
-    player.motion = 0;
+    player.motion = Motion::Standing;
     if player.pose & 0x40 != 0 {
         player.pose = 0x40;
         player.anim = 0x25;
@@ -338,15 +338,15 @@ fn stop(player: &mut Player) {
 /// The airborne state (`$8268`); true when the carrier must be cleared.
 fn air_state(player: &mut Player, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
     match player.motion {
-        3 => true,
-        4 => {
+        Motion::Jumping => true,
+        Motion::Sliding => {
             hit!(3);
-            jump_land_response(player, work, probe, cx);
+            slide_off_ledge(player, work, probe, cx);
             true
         }
         _ if player.pose & 0x40 != 0 => {
             hit!(7);
-            player.motion = 3;
+            player.motion = Motion::Jumping;
             player.pose &= 0x40;
             player.pose_timer = 0;
             player.pose_step = 5;
@@ -355,7 +355,7 @@ fn air_state(player: &mut Player, work: &mut Work, probe: &mut Probe, cx: &mut C
         }
         _ => {
             hit!(8);
-            player.motion = 5;
+            player.motion = Motion::Falling;
             player.pose_timer = 0;
             player.pose_step = 0;
             player.pose = 0;
@@ -365,8 +365,8 @@ fn air_state(player: &mut Player, work: &mut Work, probe: &mut Probe, cx: &mut C
     }
 }
 
-/// The motion-4 landing probe (`$8451`).
-fn jump_land_response(player: &mut Player, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
+/// `$8451`: the slide off a ledge: the probe that lands it or lets it fall.
+fn slide_off_ledge(player: &mut Player, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
     if player.pose_step & 0x80 != 0 {
         return;
     }
@@ -509,19 +509,18 @@ impl Port<'_, '_> {
         self.player.moved = 0;
         self.project();
         match self.player.motion {
-            0 => self.m0(),
-            1 => self.m1(),
-            2 => self.m2(),
-            3 => self.m3(),
-            4 => self.m4(),
-            5 => self.m5(),
-            6 => self.m6(),
-            8 => self.m8(),
-            10 => {}
-            11 => self.m11(),
-            7 => self.m7(),
-            9 => self.m9(),
-            other => panic!("$84AB motion ${other:02X} has no handler"),
+            Motion::Standing => self.standing(),
+            Motion::Crouching => self.crouching(),
+            Motion::Walking => self.walking(),
+            Motion::Jumping => self.jumping(),
+            Motion::Sliding => self.sliding(),
+            Motion::Falling => self.falling(),
+            Motion::AimingUp => self.aiming_up(),
+            Motion::Dying => self.dying(),
+            Motion::PoweringUp => self.powering_up(),
+            Motion::BossEntry => self.boss_entry(),
+            Motion::Held => {}
+            Motion::Flying => self.flying(),
         }
     }
 
@@ -707,7 +706,7 @@ impl Port<'_, '_> {
             return;
         }
         self.work.attr = 0;
-        if self.player.motion == 6 {
+        if self.player.motion == Motion::AimingUp {
             let add = if self.player.facing & 0x40 != 0 {
                 0xFE
             } else {
@@ -721,7 +720,7 @@ impl Port<'_, '_> {
             }
             self.work.screen_y = y;
         } else {
-            let motion = u16::from(self.player.motion);
+            let motion = u16::from(self.player.motion.byte());
             let table = if self.player.facing & 0x40 != 0 {
                 0x9677
             } else {
@@ -759,7 +758,7 @@ impl Port<'_, '_> {
             }
             self.player.pose_timer = 0;
             self.player.pose_step = 0;
-            self.player.motion = 0;
+            self.player.motion = Motion::Standing;
             self.player.pose = 0;
             self.player.flags[2] = 0x40;
             self.player.hurt_timer = 0x40;
@@ -811,8 +810,8 @@ impl Port<'_, '_> {
         };
     }
 
-    /// `$92B4`: the ground-attack pose the down pad bit reaches.
-    fn ground_attack(&mut self) {
+    /// `$92B4`: down pressed: the crouch pose, which the next frame turns into crouching.
+    fn start_crouch(&mut self) {
         self.bit(self.player.pose);
         if self.player.pose & 0x80 != 0 {
             self.player.facing ^= 0x40;
@@ -860,8 +859,8 @@ impl Port<'_, '_> {
         else {
             return;
         };
-        let motion = u16::from(self.player.motion);
-        let aim_up = self.player.motion == 6;
+        let motion = u16::from(self.player.motion.byte());
+        let aim_up = self.player.motion == Motion::AimingUp;
         let face_left = self.player.facing & 0x40 != 0;
         let add = |a_hi: u8, a_lo: u8, b_hi: u8, b_lo: u8| {
             let (lo, carry) = a_lo.overflowing_add(b_lo);
@@ -1234,8 +1233,8 @@ impl Port<'_, '_> {
         }
     }
 
-    /// `$8508`: the three solid probes a jump launch tests (x, x+$A0, x-$40).
-    fn jump_probes(&mut self) -> bool {
+    /// `$8508`: whether a solid tile blocks the jump's launch (probes at x, x+$A0, x-$40).
+    fn jump_blocked(&mut self) -> bool {
         let (ylo, yhi) = self.y();
         let y = yhi.wrapping_sub(3).wrapping_sub(u8::from(ylo < 0x80));
         let x1 = self.player.x.wrapping_add(0xA0);
@@ -1244,7 +1243,7 @@ impl Port<'_, '_> {
     }
 
     /// `$84D1`: motion 0, standing.
-    fn m0(&mut self) {
+    fn standing(&mut self) {
         self.bit(self.player.flags[2]);
         if self.player.flags[2] & 0x80 != 0 {
             self.hurt();
@@ -1252,20 +1251,20 @@ impl Port<'_, '_> {
         }
         self.player.walk_gate = 0x03;
         if self.player.pose & 0x20 != 0 {
-            self.m0_resume();
+            self.standing_resume();
         } else {
-            self.m0_stand();
+            self.standing_input();
         }
     }
 
     /// `$84E8`: the standing player resumes from a saved motion.
-    fn m0_resume(&mut self) {
+    fn standing_resume(&mut self) {
         self.player.anim = 0x01;
-        self.player.motion = self.player.pose & 0x0F;
+        self.player.motion = Motion::from_byte(self.player.pose & 0x0F).expect("a saved motion");
         self.player.pose &= 0x40;
-        if self.player.motion == 3 {
+        if self.player.motion == Motion::Jumping {
             self.cx.effects.sound[0] = 0x24;
-            if self.jump_probes() {
+            if self.jump_blocked() {
                 self.cx.effects.attack &= 0x80;
                 self.player.pose = 0x11;
             } else {
@@ -1282,10 +1281,10 @@ impl Port<'_, '_> {
     }
 
     /// `$857F`: standing with no saved state.
-    fn m0_stand(&mut self) {
+    fn standing_input(&mut self) {
         self.bit(self.pad_hi);
         if self.pad_hi & 0x80 == 0 && self.pad & 0x08 != 0 {
-            self.player.motion = 6;
+            self.player.motion = Motion::AimingUp;
             self.player.pose &= 0x40;
             self.player.pose_timer = 0;
             self.player.pose_step = 0;
@@ -1293,27 +1292,27 @@ impl Port<'_, '_> {
             return;
         }
         if self.pad_hi & 0x80 != 0 {
-            self.m0_af();
+            self.standing_jump();
         } else if self.pad_hi & 0x40 != 0 {
-            self.m0_ah();
+            self.standing_shot();
         } else if self.pad & 0x03 != 0 {
-            self.m0_walk();
+            self.standing_walk();
         } else if self.pad & 0x04 != 0 {
-            self.ground_attack();
+            self.start_crouch();
         } else {
             self.bit(self.player.pose);
             if self.player.pose & 0x80 != 0 {
-                self.m0_turn();
+                self.standing_turn();
             } else if self.player.pose & 0x40 == 0 {
-                self.m0_idle();
+                self.standing_idle();
             } else {
-                self.attack_ground();
+                self.standing_attack();
             }
         }
     }
 
-    /// `$862F`.
-    fn m0_af(&mut self) {
+    /// `$862F`: A while standing: the jump starts next frame (the resume flag, motion 3).
+    fn standing_jump(&mut self) {
         self.bit(self.player.pose);
         if self.player.pose & 0x80 != 0 {
             self.player.facing ^= 0x40;
@@ -1326,8 +1325,8 @@ impl Port<'_, '_> {
         self.player.pose = (self.player.pose & 0x40) | 0x23;
     }
 
-    /// `$8655`.
-    fn m0_ah(&mut self) {
+    /// `$8655`: B while standing: the attack, turning first if the pose says so.
+    fn standing_shot(&mut self) {
         if self.player.pose & 0x80 != 0 {
             self.player.pose &= 0x7F;
             self.player.facing ^= 0x40;
@@ -1345,7 +1344,7 @@ impl Port<'_, '_> {
     }
 
     /// `$869C`: direction pressed while standing.
-    fn m0_walk(&mut self) {
+    fn standing_walk(&mut self) {
         if self.faces_press() {
             self.player.pose = if self.player.pose & 0x40 != 0 {
                 0x40
@@ -1354,10 +1353,10 @@ impl Port<'_, '_> {
             };
             self.player.pose_timer = 0;
             self.player.pose_step = 0;
-            self.player.motion = 2;
+            self.player.motion = Motion::Walking;
             self.player.anim = 0x3E;
         } else if self.player.pose & 0x80 != 0 {
-            self.m0_turn();
+            self.standing_turn();
         } else {
             self.player.pose = (self.player.pose & 0x40) | 0x80;
             self.player.anim = 0x02;
@@ -1366,7 +1365,7 @@ impl Port<'_, '_> {
     }
 
     /// `$86DE`.
-    fn m0_turn(&mut self) {
+    fn standing_turn(&mut self) {
         self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
         let x = u16::from(self.player.pose_timer >> 1);
         if x < 2 {
@@ -1384,7 +1383,7 @@ impl Port<'_, '_> {
     }
 
     /// `$85C9`: standing idle, cycling the stand animation.
-    fn m0_idle(&mut self) {
+    fn standing_idle(&mut self) {
         let pose_bits = self.player.pose & 0x11;
         if pose_bits != 0 {
             self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
@@ -1423,8 +1422,8 @@ impl Port<'_, '_> {
         self.player.anim = 0x44;
     }
 
-    /// `$8710`: standing with the attack flag set.
-    fn attack_ground(&mut self) {
+    /// `$8710`: the standing attack (the pose's attack flag set).
+    fn standing_attack(&mut self) {
         self.bit(self.player.flags[0]);
         if self.player.flags[0] & 0x80 != 0 {
             self.fire();
@@ -1469,7 +1468,7 @@ impl Port<'_, '_> {
     }
 
     /// The shared `$B8`-gated melee block (`$8743`, `$882F`, `$8AEA`, ...).
-    /// Returns the X `$9A56` left when it ran, which motion 2's `$8B2B` indexes `$96FD` with.
+    /// Returns the X `$9A56` left when it ran, which walking's `$8B2B` indexes `$96FD` with.
     fn melee_block(&mut self) -> Option<u8> {
         if self.cx.effects.attack & 0x40 == 0 {
             return None;
@@ -1492,27 +1491,27 @@ impl Port<'_, '_> {
     }
 
     /// `$8795`: motion 1.
-    fn m1(&mut self) {
+    fn crouching(&mut self) {
         self.stun();
         self.player.walk_gate = 0;
         self.bit(self.pad_hi);
         if self.pad_hi & 0x80 != 0 {
             if self.pad & 0x04 != 0 {
-                self.m1_hi_down();
+                self.crouching_slide();
             } else {
-                self.m1_idle();
+                self.crouching_release();
             }
         } else if self.pad_hi & 0x40 != 0 {
-            self.m1_hi_b();
+            self.crouching_shot();
         } else if self.pad & 0x04 != 0 {
-            self.m1_down();
+            self.crouching_held();
         } else {
-            self.m1_idle();
+            self.crouching_release();
         }
     }
 
     /// `$87A9`/`$87AE`: the down-held direction and turn handling.
-    fn m1_down(&mut self) {
+    fn crouching_held(&mut self) {
         self.bit(self.player.pose);
         if self.player.pose & 0x80 != 0 {
             self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
@@ -1526,14 +1525,14 @@ impl Port<'_, '_> {
             self.player.facing ^= 0x40;
         }
         if self.pad.trailing_zeros() >= 2 {
-            self.m1_attack();
+            self.crouching_attack();
         } else {
-            self.m1_turn();
+            self.crouching_turn();
         }
     }
 
-    /// `$8819`: motion 1's attack.
-    fn m1_attack(&mut self) {
+    /// `$8819`: crouching's attack.
+    fn crouching_attack(&mut self) {
         self.bit(self.player.flags[0]);
         if self.player.flags[0] & 0x80 != 0 {
             self.fire();
@@ -1561,10 +1560,10 @@ impl Port<'_, '_> {
         }
     }
 
-    /// `$887C`.
-    fn m1_turn(&mut self) {
+    /// `$887C`: turning while crouched, or the attack if facing the press.
+    fn crouching_turn(&mut self) {
         if self.faces_press() {
-            self.m1_attack();
+            self.crouching_attack();
             return;
         }
         self.player.pose = (self.player.pose & 0x40) | 0x80;
@@ -1572,10 +1571,10 @@ impl Port<'_, '_> {
         self.player.anim = 0x05;
     }
 
-    /// `$87EB`: motion 1's idle.
-    fn m1_idle(&mut self) {
+    /// `$87EB`: crouching's idle.
+    fn crouching_release(&mut self) {
         if self.solid_below() {
-            self.m1_down();
+            self.crouching_held();
             return;
         }
         self.bit(self.player.pose);
@@ -1588,12 +1587,12 @@ impl Port<'_, '_> {
             0x11
         };
         self.player.pose_timer = 0;
-        self.player.motion = 0;
+        self.player.motion = Motion::Standing;
         self.player.anim = 0x01;
     }
 
     /// `$889A`: motion 1 + the second pad shoulder.
-    fn m1_hi_b(&mut self) {
+    fn crouching_shot(&mut self) {
         self.bit(self.player.pose);
         if self.player.pose & 0x80 != 0 {
             self.player.facing ^= 0x40;
@@ -1605,13 +1604,13 @@ impl Port<'_, '_> {
     }
 
     /// `$88D3`: motion 1 + the first pad shoulder + down.
-    fn m1_hi_down(&mut self) {
+    fn crouching_slide(&mut self) {
         self.bit(self.player.pose);
         if self.player.pose & 0x80 != 0 {
             self.player.facing ^= 0x40;
         }
         self.player.anim = 0x38;
-        self.player.motion = 4;
+        self.player.motion = Motion::Sliding;
         self.player.pose = 0;
         self.player.pose_timer = 0;
         self.player.pose_step = 0;
@@ -1619,7 +1618,7 @@ impl Port<'_, '_> {
     }
 
     /// `$88FC`: motion 2.
-    fn m2(&mut self) {
+    fn walking(&mut self) {
         self.bit(self.player.flags[2]);
         if self.player.flags[2] & 0x80 != 0 {
             self.hurt();
@@ -1627,21 +1626,21 @@ impl Port<'_, '_> {
         }
         self.player.walk_gate = 0x03;
         if self.player.pose & 0x20 != 0 {
-            self.player.motion = 1;
+            self.player.motion = Motion::Crouching;
             self.player.pose &= 0x40;
             self.player.pose_timer = 0;
             self.player.pose_step = 0;
             self.player.anim = 0x01;
             return;
         }
-        self.m2_stand();
+        self.walking_input();
     }
 
-    /// `$892E`.
-    fn m2_stand(&mut self) {
+    /// `$892E`: the walk's pad: aim up, jump, fire, attack, walk on or stop.
+    fn walking_input(&mut self) {
         self.bit(self.pad_hi);
         if self.pad_hi & 0x80 == 0 && self.pad & 0x08 != 0 {
-            self.player.motion = 6;
+            self.player.motion = Motion::AimingUp;
             self.player.pose &= 0x40;
             self.player.pose_timer = 0;
             self.player.pose_step = 0;
@@ -1649,27 +1648,27 @@ impl Port<'_, '_> {
             return;
         }
         if self.pad_hi & 0x80 != 0 {
-            self.m2_turn_hi();
+            self.walking_jump();
         } else if self.pad_hi & 0x40 != 0 {
-            self.m2_b();
+            self.walking_shot();
         } else if self.pad & 0x04 != 0 {
-            self.ground_attack();
+            self.start_crouch();
         } else if self.pad & 0x03 != 0 {
-            self.m2_dir();
+            self.walking_step();
         } else {
-            self.m2_nodir();
+            self.walking_stop();
         }
     }
 
     /// `$8968`: motion 2 with no direction held.
-    fn m2_nodir(&mut self) {
+    fn walking_stop(&mut self) {
         self.bit(self.player.pose);
         if self.player.pose & 0x80 != 0 {
             self.player.facing ^= 0x40;
         }
         self.player.pose_timer = 0;
         self.player.pose_step = 0;
-        self.player.motion = 0;
+        self.player.motion = Motion::Standing;
         if self.player.pose & 0x40 != 0 {
             self.player.pose = 0x40;
             self.player.anim = 0x25;
@@ -1680,24 +1679,24 @@ impl Port<'_, '_> {
     }
 
     /// `$89A8`: motion 2 + the first pad shoulder (a side-jump).
-    fn m2_turn_hi(&mut self) {
+    fn walking_jump(&mut self) {
         self.cx.effects.sound[0] = 0x24;
         if self.player.pose & 0x80 != 0 {
             self.player.pose &= 0x7F;
             self.player.facing ^= 0x40;
         }
-        if self.jump_probes() {
-            // `$8A07`: `JMP $895F`, motion 2's direction dispatch.
+        if self.jump_blocked() {
+            // `$8A07`: `JMP $895F`, walking's direction dispatch.
             if self.pad & 0x03 != 0 {
-                self.m2_dir();
+                self.walking_step();
             } else {
-                self.m2_nodir();
+                self.walking_stop();
             }
             return;
         }
         self.player.vy = i16::from_be_bytes([0xFF, 0xD4]);
         self.set_vx_from_pad();
-        self.player.motion = 3;
+        self.player.motion = Motion::Jumping;
         self.player.pose &= 0x40;
         self.player.pose_timer = 0;
         self.player.pose_step = 0;
@@ -1705,7 +1704,7 @@ impl Port<'_, '_> {
     }
 
     /// `$8B32`: motion 2 + the second pad shoulder.
-    fn m2_b(&mut self) {
+    fn walking_shot(&mut self) {
         if self.player.pose & 0x80 != 0 {
             self.player.pose &= 0x7F;
             self.player.facing ^= 0x40;
@@ -1718,11 +1717,11 @@ impl Port<'_, '_> {
         }
         self.player.attack_timer = 0;
         self.player.pose = (self.player.pose & 0x7F) | 0x40;
-        self.m2_walk_tail();
+        self.walking_pose();
     }
 
     /// `$8A32`: motion 2 with a direction held.
-    fn m2_dir(&mut self) {
+    fn walking_step(&mut self) {
         if self.faces_press() {
             self.player.pose_step = self.player.pose_step.wrapping_add(1);
             if self.player.pose & 0x10 != 0 {
@@ -1741,7 +1740,7 @@ impl Port<'_, '_> {
                     self.player.pose_timer = 0;
                 }
             }
-            self.m2_walk_tail();
+            self.walking_pose();
             return;
         }
         self.bit(self.player.pose);
@@ -1764,8 +1763,8 @@ impl Port<'_, '_> {
         self.player.anim = 0x0E;
     }
 
-    /// `$8AC8`: motion 2's walking tail and its attack.
-    fn m2_walk_tail(&mut self) {
+    /// `$8AC8`: walking's walking tail and its attack.
+    fn walking_pose(&mut self) {
         self.bit(self.player.pose);
         if self.player.pose & 0x40 == 0 {
             self.player.anim = self.rb(0x96FD + u16::from(self.player.pose_timer));
@@ -1793,8 +1792,8 @@ impl Port<'_, '_> {
         self.player.anim = self.rb(0x96FD + u16::from(x));
     }
 
-    /// `$8B78`: motion 3, walking.
-    fn m3(&mut self) {
+    /// `$8B78`: jumping, the held jump's lift on odd frames.
+    fn jumping(&mut self) {
         self.player.walk_gate = 0x03;
         self.stun();
         if self.player.pose & 0x20 == 0 && self.cx.world.frame_odd {
@@ -1802,7 +1801,7 @@ impl Port<'_, '_> {
                 self.player.pose_step = self.player.pose_step.wrapping_add(1);
                 if self.player.pose_step < 0x04 {
                     self.jump_boost();
-                    self.m3_body();
+                    self.jumping_input();
                     return;
                 }
             }
@@ -1813,7 +1812,7 @@ impl Port<'_, '_> {
                 self.player.pose |= 0x20;
             }
         }
-        self.m3_body();
+        self.jumping_input();
     }
 
     /// `$8B99`: the held-jump y velocity trim.
@@ -1823,11 +1822,11 @@ impl Port<'_, '_> {
         self.player.vy = i16::from_be_bytes([hi.wrapping_sub(u8::from(borrow)), lo]);
     }
 
-    /// `$8BBC`.
-    fn m3_body(&mut self) {
+    /// `$8BBC`: the jump's controls: fire, turn.
+    fn jumping_input(&mut self) {
         self.bit(self.pad_hi);
         if self.pad_hi & 0x40 != 0 {
-            self.m3_shoot();
+            self.jumping_shot();
             return;
         }
         self.bit(self.player.pose);
@@ -1881,7 +1880,7 @@ impl Port<'_, '_> {
     }
 
     /// `$8C8A`: motion 3 + the second pad shoulder.
-    fn m3_shoot(&mut self) {
+    fn jumping_shot(&mut self) {
         if self.player.pose & 0x80 != 0 {
             self.player.pose &= 0x7F;
             self.player.facing ^= 0x40;
@@ -1892,13 +1891,13 @@ impl Port<'_, '_> {
         self.player.anim = 0x27;
     }
 
-    /// `$8CC6`: motion 4, jumping.
-    fn m4(&mut self) {
+    /// `$8CC6`: sliding.
+    fn sliding(&mut self) {
         self.stun();
         self.player.walk_gate = 0;
         self.bit(self.player.pose_step);
         if self.player.pose_step & 0x80 == 0 {
-            self.m4_air();
+            self.slide_on_ground();
             return;
         }
         self.player.vy = 0;
@@ -1910,7 +1909,7 @@ impl Port<'_, '_> {
             return;
         }
         if self.player.pose_step & 0x40 == 0 {
-            self.player.motion = 5;
+            self.player.motion = Motion::Falling;
             self.player.pose_timer = 0;
             self.player.pose_step = 0;
             self.player.pose = 0;
@@ -1923,34 +1922,34 @@ impl Port<'_, '_> {
         self.player.y = u16::from_be_bytes([hi.wrapping_sub(u8::from(borrow)), lo]);
         self.player.pose = 0x11;
         self.player.vy = i16::from_be_bytes([0x00, 0x40]);
-        self.player.motion = 0;
+        self.player.motion = Motion::Standing;
         self.player.pose_timer = 0;
         self.player.pose_step = 0;
         self.player.anim = 0x01;
     }
 
-    /// `$8D38`: motion 4 without the landing flag.
-    fn m4_air(&mut self) {
+    /// `$8D38`: the slide on the ground (no landing flag).
+    fn slide_on_ground(&mut self) {
         self.bit(self.player.pose_timer);
         if self.player.pose_timer & 0x80 != 0 {
-            self.m4_fall();
+            self.slide_glide();
             return;
         }
         if self.player.pose_timer & 0x40 != 0 {
-            self.m4_land();
+            self.slide_end();
             return;
         }
         if self.pad & 0x04 == 0 {
-            self.m4_ground();
+            self.slide_jump();
             return;
         }
         let mut x = u16::from(self.player.pose_timer >> 1);
         if x >= 2 {
-            self.m4_kick();
+            self.slide_launch();
             return;
         }
         if x == 1 {
-            if self.m4_solid() {
+            if self.slide_blocked() {
                 return;
             }
         } else {
@@ -1960,8 +1959,8 @@ impl Port<'_, '_> {
         self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
     }
 
-    /// `$8D6D`: motion 4 kicking off a wall.
-    fn m4_kick(&mut self) {
+    /// `$8D6D`: the slide's launch: a push and the speed in the facing direction.
+    fn slide_launch(&mut self) {
         self.cx.effects.sound[0] = 0x24;
         self.player.flags[1] = 0x80;
         let [hi, lo] = self.player.x.to_be_bytes();
@@ -1984,8 +1983,8 @@ impl Port<'_, '_> {
         self.player.pose_timer = 0x80;
     }
 
-    /// `$8DBB`: motion 4 in a sliding state.
-    fn m4_fall(&mut self) {
+    /// `$8DBB`: the slide gliding until the screen's edge or its speed runs out.
+    fn slide_glide(&mut self) {
         self.player.anim = 0x3A;
         let cam = self.cx.world.camera_x;
         self.work.cpu_overflow = sub_overflows16(self.player.x, cam);
@@ -2006,8 +2005,8 @@ impl Port<'_, '_> {
         }
     }
 
-    /// `$8DFE`: the wall probe motion 4 tests before its next frame.
-    fn m4_solid(&mut self) -> bool {
+    /// `$8DFE`: something solid 24 px ahead, which ends the slide in a crouch.
+    fn slide_blocked(&mut self) -> bool {
         let (ylo, yhi) = self.y();
         let py = yhi.wrapping_sub(u8::from(ylo < 0x80));
         let dx = self.screen_x(self.player.x);
@@ -2019,7 +2018,7 @@ impl Port<'_, '_> {
         };
         if solid {
             self.player.anim = 0x04;
-            self.player.motion = 1;
+            self.player.motion = Motion::Crouching;
             self.player.pose = 0;
             self.player.pose_timer = 0;
             self.player.pose_step = 0;
@@ -2027,20 +2026,20 @@ impl Port<'_, '_> {
         solid
     }
 
-    /// `$8E71`: motion 4 landing back into motion 1.
-    fn m4_land(&mut self) {
+    /// `$8E71`: the slide's end, back into a crouch.
+    fn slide_end(&mut self) {
         self.player.flags[1] = 0;
         self.player.anim = 0x3B;
-        self.player.motion = 1;
+        self.player.motion = Motion::Crouching;
         self.player.pose = 0;
         self.player.pose_timer = 0;
         self.player.pose_step = 0;
     }
 
-    /// `$8E8C`: motion 4 with no direction held.
-    fn m4_ground(&mut self) {
+    /// `$8E8C`: down released mid-slide: the jump.
+    fn slide_jump(&mut self) {
         if self.solid_below() {
-            self.m4_land();
+            self.slide_end();
             return;
         }
         self.player.vy = i16::from_be_bytes([0xFF, 0xD4]);
@@ -2048,23 +2047,23 @@ impl Port<'_, '_> {
         self.player.pose_step = 0;
         self.player.pose = 0;
         self.player.anim = 0x1C;
-        self.player.motion = 3;
+        self.player.motion = Motion::Jumping;
     }
 
     /// `$8EB1`: motion 5.
-    fn m5(&mut self) {
+    fn falling(&mut self) {
         self.player.walk_gate = 0x03;
         self.bit(self.pad_hi);
         if self.pad_hi & 0x40 != 0 {
             self.player.pose = 0x60;
             self.player.attack_timer = 0;
-            self.player.motion = 3;
+            self.player.motion = Motion::Jumping;
             self.player.anim = 0x27;
             return;
         }
         if self.pad & 0x03 != 0 && !self.faces_press() {
             self.player.pose = 0x80;
-            self.player.motion = 3;
+            self.player.motion = Motion::Jumping;
             self.player.pose_timer = 0;
             self.player.anim = 0x1D;
             return;
@@ -2075,7 +2074,7 @@ impl Port<'_, '_> {
     }
 
     /// `$8F01`: motion 6, aiming up.
-    fn m6(&mut self) {
+    fn aiming_up(&mut self) {
         self.bit(self.player.flags[2]);
         if self.player.flags[2] & 0x80 != 0 {
             self.hurt();
@@ -2085,13 +2084,13 @@ impl Port<'_, '_> {
         if self.pad & 0x08 != 0 {
             self.bit(self.pad_hi);
             if self.pad_hi & 0x80 != 0 {
-                self.m6_up();
+                self.aiming_up_jump();
             } else if self.pad_hi & 0x40 != 0 {
-                self.m6_up_b();
+                self.aiming_up_shot();
             } else if self.pad.trailing_zeros() >= 2 {
-                self.m6_fire();
+                self.aiming_up_attack();
             } else {
-                self.m6_up_turn();
+                self.aiming_up_turn();
             }
             return;
         }
@@ -2099,13 +2098,13 @@ impl Port<'_, '_> {
         if self.player.pose & 0x40 != 0 {
             self.player.pose = 0x40;
             self.player.pose_timer = 0;
-            self.player.motion = 0;
+            self.player.motion = Motion::Standing;
             self.player.anim = 0x25;
             return;
         }
         if self.player.pose & 0x10 != 0 {
             self.player.pose_timer = 0;
-            self.player.motion = 0;
+            self.player.motion = Motion::Standing;
             self.player.pose = 0;
         } else {
             self.player.pose = 0x10;
@@ -2114,14 +2113,14 @@ impl Port<'_, '_> {
     }
 
     /// `$901C`: motion 6 + the first pad shoulder (launch upward).
-    fn m6_up(&mut self) {
-        if self.jump_probes() {
+    fn aiming_up_jump(&mut self) {
+        if self.jump_blocked() {
             self.player.anim = 0x46;
             return;
         }
         self.player.vy = i16::from_be_bytes([0xFF, 0xD4]);
         self.set_vx_from_pad();
-        self.player.motion = 3;
+        self.player.motion = Motion::Jumping;
         self.player.pose &= 0x40;
         self.player.pose_timer = 0;
         self.player.pose_step = 0;
@@ -2129,7 +2128,7 @@ impl Port<'_, '_> {
     }
 
     /// `$8FFA`: motion 6 + the second pad shoulder.
-    fn m6_up_b(&mut self) {
+    fn aiming_up_shot(&mut self) {
         self.bit(self.player.pose);
         if self.player.pose & 0x40 == 0 {
             self.player.attack_timer = 0;
@@ -2138,19 +2137,19 @@ impl Port<'_, '_> {
             return;
         }
         self.player.attack_timer = 1;
-        self.m6_fire();
+        self.aiming_up_attack();
     }
 
     /// `$8FE6`: motion 6 aiming up while turning.
-    fn m6_up_turn(&mut self) {
+    fn aiming_up_turn(&mut self) {
         if !self.faces_press() {
             self.player.facing ^= 0x40;
         }
-        self.m6_fire();
+        self.aiming_up_attack();
     }
 
-    /// `$8F60`: motion 6's attack.
-    fn m6_fire(&mut self) {
+    /// `$8F60`: aiming up's attack.
+    fn aiming_up_attack(&mut self) {
         self.bit(self.player.pose);
         if self.player.pose & 0x40 == 0 {
             self.player.anim = 0x46;
@@ -2190,7 +2189,7 @@ impl Port<'_, '_> {
 
     /// `$908D`: motion 7, dying: the flash over the pose, the burst from `$0480` = `$30`,
     /// and at `$C0` the life lost (`$BA = 4`) with full energy.
-    fn m7(&mut self) {
+    fn dying(&mut self) {
         self.cx.effects.busy = 0x80;
         let timer = self.player.death_timer;
         if timer >= 0x30 {
@@ -2267,7 +2266,7 @@ impl Port<'_, '_> {
     /// `$D03C` (bank 14, through `$91D8`): motion 9, the boss room's entry: Batman
     /// lowered in on his line (`$D17A`, `$D1B0`), the tally counted up to `$B2:$B3`
     /// beside the boss's hit points, the pose held, then motion 0.
-    fn m9(&mut self) {
+    fn boss_entry(&mut self) {
         self.cx.effects.busy = 0x80;
         let player = &mut *self.player;
         match player.entry_step {
@@ -2346,7 +2345,7 @@ impl Port<'_, '_> {
                 }
                 self.cx.effects.song = 0x03;
                 self.cx.oam.chr[4] = 0xA2;
-                player.motion = 0;
+                player.motion = Motion::Standing;
                 player.stage_script = 0;
                 self.cx.effects.busy = 0;
             }
@@ -2404,7 +2403,7 @@ impl Port<'_, '_> {
     }
 
     /// `$91B5`: motion 8, held while the power-up's pieces close in: hidden on odd frames.
-    fn m8(&mut self) {
+    fn powering_up(&mut self) {
         self.work.cpu_overflow = false;
         if self.cx.world.frame_odd {
             self.player.stage_script = 0xC0;
@@ -2416,7 +2415,7 @@ impl Port<'_, '_> {
     }
 
     /// `$91DB`: motion 11.
-    fn m11(&mut self) {
+    fn flying(&mut self) {
         self.player.walk_gate = 0x0F;
         self.stun();
         self.bit(self.pad_hi);
@@ -2547,7 +2546,7 @@ mod tests {
             assert!(motions.contains_key(&motion), "motion {motion} unexercised");
         }
         let paths = super::PATHS.get();
-        // Coverage pin: script exit, wall block, motion-4 landing, walk ramp,
+        // Coverage pin: script exit, wall block, slide off a ledge, airborne ramp,
         // ride, landing response and both air transitions ran; the damage
         // response (`$82B9`, bit 9) is exercised by its own poked test below
         // (this route holds no damage tile) and the ceiling snap (`$8112`) did

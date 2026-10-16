@@ -12,7 +12,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, Motion};
 
 /// Phase 0's `$7C30` values (`$9D7D`), indexed by `($7DF0 & $0C) >> 2`.
 const TURN_FRAMES: u16 = 0x9D7D;
@@ -113,7 +113,7 @@ fn phase0(body: &mut Body, cx: &Cx<'_>) {
     if body.anim & 0x80 == 0 {
         body.counter = 0x40;
         body.sprite = 0;
-        if cx.effects.player.motion != 0x09 {
+        if cx.effects.player.motion != Motion::BossEntry {
             body.anim = 0x80;
         }
         return;

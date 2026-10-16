@@ -4,11 +4,9 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, Motion};
 
 const WALK_FRAMES: u16 = 0x9DF5;
-const FINISHED: u8 = 0x07;
-const SCRIPTED: u8 = 0x0B;
 const NO_CLAMP: u8 = 0xFF;
 const STEP: u16 = 0x20;
 const DRIFT: u16 = 0x0A;
@@ -23,14 +21,14 @@ impl State {
     /// One frame of the handler (`$9D49`).
     pub fn step(&mut self, _kind: &mut u8, _body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
         let player = &mut cx.effects.player;
-        if player.motion == FINISHED {
+        if player.motion == Motion::Dying {
             // `$9D50`: only the projectiles' types (`$7BD0`) are cleared.
             for weapon in &mut cx.effects.weapons {
                 weapon.kind = 0;
             }
             return;
         }
-        player.motion = SCRIPTED;
+        player.motion = Motion::Flying;
         player.stage_script = 0xA0;
         cx.effects.cutscene_id = 0xA0;
         player.x = player.x.wrapping_add(DRIFT);

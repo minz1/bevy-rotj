@@ -182,6 +182,33 @@ oracle, the music driver and the 2A03 synth.
   the brief; the oracle's `Cpu::step` (cpu.rs:333) is already an opcode enum, not
   a byte dispatcher.
 
+## Found during 1.1.x (2026-10-16, the modernisation roadmap's step 7)
+
+New candidates, each to be classified (state, flags, table index) before it changes
+(`docs/specs/2026-10-16-modernisation-roadmap-design.md`):
+
+- **The pad's bits.** 56 tests of `pad & 0x..`, `pad_hi & 0x..`, `pressed & 0x..` across the
+  player, weapons, scripts and families read the game's `$F6` order as literals (A `$80`,
+  B `$40`, Select `$20`, Start `$10`, Up `$08`, Down `$04`, Left `$02`, Right `$01`). A
+  `Pad` newtype with named bits, shared with the app's `NesButtons::game_byte`, makes them
+  readable now and is the seam for input as actions (B4).
+- **The player's pose byte** (`$047F`): 82 reads and writes in `player.rs`, a flag set and a
+  saved motion in one byte (bit 7 turning, bit 6 the shot pose, bit 5 resume, bits 0-3 the
+  saved `Motion`). A `Pose` newtype with named bits and `saved_motion()`/`resume_with()`.
+- **The player's other flag bytes**: `stage_script` (`$0481`: bit 7 freezes him and clears
+  the pads, bit 6 skips the projection), `effects.busy` (`$AF`), `effects.attack` (`$B8`),
+  `flags[0..3]` (the contact gates): named bits.
+- **The hurt rule twice**: `player.rs`'s own hurt (the `Falling` → `Jumping` knockback and
+  the `on_foot` test) and `engine::hurt_player` repeat the same rule; one function.
+- **Runtime ROM tables** (about 390 `rom_byte`/`rom_word` reads in 90 files): velocities,
+  hitboxes, metasprite pointers, per-motion offsets. Typed data the level importer
+  produces (roadmap A3, B1), which new content and kaizo levels need.
+- **Family file names** (`families/k08.rs` .. `kc6.rs`, named by kind byte): the actor's
+  name, the kind byte a constant (roadmap step 6).
+- **Helper names in `player.rs`** still shaped by the probe they call: `solid_below`
+  (probes two tiles off the player's y; check the axis before naming it), `stun`, `bit`
+  (the 6502 `BIT` flag mirror kept for its N/V side effects: name what each caller tests).
+
 ## Leads (could not verify)
 
 - **Compositor swap (#5):** the well-known tilemap crates are Bevy 0.19 (only `bevy_simple_tilemap` 0.21.0 targets 0.20, unevaluated), and the picture

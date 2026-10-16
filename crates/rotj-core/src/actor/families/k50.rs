@@ -7,10 +7,9 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, Motion};
 
 const CHILD: u8 = 0x52;
-const SCRIPTED: u8 = 0x0A;
 const COUNTDOWN: u8 = 0xC0;
 const FINAL_AREA: u8 = 0x22;
 const SPAWN_SOUND: u8 = 0x23;
@@ -28,7 +27,7 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$9C13`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
-        cx.effects.player.motion = SCRIPTED;
+        cx.effects.player.motion = Motion::Held;
         cx.effects.player.flags[2] = 0x40;
         cx.effects.player.stage_script = 0x80;
         cx.effects.attack &= 0x80;
@@ -180,7 +179,7 @@ mod tests {
             return;
         };
         for (addr, value) in [
-            (0x046E, 0x77),
+            (0x046E, 0x05),
             (0x047A, 0x77),
             (0x0481, 0x77),
             (0x00B8, 0xFF),

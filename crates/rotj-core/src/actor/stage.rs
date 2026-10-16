@@ -5,7 +5,7 @@ use super::Game;
 use super::cutscene::Cutscene;
 use super::engine::{draw, rom_byte, rom_word};
 use super::room;
-use super::world::VramWrite;
+use super::world::{Motion, VramWrite};
 
 /// The stage-end script's state (`$0408-$040C`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -213,8 +213,8 @@ impl PowerUp {
         let player = &mut effects.player;
         player.stage_script = 0x80;
         effects.transition = 0;
-        effects.stage_args[1] = player.motion;
-        player.motion = 8;
+        effects.stage_args[1] = player.motion.byte();
+        player.motion = Motion::PoweringUp;
         game.world.frame_odd = true;
         effects.weapon = 6;
         let (x, y) = (player.x, player.y);
@@ -853,7 +853,7 @@ impl BossIntro {
         (player.entry_step, player.entry_timer, player.tally) = (0, 0, 0);
         player.tally_digit = 0;
         player.entry_chr = game.oam.chr[4];
-        player.motion = 9;
+        player.motion = Motion::BossEntry;
         player.stage_script = 0xC0;
         queue_palette(game);
         request_song(game, prg);

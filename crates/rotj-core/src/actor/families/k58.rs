@@ -5,7 +5,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, Motion};
 
 /// `$58`'s per-player-motion y offsets (bank 11 `$9E6F`).
 const MOTION: u16 = 0x9E6F;
@@ -35,14 +35,18 @@ impl State {
 fn probe(work: &mut Work, cx: &mut Cx<'_>) {
     let player = cx.effects.player;
     let motion = player.motion;
-    if motion == 0x07 {
+    if motion == Motion::Dying {
         return;
     }
     let [x_hi, x_lo] = player.x.to_be_bytes();
     let [y_hi, y_lo] = player.y.to_be_bytes();
     let (y_lo, borrow) = y_lo.overflowing_sub(0xC0);
     let y_hi = y_hi
-        .wrapping_sub(engine::rom_byte(cx.prg, 11, MOTION + u16::from(motion)))
+        .wrapping_sub(engine::rom_byte(
+            cx.prg,
+            11,
+            MOTION + u16::from(motion.byte()),
+        ))
         .wrapping_sub(u8::from(borrow));
     let index = cx.effects.scroll_y.wrapping_add(0x60);
     let (y_lo, carry) =

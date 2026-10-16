@@ -33,6 +33,72 @@ pub struct View {
 
 pub use crate::collision::Level;
 
+/// What the player is doing (`$046E`), which picks his handler (bank 4 `$96C3`).
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Motion {
+    /// On the ground, still.
+    #[default]
+    Standing = 0,
+    /// Pad down.
+    Crouching = 1,
+    /// On the ground with a direction held.
+    Walking = 2,
+    /// Airborne with x control.
+    Jumping = 3,
+    /// Down+A from a crouch: the slide, which ends in a crouch or turns into a jump.
+    Sliding = 4,
+    /// Off a ledge or dropped.
+    Falling = 5,
+    /// Pad up: the weapons aim up.
+    AimingUp = 6,
+    /// The death, and the freeze the level's end (`$D274`) sets when a boss is beaten.
+    Dying = 7,
+    /// Held through the power-up, hidden on odd frames.
+    PoweringUp = 8,
+    /// Lowered into the boss room while the tally counts.
+    BossEntry = 9,
+    /// Held by a script (the boss beaten, room `$DA0F`): no handler runs.
+    Held = 10,
+    /// Steered through the air by the pad (actor `$54`, room `$D9FF`), only shooting.
+    Flying = 11,
+}
+
+impl Motion {
+    const ALL: [Motion; 12] = [
+        Motion::Standing,
+        Motion::Crouching,
+        Motion::Walking,
+        Motion::Jumping,
+        Motion::Sliding,
+        Motion::Falling,
+        Motion::AimingUp,
+        Motion::Dying,
+        Motion::PoweringUp,
+        Motion::BossEntry,
+        Motion::Held,
+        Motion::Flying,
+    ];
+
+    /// The RAM value, and the index into the game's 12-entry per-motion tables.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    /// The motion a RAM value holds, if it is one.
+    #[must_use]
+    pub fn from_byte(byte: u8) -> Option<Motion> {
+        Motion::ALL.get(usize::from(byte)).copied()
+    }
+
+    /// Standing, crouching or walking: on his feet and not aiming.
+    #[must_use]
+    pub const fn on_foot(self) -> bool {
+        matches!(self, Motion::Standing | Motion::Crouching | Motion::Walking)
+    }
+}
+
 /// The player as actors see him.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Player {
@@ -52,8 +118,8 @@ pub struct Player {
     pub reach_y: u8,
     /// X velocity (`$046C:$046D`).
     pub vx: i16,
-    /// Motion state (`$046E`).
-    pub motion: u8,
+    /// What he is doing (`$046E`).
+    pub motion: Motion,
     /// Bit 6: facing left (`$046F`).
     pub facing: u8,
     /// Frames of hurt invulnerability (`$0479`).
@@ -473,7 +539,8 @@ impl Cx<'_> {
 #[cfg(test)]
 mod layout {
     use super::{
-        Effects, Level, Player, Schedule, View, Vram, VramWrite, WEAPON_ARRAYS, Weapon, World,
+        Effects, Level, Motion, Player, Schedule, View, Vram, VramWrite, WEAPON_ARRAYS, Weapon,
+        World,
     };
 
     fn word(ram: &[u8; 2048], hi: usize) -> u16 {
@@ -491,7 +558,7 @@ mod layout {
                 flags: [ram[0x472], ram[0x473], ram[0x47A]],
                 reach_y: ram[0x47B],
                 vx: word(ram, 0x46C).cast_signed(),
-                motion: ram[0x46E],
+                motion: Motion::from_byte(ram[0x46E]).expect("a motion 0-11 at $046E"),
                 facing: ram[0x46F],
                 hurt_timer: ram[0x479],
                 pose: ram[0x47F],
@@ -527,7 +594,7 @@ mod layout {
             [ram[0x472], ram[0x473], ram[0x47A]] = self.flags;
             ram[0x47B] = self.reach_y;
             ram[0x46C..0x46E].copy_from_slice(&self.vx.to_be_bytes());
-            ram[0x46E] = self.motion;
+            ram[0x46E] = self.motion.byte();
             ram[0x46F] = self.facing;
             ram[0x479] = self.hurt_timer;
             ram[0x47F] = self.pose;
@@ -779,7 +846,26 @@ mod layout {
 
 #[cfg(test)]
 mod tests {
-    use super::Rng;
+    use super::{Motion, Rng};
+
+    #[test]
+    fn motion_bytes_round_trip() {
+        for byte in 0..=11 {
+            let motion = Motion::from_byte(byte).expect("a motion");
+            assert_eq!(motion.byte(), byte);
+        }
+        assert!((12..=255).all(|byte| Motion::from_byte(byte).is_none()));
+    }
+
+    #[test]
+    fn on_foot_is_standing_crouching_or_walking() {
+        let on_foot: Vec<u8> = (0..=11)
+            .filter_map(Motion::from_byte)
+            .filter(|motion| motion.on_foot())
+            .map(Motion::byte)
+            .collect();
+        assert_eq!(on_foot, [0, 1, 2]);
+    }
 
     #[test]
     fn rng_steps_like_c21c() {

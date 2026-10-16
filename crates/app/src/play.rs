@@ -355,6 +355,7 @@ fn draw(play: Option<Res<'_, Play>>, settings: Res<'_, Settings>, mut screen: Re
 mod tests {
     use super::*;
     use rotj_core::actor::stage::StageEnd;
+    use rotj_core::actor::world::Motion;
     use rotj_core::digest::fnv1a;
     use rotj_core::render::SCREEN_W;
 
@@ -644,12 +645,16 @@ mod tests {
         transition(play, 3, 0);
         assert_eq!(play.game().world.area, area);
         for _ in 0..200 {
-            if play.game().effects.player.motion != 9 {
+            if play.game().effects.player.motion != Motion::BossEntry {
                 break;
             }
             play.step(0);
         }
-        assert_ne!(play.game().effects.player.motion, 9, "Batman never entered");
+        assert_ne!(
+            play.game().effects.player.motion,
+            Motion::BossEntry,
+            "Batman never entered"
+        );
     }
 
     fn picture(play: &Play) -> Vec<u8> {
@@ -796,13 +801,13 @@ mod tests {
         let mut died = false;
         for _ in 0..900 {
             play.step(0);
-            died |= play.game().effects.player.motion == 7;
+            died |= play.game().effects.player.motion == Motion::Dying;
         }
         let game = play.game();
         assert!(died, "Batman never died");
         assert_eq!((game.effects.lives, game.world.area), (1, 2));
         assert!(game.script.is_none());
-        assert_ne!(game.effects.player.motion, 7);
+        assert_ne!(game.effects.player.motion, Motion::Dying);
     }
 
     /// With no lives left the continue screen counts down, GAME OVER follows and
@@ -830,11 +835,11 @@ mod tests {
         let mut entered = false;
         for _ in 0..3600 {
             play.step(0);
-            entered |= play.game().effects.player.motion == 9;
+            entered |= play.game().effects.player.motion == Motion::BossEntry;
         }
         assert!(entered, "Batman never entered");
         assert_eq!(play.game().world.area, 4);
-        assert_ne!(play.game().effects.player.motion, 9);
+        assert_ne!(play.game().effects.player.motion, Motion::BossEntry);
     }
 
     /// The stage 1 boss beaten (`$0406` set, `$BA = 3`, as type `$50` leaves them): the cutscene (`$98BD`, its song
@@ -1048,7 +1053,7 @@ mod tests {
         assert_eq!(request[3], 0, "the jump is slot $42");
         assert_eq!(
             play.game().effects.player.motion,
-            3,
+            Motion::Jumping,
             "the sound is the take-off"
         );
 

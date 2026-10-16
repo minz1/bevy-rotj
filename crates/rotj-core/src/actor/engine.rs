@@ -2,7 +2,7 @@
 
 use super::oam::{DrawCall, Metasprite};
 use super::slots::Body;
-use super::world::{Cx, Effects, Level, Player, Schedule, World};
+use super::world::{Cx, Effects, Level, Motion, Player, Schedule, World};
 use crate::actors::bank_slice;
 
 /// The zero-page working set `$90-$A6`, carried from slot to slot as the game's is.
@@ -794,10 +794,10 @@ pub fn hurt_player(effects: &mut Effects) {
     player.pose &= 0xBF;
     player.hurt_timer = 0x20;
     player.flags[2] = 0xC0;
-    if player.motion == 5 {
-        player.motion = 3;
+    if player.motion == Motion::Falling {
+        player.motion = Motion::Jumping;
     }
-    if player.motion < 3 || player.motion == 6 {
+    if player.motion.on_foot() || player.motion == Motion::AimingUp {
         player.vx = if player.facing & 0x40 == 0 {
             -0x20
         } else {
@@ -843,7 +843,7 @@ pub fn spawn_parts(variant: u8, work: &Work, cx: &mut Cx<'_>) -> Option<usize> {
 /// and `$0465` clear, and every projectile is freed.
 pub fn level_end(effects: &mut Effects) {
     let player = &mut effects.player;
-    player.motion = 7;
+    player.motion = Motion::Dying;
     player.facing |= 3;
     player.flags[2] = 0xC0;
     player.stage_script = 0x80;
