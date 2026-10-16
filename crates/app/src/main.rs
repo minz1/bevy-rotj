@@ -13,26 +13,30 @@ use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
 use bevy::time::Fixed;
 use bevy::window::{Window, WindowResolution};
 
-/// The user's ROM, found and checked before the window opens.
+/// The user's ROM, embedded and checked at build time.
 #[derive(Resource)]
 pub(crate) struct RomData(pub rotj_rom::Rom);
 
-/// The ROM from the first argument (a file dropped on the exe), `ROTJ_ROM`, the cache, a
-/// `.nes` beside the exe or (debug builds) `raw/`; without one, why, and exit 2.
+const PRG: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/prg.bin"));
+const CHR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/chr.bin"));
+
+/// The ROM the build embedded; without one, the message and exit 2.
 fn rom_or_exit() -> rotj_rom::Rom {
-    let arg = std::env::args_os().nth(1).map(std::path::PathBuf::from);
-    rotj_rom::Rom::load(arg.as_deref()).unwrap_or_else(|error| {
+    if PRG.is_empty() {
         eprintln!(
-            "No usable Batman: Return of the Joker (USA) ROM.\n\
-             Drop the .nes file onto batman-rotj.exe, put it next to the exe, or set ROTJ_ROM.\n\
-             {error}"
+            "batman-rotj was built without a ROM: set ROTJ_ROM or put \
+             Batman - Return of the Joker (USA).nes in raw/ and rebuild."
         );
         if cfg!(windows) {
             eprintln!("Press Enter to close.");
             let _ = std::io::stdin().read_line(&mut String::new());
         }
         std::process::exit(2);
-    })
+    }
+    rotj_rom::Rom {
+        prg: PRG.to_vec(),
+        chr: CHR.to_vec(),
+    }
 }
 
 /// Which wgpu backends to use.

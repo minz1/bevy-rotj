@@ -4,6 +4,11 @@ Status: approved 2026-10-15 by a stand-in reviewer under the owner's delegation 
 with changes; required changes 1-7 applied, the MD5 kept because the owner asked for it,
 written by hand instead of the `md-5` crate).
 
+Superseded in part by 1.0.3 (`docs/specs/2026-10-16-embedded-rom-design.md`): the app no
+longer reads the ROM at start-up. Its build script embeds it, and section 3's search,
+cache and argument, and section 4's start-up message, are gone; the tests still read the
+ROM through `rotj-rom` as described here.
+
 ## Goal
 
 The tracked tree distributes none of the game, so the repository can go public. Every

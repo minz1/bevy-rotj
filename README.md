@@ -9,19 +9,17 @@ the cartridge, sound and flicker included.
 
 ## You need your own ROM
 
-None of the game is in this repository. The port reads it from your copy of
-**Batman - Return of the Joker (USA).nes** at start-up (PRG+CHR MD5
-`830111df30b8511562d4faca6aeb792d`; the header doesn't matter). Give it the ROM in
-any of these ways:
+None of the game is in this repository. You build the port with your copy of
+**Batman - Return of the Joker (USA).nes** (PRG+CHR MD5
+`830111df30b8511562d4faca6aeb792d`; the header doesn't matter): put it in `raw/`, or
+set `ROTJ_ROM=/absolute/path/to/rom.nes`, then build. The build checks it and compiles
+it into the executable, so the exe runs on its own. That also means the exe contains
+the game: keep it to yourself, and let others build their own.
 
-- drop the `.nes` file onto `batman-rotj.exe`, or pass its path as the first argument;
-- put it next to the executable;
-- set `ROTJ_ROM=/path/to/rom.nes`;
-- in a development checkout, put it in `raw/`.
-
-The first time it finds one, it keeps a copy in your cache folder
-(`%LOCALAPPDATA%\batman-rotj` on Windows, `~/.cache/batman-rotj` elsewhere), so later
-launches need nothing. Without a ROM it says so and exits.
+A ROM that is named but missing or wrong fails the build. With no ROM at all the
+workspace still builds and tests (the ROM tests skip), and the exe just tells you it was
+built without one. If you add the ROM later, rebuild (`touch crates/app/build.rs` if
+`raw/` didn't exist before).
 
 ## Running
 
@@ -44,7 +42,7 @@ the original.
 
 | Path | What it is |
 |------|------------|
-| `crates/rotj-rom` | finds and checks your ROM |
+| `crates/rotj-rom` | finds and checks your ROM (the app's build script embeds it) |
 | `crates/rotj-core` | the game: actors, levels, scripts, the boot and the ending, plus the NES-picture renderer |
 | `crates/rotj-apu`, `crates/rotj-music` | the 2A03 synth and the game's own music driver, ported |
 | `crates/app` | the Bevy app |

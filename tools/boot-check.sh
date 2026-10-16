@@ -1,6 +1,7 @@
 #!/bin/sh
 # Pre-tag check: the port must boot *and keep running*. Every release tag is
-# expected to pass this (the CI `boot` job runs the same check under xvfb).
+# expected to pass this (the CI `boot` job runs the same check under xvfb). An exe
+# built without a ROM must instead exit 2 with its message.
 #
 #   tools/boot-check.sh [seconds]
 #
@@ -18,7 +19,7 @@ trap 'rm -f "$LOG"' EXIT
 # Build first: a cold rebuild can easily outlast the boot budget, which would
 # look like "never created a window" (it did once).
 echo "building..."
-cargo build -p batman-rotj >/dev/null 2>&1 || { echo "FAIL: the workspace does not build" >&2; exit 1; }
+cargo build -p batman-rotj >"$LOG" 2>&1 || { tail -30 "$LOG" >&2; echo "FAIL: the workspace does not build" >&2; exit 1; }
 
 fail() {
     echo "FAIL: $1" >&2
@@ -26,27 +27,17 @@ fail() {
     exit 1
 }
 
-echo "checking the message without a ROM..."
-set +e
-ROTJ_ROM=/nonexistent/rom.nes timeout 10 target/debug/batman-rotj >"$LOG" 2>&1 </dev/null
-STATUS=$?
-set -e
-if [ "$STATUS" -ne 2 ] || ! grep -q "No usable Batman" "$LOG"; then
-    fail "without a ROM the app must exit 2 with its message (status $STATUS)"
-fi
-
-if [ -z "${ROTJ_ROM:-}" ] && [ ! -f "raw/Batman - Return of the Joker (USA).nes" ]; then
-    [ -z "${ROTJ_REQUIRE_ROM:-}" ] || fail "ROTJ_REQUIRE_ROM is set but there is no ROM (ROTJ_ROM or raw/)"
-    echo "OK: no ROM, so only the no-ROM message was checked"
-    exit 0
-fi
-
 echo "running the port for ${SECONDS_TO_RUN}s..."
 set +e
-timeout "$SECONDS_TO_RUN" target/debug/batman-rotj >"$LOG" 2>&1
+timeout "$SECONDS_TO_RUN" target/debug/batman-rotj >"$LOG" 2>&1 </dev/null
 STATUS=$?
 set -e
 
+if [ "$STATUS" -eq 2 ] && grep -q "built without a ROM" "$LOG"; then
+    [ -z "${ROTJ_REQUIRE_ROM:-}" ] || fail "ROTJ_REQUIRE_ROM is set but the exe was built without a ROM"
+    echo "OK: built without a ROM, so only its message was checked"
+    exit 0
+fi
 if grep -qi "panicked" "$LOG"; then
     fail "the app panicked"
 fi
