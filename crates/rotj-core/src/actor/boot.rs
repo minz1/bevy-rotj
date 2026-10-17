@@ -107,8 +107,8 @@ struct Entry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Boot {
     step: Step,
-    /// Where the boot is in the table of a [`Step::Power`], [`Step::Intro`] or
-    /// [`Step::TitleSetup`].
+    /// Where the boot is in the table of a [`Step::Power`], [`Step::Intro`],
+    /// [`Step::Slide`], [`Step::TitleSetup`] or [`Step::Chosen`].
     runner: Runner,
     /// The last wait is followed by the intro's skip check (`$7E60`, `$2F` set).
     check: bool,
@@ -118,12 +118,6 @@ pub struct Boot {
     fade: Fade,
     /// The draw list's read offset (`$20`).
     cursor: u8,
-    /// A loop count (`$2B`).
-    count: u8,
-    /// Alternates every frame (`$2C`).
-    toggle: bool,
-    /// The flicker's y scroll (`$2D`).
-    flicker: u8,
     /// The title's cursor x (`$2F`): [`GAME_START`] or [`PASSWORD`].
     choice: u8,
     /// Frames left on the title (`$20:$21`).
@@ -149,11 +143,13 @@ enum Step {
     /// The intro's first screen (`$6000-$604A`).
     Intro,
     /// The intro's sliding picture, its hold and its flicker (`$604A-$61AB`).
-    Slide(Slide),
+    Slide,
     /// The title drawn at once, when the intro is skipped (`$62A3`).
     TitleSetup,
-    /// The title and the chosen line's flash (`$61AC-$6293`).
+    /// The title (`$61AC-$6232`), and after the chosen line's flash its fade and clear.
     Title(Title),
+    /// The chosen line's flash (`$6233-$6293`).
+    Chosen,
     /// The attract mode (bank 2 `$99F7`).
     Attract,
     /// The password screen (`$6330`).
@@ -216,20 +212,70 @@ const INTRO: &[IntroRow] = &[
     IntroRow::ShowPicture,
 ];
 
+/// What the intro's picture does, in order (the rows of [`SLIDE`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Slide {
-    Setup,
-    Block,
-    Sliding,
-    End,
-    Blocks(u8),
-    Settle,
-    SettleBlock,
-    Hold,
-    HoldBlocks(u8),
+enum SlideRow {
+    /// The raster split armed and the draw list from its start, for no frame (`$604A`).
+    ArmSplit,
+    /// The split's counters reset and the next block drawn.
+    DrawSlider,
+    /// The palette queued, the split on every other frame, until the block has slid in
+    /// (`room[10] & $1F = $1F`).
+    SlideUntilSplit,
+    /// The split off, the PPU back on the first nametable.
+    EndSplit,
+    /// A block a frame.
+    Blocks(u16),
+    /// The split off.
+    SplitOff,
+    /// The palette queued each frame.
+    Hold(u16),
+    /// [`FLICKER_FRAMES`] of [`flicker_frame`].
     Flicker,
-    TitleBlocks(u8),
+    /// The scroll and mirroring zeroed, for no frame.
+    HomeScroll,
 }
+
+/// The intro's picture: six blocks slid in, each followed by two more, held, flickered,
+/// then the title's last five blocks; then the title.
+const SLIDE: &[SlideRow] = &[
+    SlideRow::ArmSplit,
+    SlideRow::DrawSlider,
+    SlideRow::SlideUntilSplit,
+    SlideRow::EndSplit,
+    SlideRow::Blocks(2),
+    SlideRow::DrawSlider,
+    SlideRow::SlideUntilSplit,
+    SlideRow::EndSplit,
+    SlideRow::Blocks(2),
+    SlideRow::DrawSlider,
+    SlideRow::SlideUntilSplit,
+    SlideRow::EndSplit,
+    SlideRow::Blocks(2),
+    SlideRow::DrawSlider,
+    SlideRow::SlideUntilSplit,
+    SlideRow::EndSplit,
+    SlideRow::Blocks(2),
+    SlideRow::DrawSlider,
+    SlideRow::SlideUntilSplit,
+    SlideRow::EndSplit,
+    SlideRow::Blocks(2),
+    SlideRow::DrawSlider,
+    SlideRow::SlideUntilSplit,
+    SlideRow::EndSplit,
+    SlideRow::Blocks(2),
+    SlideRow::SplitOff,
+    SlideRow::Blocks(1),
+    SlideRow::Hold(0x10),
+    SlideRow::Blocks(2),
+    SlideRow::Flicker,
+    SlideRow::HomeScroll,
+    SlideRow::Blocks(5),
+];
+
+/// The flicker's frames: 31 of its palettes' countdown, then the first nametable's y
+/// scroll rising from `$C0` until `$F0` (`$2D`).
+const FLICKER_FRAMES: u16 = 31 + 0x30;
 
 /// What the title's set-up does, in order (the rows of [`TITLE_SETUP`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -261,12 +307,23 @@ const TITLE_SETUP: &[TitleSetupRow] = &[
     TitleSetupRow::ShowScreen,
 ];
 
+/// What the title does once a line is chosen, in order (the rows of [`CHOSEN`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChosenRow {
+    /// The music stopped (`$FF`).
+    StopMusic,
+    /// The chosen line drawn and blanked, twelve frames a time, the first with sound
+    /// `$3B`.
+    Flash(u16),
+}
+
+/// The chosen line's flash, then the title fades out.
+const CHOSEN: &[ChosenRow] = &[ChosenRow::StopMusic, ChosenRow::Flash(10)];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Title {
     Start,
     Waiting,
-    Chosen,
-    Flash(u8),
     FadeOut,
     Blank,
     StartClear,
@@ -330,9 +387,6 @@ impl Boot {
             buffer: [0; 64],
             fade: Fade::new(false, false),
             cursor: 0,
-            count: 0,
-            toggle: false,
-            flicker: 0,
             choice: GAME_START,
             timeout: 0,
             level: 0,
@@ -385,9 +439,10 @@ impl Boot {
         match self.step {
             Step::Power => self.power_frame(game, prg, chr),
             Step::Intro => self.intro_frame(game, chr),
-            Step::Slide(step) => self.slide_frame(step, game, chr),
+            Step::Slide => self.slide_frame(game, chr),
             Step::TitleSetup => self.title_setup_frame(game, chr),
             Step::Title(step) => self.title_frame(step, game, prg, chr),
+            Step::Chosen => self.chosen_frame(game, chr),
             Step::Password(step) => self.password_frame(step, game, prg, chr),
             Step::Attract => {
                 if let Some(held) = self.attract.ended() {
@@ -492,7 +547,7 @@ impl Boot {
     /// and attributes, rendering on; skipped to the title if the attract mode was left.
     fn intro_frame(&mut self, game: &mut Game, chr: &[u8]) -> bool {
         let Some(&row) = self.runner.row(INTRO) else {
-            self.begin(Step::Slide(Slide::Setup));
+            self.begin(Step::Slide);
             return false;
         };
         let frame = self.runner.frame;
@@ -524,106 +579,77 @@ impl Boot {
     /// The intro's picture (`$604A-$61AB`): six blocks of the draw list, each slid in by
     /// the raster split (`$D3 = 9`), held, flickered over the first nametable, then the
     /// title's last five blocks. Every wait is followed by the skip check.
-    fn slide_frame(&mut self, step: Slide, game: &mut Game, chr: &[u8]) -> bool {
+    fn slide_frame(&mut self, game: &mut Game, chr: &[u8]) -> bool {
+        let Some(&row) = self.runner.row(SLIDE) else {
+            self.begin(Step::Title(Title::Start));
+            return false;
+        };
         let read = self.reader(chr);
-        self.check = true;
-        let next = match step {
-            Slide::Setup => {
+        let frame = self.runner.frame;
+        let flow = match row {
+            SlideRow::ArmSplit => {
                 arm_slide(game);
                 self.cursor = 0;
-                self.count = 6;
-                self.step = Step::Slide(Slide::Block);
-                return false;
+                Flow::Done
             }
-            Slide::Block => {
-                let room = &mut game.scroll.room;
-                room[4] = 0;
-                room[5..=10].fill(0);
-                self.toggle = false;
-                draw_block(game, read, BLOCKS, &mut self.cursor);
-                Slide::Sliding
-            }
-            Slide::Sliding => {
-                game.scroll.room[0] = if self.toggle { 0x80 } else { 0 };
-                self.toggle = !self.toggle;
-                if game.scroll.room[10] & 0x1F == 0x1F {
-                    self.step = Step::Slide(Slide::End);
-                    return false;
+            SlideRow::DrawSlider => {
+                if frame == 0 {
+                    let room = &mut game.scroll.room;
+                    room[4] = 0;
+                    room[5..=10].fill(0);
+                    draw_block(game, read, BLOCKS, &mut self.cursor);
                 }
-                queue_palette(game);
-                Slide::Sliding
+                wait(frame, 1)
             }
-            Slide::End => {
-                game.scroll.room[0] = 0;
-                game.scroll.ppu_ctrl = 0xA8;
-                queue_palette(game);
-                Slide::Blocks(0)
-            }
-            Slide::Blocks(2) => {
-                self.count -= 1;
-                let next = if self.count == 0 {
-                    Slide::Settle
+            SlideRow::SlideUntilSplit => {
+                if game.scroll.room[10] & 0x1F == 0x1F {
+                    Flow::Done
                 } else {
-                    Slide::Block
-                };
-                self.step = Step::Slide(next);
-                return false;
+                    game.scroll.room[0] = if frame % 2 == 1 { 0x80 } else { 0 };
+                    queue_palette(game);
+                    Flow::Waited
+                }
             }
-            Slide::Blocks(drawn) => {
-                draw_block(game, read, BLOCKS, &mut self.cursor);
-                Slide::Blocks(drawn + 1)
+            SlideRow::EndSplit => {
+                if frame == 0 {
+                    game.scroll.room[0] = 0;
+                    game.scroll.ppu_ctrl = 0xA8;
+                    queue_palette(game);
+                }
+                wait(frame, 1)
             }
-            Slide::Settle => {
-                game.scroll.room[0] = 0;
-                Slide::SettleBlock
+            SlideRow::Blocks(count) => {
+                if frame < count {
+                    draw_block(game, read, BLOCKS, &mut self.cursor);
+                }
+                wait(frame, count)
             }
-            Slide::SettleBlock => {
-                draw_block(game, read, BLOCKS, &mut self.cursor);
-                self.count = 0x10;
-                Slide::Hold
+            SlideRow::SplitOff => {
+                if frame == 0 {
+                    game.scroll.room[0] = 0;
+                }
+                wait(frame, 1)
             }
-            Slide::Hold if self.count == 0 => {
-                self.step = Step::Slide(Slide::HoldBlocks(0));
-                return false;
+            SlideRow::Hold(count) => {
+                if frame < count {
+                    queue_palette(game);
+                }
+                wait(frame, count)
             }
-            Slide::Hold => {
-                queue_palette(game);
-                self.count -= 1;
-                Slide::Hold
+            SlideRow::Flicker => {
+                if frame < FLICKER_FRAMES {
+                    flicker_frame(game, chr, frame);
+                }
+                wait(frame, FLICKER_FRAMES)
             }
-            Slide::HoldBlocks(2) => {
-                self.count = 0x20;
-                self.toggle = false;
-                self.flicker = 0xC0;
-                self.step = Step::Slide(Slide::Flicker);
-                return false;
-            }
-            Slide::HoldBlocks(drawn) => {
-                draw_block(game, read, BLOCKS, &mut self.cursor);
-                Slide::HoldBlocks(drawn + 1)
-            }
-            Slide::Flicker if self.flicker == 0 => {
+            SlideRow::HomeScroll => {
                 let scroll = &mut game.scroll;
                 (scroll.scroll_x, scroll.scroll_y, scroll.mirroring) = (0, 0, 0);
-                self.step = Step::Slide(Slide::TitleBlocks(0));
-                return false;
-            }
-            Slide::Flicker => {
-                self.flicker_frame(game, chr);
-                Slide::Flicker
-            }
-            Slide::TitleBlocks(5) => {
-                self.check = false;
-                self.step = Step::Title(Title::Start);
-                return false;
-            }
-            Slide::TitleBlocks(drawn) => {
-                draw_block(game, read, BLOCKS, &mut self.cursor);
-                Slide::TitleBlocks(drawn + 1)
+                Flow::Done
             }
         };
-        self.step = Step::Slide(next);
-        true
+        self.check = flow == Flow::Waited;
+        self.runner.advance(flow)
     }
 
     /// The title drawn at once (`$62A3-$62F4`): the screen cleared, the banks and
@@ -672,10 +698,9 @@ impl Boot {
     }
 
     /// The title (`$61AC-$6232`): its song, the cursor moved by left, right or Select,
-    /// the attract mode when left waiting; A, B or Start flash the chosen line
-    /// (`$6233-$6293`) and start the game or open the password screen.
+    /// the attract mode when left waiting; A, B or Start flash the chosen line, then the
+    /// title fades out and starts the game or opens the password screen.
     fn title_frame(&mut self, step: Title, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
-        let read = self.reader(chr);
         let next = match step {
             Title::Start => {
                 game.effects.song = 0x01;
@@ -693,7 +718,7 @@ impl Boot {
                 }
                 let world = &game.world;
                 if world.pressed.intersects(Buttons::ACCEPT) {
-                    self.step = Step::Title(Title::Chosen);
+                    self.begin(Step::Chosen);
                     return false;
                 }
                 if world.pad.contains(Buttons::LEFT) {
@@ -709,37 +734,6 @@ impl Boot {
                 }
                 self.draw_title(game, chr);
                 Title::Waiting
-            }
-            Title::Chosen => {
-                game.effects.music = 0xFF;
-                self.count = 10;
-                Title::Flash(0)
-            }
-            Title::Flash(12) => {
-                self.count -= 1;
-                self.step = Step::Title(if self.count == 0 {
-                    self.fade = Fade::new(false, false);
-                    Title::FadeOut
-                } else {
-                    Title::Flash(0)
-                });
-                return false;
-            }
-            Title::Flash(phase) => {
-                if phase == 0 || phase == 6 {
-                    if self.count == 10 && phase == 0 {
-                        game.effects.sound[0] = 0x3B;
-                    }
-                    self.cursor = match (phase, self.choice) {
-                        (6, _) => 0,
-                        (_, GAME_START) => 8,
-                        _ => 0x10,
-                    };
-                    draw_block(game, read, FLASH_BLOCKS, &mut self.cursor);
-                } else {
-                    queue_palette(game);
-                }
-                Title::Flash(phase + 1)
             }
             Title::FadeOut => {
                 if self.fade.step(game, prg) {
@@ -768,6 +762,46 @@ impl Boot {
         };
         self.step = Step::Title(next);
         true
+    }
+
+    /// The chosen line's flash (`$6233-$6293`): drawn on the first of each twelve frames,
+    /// blanked on the seventh, the palette queued on the others.
+    fn chosen_frame(&mut self, game: &mut Game, chr: &[u8]) -> bool {
+        let Some(&row) = self.runner.row(CHOSEN) else {
+            self.fade = Fade::new(false, false);
+            self.step = Step::Title(Title::FadeOut);
+            return false;
+        };
+        let frame = self.runner.frame;
+        let flow = match row {
+            ChosenRow::StopMusic => {
+                if frame == 0 {
+                    game.effects.music = 0xFF;
+                }
+                wait(frame, 1)
+            }
+            ChosenRow::Flash(count) => {
+                let frames = 12 * count;
+                if frame < frames {
+                    let phase = frame % 12;
+                    if phase == 0 || phase == 6 {
+                        if frame == 0 {
+                            game.effects.sound[0] = 0x3B;
+                        }
+                        self.cursor = match (phase, self.choice) {
+                            (6, _) => 0,
+                            (_, GAME_START) => 8,
+                            _ => 0x10,
+                        };
+                        draw_block(game, self.reader(chr), FLASH_BLOCKS, &mut self.cursor);
+                    } else {
+                        queue_palette(game);
+                    }
+                }
+                wait(frame, frames)
+            }
+        };
+        self.runner.advance(flow)
     }
 
     /// The password screen (`$6330-$65F4`): drawn and faded in, then the entry until A,
@@ -1051,35 +1085,26 @@ impl Boot {
         game.oam.finish();
         queue_palette(game);
     }
+}
 
-    /// A frame of the flicker (`$611B-$616E`): the first nametable at the rising y
-    /// scroll and the second at 0 on alternate frames, a sprite palette every eight
-    /// of the first 32 frames.
-    fn flicker_frame(&mut self, game: &mut Game, chr: &[u8]) {
-        let scroll = &mut game.scroll;
-        (scroll.scroll_y, scroll.mirroring) = if self.toggle {
-            (0, 3)
-        } else {
-            (self.flicker, 2)
-        };
-        self.toggle = !self.toggle;
-        if self.count != 0 {
-            if self.count.is_multiple_of(8) {
-                let at = FLICKER_PALETTES + u16::from((self.count >> 2) - 2);
-                let source = u16::from_le_bytes([payload_byte(chr, at), payload_byte(chr, at + 1)]);
-                let palette = payload_bytes(chr, source, 16);
-                game.effects.vram.push(0x3F00, 0, &palette);
-            }
-            self.count -= 1;
-        }
-        if self.count == 0 {
-            self.flicker = self.flicker.wrapping_add(1);
-            if self.flicker == 0xF0 {
-                self.flicker = 0;
-            }
-        }
-        queue_palette(game);
+/// The flicker's `frame` (`$611B-$616E`): the first nametable at the rising y scroll and
+/// the second at 0 on alternate frames, a sprite palette every eight of the first 32
+/// frames, the last pointer first.
+fn flicker_frame(game: &mut Game, chr: &[u8], frame: u16) {
+    let rising = u8::try_from(frame.saturating_sub(31)).expect("< 48");
+    let scroll = &mut game.scroll;
+    (scroll.scroll_y, scroll.mirroring) = if frame % 2 == 1 {
+        (0, 3)
+    } else {
+        (0xC0 + rising, 2)
+    };
+    if frame < 32 && frame.is_multiple_of(8) {
+        let at = FLICKER_PALETTES + 2 * (3 - frame / 8);
+        let source = u16::from_le_bytes([payload_byte(chr, at), payload_byte(chr, at + 1)]);
+        let palette = payload_bytes(chr, source, 16);
+        game.effects.vram.push(0x3F00, 0, &palette);
     }
+    queue_palette(game);
 }
 
 /// The reset to its first NMI wait (`$E2E6-$D3B8`): RAM cleared (`$E330`, `$C117`), the

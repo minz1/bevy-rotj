@@ -61,3 +61,41 @@ W takes a frame, 0 runs none; ✓ the frame is followed by the skip check (`chec
 3. `TITLE_SETUP`; tests green.
 4. Checks, the `reviewer` agent, commit `Scripts as data: the boot's power-on, intro and
    title set-up`.
+
+## Slice 3: the frames, as the code has them
+
+W takes a frame, 0 runs none. `Slide` sets `check` at the top of every call, so every W
+frame of it is followed by the skip check; `TitleBlocks(5)` clears it before the title's
+first frame. The chosen flash has no check.
+
+| State | Frames | Writes |
+|---|---|---|
+| Slide `Setup` | 0 | the split armed (`room[3] = 9`, `room[1..=2] = $80, $26`, y `$C0`), cursor 0, `count` 6 |
+| `Block` | W | `room[4]`, `room[5..=10]` = 0, `toggle` off, a block |
+| `Sliding` | W until `room[10] & $1F = $1F`, then 0 | `room[0] = $80` when `toggle`, `toggle` flipped, the palette queued; the exit call's `room[0]` and flip are dead (`End` rewrites `room[0]`, `Block`/`HoldBlocks(2)` reset `toggle`) |
+| `End` | W | `room[0] = 0`, ppu_ctrl `$A8`, the palette queued |
+| `Blocks(0-1)` | W W | a block each |
+| `Blocks(2)` | 0 | `count - 1`: `Block` again, `Settle` at 0 (six rounds) |
+| `Settle` | W | `room[0] = 0` |
+| `SettleBlock` | W | a block, `count` `$10` |
+| `Hold` | 16 W, then 0 | the palette queued, `count - 1` |
+| `HoldBlocks(0-1)` | W W | a block each |
+| `HoldBlocks(2)` | 0 | `count` `$20`, `toggle` off, `flicker` `$C0` |
+| `Flicker` | 79 W, then 0 | on even frames y `flicker`, mirroring 2, on odd y 0, mirroring 3; frames 0, 8, 16, 24 push the sprite palette of pointer 3, 2, 1, 0; `flicker` rises from frame 31 (`$C0` to `$EF` used); the palette queued; the exit call zeroes x, y and mirroring |
+| `TitleBlocks(0-4)` | 5 W | a block each |
+| `TitleBlocks(5)` | 0 | `check` cleared, then `Title::Start` in the frame |
+| Title `Chosen` | W | music `$FF`, `count` 10 |
+| `Flash(0-11)` | 12 W | phase 0 and 6 draw the line (cursor 8 or `$10` by the choice, 0 at 6), sound `$3B` at the first phase 0; the others queue the palette |
+| `Flash(12)` | 0 | `count - 1`: `Flash(0)` again, at 0 the falling fade and `FadeOut` in the frame |
+
+The new tables, every counter the runner's frame (`count`, `toggle` and `flicker` go):
+
+- `SLIDE: [ArmSplit, 6 × [DrawSlider, SlideUntilSplit, EndSplit, Blocks(2)], SplitOff,
+  Blocks(1), Hold(16), Blocks(2), Flicker, HomeScroll, Blocks(5)]`, then `Title::Start` in
+  the frame. `ArmSplit` and `HomeScroll` take no frame; `SlideUntilSplit` checks
+  `room[10]` first (Done at once on the split's end, as the cutscene's `SlideIn`) and sets
+  `room[0]` by its frame's parity; `Flicker` is Done at frame 79 and `HomeScroll` zeroes
+  the scroll. `check = flow == Waited` after every row: the same frames as today, with no
+  clear at the end.
+- `CHOSEN: [StopMusic, Flash(10)]`, then the falling fade and `Title::FadeOut` in the
+  frame. `Flash(10)` runs 120 frames, the phase its frame mod 12, Done at frame 120.
