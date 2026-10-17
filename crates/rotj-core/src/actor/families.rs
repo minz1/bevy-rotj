@@ -1,5 +1,46 @@
 //! Handler families: one module per handler, and the arms that dispatch to them.
 
+/// A family's phases (`$7DD0`) as an enum whose discriminants are the bytes the game stores,
+/// with `byte`, `from_byte` and a test that the two round-trip exactly on those bytes.
+macro_rules! phases {
+    ($(#[$meta:meta])* $name:ident {
+        $($(#[$variant_meta:meta])* $variant:ident = $byte:literal),+ $(,)?
+    }) => {
+        $(#[$meta])*
+        #[repr(u8)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum $name {
+            $($(#[$variant_meta])* $variant = $byte),+
+        }
+
+        impl $name {
+            /// The byte `$7DD0` holds.
+            #[must_use]
+            pub const fn byte(self) -> u8 {
+                self as u8
+            }
+
+            /// The phase a `$7DD0` byte holds, if it is one.
+            #[must_use]
+            pub const fn from_byte(byte: u8) -> Option<$name> {
+                match byte {
+                    $($byte => Some($name::$variant),)+
+                    _ => None,
+                }
+            }
+        }
+
+        #[cfg(test)]
+        #[test]
+        fn phase_bytes_round_trip() {
+            for byte in 0..=u8::MAX {
+                let declared = [$($byte),+].contains(&byte);
+                assert_eq!($name::from_byte(byte).map($name::byte), declared.then_some(byte));
+            }
+        }
+    };
+}
+
 pub mod ace_ranger;
 pub mod ace_ranger_shot;
 pub mod blast_walker;

@@ -10,7 +10,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
-use crate::actors::CELL_PENDING;
+use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
 
 /// `$7E90 & $3F`: the 64-frame spawn period (`$92A1`).
 const SPAWN_MASK: u8 = 0x3F;
@@ -20,8 +20,6 @@ const SLOTS: u16 = 16;
 const CHILD: u8 = 0x7E;
 /// The child's y (`$92C5`/`$92C7` = `$01`/`$40`).
 const CHILD_Y: u16 = 0x0140;
-/// The child's `$7D50` (`$92CF`).
-const CHILD_STATE: u8 = 0x40;
 /// The child's `$7EE0` (`$92D6`).
 const CHILD_CONTACT: u8 = 0x88;
 /// The child's `$7D90` when the parent's has no bit 7 (`$92D4`).
@@ -67,7 +65,7 @@ fn spawn(body: &Body, work: &Work, cx: &mut Cx<'_>) {
     let child = &mut child.body;
     child.x = body.x;
     child.y = CHILD_Y;
-    child.state = CHILD_STATE;
+    child.state = STATE_UNTARGETED;
     child.behaviour = behaviour;
     child.contact = CHILD_CONTACT;
     child.flags = 0;

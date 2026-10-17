@@ -11,33 +11,17 @@ const HOVER: i16 = -6;
 const DROP: u16 = 0x04C0;
 const FLOOR_ROW: u8 = 0x0C;
 
-/// The diver's phase (`$7DD0`), which picks its handler (`$875B`).
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Phase {
-    /// Hovering until its timer runs out and the player comes close.
-    Hovering = 0,
-    /// Diving to the floor.
-    Diving = 1,
-    /// Landed, hovering in place for `$20` frames.
-    Landed = 2,
-    /// Rising back to its row.
-    Rising = 3,
-}
-
-impl Phase {
-    const ALL: [Phase; 4] = [Phase::Hovering, Phase::Diving, Phase::Landed, Phase::Rising];
-
-    /// The byte `$7DD0` holds.
-    #[must_use]
-    pub const fn byte(self) -> u8 {
-        self as u8
-    }
-
-    /// The phase a `$7DD0` byte holds, if it is one.
-    #[must_use]
-    pub fn from_byte(byte: u8) -> Option<Phase> {
-        Phase::ALL.into_iter().find(|phase| phase.byte() == byte)
+phases! {
+    /// The diver's phase (`$7DD0`), which picks its handler (`$875B`).
+    Phase {
+        /// Hovering until its timer runs out and the player comes close.
+        Hovering = 0,
+        /// Diving to the floor.
+        Diving = 1,
+        /// Landed, hovering in place for `$20` frames.
+        Landed = 2,
+        /// Rising back to its row.
+        Rising = 3,
     }
 }
 
@@ -126,14 +110,6 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
-
-    #[test]
-    fn phase_bytes() {
-        let bytes: Vec<u8> = (0..=255)
-            .filter(|&byte| super::Phase::from_byte(byte).is_some())
-            .collect();
-        assert_eq!(bytes, [0, 1, 2, 3]);
-    }
 
     #[test]
     fn matches_the_oracle() {

@@ -3,8 +3,8 @@
 //! Phases through the table at `$9D91` ([`Phase`]): it turns for 12 frames
 //! (`$9D7D`), drops and dashes across the room, fires a burst that spawns type
 //! `$90` shots into slots 16-23 (`$9D13`), then braces and flips (`$7DB0`
-//! counting, flipping its facing every fourth count). Every phase ends in the shared draw tail at `$9C24`: three
-//! bank-9 metasprites (`$9D85`, `$9DA7`, `$9DAB`) with `$E6`/`$E7` set from
+//! counting, flipping its facing every fourth count). Every phase ends in the
+//! shared draw tail at `$9C24`: three bank-9 metasprites (`$9D85`, `$9DA7`, `$9DAB`) with `$E6`/`$E7` set from
 //! `$9DA1`, then the `$AFD6` boss contact. The death path is the `$AF97`/`$B1C4`
 //! boss pair.
 
@@ -33,44 +33,21 @@ const SHOT_KIND: u8 = 0x90;
 /// The `$AFD6` amount the tail drains on contact.
 const CONTACT: u16 = 0x00E0;
 
-/// The boss's phase (`$7DD0`), which picks its handler (`$9D91`).
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Phase {
-    /// Holding until the player has entered, then turning for 12 frames.
-    Opening = 0,
-    /// Rearing back and dropping.
-    Dropping = 1,
-    /// Dashing across the room.
-    Dashing = 2,
-    /// Winding up and firing the `$90` burst.
-    Firing = 3,
-    /// Landing and holding against the wall.
-    Bracing = 4,
-    /// Counting on, flipping its facing every fourth count.
-    Flipping = 5,
-}
-
-impl Phase {
-    const ALL: [Phase; 6] = [
-        Phase::Opening,
-        Phase::Dropping,
-        Phase::Dashing,
-        Phase::Firing,
-        Phase::Bracing,
-        Phase::Flipping,
-    ];
-
-    /// The byte `$7DD0` holds.
-    #[must_use]
-    pub const fn byte(self) -> u8 {
-        self as u8
-    }
-
-    /// The phase a `$7DD0` byte holds, if it is one.
-    #[must_use]
-    pub fn from_byte(byte: u8) -> Option<Phase> {
-        Phase::ALL.into_iter().find(|phase| phase.byte() == byte)
+phases! {
+    /// The boss's phase (`$7DD0`), which picks its handler (`$9D91`).
+    Phase {
+        /// Holding until the player has entered, then turning for 12 frames.
+        Opening = 0,
+        /// Rearing back and dropping.
+        Dropping = 1,
+        /// Dashing across the room.
+        Dashing = 2,
+        /// Winding up and firing the `$90` burst.
+        Firing = 3,
+        /// Landing and holding against the wall.
+        Bracing = 4,
+        /// Counting on, flipping its facing every fourth count.
+        Flipping = 5,
     }
 }
 
@@ -135,7 +112,8 @@ fn side_ground(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
     collision::floor(work, probe, cx)
 }
 
-/// `$9CB6`: face the player, dashing on if it already does, else flipping.
+/// `$9CB6`: compare its facing (the attribute's bit 6) with the player's side: a mismatch dashes,
+/// a match sets `$7DB0` bit 7 and flips.
 fn face(body: &mut Body, work: &Work, cx: &Cx<'_>) {
     let dx = work.x.wrapping_sub(cx.effects.player.x).to_be_bytes();
     body.timer = dx[1];
@@ -388,13 +366,6 @@ mod tests {
     /// The `$8E`'s whole life from the scene hint (`Scene::tas(14672)`): phases
     /// 0-5, on screen and drawn. The area-`0E` FME-7 IRQ drops some loops, so 570
     /// of 1000 frames are compared; all of them hold the `$8E`.
-    #[test]
-    fn phase_bytes() {
-        let bytes: Vec<u8> = (0..=255)
-            .filter(|&byte| super::Phase::from_byte(byte).is_some())
-            .collect();
-        assert_eq!(bytes, [0, 1, 2, 3, 4, 5]);
-    }
 
     #[test]
     fn matches_the_oracle() {

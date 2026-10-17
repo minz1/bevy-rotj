@@ -21,31 +21,15 @@ const THROW_RIGHT: u16 = 0x8872;
 const HITBOX: u8 = 0x0B;
 const DAMAGE: u8 = 2;
 
-/// The dropper's phase (`$7DD0`): the game stores its doubled index into `$8860`.
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Phase {
-    /// Counting down before it lowers a child.
-    Waiting = 0,
-    /// Lowering the child, then throwing it once it lands.
-    Lowering = 2,
-    /// Waiting out the throw.
-    Recovering = 4,
-}
-
-impl Phase {
-    const ALL: [Phase; 3] = [Phase::Waiting, Phase::Lowering, Phase::Recovering];
-
-    /// The byte `$7DD0` holds.
-    #[must_use]
-    pub const fn byte(self) -> u8 {
-        self as u8
-    }
-
-    /// The phase a `$7DD0` byte holds, if it is one.
-    #[must_use]
-    pub fn from_byte(byte: u8) -> Option<Phase> {
-        Phase::ALL.into_iter().find(|phase| phase.byte() == byte)
+phases! {
+    /// The dropper's phase (`$7DD0`): the game stores its doubled index into `$8860`.
+    Phase {
+        /// Counting down before it lowers a child.
+        Waiting = 0,
+        /// Lowering the child, waiting for it to land; ends by throwing it.
+        Lowering = 2,
+        /// Waiting out the throw.
+        Recovering = 4,
     }
 }
 
@@ -58,7 +42,7 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         if engine::dying(kind, body, work, 0x80, cx) {
-            // The game tests 1, a phase this dropper never holds (it steps 0, 2, 4).
+            // The game frees the child on phase 1, which never occurs (0, 2, 4); kept for parity.
             if body.phase == 1 {
                 free_child(body, cx);
             }
@@ -286,14 +270,6 @@ mod tests {
             }
         }
         panic!("no $2E reached phase {wanted}");
-    }
-
-    #[test]
-    fn phase_bytes() {
-        let bytes: Vec<u8> = (0..=255)
-            .filter(|&byte| super::Phase::from_byte(byte).is_some())
-            .collect();
-        assert_eq!(bytes, [0, 2, 4]);
     }
 
     #[test]

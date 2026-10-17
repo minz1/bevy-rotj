@@ -9,7 +9,7 @@ use crate::actor::world::Cx;
 const OVERLAYS: u16 = 0x8A64;
 /// The impact metasprites (bank 8 `$8A76`, by `$F1 & 6`).
 const IMPACTS: u16 = 0x8A76;
-/// The counter the impact starts on (bank 8 `$8A6E`, by `$7DF0`).
+/// The counter the landing starts on (bank 8 `$8A6E`, by `$7DF0`).
 const TIMERS: u16 = 0x8A6E;
 /// The stomping's animation index (bank 8 `$8A7E`, by `$7DF0`).
 const ANIMS: u16 = 0x8A7E;
@@ -32,31 +32,15 @@ const RUBBLE: u16 = 0x8AE9;
 /// The pointer to the 6x6 tiles a death queues (bank 8 `$8AF4`).
 const RUBBLE_TILES: u16 = 0x8AF4;
 
-/// The stomper's phase (`$7DD0`), which picks its handler (`$8A68`).
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Phase {
-    /// Hovering until the player comes close.
-    Hovering = 0,
-    /// The landing impact.
-    Impact = 1,
-    /// Stepping across the floor, stomping.
-    Stomping = 2,
-}
-
-impl Phase {
-    const ALL: [Phase; 3] = [Phase::Hovering, Phase::Impact, Phase::Stomping];
-
-    /// The byte `$7DD0` holds.
-    #[must_use]
-    pub const fn byte(self) -> u8 {
-        self as u8
-    }
-
-    /// The phase a `$7DD0` byte holds, if it is one.
-    #[must_use]
-    pub fn from_byte(byte: u8) -> Option<Phase> {
-        Phase::ALL.into_iter().find(|phase| phase.byte() == byte)
+phases! {
+    /// The stomper's phase (`$7DD0`), which picks its handler (`$8A68`).
+    Phase {
+        /// Hovering until the player comes close.
+        Hovering = 0,
+        /// The landing impact, again after the fifth stomp.
+        Landing = 1,
+        /// Stepping across the floor, stomping.
+        Stomping = 2,
     }
 }
 
@@ -90,8 +74,8 @@ impl State {
             }
         }
         match Phase::from_byte(body.phase) {
-            Some(Phase::Hovering) => hover(kind, body, work, visibility, cx),
-            Some(Phase::Impact) => impact(kind, body, work, visibility, cx),
+            Some(Phase::Hovering) => hovering(kind, body, work, visibility, cx),
+            Some(Phase::Landing) => landing(kind, body, work, visibility, cx),
             Some(Phase::Stomping) => stomping(kind, body, work, visibility, cx),
             None => panic!("type $0C phase {} is past the $8A68 table", body.phase),
         }
@@ -126,8 +110,14 @@ fn explode(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     engine::queue_block(&block, cx);
 }
 
-/// Hover (`$87BA`), then wake to the impact when the player comes close.
-fn hover(kind: &mut u8, body: &mut Body, work: &mut Work, visibility: Visibility, cx: &mut Cx<'_>) {
+/// Hovering (`$87BA`), then landing when the player comes close.
+fn hovering(
+    kind: &mut u8,
+    body: &mut Body,
+    work: &mut Work,
+    visibility: Visibility,
+    cx: &mut Cx<'_>,
+) {
     if visibility == Visibility::On {
         body.contact = 0x80;
         work.hitbox = 0;
@@ -146,15 +136,15 @@ fn hover(kind: &mut u8, body: &mut Body, work: &mut Work, visibility: Visibility
         let dx = engine::player_dx(work, &cx.effects.player);
         let [hi, lo] = dx.unsigned_abs().to_be_bytes();
         if hi & 0xF0 == 0 && hi & 0x0F < 5 && (hi & 0x0F < 4 || lo < 0x80) {
-            body.phase = Phase::Impact.byte();
+            body.phase = Phase::Landing.byte();
             body.counter = engine::rom_byte(cx.prg, 8, TIMERS + u16::from(body.timer));
         }
     }
     overlay(work, 0, cx);
 }
 
-/// The impact (`$880F`), then the stomping when its counter runs out.
-fn impact(
+/// Landing (`$880F`): the impact, then the stomping when its counter runs out.
+fn landing(
     kind: &mut u8,
     body: &mut Body,
     work: &mut Work,
@@ -247,7 +237,7 @@ fn stomping(
     }
     if body.timer == 5 {
         body.timer = 6;
-        body.phase = Phase::Impact.byte();
+        body.phase = Phase::Landing.byte();
         body.counter = 8;
         return;
     }
@@ -308,13 +298,6 @@ mod tests {
     /// step counter to 6 and back to phase 1 with a short counter. The poke is
     /// applied at `$D450`, so both sides see it and the branch's phase/counter
     /// writes are still diffed.
-    #[test]
-    fn phase_bytes() {
-        let bytes: Vec<u8> = (0..=255)
-            .filter(|&byte| super::Phase::from_byte(byte).is_some())
-            .collect();
-        assert_eq!(bytes, [0, 1, 2]);
-    }
 
     #[test]
     fn matches_the_oracle_at_step_five() {
