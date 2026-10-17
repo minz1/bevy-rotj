@@ -584,7 +584,6 @@ impl Boot {
             self.begin(Step::Title(Title::Start));
             return false;
         };
-        let read = self.reader(chr);
         let frame = self.runner.frame;
         let flow = match row {
             SlideRow::ArmSplit => {
@@ -597,7 +596,7 @@ impl Boot {
                     let room = &mut game.scroll.room;
                     room[4] = 0;
                     room[5..=10].fill(0);
-                    draw_block(game, read, BLOCKS, &mut self.cursor);
+                    draw_block(game, self.reader(chr), BLOCKS, &mut self.cursor);
                 }
                 wait(frame, 1)
             }
@@ -620,7 +619,7 @@ impl Boot {
             }
             SlideRow::Blocks(count) => {
                 if frame < count {
-                    draw_block(game, read, BLOCKS, &mut self.cursor);
+                    draw_block(game, self.reader(chr), BLOCKS, &mut self.cursor);
                 }
                 wait(frame, count)
             }
