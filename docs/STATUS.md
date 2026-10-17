@@ -1,4 +1,4 @@
-# Status — where 1.1.3 stands
+# Status — where 1.1.4 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -27,6 +27,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.1 | **done, tag `1.1.1`** (2026-10-17): the first modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The player's motion and the selected weapon are enums with their handlers named for each state; the projectile slots are `Projectile`; the pad's buttons and the pose byte's bits are named; every actor family file and `Brain` variant is named for what the actor is; small collapses (`engine::move_by_velocity`, `world::set_first_colours`, write-lists that stop where the game's `BMI` does); levels as assets, slices 1 and 2: an area's terrain is a `Terrain` imported from the ROM and built into a `Level`, a room's spawns typed `SpawnRecord`s and the schedule's bits named (`docs/MODERNIZE.md` "Done in 1.1.x") |
 | 1.1.2 | **done, tag `1.1.2`** (2026-10-17): the second modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). Every actor family's phase machine is a named `Phase` enum (`phases!`, 26 families; the other phase values named constants), the actor state bits `STATE_DROPS_PICKUP`/`STATE_UNTARGETED`; levels as assets: a room's layout and screen record are a `rooms::Room` (palette selectors, CHR banks, orientation with named bits, page order, start record, raster split, fixed rows and quads, the player's arrival), a metatile class's behaviour a `collision::Surface` the probes dispatch on (pinned to the ROM's handler tables); scripts as data: a shared runner (`actor::script`) under the ending and the cutscene, which is now a table; dead duplicate decoders deleted (`palettes.rs`, `actors.rs`'s screen records, `collision`'s summary types) |
 | 1.1.3 | **done, tag `1.1.3`** (2026-10-17): the third modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The actor families are declared once (`families!`: `Brain`, `SecondBrain` for the second-class families, both `new`s and the dispatch from one kind-ordered table); `Game::frame` reads as its steps (`ScriptFrame`, `script_frame`, `loop_body`, `move_player`...); the actors' fields by name: a `slots::Field` per array with the slot aliasing in one mapping, the spawners', parents' and platforms' address-keyed writes typed (`cx.get`/`set`, `Slots::kind`, `platform_parameter`, `pressed`), the part tables through `Field::from_array`; left address-keyed on purpose: `next_area_gate`'s projectile read by actor slot and `turret`'s register-indexed bytes |
+| 1.1.4 | **done, tag `1.1.4`** (2026-10-17): the fourth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The pad is `Buttons` in the core (named buttons and groups, `contains` for one button and `intersects` for any of a group; the byte stays at the Classic boundary: `Game::nmi`, the recordings, the oracle); the boot's linear parts are script tables on the shared runner (power-on, the intro, the title set-up, the slide-in and its flicker, the title's chosen flash), deleting its hidden counters |
 
 ## Verified working
 
@@ -71,9 +72,9 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    Enhanced features (interpolation, CRT filters, widescreen, remastered audio) follow
    from 1.2.0. **1.1.1, the first modernisation patch: tagged `1.1.1`** (2026-10-17).
    **1.1.2, the second: tagged `1.1.2`** (2026-10-17). **1.1.3, the third: tagged
-   `1.1.3`** (2026-10-17). Next: B4 (input as actions), `Boot`'s linear parts as a script
-   table, per-family names for `Body` bytes, then Phase C's spec; the ECS question above
-   is the owner's.
+   `1.1.3`** (2026-10-17). **1.1.4, the fourth: tagged `1.1.4`** (2026-10-17). Next: the
+   ECS spike's results for the owner, per-family names for `Body` bytes, then Phase C's
+   spec.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
@@ -98,16 +99,17 @@ from the game's own requests.
 
 ## Owner decisions pending
 
-- **The core on Bevy's ECS, or plain Rust with the ECS at the app boundary?**
-  (`docs/specs/2026-10-17-actors-as-entities-decision.md`, 2026-10-17.) The roadmap's B3
-  spike's questions are answered from the code: an ECS walk for Classic would be today's
-  23-to-0 walk with entity lookups, over state that is already typed Rust. Proposed (the
-  Opus stand-in agrees, and said it is yours to decide): `Slots` stays the owner, no spike,
-  and a read-only app-side mirror is built as Phase C's first step; the core's schedule
-  (B2 slice 2) is dropped or folded into Phase C. Until you answer, the roadmap and PLAN
-  keep their wording and no step depends on the answer.
+None open.
 
 ## Owner decisions made
+
+- **The core on Bevy's ECS: spike first (2026-10-17 night).** Asked whether the core
+  should move to `bevy_ecs` or stay plain Rust with a read-only ECS mirror in the app
+  (`docs/specs/2026-10-17-actors-as-entities-decision.md`), the owner chose the middle
+  option: a throwaway one-family spike in lockstep that measures the build and chain-test
+  times and shows an idiomatic ECS family beside today's (`docs/specs/2026-10-17-ecs-spike.md`,
+  branch `ecs-spike`), so the choice is made on data. The owner also played 1.1.3 and
+  found it the same game ("it looks great").
 
 - **1.0.5 (2026-10-16, after the owner's playtest of 1.0.4).** The picture letterboxes at
   a whole multiple (over filling the window with a sharp-bilinear stretch). The output

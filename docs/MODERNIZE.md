@@ -205,6 +205,12 @@ New candidates, each to be classified (state, flags, table index) before it chan
   Still address-keyed on purpose: `next_area_gate`'s read of a projectile array by actor
   slot, `turret::Indexed` (a register index that runs past slot 31), and the WRAM-image
   tooling (`lift`/`project`, `room.rs`'s image), which keep `find_owner`.
+- Released as 1.1.4: the pad as `Buttons` (`docs/specs/2026-10-17-buttons-design.md`;
+  the core has no `Action` enum, remapping is the app's) and the boot's linear parts as
+  script tables (`docs/specs/2026-10-17-boot-tables-design.md`).
+- **A lead (unreached):** `player.rs`'s `stun` computes `held = (attack & 0x80) << 1` on a
+  byte, which is always 0; probably a faithful `ASL` whose carry the game ignores, worth a
+  look against the listing.
 - **A lead (unreached):** a running slot 16+c that writes slot c's aliased bytes through
   `cx` (slot c's narrow fields, `Anim`, `DyingTimer`) has those writes undone by
   `store_aliases` when it finishes; in the game the write stands. No lockstep reaches it
