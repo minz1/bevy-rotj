@@ -219,7 +219,6 @@ pub const IN_ORDER: [u8; 32] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
-/// An area's room's page -> map column table (`$0440-$045F`, bank 13 `$B4CB`): bank 14
 /// The map offset (`$6000 +`) the game's probes build from a point's 16 px column
 /// and row (`$C99D`'s `$2A/$2B`): page `(row & $10) | (column >> 4)` (swapped on
 /// vertical levels), `rows[page]` its base column.

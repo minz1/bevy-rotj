@@ -865,7 +865,7 @@ artifact of the CHR banks in use, not a stage-local level number.
 A level's palette RAM (`$3F00-$3F1F`) and its gameplay CHR banks (FME-7 commands
 0-7, shadow `$88-$8F`/`$E0-$E7`) both come from one per-**(area, stage)** record.
 `rooms::Room::import` reads the chain's selectors and `actor::room::build_palette` resolves
-them (`palettes.rs` decoded it standalone until 1.1.2); this section records the
+them; this section records the
 addresses and the acceptance.
 
 ### 14a. The record
@@ -922,8 +922,8 @@ captured set is the frame-624 one.
 
 ### 14d. Acceptance (measured)
 
-`actor::oracle::tests::every_level_settles_to_its_captured_chr_and_palette` (the decoder
-comparison went with `palettes.rs`; the whole-game chain checks every room load)
+`actor::oracle::tests::every_level_settles_to_its_captured_chr_and_palette` (the whole-game
+chain checks every room load)
 decodes all 13 levels and compares against the committed captures
 (`tools/emu/stagearea-probe/lvl-<n>/`). For **every** level 0-12:
 
@@ -1137,7 +1137,7 @@ resolved bank (`resolve_chr`) is that sequence's last byte.
 - **Stage 1-1 (`area 0`)** animates only slot 3: `$0401 = 8` (bit 3), so
   `$E0-$E2` (`$2C/$2D/$2E`) are static and `$E3` cycles period 2, count 8.
   `room::animate_banks` for area 0 loads exactly
-  that (unit test `decodes_the_background_chr_animations`).
+  that.
 
 ### 16c. The port
 
