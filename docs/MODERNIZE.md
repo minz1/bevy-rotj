@@ -208,6 +208,10 @@ New candidates, each to be classified (state, flags, table index) before it chan
 - Released as 1.1.4: the pad as `Buttons` (`docs/specs/2026-10-17-buttons-design.md`;
   the core has no `Action` enum, remapping is the app's) and the boot's linear parts as
   script tables (`docs/specs/2026-10-17-boot-tables-design.md`).
+- Released as 1.1.5 and 1.1.6: the families' repurposed bytes named by how each is used
+  (`docs/specs/2026-10-17-family-fields-design.md`): slot links as locals, flags as value
+  consts, 16-bit pairs as named `u16`/`i16` values, the dropper's payload layout in its
+  own `arm`; the `hit` byte's engine bits (`slots::hit`).
 - **Resolved (2026-10-17):** `stun`'s `held = (attack & $80) << 1` was always 0, and so
   is the ROM's (`$92E8`: `AND #$80`, `ASL`, `STA $047F`, `STA $0470`); the port now writes
   the zeros plainly.

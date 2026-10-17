@@ -1,4 +1,4 @@
-# Status — where 1.1.5 stands
+# Status — where 1.1.6 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -29,6 +29,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.3 | **done, tag `1.1.3`** (2026-10-17): the third modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The actor families are declared once (`families!`: `Brain`, `SecondBrain` for the second-class families, both `new`s and the dispatch from one kind-ordered table); `Game::frame` reads as its steps (`ScriptFrame`, `script_frame`, `loop_body`, `move_player`...); the actors' fields by name: a `slots::Field` per array with the slot aliasing in one mapping, the spawners', parents' and platforms' address-keyed writes typed (`cx.get`/`set`, `Slots::kind`, `platform_parameter`, `pressed`), the part tables through `Field::from_array`; left address-keyed on purpose: `next_area_gate`'s projectile read by actor slot and `turret`'s register-indexed bytes |
 | 1.1.4 | **done, tag `1.1.4`** (2026-10-17): the fourth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The pad is `Buttons` in the core (named buttons and groups, `contains` for one button and `intersects` for any of a group; the byte stays at the Classic boundary: `Game::nmi`, the recordings, the oracle); the boot's linear parts are script tables on the shared runner (power-on, the intro, the title set-up, the slide-in and its flicker, the title's chosen flash), deleting its hidden counters |
 | 1.1.5 | **done, tag `1.1.5`** (2026-10-17): the fifth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The families' repurposed bytes named where it reads better (flag consts, 16-bit pairs as named values, the dropper's writes into its payload as the payload's own `arm`, the bosses' phase docs saying what each byte holds), `Body`'s docs back to the WRAM meaning; the stun's always-zero shift written as zeros (the ROM's `$92E8` agrees); the ECS spike's results for the owner (`docs/specs/2026-10-17-actors-as-entities-decision.md`: byte-exact, about 4x the core's clean build, about 15% slower chain test, no simpler code) |
+| 1.1.6 | **done, tag `1.1.6`** (2026-10-17): the sixth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The named-bytes pattern extended: the spawners', links' and flags' repurposed bytes named in their families; the `hit` byte's engine bits named (`slots::hit`: `DYING`, `FLASHING`, `STRUCK`); the families' 16-bit pairs (the slam's fall speed, the shot's and the bouncer's velocities, the dropper part's offset, the shell's life) as named 16-bit values, their byte-wise carries shown equivalent to 16-bit arithmetic for every input |
 
 ## Verified working
 
@@ -74,7 +75,8 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    from 1.2.0. **1.1.1, the first modernisation patch: tagged `1.1.1`** (2026-10-17).
    **1.1.2, the second: tagged `1.1.2`** (2026-10-17). **1.1.3, the third: tagged
    `1.1.3`** (2026-10-17). **1.1.4, the fourth: tagged `1.1.4`** (2026-10-17). **1.1.5,
-   the fifth: tagged `1.1.5`** (2026-10-17). Next: the owner's choice after the ECS spike
+   the fifth: tagged `1.1.5`** (2026-10-17). **1.1.6, the sixth: tagged `1.1.6`**
+   (2026-10-17). Next: the owner's choice after the ECS spike
    (the mirror or the core on `bevy_ecs`), the named-bytes pattern extended where it pays,
    then Phase C's spec.
 
