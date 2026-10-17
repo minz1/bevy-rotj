@@ -3,7 +3,8 @@
 use super::oam::{DrawCall, Metasprite};
 use super::slots::{Body, Field, hit};
 use super::world::{
-    Cx, Effects, Level, Motion, Player, Schedule, Weapon, World, orientation, pose,
+    Cx, Effects, Level, Motion, Player, Schedule, Weapon, World, attack, busy, hurt, orientation,
+    pose, power_up, sliding, stage_script,
 };
 use crate::actors::{CELL_PENDING, STATE_DROPS_PICKUP, bank_slice};
 
@@ -528,9 +529,10 @@ fn overlaps(work: &Work, player: &Player, x_table: u16, y_table: u16, prg: &[u8]
 
 /// Contact with the player (`$A9C4`): an item is collected, the actor or the player hurt.
 pub fn contact(kind: &mut u8, body: &mut Body, work: &mut Work, damage: u8, cx: &mut Cx<'_>) {
-    let gates = cx.effects.player.flags;
     let checks_player = if body.contact & 0x40 == 0 {
-        gates[1] & 0x80 != 0 || (gates[0] & 0x80 == 0 && gates[2] & 0x40 == 0)
+        cx.effects.player.sliding & sliding::ON != 0
+            || (cx.effects.player.power_up & power_up::ON == 0
+                && cx.effects.player.hurt & hurt::INVULNERABLE == 0)
     } else {
         body.contact & 0x01 != 0
     };
@@ -539,11 +541,14 @@ pub fn contact(kind: &mut u8, body: &mut Body, work: &mut Work, damage: u8, cx: 
             collect(kind, body, cx);
             return;
         }
-        if gates[1] & 0x80 != 0 && body.contact & 0x10 != 0 {
+        if cx.effects.player.sliding & sliding::ON != 0 && body.contact & 0x10 != 0 {
             hurt_actor(body, work, cx);
             return;
         }
-        if gates[1] & 0x80 == 0 || (gates[0] & 0x80 == 0 && gates[2] & 0x40 == 0) {
+        if cx.effects.player.sliding & sliding::ON == 0
+            || (cx.effects.player.power_up & power_up::ON == 0
+                && cx.effects.player.hurt & hurt::INVULNERABLE == 0)
+        {
             hurt_player(cx.effects);
             let player = &mut cx.effects.player;
             player.energy = player.energy.wrapping_sub(damage);
@@ -681,9 +686,8 @@ pub fn boss_flash(body: &mut Body, work: &mut Work, world: &World) -> u8 {
 /// `mode` `$80`, `$40`/`$42` when it was hit, else 0; touching him drains `amount` from `$B2`.
 pub fn boss_contact(amount: u16, mode: u8, body: &mut Body, work: &Work, cx: &mut Cx<'_>) -> u8 {
     if mode & 0x40 == 0 {
-        let gates = cx.effects.player.flags;
-        let attacking = gates[1] & 0x80 != 0;
-        let guarded = gates[2] & 0x40 != 0;
+        let attacking = cx.effects.player.sliding & sliding::ON != 0;
+        let guarded = cx.effects.player.hurt & hurt::INVULNERABLE != 0;
         if (attacking || !guarded) && overlaps(work, &cx.effects.player, 0xB0F9, 0xB0FE, cx.prg) {
             if attacking && cx.effects.boss_hp == 0 {
                 return 0;
@@ -746,7 +750,7 @@ fn boss_damaged(damage: u8, body: &mut Body, cx: &mut Cx<'_>) -> u8 {
 
 /// The boss is beaten: music `$FC`, `$AF` set and a type-`$50` slot with `timer` (`$B1C4`).
 pub fn boss_defeated(timer: u8, cx: &mut Cx<'_>) {
-    cx.effects.busy = 0x80;
+    cx.effects.busy = busy::SCRIPTED;
     cx.effects.music = 0xFC;
     // ponytail: no free slot spawns nothing; the game writes past the slot arrays then
     let Some(slot) = cx.slots.main[..16]
@@ -782,9 +786,8 @@ pub fn queue_counters(value: u16, cx: &mut Cx<'_>) {
 
 /// Contact that only hurts the player, with no weapon scan (`$AEE3`); true when it hit.
 pub fn touch(work: &Work, damage: u8, cx: &mut Cx<'_>) -> bool {
-    let gates = cx.effects.player.flags;
-    if gates[0] & 0x80 != 0
-        || gates[2] & 0x40 != 0
+    if cx.effects.player.power_up & power_up::ON != 0
+        || cx.effects.player.hurt & hurt::INVULNERABLE != 0
         || !overlaps(work, &cx.effects.player, 0xAF2A, 0xAF31, cx.prg)
     {
         return false;
@@ -798,11 +801,11 @@ pub fn touch(work: &Work, damage: u8, cx: &mut Cx<'_>) -> bool {
 /// The player is hit: sound `$25`, hurt timer, and knock-back when standing (`$B17F`).
 pub fn hurt_player(effects: &mut Effects) {
     effects.sound[0] = 0x25;
-    effects.attack &= 0x80;
+    effects.attack &= attack::CHARGEABLE;
     let player = &mut effects.player;
     player.pose &= !pose::SHOT;
     player.hurt_timer = 0x20;
-    player.flags[2] = 0xC0;
+    player.hurt = hurt::STUNNED | hurt::INVULNERABLE;
     if player.motion == Motion::Falling {
         player.motion = Motion::Jumping;
     }
@@ -855,8 +858,8 @@ pub fn level_end(effects: &mut Effects) {
     let player = &mut effects.player;
     player.motion = Motion::Dying;
     player.facing |= 3;
-    player.flags[2] = 0xC0;
-    player.stage_script = 0x80;
+    player.hurt = hurt::STUNNED | hurt::INVULNERABLE;
+    player.stage_script = stage_script::FROZEN;
     player.death_timer = 0;
     player.death_flags = 0;
     effects.attack = 0;
@@ -994,14 +997,13 @@ pub fn collect(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
         *kind = 0;
         return;
     }
-    let player_flags = effects.player.flags[0];
     match body.state & !STATE_DROPS_PICKUP {
         0..=3 => {
-            if player_flags & 0x80 == 0 {
+            if effects.player.power_up & power_up::ON == 0 {
                 effects.weapon = Weapon::from_byte((body.state & !STATE_DROPS_PICKUP) + 1)
                     .expect("a pickup gives weapons 1-4");
             }
-            effects.attack = 0x80;
+            effects.attack = attack::CHARGEABLE;
             for projectile in &mut effects.projectiles {
                 projectile.kind = 0;
             }
@@ -1012,10 +1014,10 @@ pub fn collect(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
                 effects.meter = meter;
             } else {
                 effects.meter = 0x0E;
-                if player_flags & 0x80 == 0 {
+                if effects.player.power_up & power_up::ON == 0 {
                     effects.stored_weapon = effects.weapon;
                     effects.transition = 5;
-                    effects.busy = 0x80;
+                    effects.busy = busy::SCRIPTED;
                 }
             }
         }

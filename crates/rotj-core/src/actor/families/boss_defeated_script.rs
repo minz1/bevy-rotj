@@ -7,7 +7,7 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::{Body, Field};
-use crate::actor::world::{Cx, Motion};
+use crate::actor::world::{Cx, Motion, attack, hurt, stage_script};
 
 const CHILD: u8 = 0x52;
 const COUNTDOWN: u8 = 0xC0;
@@ -29,9 +29,9 @@ impl State {
     /// One frame of the handler (`$9C13`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
         cx.effects.player.motion = Motion::Held;
-        cx.effects.player.flags[2] = 0x40;
-        cx.effects.player.stage_script = 0x80;
-        cx.effects.attack &= 0x80;
+        cx.effects.player.hurt = hurt::INVULNERABLE;
+        cx.effects.player.stage_script = stage_script::FROZEN;
+        cx.effects.attack &= attack::CHARGEABLE;
         cx.effects.misc_flag = 0;
         for projectile in &mut cx.effects.projectiles {
             projectile.kind = 0;

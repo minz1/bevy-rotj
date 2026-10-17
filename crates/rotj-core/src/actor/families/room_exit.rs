@@ -3,7 +3,7 @@
 
 use crate::actor::engine::{self, Proximity, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, hurt};
 
 /// Type `$02` keeps no state of its own; it reuses its spawn record's state byte
 /// as the transition parameter.
@@ -13,7 +13,7 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$81D4`).
     pub fn step(&mut self, _kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-        if cx.effects.player.energy & 0x80 != 0 || cx.effects.player.flags[2] & 0x80 != 0 {
+        if cx.effects.player.energy & 0x80 != 0 || cx.effects.player.hurt & hurt::STUNNED != 0 {
             return;
         }
         work.hitbox = 0;

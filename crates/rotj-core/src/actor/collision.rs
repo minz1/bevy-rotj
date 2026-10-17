@@ -1,7 +1,7 @@
 //! Level collision (bank 14 `$C93B`, `$C99D`, `$CAFE`, `$CD5F` and their bank-13 wrappers).
 
 use super::engine::{Work, rom_byte, rom_word};
-use super::world::{Cx, orientation};
+use super::world::{Cx, orientation, power_up};
 use crate::collision::Surface;
 
 /// A collision probe: point `$20-$23`, flags `$24`, landing bytes `$27/$28`.
@@ -116,16 +116,16 @@ fn spikes(work: &mut Work, cx: &mut Cx<'_>) {
     work.damage = 0x10;
     work.probe_flags |= 0x80;
     player.hit = work.probe_flags;
-    player.flags[0] &= 0x7F;
+    player.power_up &= !power_up::ON;
     cx.effects.scroll_lock = 0xFF;
     cx.effects.music = 0xFF;
     cx.scroll.gate = 0;
 }
 
 /// Sets the damage byte and the response's `$9F` bit 7 (`$CA4E`), unless `$0472` bit 7
-/// says the player is already hurt this frame.
+/// says the power-up is on.
 fn damage(work: &mut Work, amount: u8, cx: &Cx<'_>) {
-    if cx.effects.player.flags[0] & 0x80 == 0 {
+    if cx.effects.player.power_up & power_up::ON == 0 {
         work.damage = amount;
         work.probe_flags |= 0x80;
     }

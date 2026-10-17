@@ -190,6 +190,52 @@ pub mod pose {
     pub const LONG_LANDING: u8 = 0x01;
 }
 
+/// The bits of the stage-script byte (`$0481`).
+pub mod stage_script {
+    /// The player's movement is frozen.
+    pub const FROZEN: u8 = 0x80;
+    /// The projection is skipped: the player is not drawn.
+    pub const HIDDEN: u8 = 0x40;
+    /// With [`FROZEN`]: the pads are kept rather than cleared.
+    pub const KEEP_PADS: u8 = 0x20;
+}
+
+/// The bits of the busy byte (`$AF`).
+pub mod busy {
+    /// A scripted sequence holds the game; the pause tests it.
+    pub const SCRIPTED: u8 = 0x80;
+}
+
+/// The bits of the attack byte (`$B8`).
+pub mod attack {
+    /// The weapon charges (every weapon but the bolt).
+    pub const CHARGEABLE: u8 = 0x80;
+    /// A charge is building (B held since the press).
+    pub const CHARGING: u8 = 0x40;
+    /// The charged attack is out.
+    pub const CHARGED: u8 = 0x20;
+}
+
+/// The bits of the power-up byte (`$0472`).
+pub mod power_up {
+    /// The power-up is on: invulnerable, the meter drains, weapon pickups are ignored.
+    pub const ON: u8 = 0x80;
+}
+
+/// The bits of the slide byte (`$0473`).
+pub mod sliding {
+    /// The player is sliding.
+    pub const ON: u8 = 0x80;
+}
+
+/// The bits of the hurt byte (`$047A`).
+pub mod hurt {
+    /// The hurt lockout: controls locked while the timers run.
+    pub const STUNNED: u8 = 0x80;
+    /// The invulnerability after the hurt (what the contacts and the damage tile test).
+    pub const INVULNERABLE: u8 = 0x40;
+}
+
 /// The player as actors see him.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Player {
@@ -203,8 +249,12 @@ pub struct Player {
     pub screen_y: u8,
     /// Energy (`$0478`).
     pub energy: u8,
-    /// Contact gates (`$0472`, `$0473`, `$047A`).
-    pub flags: [u8; 3],
+    /// The power-up byte (`$0472`): bit 7 the power-up (the Super weapon) is on.
+    pub power_up: u8,
+    /// The slide byte (`$0473`): bit 7 sliding; the contacts read it as "the player hits actors".
+    pub sliding: u8,
+    /// The hurt byte (`$047A`): bit 7 the hurt lockout, bit 6 the invulnerability after it.
+    pub hurt: u8,
     /// Contact reach below him (`$047B`).
     pub reach_y: u8,
     /// X velocity (`$046C:$046D`).
@@ -220,8 +270,8 @@ pub struct Player {
     pub pose: u8,
     /// Y velocity, 1/16 px a frame (`$0469:$046A`).
     pub vy: i16,
-    /// The stage-script byte (`$0481`): bit 7 freezes the player and clears the pads,
-    /// bit 6 skips the projection (docs/ACTORS.md §7a).
+    /// The stage-script byte (`$0481`): bit 7 freezes the player and clears the pads
+    /// unless bit 5 keeps them, bit 6 skips the projection (docs/ACTORS.md §7a).
     pub stage_script: u8,
     /// The death counter (`$0480`), counting motion 7's flash and burst; cleared by
     /// the death (`$D274`).
@@ -320,8 +370,8 @@ pub struct Effects {
     /// `$AF` bit 7: a scripted sequence (death, boss entry, level end, super attack)
     /// holds the game; it blocks the pause.
     pub busy: u8,
-    /// The player's attack state (`$B8`): bit 7 a shot is armed, bit 6 a charge is
-    /// running, bit 5 the charged attack is out.
+    /// The player's attack flags (`$B8`): bit 7 the weapon charges, bit 6 a charge is
+    /// building, bit 5 the charged attack is out.
     pub attack: u8,
     /// The boss's hit points (`$A9:$AA`), set by bank 13 `$BE12`.
     pub boss_hp: u16,
@@ -664,7 +714,9 @@ mod layout {
                 screen_x: ram[0xB0],
                 screen_y: ram[0xB1],
                 energy: ram[0x478],
-                flags: [ram[0x472], ram[0x473], ram[0x47A]],
+                power_up: ram[0x472],
+                sliding: ram[0x473],
+                hurt: ram[0x47A],
                 reach_y: ram[0x47B],
                 vx: word(ram, 0x46C).cast_signed(),
                 motion: Motion::from_byte(ram[0x46E]).expect("a motion 0-11 at $046E"),
@@ -700,7 +752,9 @@ mod layout {
             ram[0xB0] = self.screen_x;
             ram[0xB1] = self.screen_y;
             ram[0x478] = self.energy;
-            [ram[0x472], ram[0x473], ram[0x47A]] = self.flags;
+            ram[0x472] = self.power_up;
+            ram[0x473] = self.sliding;
+            ram[0x47A] = self.hurt;
             ram[0x47B] = self.reach_y;
             ram[0x46C..0x46E].copy_from_slice(&self.vx.to_be_bytes());
             ram[0x46E] = self.motion.byte();

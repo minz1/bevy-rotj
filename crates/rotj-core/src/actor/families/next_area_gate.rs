@@ -9,7 +9,7 @@
 
 use crate::actor::engine::{self, Proximity, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::{Cx, Motion, Weapon, orientation};
+use crate::actor::world::{Cx, Motion, Weapon, attack, hurt, orientation, power_up};
 use crate::actors::{CELL_LOCK, CELL_PENDING};
 
 /// The transition selector it arms (`$89CF`).
@@ -29,11 +29,12 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$8950`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-        let gates = cx.effects.player.flags;
-        if gates[0] & 0x80 != 0 && cx.byte(0x7BD0 + u16::from(work.slot)) & 0x80 != 0 {
+        if cx.effects.player.power_up & power_up::ON != 0
+            && cx.byte(0x7BD0 + u16::from(work.slot)) & 0x80 != 0
+        {
             return;
         }
-        if cx.effects.player.energy & 0x80 != 0 || gates[2] & 0x80 != 0 {
+        if cx.effects.player.energy & 0x80 != 0 || cx.effects.player.hurt & hurt::STUNNED != 0 {
             return;
         }
         if body.behaviour != 0 {
@@ -88,14 +89,14 @@ fn transition(body: &Body, cx: &mut Cx<'_>) {
         effects.hud = 0;
     }
     effects.transition = TRANSITION;
-    if effects.player.flags[0] & 0x80 != 0 {
+    if effects.player.power_up & power_up::ON != 0 {
         effects.weapon = effects.stored_weapon;
         effects.attack = if effects.stored_weapon == Weapon::Bolt {
             0
         } else {
-            0x80
+            attack::CHARGEABLE
         };
-        effects.player.flags[0] &= 0x7F;
+        effects.player.power_up &= !power_up::ON;
     }
     if effects.player.motion == Motion::Flying {
         effects.player.energy = 0x0E;

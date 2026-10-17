@@ -5,7 +5,7 @@ use super::Game;
 use super::cutscene::Cutscene;
 use super::engine::{draw, rom_byte, rom_word};
 use super::room;
-use super::world::{Motion, VramWrite, Weapon, set_first_colours};
+use super::world::{Motion, VramWrite, Weapon, attack, set_first_colours, stage_script};
 use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
 use crate::ppulist::WriteList;
@@ -42,8 +42,8 @@ pub fn stage_end(game: &mut Game, prg: &[u8]) -> bool {
                 for projectile in &mut game.effects.projectiles {
                     projectile.kind = 0;
                 }
-                game.effects.player.flags[0] = 0;
-                game.effects.attack &= 0x80;
+                game.effects.player.power_up = 0;
+                game.effects.attack &= attack::CHARGEABLE;
             }
         }
         1 => {
@@ -185,7 +185,7 @@ impl PowerUp {
             for projectile in &mut effects.projectiles {
                 projectile.kind = 0;
             }
-            effects.attack &= 0x80;
+            effects.attack &= attack::CHARGEABLE;
             effects.stage_end.timer = effects.scroll_lock;
             effects.scroll_lock = 0xFF;
             effects.stage_end.phase = 0;
@@ -209,7 +209,7 @@ impl PowerUp {
         let effects = &mut game.effects;
         effects.stage_end.phase = effects.stage_end.phase.wrapping_add(1);
         let player = &mut effects.player;
-        player.stage_script = 0x80;
+        player.stage_script = stage_script::FROZEN;
         effects.transition = 0;
         effects.stage_args[1] = player.motion.byte();
         player.motion = Motion::PoweringUp;
@@ -850,7 +850,7 @@ impl BossIntro {
         player.tally_digit = 0;
         player.entry_chr = game.oam.chr[4];
         player.motion = Motion::BossEntry;
-        player.stage_script = 0xC0;
+        player.stage_script = stage_script::FROZEN | stage_script::HIDDEN;
         queue_palette(game);
         request_song(game, prg);
         game.effects.transition = 0;

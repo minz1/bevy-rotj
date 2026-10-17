@@ -31,7 +31,7 @@ use button::Buttons;
 use engine::Work;
 use oam::OamBuilder;
 use slots::Slots;
-use world::{Cx, Effects, Schedule, World};
+use world::{Cx, Effects, Schedule, World, busy, stage_script};
 
 /// Everything the game loop reads and writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -223,7 +223,7 @@ impl Game {
 
     /// Start pressed while the player may pause (`$0476`'s `$AF` busy bit clear).
     fn pause_requested(&self) -> bool {
-        self.world.pressed.contains(Buttons::START) && self.effects.busy & 0x80 == 0
+        self.world.pressed.contains(Buttons::START) && self.effects.busy & busy::SCRIPTED == 0
     }
 
     /// The gameplay loop `$D3F9`, one step a line.
@@ -268,7 +268,9 @@ impl Game {
         let (mut cx, work) = self.parts(prg);
         player::step_move(work, &mut probe, &mut cx);
         self.probe = probe;
-        if self.effects.player.stage_script & 0xA0 == 0x80 {
+        if self.effects.player.stage_script & (stage_script::FROZEN | stage_script::KEEP_PADS)
+            == stage_script::FROZEN
+        {
             (self.world.pad, self.world.pressed) = (Buttons::NONE, Buttons::NONE);
         }
     }

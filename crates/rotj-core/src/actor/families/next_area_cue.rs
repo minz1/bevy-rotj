@@ -44,7 +44,7 @@ impl State {
         }
         if body.anim >= ARMED {
             cx.effects.hud = 0;
-            cx.effects.player.flags[0] = 0;
+            cx.effects.player.power_up = 0;
             cx.effects.transition = 3;
             return;
         }

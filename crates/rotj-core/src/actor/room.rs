@@ -8,7 +8,8 @@ use super::slots::Slots;
 use super::spawn::{SpawnTable, spawn_row};
 use super::stage::Fade;
 use super::world::{
-    Effects, Motion, Projectile, Schedule, View, VramWrite, World, orientation, set_first_colours,
+    Effects, Motion, Projectile, Schedule, View, VramWrite, World, attack, orientation, power_up,
+    set_first_colours, stage_script,
 };
 use crate::actors::spawn_schedule;
 use crate::rooms::{Arrival, Room};
@@ -485,12 +486,12 @@ pub fn load(game: &mut Game, prg: &[u8]) {
 
     game.scroll.gate = 0xFF;
     game.effects.vram.origin = 0x2000;
-    game.effects.attack &= 0x80;
+    game.effects.attack &= attack::CHARGEABLE;
     player.vx = 0;
     player.motion = Motion::Standing;
     player.pose = 0;
-    player.flags[2] = 0;
-    player.flags[1] = 0;
+    player.hurt = 0;
+    player.sliding = 0;
     player.death_flags = 0;
     player.stage_script = 0;
     player.pose_timer = 0;
@@ -625,8 +626,8 @@ pub fn enter_area(game: &mut Game, prg: &[u8], chr: &[u8], leftover: Leftover) {
     player.screen_x = (player.x >> 4).to_le_bytes()[0];
     player.screen_y = (player.y >> 4).to_le_bytes()[0];
     spawn_first_row(game, prg);
-    if game.effects.player.flags[0] & 0x80 != 0 {
-        game.effects.player.flags[0] = 0;
+    if game.effects.player.power_up & power_up::ON != 0 {
+        game.effects.player.power_up = 0;
         game.effects.weapon = game.effects.stored_weapon;
     }
     game.oam.chr[4] = 0xA0;
@@ -808,9 +809,18 @@ pub fn parameters(game: &mut Game, prg: &[u8]) {
     let player = &mut game.effects.player;
     match layout.arrival {
         Arrival::Unchanged => {}
-        Arrival::Held => (player.motion, player.stage_script) = (Motion::Held, 0xE0),
+        Arrival::Held => {
+            (player.motion, player.stage_script) = (
+                Motion::Held,
+                stage_script::FROZEN | stage_script::HIDDEN | stage_script::KEEP_PADS,
+            );
+        }
         Arrival::Flying => {
-            (player.anim, player.motion, player.stage_script) = (0x85, Motion::Flying, 0xA0);
+            (player.anim, player.motion, player.stage_script) = (
+                0x85,
+                Motion::Flying,
+                stage_script::FROZEN | stage_script::KEEP_PADS,
+            );
         }
     }
 }

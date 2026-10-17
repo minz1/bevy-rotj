@@ -5,7 +5,7 @@
 use crate::actor::button::Buttons;
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::{Cx, Motion};
+use crate::actor::world::{Cx, Motion, stage_script};
 
 const WALK_FRAMES: u16 = 0x9DF5;
 const NO_CLAMP: u8 = 0xFF;
@@ -30,7 +30,7 @@ impl State {
             return;
         }
         player.motion = Motion::Flying;
-        player.stage_script = 0xA0;
+        player.stage_script = stage_script::FROZEN | stage_script::KEEP_PADS;
         cx.effects.cutscene_id = 0xA0;
         player.x = player.x.wrapping_add(DRIFT);
         if cx.effects.scroll_lock != NO_CLAMP {

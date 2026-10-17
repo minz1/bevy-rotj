@@ -188,15 +188,15 @@ New candidates, each to be classified (state, flags, table index) before it chan
 (`docs/specs/2026-10-16-modernisation-roadmap-design.md`):
 
 - **The player's other flag bytes**: `stage_script` (`$0481`: bit 7 freezes him and clears
-  the pads, bit 6 skips the projection), `effects.busy` (`$AF`), `effects.attack` (`$B8`),
-  `flags[0..3]` (the contact gates): named bits.
+  the pads unless bit 5 keeps them, bit 6 skips the projection), `effects.busy` (`$AF`),
+  `effects.attack` (`$B8`), `power_up`/`sliding`/`hurt` (`$0472`/`$0473`/`$047A`): named
+  bits in `actor/world.rs` (1.1.7).
 - **The hurt rule twice**: `player.rs`'s own hurt (the `Falling` → `Jumping` knockback and
   the `on_foot` test) and `engine::hurt_player` repeat the same rule; one function.
 - **Runtime ROM tables** (about 390 `rom_byte`/`rom_word` reads in 90 files): velocities,
   hitboxes, metasprite pointers, per-motion offsets. Typed data the level importer
   produces (roadmap A3, B1), which new content and kaizo levels need.
-- **Helper names in `player.rs`** still shaped by the probe they call: `solid_below`
-  (probes two tiles off the player's y; check the axis before naming it), `stun`, `bit`
+- **Helper names in `player.rs`** still shaped by the probe they call: `stun`, `bit`
   (the 6502 `BIT` flag mirror kept for its N/V side effects: name what each caller tests).
 
 - Released as 1.1.3: the families declared once, `SecondBrain`, the frame's steps named

@@ -10,7 +10,9 @@ use super::collision::{self, Probe};
 use super::engine::{self, Work, rom_byte, rom_word};
 use super::scroll::Scroll;
 use super::slots::{self, hit};
-use super::world::{Cx, Motion, Projectile, Weapon, set_first_colours};
+use super::world::{
+    Cx, Motion, Projectile, Weapon, attack, busy, power_up, set_first_colours, stage_script,
+};
 use crate::actor::button::Buttons;
 use crate::actors::STATE_UNTARGETED;
 
@@ -124,12 +126,12 @@ fn power_up_pieces(work: &mut Work, cx: &mut Cx<'_>) {
         piece.kind = 0;
         let lit = piece.part_timer & 0x80 != 0;
         let player = &mut effects.player;
-        player.flags[0] = 0x80;
-        effects.attack = 0x80;
+        player.power_up = power_up::ON;
+        effects.attack = attack::CHARGEABLE;
         effects.weapon = Weapon::Super;
         player.facing &= 0xFC;
         player.stage_script = 0;
-        player.flags[2] = 0;
+        player.hurt = 0;
         player.flash_timer = 0;
         effects.busy = 0;
         effects.scroll_lock = effects.stage_end.timer;
@@ -430,7 +432,7 @@ fn homing_retarget(slot: usize, cx: &mut Cx<'_>) -> u8 {
 /// (`$7D00` counting them); letting go before that clears the charge, and after it,
 /// or A or a direction pressed, throws it as type `$81`.
 fn homing_gather(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
-    let held = cx.effects.attack & 0x40 != 0;
+    let held = cx.effects.attack & attack::CHARGING != 0;
     if cx.effects.projectiles[slot].param & 0x80 == 0 {
         if !held {
             #[cfg(test)]
@@ -581,7 +583,7 @@ fn homing_draw_circlers(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
 fn homing_launch(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     #[cfg(test)]
     super::oracle::seen(0x864A);
-    cx.effects.attack &= 0x80;
+    cx.effects.attack &= attack::CHARGEABLE;
     let pad = cx.world.pad;
     let direction = if !pad.intersects(Buttons::DPAD) {
         if cx.effects.player.motion == Motion::AimingUp {
@@ -702,15 +704,15 @@ fn super_unleash(slot: usize, work: &Work, cx: &mut Cx<'_>, scroll: &mut Scroll)
     if cx.effects.meter < 2 {
         #[cfg(test)]
         super::oracle::seen(0x979E);
-        cx.effects.attack &= 0x80;
+        cx.effects.attack &= attack::CHARGEABLE;
         cx.effects.projectiles[slot].kind = 0;
         return false;
     }
     #[cfg(test)]
     super::oracle::seen(0x97AC);
-    cx.effects.busy = 0x80;
+    cx.effects.busy = busy::SCRIPTED;
     cx.effects.sound[0] = 0x47;
-    cx.effects.player.stage_script |= 0x80;
+    cx.effects.player.stage_script |= stage_script::FROZEN;
     scroll.gate = 0;
     scroll.speed_x = 0;
     scroll.speed_y = 0;
@@ -904,7 +906,7 @@ fn super_end_attack(slot: usize, cx: &mut Cx<'_>, scroll: &mut Scroll) {
     #[cfg(test)]
     super::oracle::seen(0x9AF7);
     let effects = &mut *cx.effects;
-    effects.player.flags[0] &= 0x7F;
+    effects.player.power_up &= !power_up::ON;
     effects.player.stage_script = 0;
     effects.meter = 0xFE;
     effects.weapon = effects.stored_weapon;
@@ -1248,7 +1250,7 @@ fn three_way(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
 fn three_way_brew(slot: usize, cx: &mut Cx<'_>) {
     #[cfg(test)]
     super::oracle::seen(0x92D3);
-    if cx.effects.attack & 0x40 == 0 {
+    if cx.effects.attack & attack::CHARGING == 0 {
         cx.effects.sound[1] = 0x2A;
         three_way_let_go(slot, cx);
         return;
@@ -1515,7 +1517,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         work.pointer = rom_word(cx.prg, 5, 0x8C6D + u16::from((cx.world.frame & 4) >> 1));
         draw(work, cx);
     }
-    if cx.effects.attack & 0x40 != 0 {
+    if cx.effects.attack & attack::CHARGING != 0 {
         return;
     }
     #[cfg(test)]
@@ -1565,7 +1567,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
 fn wave_charge(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
     #[cfg(test)]
     super::oracle::seen(0x8F03);
-    if cx.effects.attack & 0x40 == 0 {
+    if cx.effects.attack & attack::CHARGING == 0 {
         cx.effects.projectiles[slot].kind = 0;
         return true;
     }
@@ -1606,15 +1608,15 @@ fn wave_charge(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
 fn wave_spread(slot: usize, cx: &mut Cx<'_>) -> bool {
     #[cfg(test)]
     super::oracle::seen(0x8FC2);
-    if cx.effects.attack & 0x40 != 0 {
+    if cx.effects.attack & attack::CHARGING != 0 {
         cx.effects.sound[0] = 0x2C;
     }
     let count = cx.effects.projectiles[slot].part_timer;
-    if cx.effects.attack & 0x40 == 0 || count >= 0x40 {
+    if cx.effects.attack & attack::CHARGING == 0 || count >= 0x40 {
         for projectile in &mut cx.effects.projectiles {
             projectile.kind = 0;
         }
-        cx.effects.attack &= 0x80;
+        cx.effects.attack &= attack::CHARGEABLE;
         return false;
     }
     cx.effects.projectiles[slot].part_timer = count.wrapping_add(1);
