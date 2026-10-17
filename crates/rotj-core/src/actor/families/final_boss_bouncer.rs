@@ -10,7 +10,7 @@
 //! clears a bit of the behaviour of the slot named in `$7C30` (its parent).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
 /// The bank-12 table of six bank-9 metasprite pointers (`$97AA`), indexed by
@@ -85,9 +85,13 @@ impl State {
 /// Frees the slot and clears the parent's behaviour bit (`$9788`): bit 7 when
 /// this actor moves right, bit 6 when it moves left.
 fn free(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
-    let addr = 0x7D90 + u16::from(body.sprite);
-    let value = cx.byte(addr);
-    cx.set_byte(addr, value & if body.behaviour == 0 { 0x7F } else { 0xBF });
+    let parent = usize::from(body.sprite);
+    let value = cx.get(parent, Field::Behaviour);
+    cx.set(
+        parent,
+        Field::Behaviour,
+        value & if body.behaviour == 0 { 0x7F } else { 0xBF },
+    );
     *kind = 0;
 }
 

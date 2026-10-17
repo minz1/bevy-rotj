@@ -6,7 +6,7 @@
 //! collides.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Field};
 use crate::actor::world::{Cx, Motion};
 
 const CHILD: u8 = 0x52;
@@ -59,19 +59,12 @@ fn spawn_52(body: &mut Body, cx: &mut Cx<'_>) {
         cx.effects.sound[0] = SPAWN_SOUND;
     }
     if let Some((child, x, y)) = child_slot(body, cx) {
-        let [x_hi, x_lo] = x.to_be_bytes();
-        let [y_hi, y_lo] = y.to_be_bytes();
-        for (array, value) in [
-            (0x7E90, 0),
-            (0x7C90, 0x04),
-            (0x7CC0, CHILD),
-            (0x7B20, x_lo),
-            (0x7B00, x_hi),
-            (0x7B60, y_lo),
-            (0x7B40, y_hi),
-        ] {
-            cx.set_byte(array + u16::try_from(child).expect("< 16"), value);
-        }
+        let part = &mut cx.slots.main[child];
+        part.kind = CHILD;
+        part.body.anim = 0;
+        part.body.chr_slot = 0x04;
+        part.body.x = x;
+        part.body.y = y;
     }
     body.counter = body.counter.wrapping_add(1);
     if body.counter >= 6 {
@@ -83,9 +76,9 @@ fn spawn_52(body: &mut Body, cx: &mut Cx<'_>) {
 /// the map (`$9C8A`/`$9C9F`) or no slot is free (`$9CAD`).
 fn child_slot(body: &Body, cx: &Cx<'_>) -> Option<(usize, u16, u16)> {
     let index = u16::from(body.counter);
-    let source = u16::from(body.timer);
-    let x = word(cx, 0x7B00, source).wrapping_add(delta(cx.prg, X_LO, X_HI, index));
-    let y = word(cx, 0x7B40, source).wrapping_add(delta(cx.prg, Y_LO, Y_HI, index));
+    let (source_x, source_y) = position(cx, usize::from(body.timer));
+    let x = source_x.wrapping_add(delta(cx.prg, X_LO, X_HI, index));
+    let y = source_y.wrapping_add(delta(cx.prg, Y_LO, Y_HI, index));
     if x.to_be_bytes()[0] & 0xF0 != 0 || y.to_be_bytes()[0] & 0xF0 != 0 {
         return None;
     }
@@ -93,9 +86,13 @@ fn child_slot(body: &Body, cx: &Cx<'_>) -> Option<(usize, u16, u16)> {
     Some((child, x, y))
 }
 
-/// A slot's 16-bit array pair (`high` at `base`, `low` at `base + $20`).
-fn word(cx: &Cx<'_>, base: u16, slot: u16) -> u16 {
-    u16::from_be_bytes([cx.byte(base + slot), cx.byte(base + 0x20 + slot)])
+/// A slot's level position (`$7B00`/`$7B20` x, `$7B40`/`$7B60` y).
+fn position(cx: &Cx<'_>, slot: usize) -> (u16, u16) {
+    let word = |high, low| u16::from_be_bytes([cx.get(slot, high), cx.get(slot, low)]);
+    (
+        word(Field::XHigh, Field::XLow),
+        word(Field::YHigh, Field::YLow),
+    )
 }
 
 /// One `$9CE4`-style delta, low byte at `lo`, high byte at `hi`.

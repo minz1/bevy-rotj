@@ -1,7 +1,7 @@
 //! Spawning from the schedule: column spawns (bank 2 `$87C5`) and room starts (`$D714`).
 
 use super::families::{Brain, SecondBrain};
-use super::slots::{Slots, Spawner};
+use super::slots::{Field, Slots, Spawner};
 use super::world::{Schedule, View, World};
 use crate::actors::{
     CELL_FLAGS, CELL_LOCK, CELL_PENDING, CELL_RECORD, SpawnRecord, spawn_record,
@@ -153,37 +153,41 @@ fn place(slots: &mut Slots, free: Free, record: &SpawnRecord, cell: u8, by: Spaw
             slot.brain = Brain::new(kind);
         }
         Free::Second(i) => {
-            let at = |array: u16| array + 24 + u16::try_from(i).expect("< 8");
+            let slot = 24 + i;
             let [x_high, x_low] = record.x.to_be_bytes();
             let [y_high, y_low] = record.y.to_be_bytes();
             let [health_high, health_low] = record.health.to_be_bytes();
-            for (array, value) in [
-                (0x7B00, x_high),
-                (0x7B20, x_low),
-                (0x7B40, y_high),
-                (0x7B60, y_low),
-                (0x7C00, record.flags),
-                (0x7C90, record.chr_slot),
-                (0x7CC0, kind),
-                (0x7D50, record.state),
-                (0x7D90, record.behaviour),
-                (0x7DB0, record.subtype),
-                (0x7D70, 0),
-                (0x7DD0, 0),
-                (0x7DF0, 0),
-                (0x7E10, 0),
-                (0x7E90, 0),
-                (0x7BD8, health_high),
-                (0x7BE0, health_low),
-                (0x7C30, record.contact),
-                (0x7EF8, 0),
+            for (field, value) in [
+                (Field::XHigh, x_high),
+                (Field::XLow, x_low),
+                (Field::YHigh, y_high),
+                (Field::YLow, y_low),
+                (Field::Flags, record.flags),
+                (Field::ChrSlot, record.chr_slot),
             ] {
-                slots.set_byte(at(array), value);
+                slots.set(slot, field, value);
             }
+            slots.set_kind(slot, kind);
+            for (field, value) in [
+                (Field::State, record.state),
+                (Field::Behaviour, record.behaviour),
+                (Field::Subtype, record.subtype),
+                (Field::Hit, 0),
+                (Field::Phase, 0),
+                (Field::Timer, 0),
+                (Field::Counter, 0),
+                (Field::Anim, 0),
+            ] {
+                slots.set(slot, field, value);
+            }
+            slots.set_platform_parameter(i, health_high);
+            slots.set(slot, Field::HealthLow, health_low);
+            slots.set(slot, Field::Sprite, record.contact);
+            slots.set_pressed(i, 0);
             if by == Spawner::Column {
-                slots.set_byte(at(0x7F00), 0);
+                slots.set(slot, Field::DyingTimer, 0);
             }
-            slots.set_byte(at(0x7CE0), cell);
+            slots.set(slot, Field::Cell, cell);
             slots.second[i].brain = SecondBrain::new(kind);
         }
     }

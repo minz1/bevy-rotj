@@ -168,27 +168,24 @@ fn charge(body: &mut Body, cx: &mut Cx<'_>) {
     body.counter = 0;
     body.vx_drift = 0;
     let own = own_slot(cx);
-    for slot in 0..=u16::from(own) {
-        put(cx, 0x7CD0, slot, 0);
+    for slot in 16..=16 + usize::from(own) {
+        cx.slots.set_kind(slot, 0);
     }
     spawn_child(body, own, cx);
 }
 
 /// `$957E`: a type `$46` in slot 23, one screen below the boss.
 fn spawn_child(body: &Body, own: u8, cx: &mut Cx<'_>) {
-    let slot = u16::try_from(CHILD_SLOT).expect("slot < 32");
     let [x_high, x_low] = body.x.to_be_bytes();
     let [y_high, y_low] = body.y.to_be_bytes();
-    for array in [0x7D90, 0x7DB0, 0x7DD0, 0x7DF0] {
-        put(cx, array, slot, 0);
-    }
-    put(cx, 0x7E90, slot, own);
-    put(cx, 0x7B20, slot, x_low);
-    put(cx, 0x7B00, slot, x_high);
-    put(cx, 0x7B60, slot, y_low);
-    put(cx, 0x7B40, slot, y_high.wrapping_add(1));
-    put(cx, 0x7CC0, slot, CHILD_KIND);
-    cx.slots.main[CHILD_SLOT].brain = Brain::new(CHILD_KIND);
+    let child = &mut cx.slots.main[CHILD_SLOT];
+    child.kind = CHILD_KIND;
+    let part = &mut child.body;
+    (part.behaviour, part.subtype, part.phase, part.timer) = (0, 0, 0, 0);
+    part.anim = own;
+    part.x = u16::from_be_bytes([x_high, x_low]);
+    part.y = u16::from_be_bytes([y_high.wrapping_add(1), y_low]);
+    child.brain = Brain::new(CHILD_KIND);
 }
 
 /// `$96BB`: a type `$44` shot in the highest free slot 16-23, at one of eight places.
@@ -196,21 +193,20 @@ fn spawn_shot(cx: &mut Cx<'_>) {
     let Some(index) = engine::free_child_slot(cx.slots) else {
         return;
     };
-    let slot = u16::try_from(index).expect("slot < 32");
     let place = u16::from(cx.world.rng[0] & 0x07);
     let x_low = engine::rom_byte(cx.prg, HOME_BANK, SHOT_X_LOW + place);
     let x_high = engine::rom_byte(cx.prg, HOME_BANK, SHOT_X_HIGH + place);
     let own = own_slot(cx);
-    put(cx, 0x7B60, slot, 0x80);
-    for array in [0x7E90, 0x7D90, 0x7DB0, 0x7DD0, 0x7DF0, 0x7B40] {
-        put(cx, array, slot, 0);
-    }
-    put(cx, 0x7E10, slot, u8::try_from(place).expect("< 8"));
-    put(cx, 0x7B20, slot, x_low);
-    put(cx, 0x7B00, slot, x_high);
-    put(cx, 0x7CC0, slot, SHOT_KIND);
-    put(cx, 0x7C30, slot, own);
-    cx.slots.main[index].brain = Brain::new(SHOT_KIND);
+    let child = &mut cx.slots.main[index];
+    child.kind = SHOT_KIND;
+    let part = &mut child.body;
+    part.y = 0x0080;
+    (part.anim, part.behaviour, part.subtype) = (0, 0, 0);
+    (part.phase, part.timer) = (0, 0);
+    part.counter = u8::try_from(place).expect("< 8");
+    part.x = u16::from_be_bytes([x_high, x_low]);
+    part.sprite = own;
+    child.brain = Brain::new(SHOT_KIND);
 }
 
 /// `$95B3`: draw the body and the bar, run the boss contact and store.
@@ -271,11 +267,6 @@ fn draw_bar(body: &Body, work: &mut Work, cx: &mut Cx<'_>) {
     }
     work.screen_x = saved_x;
     work.screen_y = BAR_Y;
-}
-
-/// Writes one byte of a slot's array.
-fn put(cx: &mut Cx<'_>, base: u16, slot: u16, value: u8) {
-    cx.set_byte(base + slot, value);
 }
 
 #[cfg(test)]

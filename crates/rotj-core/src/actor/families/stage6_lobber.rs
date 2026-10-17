@@ -14,7 +14,7 @@
 //! unported) in slots 16-23.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
 /// The metasprite pointer table, read in the handler's own bank (`$81B4`).
@@ -64,7 +64,7 @@ impl State {
         engine::load(body, work);
         if engine::dying(kind, body, work, 0x80, cx) {
             // `$806F`: the dying sprite clears its spawner's phase byte (`$7DD0,x`, x from `$7E10`).
-            cx.set_byte(0x7DD0 + u16::from(body.counter), 0);
+            cx.set(usize::from(body.counter), Field::Phase, 0);
             return;
         }
         work.attr |= body.flags;
@@ -122,30 +122,26 @@ impl State {
 /// `$200` above the working position, its phase and timer from the table, its
 /// counter and animation from the RNG.
 fn spawn_child(work: &Work, slot: usize, cx: &mut Cx<'_>) {
-    let slot = u16::try_from(slot).expect("a child slot");
     let [x_hi, x_lo] = work.x.to_be_bytes();
     let (x_lo, borrow) = x_lo.overflowing_sub(CHILD_X_OFFSET);
     let x_hi = x_hi.wrapping_sub(u8::from(borrow));
     let [y_hi, y_lo] = work.y.to_be_bytes();
     let y_hi = y_hi.wrapping_sub(CHILD_Y_OFFSET);
-    cx.set_byte(0x7B20 + slot, x_lo);
-    cx.set_byte(0x7B00 + slot, x_hi);
-    cx.set_byte(0x7B60 + slot, y_lo);
-    cx.set_byte(0x7B40 + slot, y_hi);
-    cx.set_byte(0x7CC0 + slot, CHILD);
-    cx.set_byte(0x7D50 + slot, 0);
-    cx.set_byte(0x7DB0 + slot, 0);
-    cx.set_byte(0x7D90 + slot, 0);
-    cx.set_byte(0x7DD0 + slot, CHILD_PHASE);
-    cx.set_byte(0x7DF0 + slot, CHILD_TIMER);
+    let child = &mut cx.slots.main[slot];
+    child.kind = CHILD;
+    let part = &mut child.body;
+    part.x = u16::from_be_bytes([x_hi, x_lo]);
+    part.y = u16::from_be_bytes([y_hi, y_lo]);
+    (part.state, part.subtype, part.behaviour) = (0, 0, 0);
+    (part.phase, part.timer) = (CHILD_PHASE, CHILD_TIMER);
     let [seed, noise] = cx.world.rng;
     let (counter, anim) = if seed & 0x80 == 0 {
         (noise & 0x0F, 0)
     } else {
         (noise | 0xE0, 0xFF)
     };
-    cx.set_byte(0x7E10 + slot, counter);
-    cx.set_byte(0x7E90 + slot, anim);
+    cx.slots.main[slot].body.counter = counter;
+    cx.slots.main[slot].body.anim = anim;
 }
 
 #[cfg(test)]

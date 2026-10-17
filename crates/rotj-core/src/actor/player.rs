@@ -55,7 +55,7 @@ const WALK_TARGET: [i16; 3] = [0x0022, -0x0022, 0];
 
 /// One frame of Batman's movement (`$800B`).
 ///
-/// `pad` is this frame's `$F6`. `probe` is the game's `$20-$28` working area,
+/// It reads this frame's `$F6` from `cx.world.pad`. `probe` is the game's `$20-$28` working area,
 /// seeded from the frame's RAM: the ride fall-through reads landing bytes
 /// `$27/$28` a probe may have left, and those are also this call's inputs.
 pub fn step_move(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {

@@ -273,8 +273,7 @@ pub fn ride(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
         if above || hi(dy) >= 0x10 || lo(dy >> 4) >= 0x10 {
             continue;
         }
-        let ridden = super::slots::PRESSED + u16::try_from(index).expect("< 8");
-        cx.slots.set_byte(ridden, 0x80);
+        cx.slots.set_pressed(index, 0x80);
         let body = cx.slots.second[index].body.clone();
         return match rom_word(cx.prg, 14, 0xCE79 + u16::from(body.counter)) {
             0xCDD9 => stand(work, probe, &body),

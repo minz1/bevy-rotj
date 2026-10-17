@@ -1,10 +1,11 @@
 //! Second-class type `$02`, the sideways platform (bank 8 `$8000`).
 
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
 const STEP: u16 = 0x10;
-const LIMIT: u16 = 0x7BF0;
+/// The travel's low byte, which the game keeps in health's low byte.
+const TRAVEL_LOW: Field = Field::HealthLow;
 
 /// The platform keeps its direction (`state` bits 0-1) and travel (`timer:$7BE0`) in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -22,13 +23,13 @@ impl State {
             STEP.wrapping_neg()
         };
         [body.phase, body.subtype] = velocity.to_be_bytes();
-        let travel = u16::from_be_bytes([body.timer, body.byte(0x7BE0)]).wrapping_add(STEP);
+        let travel = u16::from_be_bytes([body.timer, body.get(TRAVEL_LOW)]).wrapping_add(STEP);
         let [timer, distance] = travel.to_be_bytes();
         body.timer = timer;
-        body.set_byte(0x7BE0, distance);
-        if timer == cx.byte(LIMIT + u16::try_from(index).expect("< 8")) {
+        body.set(TRAVEL_LOW, distance);
+        if timer == cx.slots.platform_parameter(index) {
             body.timer = 0;
-            body.set_byte(0x7BE0, 0);
+            body.set(TRAVEL_LOW, 0);
             [body.phase, body.subtype] = velocity.wrapping_neg().to_be_bytes();
             body.state ^= 0x03;
         }

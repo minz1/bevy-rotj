@@ -274,7 +274,6 @@ fn spawn_3a(body: &Body, work: &Work, cx: &mut Cx<'_>) {
         return;
     };
     cx.effects.sound[0] = SPAWN_SOUND;
-    put(cx, 0x7C00, slot, work.attr);
     let left = work.attr & 0x40 != 0;
     let (dx, dy, phase, frame) = if body.phase == Phase::Spawning.byte() {
         (0x01D0, 0x03B0, if left { 2 } else { 3 }, 1)
@@ -287,16 +286,15 @@ fn spawn_3a(body: &Body, work: &Work, cx: &mut Cx<'_>) {
         work.x.wrapping_add(dx)
     };
     let y = work.y.wrapping_sub(dy);
-    put(cx, 0x7B20, slot, x.to_be_bytes()[1]);
-    put(cx, 0x7B00, slot, x.to_be_bytes()[0]);
-    put(cx, 0x7B60, slot, y.to_be_bytes()[1]);
-    put(cx, 0x7B40, slot, y.to_be_bytes()[0]);
-    put(cx, 0x7DD0, slot, phase);
-    put(cx, 0x7C30, slot, frame);
-    put(cx, 0x7C90, slot, body.chr_slot);
-    put(cx, 0x7CC0, slot, 0x3A);
-    put(cx, 0x7D50, slot, 0);
-    cx.slots.main[slot].brain = Brain::new(0x3A);
+    let part = &mut cx.slots.main[slot];
+    part.kind = 0x3A;
+    part.body.flags = work.attr;
+    (part.body.x, part.body.y) = (x, y);
+    part.body.phase = phase;
+    part.body.sprite = frame;
+    part.body.chr_slot = body.chr_slot;
+    part.body.state = 0;
+    part.brain = Brain::new(0x3A);
 }
 
 /// `$909B`: spawn up to three type `$3C` parts into the highest free slots 0-15.
@@ -308,29 +306,19 @@ fn spawn_3c(cx: &mut Cx<'_>) {
         };
         let x = engine::rom_byte(cx.prg, 11, SPAWN_X + u16::from(count));
         let y = engine::rom_byte(cx.prg, 11, SPAWN_Y + u16::from(count));
-        put(cx, 0x7B00, slot, x);
-        put(cx, 0x7B40, slot, y);
-        put(cx, 0x7B60, slot, 0);
-        put(cx, 0x7B20, slot, 0);
-        put(cx, 0x7D50, slot, 0);
-        put(cx, 0x7D70, slot, 0);
-        put(cx, 0x7EF0, slot, 0);
-        put(cx, 0x7DF0, slot, 0);
-        put(cx, 0x7E10, slot, 0);
-        put(cx, 0x7EE0, slot, 0x10);
-        put(cx, 0x7BE0, slot, 0x08);
-        put(cx, 0x7CC0, slot, 0x3C);
-        cx.slots.main[slot].brain = Brain::new(0x3C);
+        let part = &mut cx.slots.main[slot];
+        part.kind = 0x3C;
+        part.body.x = u16::from_be_bytes([x, 0]);
+        part.body.y = u16::from_be_bytes([y, 0]);
+        (part.body.state, part.body.hit, part.body.health) = (0, 0, 0x0008);
+        (part.body.timer, part.body.counter) = (0, 0);
+        part.body.contact = 0x10;
+        part.brain = Brain::new(0x3C);
         if count == 0 {
             break;
         }
         count -= 1;
     }
-}
-
-/// Writes one byte of a child slot's array.
-fn put(cx: &mut Cx<'_>, base: u16, slot: usize, value: u8) {
-    cx.set_byte(base + u16::try_from(slot).expect("slot < 32"), value);
 }
 
 /// The `$27/$28` landing bytes the game stores into `$7E50:$7E60`.

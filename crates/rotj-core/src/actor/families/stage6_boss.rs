@@ -197,31 +197,18 @@ fn spawn_a8(work: &Work, cx: &mut Cx<'_>) -> u8 {
         let Some(slot) = engine::free_child_slot(cx.slots) else {
             return spawn_index;
         };
-        let child = u16::try_from(slot).expect("slots 16-23");
         spawn_index = part;
         cx.effects.sound[0] = SPAWN_SOUND;
-        let [x_hi, x_lo] = work.x.to_be_bytes();
-        let [y_hi, y_lo] = work.y.to_be_bytes();
-        for (array, value) in [
-            (
-                0x7DD0,
-                engine::rom_byte(cx.prg, 12, CHILD_PHASE + u16::from(part)),
-            ),
-            (
-                0x7DF0,
-                engine::rom_byte(cx.prg, 12, CHILD_TIMER + u16::from(part)),
-            ),
-            (0x7E10, 0xC0),
-            (0x7E90, 0xFF),
-            (0x7B20, x_lo),
-            (0x7B00, x_hi),
-            (0x7B60, y_lo),
-            (0x7B40, y_hi.wrapping_sub(1)),
-            (0x7D50, 0x00),
-        ] {
-            cx.set_byte(array + child, value);
-        }
-        cx.set_byte(0x7CC0 + child, 0xA8);
+        let phase = engine::rom_byte(cx.prg, 12, CHILD_PHASE + u16::from(part));
+        let timer = engine::rom_byte(cx.prg, 12, CHILD_TIMER + u16::from(part));
+        let child = &mut cx.slots.main[slot];
+        let part_body = &mut child.body;
+        (part_body.phase, part_body.timer) = (phase, timer);
+        (part_body.counter, part_body.anim) = (0xC0, 0xFF);
+        part_body.x = work.x;
+        part_body.y = work.y.wrapping_sub(0x0100);
+        part_body.state = 0;
+        child.kind = 0xA8;
         part = part.wrapping_sub(1);
         if part & 0x80 != 0 {
             return spawn_index;
@@ -235,23 +222,12 @@ fn spawn_aa(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     let Some(slot) = (0..16).rev().find(|&i| cx.slots.main[i].kind == 0) else {
         return;
     };
-    let child = u16::try_from(slot).expect("slots 0-15");
     body.sprite = 0x80;
-    let [x_hi, x_lo] = work.x.to_be_bytes();
-    let [y_hi, y_lo] = work.y.to_be_bytes();
-    for (array, value) in [
-        (0x7C30, 0x00),
-        (0x7DD0, 0x00),
-        (0x7E10, 0x00),
-        (0x7E90, 0x00),
-        (0x7B20, x_lo),
-        (0x7B00, x_hi),
-        (0x7B60, y_lo),
-        (0x7B40, y_hi),
-    ] {
-        cx.set_byte(array + child, value);
-    }
-    cx.set_byte(0x7CC0 + child, 0xAA);
+    let child = &mut cx.slots.main[slot];
+    let part = &mut child.body;
+    (part.sprite, part.phase, part.counter, part.anim) = (0, 0, 0, 0);
+    (part.x, part.y) = (work.x, work.y);
+    child.kind = 0xAA;
 }
 
 /// `$86CB`: project, draw the flash and both metasprites, and contact the player.

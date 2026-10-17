@@ -6,7 +6,7 @@
 //! itself, clearing its parent's phase.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
 const BANK: u8 = 11;
@@ -59,9 +59,9 @@ impl State {
         } else {
             if body.anim >= END {
                 *kind = 0;
-                let parent = u16::from(body.subtype);
-                if cx.byte(0x7CC0 + parent) == PARENT {
-                    cx.set_byte(0x7DD0 + parent, 0);
+                let parent = usize::from(body.subtype);
+                if cx.slots.kind(parent) == PARENT {
+                    cx.set(parent, Field::Phase, 0);
                 }
                 return;
             }

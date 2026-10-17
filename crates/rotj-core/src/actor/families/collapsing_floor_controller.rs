@@ -87,10 +87,10 @@ fn helper(body: &mut Body, cx: &mut Cx<'_>) -> u8 {
     if cx.effects.vram.top < QUEUE_READY {
         return 0x80;
     }
-    let found = (24..32u16).find(|&slot| cx.byte(0x7CC0 + slot) == 0);
+    let found = (24..32).find(|&slot| cx.slots.kind(slot) == 0);
     let Some(slot) = found else {
         // $93F8: nothing free returns the last byte the scan read ($7CC0,$1F).
-        return cx.byte(0x7CC0 + 31);
+        return cx.slots.kind(31);
     };
     let timer = body.timer;
     cx.effects.vram.push(0x2300 | u16::from(timer), 0, &[0; 4]);
@@ -99,34 +99,32 @@ fn helper(body: &mut Body, cx: &mut Cx<'_>) -> u8 {
         .push(0x2300 | u16::from(timer | 0x20), 0, &[0; 4]);
 
     let behaviour = body.behaviour;
-    cx.set_byte(0x7B20 + slot, 0);
-    cx.set_byte(0x7B00 + slot, behaviour);
-    cx.set_byte(0x7B60 + slot, 0);
-    cx.set_byte(0x7B40 + slot, 0x0D);
     let offset =
         engine::rom_byte(cx.prg, 0, MAP_TABLE + u16::from(behaviour >> 4)) | (behaviour & 0x0E);
     let at = usize::from((MAP_PAGE | u16::from(offset)) - 0x6000);
     cx.effects.level.map[at] = 0;
     cx.effects.level.map[at + 1] = 0;
-    cx.set_byte(0x7CC0 + slot, EFFECT_KIND);
-
-    body.behaviour = behaviour.wrapping_sub(2);
-    let (timer, borrow) = timer.overflowing_sub(4);
-    body.timer = if borrow { 0x1C } else { timer };
-    body.phase = body.phase.wrapping_sub(2);
-
-    for array in [
-        0x7C00, 0x7D50, 0x7D70, 0x7D90, 0x7DB0, 0x7DD0, 0x7DF0, 0x7E10, 0x7C90, 0x7D30,
-    ] {
-        cx.set_byte(array + slot, 0);
-    }
     let camera = cx.world.camera_x.to_be_bytes()[0];
     let sprite = if (0x05..0x50).contains(&camera) {
         0x08
     } else {
         0x07
     };
-    cx.set_byte(0x7C30 + slot, sprite);
+    let effect = &mut cx.slots.second[slot - 24];
+    effect.kind = EFFECT_KIND;
+    let part = &mut effect.body;
+    part.x = u16::from_be_bytes([behaviour, 0]);
+    part.y = 0x0D00;
+    (part.flags, part.state, part.hit, part.behaviour) = (0, 0, 0, 0);
+    (part.subtype, part.phase, part.timer, part.counter) = (0, 0, 0, 0);
+    (part.chr_slot, part.scratch) = (0, 0);
+    part.sprite = sprite;
+
+    body.behaviour = behaviour.wrapping_sub(2);
+    let (timer, borrow) = timer.overflowing_sub(4);
+    body.timer = if borrow { 0x1C } else { timer };
+    body.phase = body.phase.wrapping_sub(2);
+
     sprite
 }
 

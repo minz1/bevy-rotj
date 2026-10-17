@@ -70,9 +70,6 @@ const KINDS: u16 = 0x7CC0;
 /// `$7F70-$7F8F`: no array, but an index left over from `$A852` reaches them (type `$AC`).
 const SPARE: u16 = 0x7F70;
 
-/// The player's weight on a second-class platform, one byte per slot (`$7F10`).
-pub(crate) const PRESSED: u16 = 0x7F10;
-
 /// One of a slot's arrays, by the [`Body`] field (or half of it) it holds; its value is
 /// the array's base address.
 #[repr(u16)]
@@ -272,6 +269,32 @@ impl Slots {
             Location::Second(slot, field) => self.second[slot].body.set(field, value),
             Location::Projectile(..) => panic!("slot {slot}'s {field:?} is a weapon array"),
         }
+    }
+
+    /// Second-class slot `second`'s parameter, which the game keeps in main slot
+    /// `16 + second`'s [`Field::HealthLow`] (`$7BD8 + 24 + second`, the spawn record's
+    /// health high byte): a sinking platform's home row, a shuttle's travel limit, a path
+    /// platform's direction.
+    #[must_use]
+    pub fn platform_parameter(&self, second: usize) -> u8 {
+        self.get(16 + second, Field::HealthLow)
+    }
+
+    /// Sets second-class slot `second`'s parameter ([`Slots::platform_parameter`]).
+    pub fn set_platform_parameter(&mut self, second: usize, value: u8) {
+        self.set(16 + second, Field::HealthLow, value);
+    }
+
+    /// The player's weight on second-class slot `second` (`$7EF8 + 24 + second`, main slot
+    /// `16 + second`'s [`Field::DyingTimer`]): bit 7 while he stands on it.
+    #[must_use]
+    pub fn pressed(&self, second: usize) -> u8 {
+        self.get(16 + second, Field::DyingTimer)
+    }
+
+    /// Sets the player's weight on second-class slot `second` ([`Slots::pressed`]).
+    pub fn set_pressed(&mut self, second: usize, value: u8) {
+        self.set(16 + second, Field::DyingTimer, value);
     }
 
     /// Slot `slot`'s occupant type (`$7CC0`, slots 0-31).

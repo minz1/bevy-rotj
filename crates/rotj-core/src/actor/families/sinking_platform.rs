@@ -2,13 +2,13 @@
 
 use crate::actor::collision::{Probe, solid};
 use crate::actor::engine::Work;
-use crate::actor::slots::{Body, PRESSED};
+use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
 const STEP: u16 = 0x10;
-const HOME: u16 = 0x7BF0;
 
-/// The platform keeps its home row in `$7BD8,x` and the player's weight in `$7EF8,x`.
+/// The platform keeps its home row and the player's weight where the game does
+/// ([`crate::actor::slots::Slots::platform_parameter`], [`crate::actor::slots::Slots::pressed`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
@@ -16,19 +16,18 @@ impl State {
     /// One frame (`$8ED5`): sink 1 px while stood on, unless the level is solid below;
     /// otherwise rise 1 px a frame back to its home row.
     pub fn step(&mut self, index: usize, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-        let index = u16::try_from(index).expect("< 8");
         work.x = body.x;
         work.y = body.y;
         work.hitbox = 1;
         let [row, fraction] = body.y.to_be_bytes();
         if body.state == 0 {
-            cx.set_byte(HOME + index, row);
+            cx.slots.set_platform_parameter(index, row);
             body.state = 1;
         }
         body.hit = 0x18;
         body.behaviour = 0;
-        if cx.byte(PRESSED + index) & 0x80 == 0 {
-            if fraction != 0 || cx.byte(HOME + index) != row {
+        if cx.slots.pressed(index) & 0x80 == 0 {
+            if fraction != 0 || cx.slots.platform_parameter(index) != row {
                 body.y = body.y.wrapping_sub(STEP);
             }
             return;
@@ -44,7 +43,7 @@ impl State {
         if solid(&mut probe, 0x84, cx) & 0x80 != 0 {
             body.y = body.y.wrapping_sub(STEP);
         }
-        cx.set_byte(PRESSED + index, 0);
+        cx.slots.set_pressed(index, 0);
     }
 }
 

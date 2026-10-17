@@ -307,24 +307,21 @@ fn spawn_shots(body: &Body, work: &Work, cx: &mut Cx<'_>) {
         let Some(slot) = engine::free_child_slot(cx.slots) else {
             return;
         };
-        let at = u16::try_from(slot).expect("slot < 32");
-        cx.set_byte(0x7C00 + at, (work.attr & 0x40) | 0x03);
-        cx.set_byte(0x7DD0 + at, count);
-        let [x_hi, x_lo] = if work.attr & 0x40 == 0 {
-            work.x.wrapping_add(0x80).to_be_bytes()
+        let child = &mut cx.slots.main[slot];
+        let missile = &mut child.body;
+        missile.flags = (work.attr & 0x40) | 0x03;
+        missile.phase = count;
+        let position = if work.attr & 0x40 == 0 {
+            work.x.wrapping_add(0x80)
         } else {
-            let phase = cx.byte(0x7DD0 + at).wrapping_add(5);
-            cx.set_byte(0x7DD0 + at, phase);
-            work.x.wrapping_sub(0x80).to_be_bytes()
+            missile.phase = missile.phase.wrapping_add(5);
+            work.x.wrapping_sub(0x80)
         };
-        cx.set_byte(0x7B00 + at, x_hi);
-        cx.set_byte(0x7B20 + at, x_lo);
-        let [y_hi, y_lo] = work.y.wrapping_sub(0x02C0).to_be_bytes();
-        cx.set_byte(0x7B40 + at, y_hi);
-        cx.set_byte(0x7B60 + at, y_lo);
-        cx.set_byte(0x7C90 + at, body.chr_slot);
-        cx.set_byte(0x7CC0 + at, SHOT_KIND);
-        cx.set_byte(0x7D50 + at, 0);
+        missile.x = position;
+        missile.y = work.y.wrapping_sub(0x02C0);
+        missile.chr_slot = body.chr_slot;
+        missile.state = 0;
+        child.kind = SHOT_KIND;
         if count == 0 {
             return;
         }

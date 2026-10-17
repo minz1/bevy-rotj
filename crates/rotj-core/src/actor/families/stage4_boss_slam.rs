@@ -10,7 +10,7 @@
 //! through `$826F`) and `$A934` (`store`).
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
 const HOME_BANK: u8 = 11;
@@ -121,8 +121,9 @@ fn flash(kind: &mut u8, body: &mut Body, cx: &mut Cx<'_>) {
         engine::hurt_player(cx.effects);
     }
     *kind = 0;
-    cx.set_byte(
-        0x7DD0 + u16::from(body.anim),
+    cx.set(
+        usize::from(body.anim),
+        Field::Phase,
         super::stage4_boss::Phase::Waiting.byte(),
     );
 }

@@ -13,7 +13,7 @@
 //! which `$826F` maps bank 9 for) and `$A934` (`store`).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
 const HOME_BANK: u8 = 11;
@@ -45,9 +45,9 @@ impl State {
         }
         engine::load(body, work);
         if engine::dying(kind, body, work, 0, cx) {
-            let parent = u16::from(body.anim);
-            cx.set_byte(0x7DD0 + parent, 0);
-            cx.set_byte(0x7E10 + parent, 0);
+            let parent = usize::from(body.anim);
+            cx.set(parent, Field::Phase, 0);
+            cx.set(parent, Field::Counter, 0);
             work.tile = 0;
             work.attr = 0;
             return;

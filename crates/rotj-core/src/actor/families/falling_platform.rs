@@ -1,7 +1,7 @@
 //! Second-class type `$10`, a platform that falls away once stood on (bank 12 `$8952`).
 
 use crate::actor::families::crumbling_block;
-use crate::actor::slots::{Body, PRESSED};
+use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
 /// It keeps its fall speed in `hit` (1/16 px) and `behaviour` (px).
@@ -14,7 +14,7 @@ impl State {
     pub fn step(&mut self, index: usize, kind: &mut u8, body: &mut Body, cx: &Cx<'_>) {
         body.scratch = 0;
         body.anim = 0;
-        if cx.byte(PRESSED + u16::try_from(index).expect("< 8")) & 0x80 == 0 {
+        if cx.slots.pressed(index) & 0x80 == 0 {
             (body.hit, body.behaviour, body.subtype, body.phase) = (0, 0, 0, 0);
             return;
         }

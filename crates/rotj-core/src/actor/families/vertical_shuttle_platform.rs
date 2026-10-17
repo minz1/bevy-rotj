@@ -1,10 +1,11 @@
 //! Second-class type `$04`, the moving platform (bank 8 `$807C`).
 
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
 const STEP: u8 = 0x18;
-const LIMIT: u16 = 0x7BF0;
+/// The travel's low byte, which the game keeps in health's low byte.
+const TRAVEL_LOW: Field = Field::HealthLow;
 
 /// `$7DD0` when the platform turns to go down: the cleared state.
 const REST: u8 = 0;
@@ -25,14 +26,14 @@ impl State {
             body.y.wrapping_sub(u16::from(STEP))
         };
         let travel =
-            u16::from_be_bytes([body.timer, body.byte(0x7BE0)]).wrapping_add(u16::from(STEP));
+            u16::from_be_bytes([body.timer, body.get(TRAVEL_LOW)]).wrapping_add(u16::from(STEP));
         let [timer, distance] = travel.to_be_bytes();
         body.timer = timer;
-        body.set_byte(0x7BE0, distance);
-        let limit = cx.byte(LIMIT + u16::try_from(index).expect("< 8"));
+        body.set(TRAVEL_LOW, distance);
+        let limit = cx.slots.platform_parameter(index);
         if timer == limit {
             body.timer = 0;
-            body.set_byte(0x7BE0, 0);
+            body.set(TRAVEL_LOW, 0);
             body.state ^= 0x0C;
             if body.state & 0x08 == 0 {
                 body.subtype = 0;

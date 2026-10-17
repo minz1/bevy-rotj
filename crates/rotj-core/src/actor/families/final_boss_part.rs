@@ -153,33 +153,17 @@ fn spawn_child(body: &Body, work: &Work, cx: &mut Cx<'_>) {
     let Some(slot) = engine::free_child_slot(cx.slots) else {
         return;
     };
-    let slot = u16::try_from(slot).expect("a child slot");
-    let x_hi = work.x.to_be_bytes()[0];
-    let y_hi = work.y.to_be_bytes()[0];
-    cx.set_byte(0x7CC0 + slot, CHILD);
-    cx.set_byte(0x7B00 + slot, x_hi);
-    cx.set_byte(0x7B20 + slot, work.x.to_be_bytes()[1]);
-    cx.set_byte(0x7B40 + slot, y_hi);
-    cx.set_byte(0x7B60 + slot, work.y.to_be_bytes()[1]);
-    cx.set_byte(0x7D50 + slot, 0);
-    cx.set_byte(0x7E90 + slot, 0);
     let index = child_index(body, cx);
-    cx.set_byte(
-        0x7DB0 + slot,
-        engine::rom_byte(cx.prg, 12, SPAWN_TYPES + index),
-    );
-    cx.set_byte(
-        0x7DF0 + slot,
-        engine::rom_byte(cx.prg, 12, SPAWN_TYPES + index + 1),
-    );
-    cx.set_byte(
-        0x7DD0 + slot,
-        engine::rom_byte(cx.prg, 12, SPAWN_STATES + index),
-    );
-    cx.set_byte(
-        0x7E10 + slot,
-        engine::rom_byte(cx.prg, 12, SPAWN_STATES + index + 1),
-    );
+    let rom = |table: u16| engine::rom_byte(cx.prg, 12, table);
+    let (subtype, timer) = (rom(SPAWN_TYPES + index), rom(SPAWN_TYPES + index + 1));
+    let (phase, counter) = (rom(SPAWN_STATES + index), rom(SPAWN_STATES + index + 1));
+    let child = &mut cx.slots.main[slot];
+    child.kind = CHILD;
+    let part = &mut child.body;
+    (part.x, part.y) = (work.x, work.y);
+    (part.state, part.anim) = (0, 0);
+    (part.subtype, part.timer) = (subtype, timer);
+    (part.phase, part.counter) = (phase, counter);
 }
 
 /// The `$938C`/`$93C4` index (`$9305`): the parent's `$7DB0` doubled plus the
