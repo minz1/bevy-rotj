@@ -1086,7 +1086,7 @@ the families are not.
   screen `$CD50` (free and re-arm with `$80`), which is what `$823C` does; they
   never draw or collide.
 - Second-class actors (slots 24-31) run in `step_second` (`$CE7F`, dispatch by
-  the raw kind through `$CEB1`/`$CEC3`, `Brain::new_second`) and draw in
+  the raw kind through `$CEB1`/`$CEC3`, `SecondBrain::new`) and draw in
   `draw_second` (`$DC87`), over the same 32-wide arrays at slots 24-31
   (`Second::body`); their records write `$7BD8,x` and `$7EF8,x`, which are main
   slot 16+i's health low and dying timer (the platform's travel limit). A

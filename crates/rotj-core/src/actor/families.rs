@@ -199,7 +199,6 @@ macro_rules! families {
                     _ => Brain::Unported,
                 }
             }
-
         }
 
         impl SecondBrain {

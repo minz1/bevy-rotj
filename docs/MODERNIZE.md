@@ -46,7 +46,7 @@ riskiest, so they belong to the pilot the PLAN schedules after 1.0.1.
   478–479; engine.rs:1010)** — dead as a *handler* (the arm at 478 never runs), but
   the variant is also the `#[default]` brain of an empty slot and the `_` result of
   `SecondBrain::new` (`SecondBrain::Unported` for kind 0 and unknown second-class kinds;
-  `step_second` ignores it). So a blanket `panic!` in either `new` is wrong: replace it with an
+  `step_second` ignores it). So a blanket `panic!` in `Brain::new` or `SecondBrain::new` is wrong: replace it with an
   explicit `Empty` (or `Option<Brain>`) and panic only for a non-zero unknown main kind. **Lead** on that split. All 100 handler types are
   ported (`docs/STATUS.md` 1.0.0 row), and the chain's tape replays with an
   empty `injected` list (`actor.rs:536`, `the_tape_replays_the_chain_without_the_rom`),
