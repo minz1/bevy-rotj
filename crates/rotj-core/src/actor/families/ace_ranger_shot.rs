@@ -67,10 +67,8 @@ fn part(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         *kind = 0;
         return;
     }
-    body.set_byte(0x7B00, work.x.to_be_bytes()[0]);
-    body.set_byte(0x7B20, work.x.to_be_bytes()[1]);
-    body.set_byte(0x7B40, work.y.to_be_bytes()[0]);
-    body.set_byte(0x7B60, work.y.to_be_bytes()[1]);
+    body.x = work.x;
+    body.y = work.y;
 }
 
 /// `$914F`: add the per-`$7DD0` x/y offset to the working position. The game

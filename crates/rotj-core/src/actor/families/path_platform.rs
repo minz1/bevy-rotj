@@ -5,7 +5,6 @@ use crate::actor::engine::{rom_byte, rom_word};
 use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
-/// The direction it moves in, 0-3 right, left, down, up, 4 stopped (`$7BF0,x`).
 /// The path's corner index, which the game keeps in health's low byte.
 const CORNER: Field = Field::HealthLow;
 const STEP: u16 = 0x20;
@@ -32,6 +31,7 @@ impl State {
         let path = u16::from(body.state << 1);
         let corners = rom_word(cx.prg, 8, 0x9287 + path);
         let turns = rom_word(cx.prg, 8, 0x9297 + path);
+        // The direction: 0-3 right, left, down, up; 4 stopped.
         let direction = cx.slots.platform_parameter(index);
         if direction >= 4 {
             (body.hit, body.behaviour, body.subtype, body.phase) = (0, 0, 0, 0);

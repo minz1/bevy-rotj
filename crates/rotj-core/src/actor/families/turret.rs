@@ -5,7 +5,7 @@
 //! read by the dying path), so its only phase is 0.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, own_field};
+use crate::actor::slots::{Body, Field, own_field};
 use crate::actor::world::Cx;
 
 /// The metasprite pointer (`$96/$97`), read from bank 12 `$8A50`/`$8A51`: bank 9's `$B14A`.
@@ -87,10 +87,14 @@ impl Indexed<'_> {
         array + u16::from(self.x_register)
     }
 
+    fn field(array: u16) -> Field {
+        Field::from_array(array).expect("own_field returns a Body array")
+    }
+
     fn byte(&self, array: u16, cx: &Cx<'_>) -> u8 {
         let addr = self.addr(array);
         match own_field(addr, self.slot) {
-            Some(own) => self.body.byte(own),
+            Some(own) => self.body.get(Self::field(own)),
             None => cx.byte(addr),
         }
     }
@@ -98,7 +102,7 @@ impl Indexed<'_> {
     fn set_byte(&mut self, array: u16, value: u8, cx: &mut Cx<'_>) {
         let addr = self.addr(array);
         match own_field(addr, self.slot) {
-            Some(own) => self.body.set_byte(own, value),
+            Some(own) => self.body.set(Self::field(own), value),
             None => cx.set_byte(addr, value),
         }
     }

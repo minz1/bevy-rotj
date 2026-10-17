@@ -10,7 +10,7 @@
 //! load, no physics, no contact.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
 /// The metasprite pointer word (`$95BC` -> `$95BE`).
@@ -26,7 +26,7 @@ const PART_SIZE: u16 = 0x0C;
 /// Gravity added to each part's y velocity at the end of its update.
 const GRAVITY: u8 = 0x0C;
 /// The countdown decremented once a frame; below 0 the slot frees.
-const LIFE: u16 = 0x7ED0;
+const LIFE: Field = Field::RefVxHigh;
 
 /// Type `$86` keeps its whole state in [`Body`] (each part's arrays).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -45,8 +45,8 @@ impl State {
             }
             parts = parts.wrapping_add(PART_SIZE);
         }
-        let life = body.byte(LIFE).wrapping_sub(1);
-        body.set_byte(LIFE, life);
+        let life = body.get(LIFE).wrapping_sub(1);
+        body.set(LIFE, life);
         if life & 0x80 != 0 {
             *kind = 0;
         }
@@ -56,19 +56,26 @@ impl State {
 /// One part: integrate its velocity, then draw it (`$954B`).
 fn update(prg: &[u8], descriptor: u16, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     let array = |i: u16| engine::rom_word(prg, DRAW_BANK, descriptor + 2 * i);
-    let (x_lo, x_hi, y_lo, y_hi, vx, vy) =
-        (array(0), array(1), array(2), array(3), array(4), array(5));
-    let x = u16::from_be_bytes([body.byte(x_hi), body.byte(x_lo)])
-        .wrapping_add_signed(i16::from(body.byte(vx).cast_signed()));
-    body.set_byte(x_hi, x.to_be_bytes()[0]);
-    body.set_byte(x_lo, x.to_be_bytes()[1]);
+    let field = |array: u16| Field::from_array(array).expect("$95C6 table names a Body array");
+    let (x_lo, x_hi, y_lo, y_hi, vx, vy) = (
+        field(array(0)),
+        field(array(1)),
+        field(array(2)),
+        field(array(3)),
+        field(array(4)),
+        field(array(5)),
+    );
+    let x = u16::from_be_bytes([body.get(x_hi), body.get(x_lo)])
+        .wrapping_add_signed(i16::from(body.get(vx).cast_signed()));
+    body.set(x_hi, x.to_be_bytes()[0]);
+    body.set(x_lo, x.to_be_bytes()[1]);
     work.x = x;
-    let y = u16::from_be_bytes([body.byte(y_hi), body.byte(y_lo)])
-        .wrapping_add_signed(i16::from(body.byte(vy).cast_signed()));
-    body.set_byte(y_hi, y.to_be_bytes()[0]);
-    body.set_byte(y_lo, y.to_be_bytes()[1]);
+    let y = u16::from_be_bytes([body.get(y_hi), body.get(y_lo)])
+        .wrapping_add_signed(i16::from(body.get(vy).cast_signed()));
+    body.set(y_hi, y.to_be_bytes()[0]);
+    body.set(y_lo, y.to_be_bytes()[1]);
     work.y = y;
-    body.set_byte(vy, body.byte(vy).wrapping_add(GRAVITY));
+    body.set(vy, body.get(vy).wrapping_add(GRAVITY));
     if engine::on_screen(work, cx.world) == Visibility::On {
         engine::draw(work, DRAW_BANK, cx);
     }

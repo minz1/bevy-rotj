@@ -1,7 +1,7 @@
 //! The bank-13 routines handlers share, each called where the 6502 calls it.
 
 use super::oam::{DrawCall, Metasprite};
-use super::slots::Body;
+use super::slots::{Body, Field};
 use super::world::{
     Cx, Effects, Level, Motion, Player, Schedule, Weapon, World, orientation, pose,
 };
@@ -835,14 +835,15 @@ pub fn spawn_parts(variant: u8, work: &Work, cx: &mut Cx<'_>) -> Option<usize> {
             .into_iter()
             .enumerate()
         {
-            slot.body
-                .set_byte(array(u16::try_from(i).expect("< 6")), value);
+            let field = Field::from_array(array(u16::try_from(i).expect("< 6")))
+                .expect("$ADD8 table names a Body array");
+            slot.body.set(field, value);
         }
     }
     slot.body.flags = rom_byte(cx.prg, 13, 0xACBD + u16::from(variant));
     slot.kind = 0x08;
     slot.brain = super::families::Brain::new(0x08);
-    slot.body.set_byte(0x7ED0, 0x20);
+    slot.body.set(Field::RefVxHigh, 0x20);
     slot.body.contact = 0x48;
     Some(index)
 }
@@ -1122,14 +1123,18 @@ mod layout {
 /// Adds the signed velocity byte at `velocity` to the position split across `hi`:`lo`
 /// (the four-part bursts' parts, `$08` and `$92`), returning the new position.
 pub fn move_by_velocity(body: &mut Body, lo: u16, hi: u16, velocity: u16) -> u16 {
-    let velocity = body.byte(velocity);
-    let (low, carry) = body.byte(lo).overflowing_add(velocity);
-    body.set_byte(lo, low);
+    let field = |array: u16| {
+        Field::from_array(array).expect("the four-part bursts' tables name Body arrays")
+    };
+    let (lo, hi, velocity) = (field(lo), field(hi), field(velocity));
+    let velocity = body.get(velocity);
+    let (low, carry) = body.get(lo).overflowing_add(velocity);
+    body.set(lo, low);
     let high = body
-        .byte(hi)
+        .get(hi)
         .wrapping_add(if velocity & 0x80 != 0 { 0xFF } else { 0 })
         .wrapping_add(u8::from(carry));
-    body.set_byte(hi, high);
+    body.set(hi, high);
     u16::from_be_bytes([high, low])
 }
 

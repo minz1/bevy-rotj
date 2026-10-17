@@ -6,7 +6,7 @@
 //! frees itself when the `$7ED0` lifetime runs out.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
 const HOME_BANK: u8 = 0;
@@ -17,7 +17,7 @@ const SPRITE: u16 = 0x9F52;
 /// y low/high, x velocity, y velocity.
 const PARTS: u16 = 0x9F54;
 /// The lifetime counter, the high byte of `ref_vx` (`$7ED0`).
-const LIFETIME: u16 = 0x7ED0;
+const LIFETIME: Field = Field::RefVxHigh;
 const ATTR: u8 = 0x02;
 const GRAVITY: u8 = 0x0C;
 const HITBOX: u8 = 1;
@@ -45,17 +45,18 @@ impl State {
             let (x_lo, x_hi, y_lo, y_hi, vx, vy) = (at(0), at(1), at(2), at(3), at(4), at(5));
             work.x = engine::move_by_velocity(body, x_lo, x_hi, vx);
             work.y = engine::move_by_velocity(body, y_lo, y_hi, vy);
-            let fallen = body.byte(vy).wrapping_add(GRAVITY);
+            let vy = Field::from_array(vy).expect("$9F54 table names a Body array");
+            let fallen = body.get(vy).wrapping_add(GRAVITY);
             let clamped = body.sprite & 0x80 != 0 && fallen & 0x80 != 0;
-            body.set_byte(vy, if clamped { 0x7F } else { fallen });
+            body.set(vy, if clamped { 0x7F } else { fallen });
             if engine::on_screen(work, cx.world) == Visibility::On {
                 engine::draw(work, DRAW_BANK, cx);
                 work.hitbox = HITBOX;
                 engine::boss_contact(CONTACT, CONTACT_MODE, body, work, cx);
             }
         }
-        let lifetime = body.byte(LIFETIME).wrapping_sub(1);
-        body.set_byte(LIFETIME, lifetime);
+        let lifetime = body.get(LIFETIME).wrapping_sub(1);
+        body.set(LIFETIME, lifetime);
         if lifetime & 0x80 != 0 {
             *kind = 0;
         }

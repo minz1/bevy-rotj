@@ -1,7 +1,7 @@
 //! Type `$08`, the four-part burst `$AC16` spawns for type `$0A` (bank 8 `$8506`).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
 /// The four parts' six array pointers each (`$85CD`): x low/high, y low/high, x
@@ -12,7 +12,7 @@ const SPRITES: u16 = 0x85BB;
 /// The attribute base of the even and odd frame (`$85B8`).
 const ATTRS: u16 = 0x85B8;
 /// The pair's lifetime counter, the high byte of `ref_vx` (`$7ED0`).
-const LIFETIME: u16 = 0x7ED0;
+const LIFETIME: Field = Field::RefVxHigh;
 const GRAVITY: u8 = 0x0C;
 
 /// Type `$08` has no handler phase: its `$7DD0` byte is part 0's x velocity.
@@ -40,13 +40,14 @@ impl State {
             let (x_lo, x_hi, y_lo, y_hi, vx, vy) = (at(0), at(1), at(2), at(3), at(4), at(5));
             work.x = engine::move_by_velocity(body, x_lo, x_hi, vx);
             work.y = engine::move_by_velocity(body, y_lo, y_hi, vy);
-            body.set_byte(vy, body.byte(vy).wrapping_add(GRAVITY));
+            let vy = Field::from_array(vy).expect("$85CD table names a Body array");
+            body.set(vy, body.get(vy).wrapping_add(GRAVITY));
             if engine::on_screen(work, cx.world) == Visibility::On {
                 engine::draw(work, 8, cx);
             }
         }
-        let lifetime = body.byte(LIFETIME).wrapping_sub(1);
-        body.set_byte(LIFETIME, lifetime);
+        let lifetime = body.get(LIFETIME).wrapping_sub(1);
+        body.set(LIFETIME, lifetime);
         if lifetime & 0x80 != 0 {
             *kind = 0;
         }

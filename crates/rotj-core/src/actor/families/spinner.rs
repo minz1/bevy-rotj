@@ -11,7 +11,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 use crate::actors::STATE_UNTARGETED;
 
@@ -108,7 +108,7 @@ fn rising(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         return;
     }
     let low = body.vy.to_be_bytes()[1].wrapping_add(1);
-    body.set_byte(0x7E80, if low >= 0x40 { 0x3F } else { low });
+    body.set(Field::VyLow, if low >= 0x40 { 0x3F } else { low });
     if body.anim & 0x80 != 0 {
         return;
     }
@@ -192,7 +192,7 @@ fn descending(body: &mut Body, work: &mut Work) {
         return;
     }
     let low = body.vy.to_be_bytes()[1].wrapping_add(3);
-    body.set_byte(0x7E80, if low >= 0x50 { 0x4F } else { low });
+    body.set(Field::VyLow, if low >= 0x50 { 0x4F } else { low });
 }
 
 /// `$8D84`: puts a type `$7A` in the highest free main slot at the parent's x,
@@ -203,12 +203,10 @@ fn spawn_child(parent: &Body, cx: &mut Cx<'_>) -> bool {
     };
     let child = &mut cx.slots.main[index];
     let body = &mut child.body;
-    body.set_byte(0x7DD0, 0);
-    body.set_byte(0x7B60, 0);
-    body.set_byte(0x7B40, 0x0C);
-    body.set_byte(0x7B20, parent.x.to_be_bytes()[1]);
-    body.set_byte(0x7B00, parent.x.to_be_bytes()[0]);
-    body.set_byte(0x7C90, 0x07);
+    body.phase = 0;
+    body.y = 0x0C00;
+    body.x = parent.x;
+    body.chr_slot = 0x07;
     child.kind = CHILD;
     child.brain = Brain::new(CHILD);
     true

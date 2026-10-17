@@ -10,7 +10,7 @@
 //! its slot: `$7DD0` stays 0.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
 const HOME_BANK: u8 = 11;
@@ -19,9 +19,9 @@ const DRAW_BANK: u8 = 9;
 const METASPRITES: u16 = 0x9F3E;
 const ATTR: u8 = 2;
 /// The x pair (`$7B00`/`$7B20`), stepped -2/+3 on even frames.
-const X_PAIR: (u16, u16) = (0x7B00, 0x7B20);
+const X_PAIR: (Field, Field) = (Field::XHigh, Field::XLow);
 /// The y pair (`$7B40`/`$7B60`), stepped -5/+6 on odd frames.
-const Y_PAIR: (u16, u16) = (0x7B40, 0x7B60);
+const Y_PAIR: (Field, Field) = (Field::YHigh, Field::YLow);
 
 /// Type `$5C` keeps everything in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -35,13 +35,13 @@ impl State {
         } else {
             (X_PAIR.0, X_PAIR.1, 2u8, 3u8, 0u16)
         };
-        work.screen_x = body.byte(hi_addr);
+        work.screen_x = body.get(hi_addr);
         let (hi, borrow) = work.screen_x.overflowing_sub(hi_sub);
-        body.set_byte(hi_addr, if borrow { 0xFF } else { hi });
+        body.set(hi_addr, if borrow { 0xFF } else { hi });
         if !borrow {
-            work.screen_y = body.byte(lo_addr);
+            work.screen_y = body.get(lo_addr);
             let (lo, carry) = work.screen_y.overflowing_add(lo_add);
-            body.set_byte(lo_addr, if carry { 0 } else { lo });
+            body.set(lo_addr, if carry { 0 } else { lo });
         }
         work.pointer = engine::rom_word(cx.prg, HOME_BANK, METASPRITES + piece);
         work.attr = ATTR;
