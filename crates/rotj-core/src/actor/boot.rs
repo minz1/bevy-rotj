@@ -4,8 +4,9 @@
 
 use super::Game;
 use super::attract::Attract;
-use super::cutscene::{ScreenClear, copy_frame, draw_block, draw_sprite};
+use super::cutscene::{ScreenClear, copy_payload, draw_block, draw_sprite};
 use super::oam::Mark;
+use super::script::{Flow, Runner, wait};
 use super::sound_test::SoundTest;
 use super::stage::{Fade, NextArea, blackout, queue_palette};
 use crate::actor::button::Buttons;
@@ -106,6 +107,9 @@ struct Entry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Boot {
     step: Step,
+    /// Where the boot is in the table of a [`Step::Power`], [`Step::Intro`] or
+    /// [`Step::TitleSetup`].
+    runner: Runner,
     /// The last wait is followed by the intro's skip check (`$7E60`, `$2F` set).
     check: bool,
     clear: ScreenClear,
@@ -141,13 +145,13 @@ pub struct Boot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Step {
     /// The reset and the payload's copy (`$E2E6`, `$98C3`).
-    Power(Power),
+    Power,
     /// The intro's first screen (`$6000-$604A`).
-    Intro(Intro),
+    Intro,
     /// The intro's sliding picture, its hold and its flicker (`$604A-$61AB`).
     Slide(Slide),
     /// The title drawn at once, when the intro is skipped (`$62A3`).
-    TitleSetup(TitleSetup),
+    TitleSetup,
     /// The title and the chosen line's flash (`$61AC-$6293`).
     Title(Title),
     /// The attract mode (bank 2 `$99F7`).
@@ -164,22 +168,53 @@ enum Step {
     Restart,
 }
 
+/// What the reset and the payload's copy do, in order (the rows of [`POWER`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Power {
+enum PowerRow {
+    /// The RAM and registers reset (`$E2E6`).
     Reset,
-    Palette,
-    Payload,
-    Copy(u8),
+    /// The dark palette (`$D3BB`).
+    DarkPalette,
+    /// The music stopped (`$FF`) and the level 0, for no frame (`$98C3`).
+    StopMusic,
+    /// The payload copied from CHR `$F0-$F7` (`$98CB`).
+    CopyPayload,
+    /// The payload entered at `$6000`: the PPU ctrl, the mask off, the clear reset.
+    Enter,
+    /// The intro's palette, for no frame (`$6000`).
+    IntroPalette,
 }
 
+/// The reset to the payload's entry, then the intro, or the title if it is skipped.
+const POWER: &[PowerRow] = &[
+    PowerRow::Reset,
+    PowerRow::DarkPalette,
+    PowerRow::StopMusic,
+    PowerRow::CopyPayload,
+    PowerRow::Enter,
+    PowerRow::IntroPalette,
+];
+
+/// What the intro's first screen does, in order (the rows of [`INTRO`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Intro {
-    Enter,
-    Clear,
-    Banks,
-    BanksHold,
-    Show,
+enum IntroRow {
+    /// The screen cleared (`$7EC9`), the skip check from its third frame.
+    ClearScreen,
+    /// The title's banks and attributes, the skip check on the write.
+    ShowBanks,
+    /// `$7E69`'s frames of waiting.
+    Wait(u16),
+    /// Rendering on and the palette queued.
+    ShowPicture,
 }
+
+/// The intro's first screen, then the sliding picture.
+const INTRO: &[IntroRow] = &[
+    IntroRow::ClearScreen,
+    IntroRow::ShowBanks,
+    IntroRow::Wait(1),
+    IntroRow::ShowPicture,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Slide {
@@ -196,16 +231,35 @@ enum Slide {
     TitleBlocks(u8),
 }
 
+/// What the title's set-up does, in order (the rows of [`TITLE_SETUP`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TitleSetup {
-    Start,
-    Clear,
-    Banks,
-    BanksHold,
-    Palette,
-    Blocks(u8),
-    Show,
+enum TitleSetupRow {
+    /// The music stopped (`$FF`) and the clear reset, for no frame (`$62A3`).
+    StopMusic,
+    /// The screen cleared (`$7EC9`).
+    ClearScreen,
+    /// The title's banks and attributes.
+    ShowBanks,
+    /// Frames of waiting.
+    Wait(u16),
+    /// The PPU ctrl and the title's palette (`$3F00`).
+    TitlePalette,
+    /// The twelve blocks, a frame each, then the mask on for no frame.
+    TitleBlocks,
+    /// An empty frame.
+    ShowScreen,
 }
+
+/// The title drawn at once, then the title.
+const TITLE_SETUP: &[TitleSetupRow] = &[
+    TitleSetupRow::StopMusic,
+    TitleSetupRow::ClearScreen,
+    TitleSetupRow::ShowBanks,
+    TitleSetupRow::Wait(1),
+    TitleSetupRow::TitlePalette,
+    TitleSetupRow::TitleBlocks,
+    TitleSetupRow::ShowScreen,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Title {
@@ -269,7 +323,8 @@ impl Boot {
     #[must_use]
     pub fn new(forced: Option<u8>) -> Boot {
         Boot {
-            step: Step::Power(Power::Reset),
+            step: Step::Power,
+            runner: Runner::default(),
             check: false,
             clear: ScreenClear::new(0),
             buffer: [0; 64],
@@ -319,7 +374,7 @@ impl Boot {
     /// Runs one frame up to its NMI wait.
     pub fn step(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) {
         if std::mem::take(&mut self.check) && game.world.pressed.intersects(Buttons::ACCEPT) {
-            self.step = Step::TitleSetup(TitleSetup::Start);
+            self.begin(Step::TitleSetup);
         }
         while !self.frame(game, prg, chr) {}
     }
@@ -328,17 +383,21 @@ impl Boot {
     /// next step runs in the same frame.
     fn frame(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
         match self.step {
-            Step::Power(step) => self.power_frame(step, game, prg),
-            Step::Intro(step) => self.intro_frame(step, game, chr),
+            Step::Power => self.power_frame(game, prg, chr),
+            Step::Intro => self.intro_frame(game, chr),
             Step::Slide(step) => self.slide_frame(step, game, chr),
-            Step::TitleSetup(step) => self.title_setup_frame(step, game, chr),
+            Step::TitleSetup => self.title_setup_frame(game, chr),
             Step::Title(step) => self.title_frame(step, game, prg, chr),
             Step::Password(step) => self.password_frame(step, game, prg, chr),
             Step::Attract => {
                 if let Some(held) = self.attract.ended() {
                     self.level = 0;
                     self.skip_intro = held;
-                    self.step = Step::Power(Power::Copy(0));
+                    self.begin(Step::Power);
+                    self.runner.at = POWER
+                        .iter()
+                        .position(|&row| row == PowerRow::CopyPayload)
+                        .expect("the power table copies the payload");
                     return false;
                 }
                 self.attract.step(game, prg, chr);
@@ -375,74 +434,91 @@ impl Boot {
         }
     }
 
+    /// Starts `step` at the top of its table.
+    fn begin(&mut self, step: Step) {
+        self.step = step;
+        self.runner = Runner::default();
+    }
+
     /// The reset to its first NMI wait, the dark palette (`$D3BB`) and the payload's
     /// copy (`$98C3`, again from `$98CB` after the attract mode).
-    fn power_frame(&mut self, step: Power, game: &mut Game, prg: &[u8]) -> bool {
-        match step {
-            Power::Reset => {
-                reset(game);
-                self.step = Step::Power(Power::Palette);
+    fn power_frame(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
+        let Some(&row) = self.runner.row(POWER) else {
+            self.begin(if self.skip_intro {
+                Step::TitleSetup
+            } else {
+                Step::Intro
+            });
+            return false;
+        };
+        let frame = self.runner.frame;
+        let flow = match row {
+            PowerRow::Reset => {
+                if frame == 0 {
+                    reset(game);
+                }
+                wait(frame, 1)
             }
-            Power::Palette => {
-                set_first_colours(&mut game.effects.palette, 0x0F);
-                blackout(game, prg);
-                self.step = Step::Power(Power::Payload);
+            PowerRow::DarkPalette => {
+                if frame == 0 {
+                    set_first_colours(&mut game.effects.palette, 0x0F);
+                    blackout(game, prg);
+                }
+                wait(frame, 1)
             }
-            Power::Payload => {
+            PowerRow::StopMusic => {
                 game.effects.music = 0xFF;
                 self.level = 0;
-                self.step = Step::Power(Power::Copy(0));
-                return false;
+                Flow::Done
             }
-            Power::Copy(frame) => {
-                copy_frame(game, prg, frame, BOOT_FIRST_BANK);
-                self.step = if frame == 2 {
-                    Step::Intro(Intro::Enter)
-                } else {
-                    Step::Power(Power::Copy(frame + 1))
-                };
+            PowerRow::CopyPayload => copy_payload(game, prg, frame, BOOT_FIRST_BANK),
+            PowerRow::Enter => {
+                if frame == 0 {
+                    game.scroll.ppu_ctrl = 0xA8;
+                    game.scroll.mask = 0;
+                    self.clear = ScreenClear::new(0);
+                }
+                wait(frame, 1)
             }
-        }
-        true
+            PowerRow::IntroPalette => {
+                game.effects.palette = palette(chr, PALETTE);
+                Flow::Done
+            }
+        };
+        self.runner.advance(flow)
     }
 
     /// The intro's first screen (`$6000-$604A`): the screen cleared, the title's banks
     /// and attributes, rendering on; skipped to the title if the attract mode was left.
-    fn intro_frame(&mut self, step: Intro, game: &mut Game, chr: &[u8]) -> bool {
-        match step {
-            Intro::Enter => {
-                game.scroll.ppu_ctrl = 0xA8;
-                game.scroll.mask = 0;
-                self.clear = ScreenClear::new(0);
-                self.step = Step::Intro(Intro::Clear);
+    fn intro_frame(&mut self, game: &mut Game, chr: &[u8]) -> bool {
+        let Some(&row) = self.runner.row(INTRO) else {
+            self.begin(Step::Slide(Slide::Setup));
+            return false;
+        };
+        let frame = self.runner.frame;
+        let flow = match row {
+            IntroRow::ClearScreen => {
+                let flow = self.clear_rows(game);
+                self.check = flow == Flow::Waited && self.clear.frame() > 1;
+                flow
             }
-            Intro::Clear => {
-                if self.clear.frame() == 0 {
-                    game.effects.palette = palette(chr, PALETTE);
-                    if self.skip_intro {
-                        self.step = Step::TitleSetup(TitleSetup::Start);
-                        return false;
-                    }
+            IntroRow::ShowBanks => {
+                if frame == 0 {
+                    show_banks(game, chr);
+                    self.check = true;
                 }
-                if self.clear_step(game) {
-                    self.step = Step::Intro(Intro::Banks);
-                    return false;
+                wait(frame, 1)
+            }
+            IntroRow::Wait(count) => wait(frame, count),
+            IntroRow::ShowPicture => {
+                if frame == 0 {
+                    game.scroll.mask = 0x1E;
+                    queue_palette(game);
                 }
-                self.check = self.clear.frame() > 1;
+                wait(frame, 1)
             }
-            Intro::Banks => {
-                show_banks(game, chr);
-                self.check = true;
-                self.step = Step::Intro(Intro::BanksHold);
-            }
-            Intro::BanksHold => self.step = Step::Intro(Intro::Show),
-            Intro::Show => {
-                game.scroll.mask = 0x1E;
-                queue_palette(game);
-                self.step = Step::Slide(Slide::Setup);
-            }
-        }
-        true
+        };
+        self.runner.advance(flow)
     }
 
     /// The intro's picture (`$604A-$61AB`): six blocks of the draw list, each slid in by
@@ -552,49 +628,47 @@ impl Boot {
 
     /// The title drawn at once (`$62A3-$62F4`): the screen cleared, the banks and
     /// attributes, the palette, the draw list's twelve blocks, rendering on.
-    fn title_setup_frame(&mut self, step: TitleSetup, game: &mut Game, chr: &[u8]) -> bool {
-        let read = self.reader(chr);
-        let next = match step {
-            TitleSetup::Start => {
+    fn title_setup_frame(&mut self, game: &mut Game, chr: &[u8]) -> bool {
+        let Some(&row) = self.runner.row(TITLE_SETUP) else {
+            self.begin(Step::Title(Title::Start));
+            return false;
+        };
+        let frame = self.runner.frame;
+        let flow = match row {
+            TitleSetupRow::StopMusic => {
                 game.effects.music = 0xFF;
                 self.clear = ScreenClear::new(0);
-                self.step = Step::TitleSetup(TitleSetup::Clear);
-                return false;
+                Flow::Done
             }
-            TitleSetup::Clear => {
-                if self.clear_step(game) {
-                    self.step = Step::TitleSetup(TitleSetup::Banks);
-                    return false;
+            TitleSetupRow::ClearScreen => self.clear_rows(game),
+            TitleSetupRow::ShowBanks => {
+                if frame == 0 {
+                    show_banks(game, chr);
                 }
-                TitleSetup::Clear
+                wait(frame, 1)
             }
-            TitleSetup::Banks => {
-                show_banks(game, chr);
-                TitleSetup::BanksHold
+            TitleSetupRow::Wait(count) => wait(frame, count),
+            TitleSetupRow::TitlePalette => {
+                if frame == 0 {
+                    game.scroll.ppu_ctrl = 0xA8;
+                    game.effects.vram.push(0x3F00, 0, &palette(chr, PALETTE));
+                }
+                wait(frame, 1)
             }
-            TitleSetup::BanksHold => TitleSetup::Palette,
-            TitleSetup::Palette => {
-                game.scroll.ppu_ctrl = 0xA8;
-                game.effects.vram.push(0x3F00, 0, &palette(chr, PALETTE));
-                TitleSetup::Blocks(0)
+            TitleSetupRow::TitleBlocks => {
+                if frame == 12 {
+                    game.scroll.mask = 0x1E;
+                    Flow::Done
+                } else {
+                    let read = self.reader(chr);
+                    self.cursor = read(TITLE_BLOCKS + frame);
+                    draw_block(game, read, BLOCKS, &mut self.cursor);
+                    Flow::Waited
+                }
             }
-            TitleSetup::Blocks(12) => {
-                game.scroll.mask = 0x1E;
-                self.step = Step::TitleSetup(TitleSetup::Show);
-                return false;
-            }
-            TitleSetup::Blocks(drawn) => {
-                self.cursor = read(TITLE_BLOCKS + u16::from(drawn));
-                draw_block(game, read, BLOCKS, &mut self.cursor);
-                TitleSetup::Blocks(drawn + 1)
-            }
-            TitleSetup::Show => {
-                self.step = Step::Title(Title::Start);
-                return true;
-            }
+            TitleSetupRow::ShowScreen => wait(frame, 1),
         };
-        self.step = Step::TitleSetup(next);
-        true
+        self.runner.advance(flow)
     }
 
     /// The title (`$61AC-$6232`): its song, the cursor moved by left, right or Select,
@@ -940,6 +1014,15 @@ impl Boot {
             self.level = place.min(12);
         }
         found.is_some()
+    }
+
+    /// A row clearing the screen: a frame of [`Boot::clear_step`] until it has run.
+    fn clear_rows(&mut self, game: &mut Game) -> Flow {
+        if self.clear_step(game) {
+            Flow::Done
+        } else {
+            Flow::Waited
+        }
     }
 
     /// A frame of the screen clear and the buffer it fills (`$7EE7`, `$7EF9`, `$7F38`);

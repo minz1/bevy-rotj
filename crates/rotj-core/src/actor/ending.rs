@@ -8,6 +8,7 @@ use super::cutscene::{
 };
 use super::script::{Flow, Runner, wait};
 use super::stage::Fade;
+use crate::levelmap::PAYLOAD_FIRST_BANK;
 
 /// What the payload does from `$999C` on, in order: each step runs one frame or more,
 /// every frame ending at an NMI wait, or none and the next step runs in the same frame.
@@ -262,7 +263,7 @@ impl Ending {
                 }
                 Flow::Waited
             }
-            Row::CopyPayload => copy_payload(game, prg, self.runner.frame),
+            Row::CopyPayload => copy_payload(game, prg, self.runner.frame, PAYLOAD_FIRST_BANK),
             Row::Clear(fill) => {
                 if self.runner.frame == 0 {
                     self.clear = ScreenClear::new(fill);
