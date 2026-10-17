@@ -3,14 +3,16 @@
 //! returns: four scenes and the credits, then the last screen holds for good (`$6656`).
 
 use super::Game;
-use super::cutscene::{ScreenClear, copy_frame, draw_block, draw_sprite, payload_byte, read_bytes};
+use super::cutscene::{
+    ScreenClear, copy_payload, draw_block, draw_sprite, payload_byte, read_bytes,
+};
 use super::script::{Flow, Runner, wait};
 use super::stage::Fade;
 
 /// What the payload does from `$999C` on, in order: each step runs one frame or more,
 /// every frame ending at an NMI wait, or none and the next step runs in the same frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Action {
+enum Row {
     /// The music stopped (`$40 = $FF`).
     StopMusic,
     /// A song (`$41`).
@@ -77,86 +79,86 @@ enum Action {
     Hold,
 }
 
-const SCRIPT: &[Action] = &[
+const SCRIPT: &[Row] = &[
     // $999C
-    Action::StopMusic,
-    Action::FadeOut,
-    Action::CopyPayload,
+    Row::StopMusic,
+    Row::FadeOut,
+    Row::CopyPayload,
     // $6135: the title over the patterned second nametable
-    Action::Clear(SCREEN_FILL),
-    Action::Song(0x0D),
-    Action::Banks(0x67EC, 8),
-    Action::Palette(0x67F4),
-    Action::Pattern,
-    Action::Fill(BUFFER_FILL, BUFFER_FILL_TAIL),
-    Action::Blocks(SCREEN_BLOCKS, 5),
-    Action::Split,
-    Action::Mask(0x1E),
-    Action::FadeIn,
-    Action::Wait(0x90),
-    Action::Buffer(0x689C, 6),
-    Action::Fall,
-    Action::Park,
-    Action::Wait(0x60),
-    Action::Buffer(0x685A, 10),
-    Action::Rise,
-    Action::Park,
-    Action::Wait(0x60),
-    Action::FadeOut,
+    Row::Clear(SCREEN_FILL),
+    Row::Song(0x0D),
+    Row::Banks(0x67EC, 8),
+    Row::Palette(0x67F4),
+    Row::Pattern,
+    Row::Fill(BUFFER_FILL, BUFFER_FILL_TAIL),
+    Row::Blocks(SCREEN_BLOCKS, 5),
+    Row::Split,
+    Row::Mask(0x1E),
+    Row::FadeIn,
+    Row::Wait(0x90),
+    Row::Buffer(0x689C, 6),
+    Row::Fall,
+    Row::Park,
+    Row::Wait(0x60),
+    Row::Buffer(0x685A, 10),
+    Row::Rise,
+    Row::Park,
+    Row::Wait(0x60),
+    Row::FadeOut,
     // $62DE: the skyline
-    Action::Clear(SCREEN_FILL),
-    Action::Banks(0x6AAD, 7),
-    Action::Fill(BUFFER_FILL, BUFFER_FILL_TAIL),
-    Action::Blocks(SCREEN_BLOCKS, 2),
-    Action::Fill(0, 0),
-    Action::Blocks(0x68A5, 9),
-    Action::Palette(0x6AB4),
-    Action::Buffer(0x6AB4, 32),
-    Action::Watcher,
-    Action::Mask(0x1E),
-    Action::FadeIn,
-    Action::Skyline,
-    Action::Watch(0x5F),
-    Action::Light,
-    Action::ShowBuffer,
-    Action::Sound(0x23),
-    Action::Wait(0x21),
-    Action::White,
-    Action::ShowBuffer,
-    Action::FadeOut,
-    Action::Wait(0x21),
+    Row::Clear(SCREEN_FILL),
+    Row::Banks(0x6AAD, 7),
+    Row::Fill(BUFFER_FILL, BUFFER_FILL_TAIL),
+    Row::Blocks(SCREEN_BLOCKS, 2),
+    Row::Fill(0, 0),
+    Row::Blocks(0x68A5, 9),
+    Row::Palette(0x6AB4),
+    Row::Buffer(0x6AB4, 32),
+    Row::Watcher,
+    Row::Mask(0x1E),
+    Row::FadeIn,
+    Row::Skyline,
+    Row::Watch(0x5F),
+    Row::Light,
+    Row::ShowBuffer,
+    Row::Sound(0x23),
+    Row::Wait(0x21),
+    Row::White,
+    Row::ShowBuffer,
+    Row::FadeOut,
+    Row::Wait(0x21),
     // $6444: the credits
-    Action::Clear(0),
-    Action::Banks(0x6CEA, 8),
-    Action::Mirroring(2),
-    Action::Palette(0x6CF2),
-    Action::Blocks(0x6B02, 5),
-    Action::Parallax,
-    Action::Mask(0x1E),
-    Action::WalkIn,
-    Action::FadeIn,
-    Action::Walk(0xA0),
-    Action::Credits,
-    Action::WalkOff,
-    Action::Park,
-    Action::Wait(0x60),
-    Action::FadeOut,
+    Row::Clear(0),
+    Row::Banks(0x6CEA, 8),
+    Row::Mirroring(2),
+    Row::Palette(0x6CF2),
+    Row::Blocks(0x6B02, 5),
+    Row::Parallax,
+    Row::Mask(0x1E),
+    Row::WalkIn,
+    Row::FadeIn,
+    Row::Walk(0xA0),
+    Row::Credits,
+    Row::WalkOff,
+    Row::Park,
+    Row::Wait(0x60),
+    Row::FadeOut,
     // $65BB
-    Action::Clear(0),
-    Action::Banks(0x7103, 4),
-    Action::Palette(0x7107),
-    Action::Blocks(0x70C3, 2),
-    Action::Mask(0x1E),
-    Action::FadeIn,
-    Action::Wait(0x180),
-    Action::FadeOut,
+    Row::Clear(0),
+    Row::Banks(0x7103, 4),
+    Row::Palette(0x7107),
+    Row::Blocks(0x70C3, 2),
+    Row::Mask(0x1E),
+    Row::FadeIn,
+    Row::Wait(0x180),
+    Row::FadeOut,
     // $6624: the last screen
-    Action::Clear(0),
-    Action::Palette(0x7127),
-    Action::Blocks(0x7147, 3),
-    Action::Mask(0x1E),
-    Action::FadeIn,
-    Action::Hold,
+    Row::Clear(0),
+    Row::Palette(0x7127),
+    Row::Blocks(0x7147, 3),
+    Row::Mask(0x1E),
+    Row::FadeIn,
+    Row::Hold,
 ];
 
 /// The `$6D12` table's credit lines and the list they are read from.
@@ -229,7 +231,7 @@ impl Ending {
     /// True once the last screen holds (`$6656`), which it does for good.
     #[must_use]
     pub fn over(&self) -> bool {
-        self.runner.row(SCRIPT) == Some(&Action::Hold)
+        self.runner.row(SCRIPT) == Some(&Row::Hold)
     }
 
     /// Runs one frame up to its NMI wait.
@@ -244,13 +246,13 @@ impl Ending {
     }
 
     /// Runs a step's frame, or the whole of a step that takes none.
-    fn run(&mut self, action: Action, game: &mut Game, prg: &[u8], chr: &[u8]) -> Flow {
+    fn run(&mut self, action: Row, game: &mut Game, prg: &[u8], chr: &[u8]) -> Flow {
         let read = |addr| wram(chr, &self.buffer, addr);
         let frames = |count: u16| wait(self.runner.frame, count);
         match action {
-            Action::FadeOut | Action::FadeIn => {
+            Row::FadeOut | Row::FadeIn => {
                 if self.runner.frame == 0 {
-                    self.fade = Some(Fade::new(action == Action::FadeIn, false));
+                    self.fade = Some(Fade::new(action == Row::FadeIn, false));
                 }
                 let Some(fade) = &mut self.fade else {
                     return Flow::Done;
@@ -260,18 +262,8 @@ impl Ending {
                 }
                 Flow::Waited
             }
-            Action::CopyPayload => {
-                if self.runner.frame < 3 {
-                    copy_frame(
-                        game,
-                        prg,
-                        u8::try_from(self.runner.frame).expect("< 3"),
-                        crate::levelmap::PAYLOAD_FIRST_BANK,
-                    );
-                }
-                frames(3)
-            }
-            Action::Clear(fill) => {
+            Row::CopyPayload => copy_payload(game, prg, self.runner.frame),
+            Row::Clear(fill) => {
                 if self.runner.frame == 0 {
                     self.clear = ScreenClear::new(fill);
                 }
@@ -281,13 +273,13 @@ impl Ending {
                 self.buffer = [0; 64];
                 Flow::Done
             }
-            Action::ShowBuffer => {
+            Row::ShowBuffer => {
                 if self.runner.frame == 0 {
                     game.effects.vram.push(0x3F00, 0, &self.buffer[..32]);
                 }
                 frames(1)
             }
-            Action::Pattern => {
+            Row::Pattern => {
                 if self.runner.frame < 15 {
                     let row = read_bytes(&read, 0x66E0, 0x40);
                     game.effects
@@ -296,7 +288,7 @@ impl Ending {
                 }
                 frames(15)
             }
-            Action::Blocks(list, count) => {
+            Row::Blocks(list, count) => {
                 if self.runner.frame == 0 {
                     self.cursor = 0;
                 }
@@ -306,24 +298,24 @@ impl Ending {
                 }
                 frames(u16::from(count))
             }
-            Action::Wait(count) => frames(count),
-            Action::Fall => self.fall(game, chr),
-            Action::Rise => self.rise(game, chr),
-            Action::Skyline => self.skyline(game, chr),
-            Action::Watch(count) => {
+            Row::Wait(count) => frames(count),
+            Row::Fall => self.fall(game, chr),
+            Row::Rise => self.rise(game, chr),
+            Row::Skyline => self.skyline(game, chr),
+            Row::Watch(count) => {
                 if self.runner.frame < count {
                     watcher(game, read);
                 }
                 frames(count)
             }
-            Action::Walk(count) => {
+            Row::Walk(count) => {
                 if self.runner.frame < count {
                     self.walker.step(game, read);
                 }
                 frames(count)
             }
-            Action::Credits => self.credits(game, chr),
-            Action::WalkOff => {
+            Row::Credits => self.credits(game, chr),
+            Row::WalkOff => {
                 if self.runner.frame == 0 {
                     self.walker.mode = 0xFF;
                 } else if self.walker.x == 0xFE {
@@ -332,7 +324,7 @@ impl Ending {
                 self.walker.step(game, read);
                 Flow::Waited
             }
-            Action::Hold => Flow::Waited,
+            Row::Hold => Flow::Waited,
             _ => {
                 self.set(action, game, chr);
                 Flow::Done
@@ -341,56 +333,56 @@ impl Ending {
     }
 
     /// A step that takes no frame.
-    fn set(&mut self, action: Action, game: &mut Game, chr: &[u8]) {
+    fn set(&mut self, action: Row, game: &mut Game, chr: &[u8]) {
         let read = |addr| wram(chr, &self.buffer, addr);
         match action {
-            Action::StopMusic => game.effects.music = 0xFF,
-            Action::Song(song) => game.effects.song = song,
-            Action::Mask(mask) => game.scroll.mask = mask,
-            Action::Sound(sound) => game.effects.sound[0] = sound,
-            Action::Banks(table, count) => {
+            Row::StopMusic => game.effects.music = 0xFF,
+            Row::Song(song) => game.effects.song = song,
+            Row::Mask(mask) => game.scroll.mask = mask,
+            Row::Sound(sound) => game.effects.sound[0] = sound,
+            Row::Banks(table, count) => {
                 for (i, shadow) in (0..u16::from(count)).zip(&mut game.oam.chr) {
                     *shadow = read(table + i);
                 }
             }
-            Action::Palette(table) => {
+            Row::Palette(table) => {
                 for (i, colour) in (0..).zip(&mut game.effects.palette) {
                     *colour = read(table + i);
                 }
             }
-            Action::Buffer(table, len) => {
+            Row::Buffer(table, len) => {
                 let bytes = read_bytes(&read, table, u16::from(len));
                 self.buffer[..bytes.len()].copy_from_slice(&bytes);
             }
-            Action::Fill(low, high) => {
+            Row::Fill(low, high) => {
                 self.buffer[..32].fill(low);
                 self.buffer[32..].fill(high);
             }
-            Action::Split => {
+            Row::Split => {
                 let room = &mut game.scroll.room;
                 room[3] = 0x0C;
                 room[5] = 0;
                 arm_split(room, 0x1E00);
             }
-            Action::Parallax => {
+            Row::Parallax => {
                 let room = &mut game.scroll.room;
                 room[5..=10].fill(0);
                 game.scroll.scroll_x = 0;
                 room[3] = 0x0D;
                 arm_split(room, 0x1D00);
             }
-            Action::Mirroring(mirroring) => game.scroll.mirroring = mirroring,
-            Action::Park => game.oam.clear(),
-            Action::Watcher => watcher(game, read),
-            Action::Light => {
+            Row::Mirroring(mirroring) => game.scroll.mirroring = mirroring,
+            Row::Park => game.oam.clear(),
+            Row::Watcher => watcher(game, read),
+            Row::Light => {
                 self.buffer[0x11..0x14].fill(0x30);
                 game.effects.palette[0x11..0x14].fill(0x30);
             }
-            Action::White => {
+            Row::White => {
                 self.buffer[..32].fill(0x30);
                 game.effects.palette.fill(0x30);
             }
-            Action::WalkIn => {
+            Row::WalkIn => {
                 self.walker = Walker::default();
                 self.walker.step(game, read);
             }

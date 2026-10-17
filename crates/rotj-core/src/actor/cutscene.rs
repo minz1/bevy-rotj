@@ -125,13 +125,7 @@ impl Cutscene {
     fn run(&mut self, row: Row, game: &mut Game, prg: &[u8], chr: &[u8]) -> Flow {
         let frame = self.runner.frame;
         match row {
-            Row::CopyPayload => {
-                if frame < 3 {
-                    let frame = u8::try_from(frame).expect("< 3");
-                    copy_frame(game, prg, frame, crate::levelmap::PAYLOAD_FIRST_BANK);
-                }
-                wait(frame, 3)
-            }
+            Row::CopyPayload => copy_payload(game, prg, frame),
             Row::Clear => {
                 if frame == 0 {
                     self.clear = ScreenClear::new(0);
@@ -238,6 +232,15 @@ impl Cutscene {
         palette.extend(payload_bytes(chr, lit, 16));
         game.effects.vram.push(0x3F00, 0, &palette);
     }
+}
+
+/// A script row copying the payload from CHR (`$99A9`): three frames of [`copy_frame`].
+pub(super) fn copy_payload(game: &mut Game, prg: &[u8], frame: u16) -> Flow {
+    if frame < 3 {
+        let frame = u8::try_from(frame).expect("< 3");
+        copy_frame(game, prg, frame, crate::levelmap::PAYLOAD_FIRST_BANK);
+    }
+    wait(frame, 3)
 }
 
 /// One of a payload copy's three frames (`$99A9`, the boot's `$98C3`), each ending at an

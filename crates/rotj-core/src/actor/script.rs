@@ -50,3 +50,26 @@ pub fn wait(frame: u16, count: u16) -> Flow {
         Flow::Done
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_row_waits_its_frames_then_the_next_runs_in_the_same_frame() {
+        let mut runner = Runner::default();
+        assert!(runner.advance(wait(runner.frame, 2)));
+        assert!(runner.advance(wait(runner.frame, 2)));
+        assert_eq!(runner, Runner { at: 0, frame: 2 });
+        assert!(!runner.advance(wait(runner.frame, 2)));
+        assert_eq!(runner, Runner { at: 1, frame: 0 });
+        assert!(!runner.advance(wait(runner.frame, 0)));
+        assert_eq!(runner.row(&[(), ()]), None);
+        let mut held = Runner {
+            at: 0,
+            frame: u16::MAX,
+        };
+        assert!(held.advance(Flow::Waited));
+        assert_eq!(held.frame, u16::MAX);
+    }
+}
