@@ -199,23 +199,28 @@ mod tests {
             .map(|&table| word(table))
             .min()
             .expect("a table");
-        let mut rooms = 0;
+        let (mut rooms, mut empty) = (0, 0);
         for (area, &table) in (0u8..).step_by(2).zip(&tables) {
             let end = tables
                 .iter()
                 .copied()
                 .filter(|&other| other > table)
                 .min()
-                .unwrap_or(first_record)
-                .min(first_record);
+                .unwrap_or(first_record);
             for room in (0u8..).step_by(2).take(usize::from((end - table) / 2)) {
-                assert!(
-                    Room::import(prg, area, room).is_some(),
-                    "area {area} room {room}"
-                );
+                let layout = Room::import(prg, area, room)
+                    .unwrap_or_else(|| panic!("area {area} room {room}"));
+                if layout.raster.is_none() {
+                    assert_eq!(layout.arrival, Arrival::Unchanged);
+                    assert_eq!(
+                        (layout.fixed_rows, layout.fixed_quads),
+                        ([false; 16], [false; 8])
+                    );
+                    empty += 1;
+                }
                 rooms += 1;
             }
         }
-        assert!(rooms >= 18, "{rooms} rooms");
+        assert_eq!((rooms, empty), (36, 22));
     }
 }

@@ -35,7 +35,7 @@ pub fn dump(rom_path: &Path, stage: u8, sublevel: u8, area: u8) -> Result<()> {
             );
         }
         None => {
-            let _ = writeln!(out, "   (no room here)");
+            let _ = writeln!(out, "   (no room, or its records are malformed)");
         }
     }
 

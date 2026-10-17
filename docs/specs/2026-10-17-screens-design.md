@@ -77,8 +77,8 @@ unchanged.
 
 ## Plan
 
-1. Survey every record for the type decisions. Result (2026-10-17): 21 records over 18
-   areas, 10 empty; byte 0 is only ever 0 or `$80` (`armed: bool`); byte 4 is not always 0
+1. Survey every record for the type decisions. Result (2026-10-17): 36 rooms over 18
+   areas (21 distinct table entries, areas sharing tables), 22 of them empty; byte 0 is only ever 0 or `$80` (`armed: bool`); byte 4 is not always 0
    (`next_irq` stays); every fixed byte is 0 or `$80` (`[bool; N]`); every arrival is one
    of the three (8 unchanged, 1 held, 2 flying).
 2. Tests first, then the `Room` fields and `import`; `parameters` writes from the room.
