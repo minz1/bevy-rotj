@@ -9,6 +9,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
+use crate::actor::slots::hit;
 use crate::actor::world::Cx;
 
 /// The `$3A` per-`$7DD0` move offsets: x low/high (`$91C8`/`$91CC`), y low/high
@@ -140,7 +141,7 @@ fn shell(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         // `$9288`: sound, 76 px down, and the `$7D70` that starts the death.
         cx.effects.sound[0] = DETONATE_SOUND;
         work.y = work.y.wrapping_add(DETONATE_DROP);
-        body.hit = 0x80;
+        body.hit = hit::DYING;
         body.dying_timer = 0;
     }
     engine::store(body, work);

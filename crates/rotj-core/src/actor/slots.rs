@@ -21,7 +21,7 @@ pub struct Body {
     pub behaviour: u8,
     /// Subtype index (`$7DB0`).
     pub subtype: u8,
-    /// Hit flag (`$7D70`).
+    /// Hit flag (`$7D70`): see [`hit`].
     pub hit: u8,
     /// Handler phase (`$7DD0`).
     pub phase: u8,
@@ -570,6 +570,16 @@ impl Body {
         self.contact = record.contact;
         self.cell = cell;
     }
+}
+
+/// The bits of [`Body::hit`] (`$7D70`) the engine sets and tests.
+pub mod hit {
+    /// The actor is dying (`$AB13` sets it; `$AF97` and the families test it).
+    pub const DYING: u8 = 0x80;
+    /// The actor flashes from a hit; the low bits count the flash down.
+    pub const FLASHING: u8 = 0x40;
+    /// A fresh hit: flashing, two frames to count.
+    pub const STRUCK: u8 = 0x42;
 }
 
 /// One main slot. A freed slot keeps its body, as the game keeps the bytes.

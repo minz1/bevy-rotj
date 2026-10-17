@@ -1,6 +1,7 @@
 //! The bank-13 routines handlers share, each called where the 6502 calls it.
 
 use super::oam::{DrawCall, Metasprite};
+use super::slots::hit;
 use super::slots::{Body, Field};
 use super::world::{
     Cx, Effects, Level, Motion, Player, Schedule, Weapon, World, orientation, pose,
@@ -600,8 +601,8 @@ pub fn projectile_hits(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         body.health = health;
         if killed {
             die(body, work, cx);
-        } else if body.hit & 0x40 == 0 {
-            body.hit = 0x42;
+        } else if body.hit & hit::FLASHING == 0 {
+            body.hit = hit::STRUCK;
         }
         return;
     }
@@ -634,8 +635,8 @@ fn hurt_actor(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     body.health = health;
     if killed {
         die(body, work, cx);
-    } else if body.hit & 0x40 == 0 {
-        body.hit = 0x42;
+    } else if body.hit & hit::FLASHING == 0 {
+        body.hit = hit::STRUCK;
     }
 }
 
@@ -643,7 +644,7 @@ fn hurt_actor(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 fn die(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     cx.effects.sound[0] = 0x21;
     work.y = work.y.wrapping_add(0x04C0);
-    body.hit = 0x80;
+    body.hit = hit::DYING;
     body.dying_timer = 0;
 }
 
@@ -660,7 +661,7 @@ pub fn copy_metatiles(cell: u16, width: u8, metatiles: &[u8], level: &mut Level)
 
 /// A boss's hit flash or dying count (`$AF97`): 0 alive, else bit 7 with bit 6 on odd frames.
 pub fn boss_flash(body: &mut Body, work: &mut Work, world: &World) -> u8 {
-    if body.hit & 0x80 != 0 {
+    if body.hit & hit::DYING != 0 {
         body.dying_timer = body.dying_timer.wrapping_add(1);
         if body.dying_timer >= 0x40 {
             body.dying_timer = 0x80;
@@ -668,7 +669,7 @@ pub fn boss_flash(body: &mut Body, work: &mut Work, world: &World) -> u8 {
         }
         return if world.frame_odd { 0xC0 } else { 0x80 };
     }
-    if body.hit & 0x40 == 0 {
+    if body.hit & hit::FLASHING == 0 {
         work.attr = body.flags & 0xFC;
     } else {
         body.hit = (body.hit & 0x7F).wrapping_sub(1);
@@ -732,14 +733,14 @@ fn boss_damaged(damage: u8, body: &mut Body, cx: &mut Cx<'_>) -> u8 {
     cx.effects.boss_hp = hp;
     if killed || hp == 0 {
         cx.effects.sound[1] = 0x23;
-        body.hit = 0x80;
+        body.hit = hit::DYING;
         body.dying_timer = 0;
         cx.effects.boss_hp = 0;
         0x40
-    } else if body.hit & 0x40 != 0 {
+    } else if body.hit & hit::FLASHING != 0 {
         0x40
     } else {
-        body.hit = 0x42;
+        body.hit = hit::STRUCK;
         0x42
     }
 }
@@ -934,8 +935,8 @@ pub fn dying(
     variant: u8,
     cx: &mut Cx<'_>,
 ) -> bool {
-    if body.hit & 0x80 == 0 {
-        if body.hit & 0x40 == 0 {
+    if body.hit & hit::DYING == 0 {
+        if body.hit & hit::FLASHING == 0 {
             work.attr = body.flags & 0xFC;
         } else {
             body.hit = (body.hit & 0x7F).wrapping_sub(1);

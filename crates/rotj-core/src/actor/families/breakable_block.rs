@@ -4,6 +4,7 @@
 
 use crate::actor::engine::{self, TileBlock, Visibility, Work};
 use crate::actor::slots::Body;
+use crate::actor::slots::hit;
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
 
@@ -23,7 +24,7 @@ impl State {
             }
             Visibility::Near if work.anchor == 0 => {}
             _ => {
-                if body.hit & 0x80 != 0 {
+                if body.hit & hit::DYING != 0 {
                     if body.dying_timer == 0 {
                         if cx.effects.vram.top < 0x60 {
                             return;
@@ -36,7 +37,7 @@ impl State {
                     engine::dying(kind, body, work, 0, cx);
                     return;
                 }
-                if body.hit & 0x40 != 0 {
+                if body.hit & hit::FLASHING != 0 {
                     work.pointer = engine::rom_word(cx.prg, 8, 0x84DE);
                     work.chr_slot = 0;
                     work.attr = 3;

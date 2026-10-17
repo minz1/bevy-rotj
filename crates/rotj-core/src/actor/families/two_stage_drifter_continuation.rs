@@ -12,6 +12,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
+use crate::actor::slots::hit;
 use crate::actor::world::Cx;
 
 /// The metasprite pointer table the handler indexes by `$7D50` (`$8A6B`).
@@ -41,7 +42,7 @@ impl State {
         engine::load(body, work);
         // `$89B4`: a lethal hit drops the actor 76 px, advances `$7D50` (wrapping
         // `$84` to `$80`) and restores its hit points instead of killing it.
-        if body.hit & 0x80 != 0 {
+        if body.hit & hit::DYING != 0 {
             work.y = work.y.wrapping_sub(HIT_DROP);
             let next = body.state.wrapping_add(1);
             body.state = if next == 0x84 { 0x80 } else { next };

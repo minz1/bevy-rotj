@@ -7,6 +7,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
+use crate::actor::slots::hit;
 use crate::actor::world::Cx;
 
 /// The metasprite pointer the handler reads from bank 0 `$8604`.
@@ -46,7 +47,7 @@ impl State {
         if collision::feet(work, &mut probe, cx) & 0x80 == 0 {
             cx.effects.sound[0] = LANDING_SOUND;
             body.y = body.y.wrapping_add(LANDING_DROP);
-            body.hit = 0x80;
+            body.hit = hit::DYING;
             body.dying_timer = 0;
             return;
         }

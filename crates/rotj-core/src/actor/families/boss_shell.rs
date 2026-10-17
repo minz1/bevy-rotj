@@ -13,6 +13,7 @@
 //! which `$826F` maps bank 9 for) and `$A934` (`store`).
 
 use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::slots::hit;
 use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
@@ -78,7 +79,7 @@ impl State {
 fn kill(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     cx.effects.sound[0] = KILL_SOUND;
     work.y = work.y.wrapping_add(KILL_DROP);
-    body.hit = 0x80;
+    body.hit = hit::DYING;
     body.dying_timer = 0;
 }
 

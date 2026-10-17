@@ -10,6 +10,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
+use crate::actor::slots::hit;
 use crate::actor::world::Cx;
 
 /// The `$7C30` -> metasprite pointer table (bank 12, indexed by `$7C30*2`).
@@ -41,7 +42,7 @@ impl State {
     /// One frame of the handler (`$8A52`; the `$7DD0` phases are the doubled indices of [`Phase`]).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
-        if body.phase != Phase::Dying.byte() && body.hit & 0x80 != 0 {
+        if body.phase != Phase::Dying.byte() && body.hit & hit::DYING != 0 {
             body.hit = 0;
             body.sprite = cx.world.frame & 0x01;
             work.y = work.y.wrapping_sub(0x04C0);

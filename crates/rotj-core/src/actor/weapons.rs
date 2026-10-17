@@ -10,6 +10,7 @@ use super::collision::{self, Probe};
 use super::engine::{self, Work, rom_byte, rom_word};
 use super::scroll::Scroll;
 use super::slots;
+use super::slots::hit;
 use super::world::{Cx, Motion, Projectile, Weapon, set_first_colours};
 use crate::actor::button::Buttons;
 use crate::actors::STATE_UNTARGETED;
@@ -933,7 +934,7 @@ fn super_smite(cx: &mut Cx<'_>) {
     let camera_y = cx.world.camera_y;
     for actor in cx.slots.main[..16].iter_mut().rev() {
         let body = &mut actor.body;
-        if actor.kind == 0 || body.contact & 0x08 != 0 || body.hit & 0x80 != 0 {
+        if actor.kind == 0 || body.contact & 0x08 != 0 || body.hit & hit::DYING != 0 {
             continue;
         }
         let dx = body.x.to_be_bytes()[0].wrapping_sub(camera_x);
@@ -946,7 +947,7 @@ fn super_smite(cx: &mut Cx<'_>) {
             continue;
         }
         body.y = body.y.wrapping_add(0x04C0);
-        body.hit = 0x80;
+        body.hit = hit::DYING;
         body.dying_timer = 0;
     }
 }

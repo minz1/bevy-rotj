@@ -3,6 +3,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
+use crate::actor::slots::hit;
 use crate::actor::world::Cx;
 
 /// The overlay metasprites (bank 8 `$8A64`, by Y = 0 or 2).
@@ -54,7 +55,7 @@ impl State {
         engine::load(body, work);
         let visibility = engine::on_screen(work, cx.world);
         if visibility == Visibility::On {
-            if body.hit & 0x80 != 0 {
+            if body.hit & hit::DYING != 0 {
                 if body.dying_timer == 0 {
                     if cx.effects.vram.top < 0x60 {
                         return;
@@ -64,7 +65,7 @@ impl State {
                 engine::dying(kind, body, work, 0, cx);
                 return;
             }
-            if body.hit & 0x40 != 0 {
+            if body.hit & hit::FLASHING != 0 {
                 work.pointer = engine::rom_word(cx.prg, 8, FLASH);
                 work.chr_slot = 6;
                 work.attr = 0;
@@ -155,7 +156,7 @@ fn landing(
     if visibility == Visibility::On {
         work.hitbox = 0;
         engine::contact(kind, body, work, 2, cx);
-        if body.hit & 0x80 != 0 {
+        if body.hit & hit::DYING != 0 {
             return;
         }
         let (screen_y, _) = work.screen_y.overflowing_sub(0x1A);
@@ -196,7 +197,7 @@ fn stomping(
     if visibility == Visibility::On {
         work.hitbox = 0;
         engine::contact(kind, body, work, 2, cx);
-        if body.hit & 0x80 != 0 {
+        if body.hit & hit::DYING != 0 {
             return;
         }
         let anim = u16::from(body.anim);

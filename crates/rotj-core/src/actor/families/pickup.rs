@@ -5,6 +5,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
+use crate::actor::slots::hit;
 use crate::actor::world::Cx;
 
 /// Metasprite pointers for the states other than `$04`/`$84` (bank 8 `$8C44`).
@@ -28,7 +29,7 @@ impl State {
     /// One frame of the handler (`$8B55`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
-        if body.hit & 0x80 != 0 {
+        if body.hit & hit::DYING != 0 {
             work.y = work.y.wrapping_sub(0x04C0);
             if body.state != LAST_STATE {
                 let next = body.state.wrapping_add(1);
