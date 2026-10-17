@@ -3,6 +3,7 @@
 
 use super::Game;
 use super::oam::{DrawCall, Metasprite};
+use super::script::{Flow, Runner, wait};
 
 /// CHR offset of the payload's WRAM `$6000-$7E5F` (banks `$F8-$FF`).
 const PAYLOAD: usize = 0xF8 * 0x400;
@@ -39,46 +40,70 @@ pub(super) fn read_bytes(read: &impl Fn(u16) -> u8, addr: u16, len: u16) -> Vec<
 /// held `$80` frames, and the screen cleared again.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cutscene {
-    step: Step,
+    /// Where the cutscene is in [`SCRIPT`].
+    runner: Runner,
     /// The stage's picture (`$2B`, then `$76D1[$2B]`).
     scene: u8,
     clear: ScreenClear,
-    /// Frames left in a hold (`$20`).
-    hold: u8,
-    /// Blocks drawn (`$2D`).
-    blocks: u8,
     /// The draw list's read offset (`$20`).
     cursor: u8,
-    /// The picture has been shown and the second clear runs.
-    shown: bool,
 }
 
+/// What the payload does from `$6000` on, in order (the rows of [`SCRIPT`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Step {
-    Copy(u8),
+enum Row {
+    /// `$99A9`'s three frames.
+    CopyPayload,
+    /// The screen cleared (`$7EC9`).
     Clear,
+    /// The picture's song, banks and dark palette, for a frame.
     Picture,
-    Blocks,
+    /// The picture's nametable blocks, one a frame (`$7E69`, `$775C[scene]` of them).
+    PictureBlocks,
+    /// The raster slide set up, for a frame (bank 2 `$9731`).
     Slide,
-    Sliding,
-    Dim,
-    Grey,
-    Lit,
-    Done,
+    /// Until the slide's counters (`$D5`, `$D6`, `$DA`) run out.
+    SlideIn,
+    /// The split off, the PPU back on the first nametable.
+    SlideEnd,
+    /// `$612D`'s count of frames.
+    Wait(u16),
+    /// The grey flash (`$3F00`, all `$10`).
+    GreyPalette,
+    /// The picture's sprite and lit palette.
+    LightPicture,
+    /// The music stopped (`$40 = $FF`).
+    StopMusic,
 }
+
+/// The cutscene: copy, clear, the picture slid in, a grey flash, the lit picture, and the
+/// screen cleared again.
+const SCRIPT: &[Row] = &[
+    Row::CopyPayload,
+    Row::Clear,
+    Row::Picture,
+    Row::PictureBlocks,
+    Row::Slide,
+    Row::SlideIn,
+    Row::SlideEnd,
+    Row::Wait(0x20),
+    Row::GreyPalette,
+    Row::Wait(0x21),
+    Row::LightPicture,
+    Row::Wait(0x81),
+    Row::StopMusic,
+    Row::Clear,
+];
 
 impl Cutscene {
     /// The cutscene for picture `scene` (`$93C5[$0400 / 2]`).
     #[must_use]
     pub fn new(scene: u8) -> Cutscene {
         Cutscene {
-            step: Step::Copy(0),
+            runner: Runner::default(),
             scene,
             clear: ScreenClear::new(0),
-            hold: 0,
-            blocks: 0,
             cursor: 0,
-            shown: false,
         }
     }
 
@@ -86,42 +111,58 @@ impl Cutscene {
     /// (`$612C`), with the rest of this frame left to the caller.
     pub fn step(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
         loop {
-            match self.step {
-                Step::Copy(frame) => {
+            let Some(&row) = self.runner.row(SCRIPT) else {
+                return true;
+            };
+            let flow = self.run(row, game, prg, chr);
+            if self.runner.advance(flow) {
+                return false;
+            }
+        }
+    }
+
+    /// Runs a row's frame, or the whole of a row that takes none.
+    fn run(&mut self, row: Row, game: &mut Game, prg: &[u8], chr: &[u8]) -> Flow {
+        let frame = self.runner.frame;
+        match row {
+            Row::CopyPayload => {
+                if frame < 3 {
+                    let frame = u8::try_from(frame).expect("< 3");
                     copy_frame(game, prg, frame, crate::levelmap::PAYLOAD_FIRST_BANK);
-                    self.step = if frame == 2 {
-                        Step::Clear
-                    } else {
-                        Step::Copy(frame + 1)
-                    };
-                    return false;
                 }
-                Step::Clear => {
-                    if !self.clear.step(game) {
-                        return false;
-                    }
-                    self.step = if self.shown {
-                        Step::Done
-                    } else {
-                        Step::Picture
-                    };
+                wait(frame, 3)
+            }
+            Row::Clear => {
+                if frame == 0 {
+                    self.clear = ScreenClear::new(0);
                 }
-                Step::Picture => {
+                if self.clear.step(game) {
+                    Flow::Done
+                } else {
+                    Flow::Waited
+                }
+            }
+            Row::Picture => {
+                if frame == 0 {
                     self.picture(game, chr);
-                    self.step = Step::Blocks;
-                    return false;
                 }
-                Step::Blocks => {
-                    if self.blocks == payload_byte(chr, 0x775C + 2 * u16::from(self.scene)) {
-                        self.step = Step::Slide;
-                    } else {
-                        let read = |addr| payload_byte(chr, addr);
-                        draw_block(game, read, 0x71DD, &mut self.cursor);
-                        self.blocks += 1;
-                        return false;
-                    }
+                wait(frame, 1)
+            }
+            Row::PictureBlocks => {
+                let count = payload_byte(chr, 0x775C + 2 * u16::from(self.scene));
+                if frame == u16::from(count) {
+                    return Flow::Done;
                 }
-                Step::Slide => {
+                draw_block(
+                    game,
+                    |addr| payload_byte(chr, addr),
+                    0x71DD,
+                    &mut self.cursor,
+                );
+                Flow::Waited
+            }
+            Row::Slide => {
+                if frame == 0 {
                     let at = 0x7755 + 2 * u16::from(self.scene);
                     let room = &mut game.scroll.room;
                     room[3] = 0x0A;
@@ -130,56 +171,36 @@ impl Cutscene {
                     room[2] = payload_byte(chr, at + 1);
                     room[0] = 0x80;
                     game.scroll.mask = 0x1E;
-                    self.step = Step::Sliding;
-                    return false;
                 }
-                Step::Sliding => {
-                    let room = &mut game.scroll.room;
-                    if room[5] | room[6] | room[10] != 0 {
-                        return false;
-                    }
-                    room[0] = 0;
-                    game.scroll.ppu_ctrl = 0xA8;
-                    self.hold = 0x20;
-                    self.step = Step::Dim;
-                    return false;
+                wait(frame, 1)
+            }
+            Row::SlideIn => {
+                let room = &game.scroll.room;
+                if room[5] | room[6] | room[10] != 0 {
+                    Flow::Waited
+                } else {
+                    Flow::Done
                 }
-                Step::Dim => {
-                    if self.wait() {
-                        return false;
-                    }
-                    game.effects.vram.push(0x3F00, 0, &[0x10; 32]);
-                    self.hold = 0x21;
-                    self.step = Step::Grey;
-                    return false;
-                }
-                Step::Grey => {
-                    if self.wait() {
-                        return false;
-                    }
-                    self.light(game, chr);
-                    self.hold = 0x81;
-                    self.step = Step::Lit;
-                    return false;
-                }
-                Step::Lit => {
-                    if self.wait() {
-                        return false;
-                    }
-                    game.effects.music = 0xFF;
-                    self.clear = ScreenClear::new(0);
-                    self.shown = true;
-                    self.step = Step::Clear;
-                }
-                Step::Done => return true,
+            }
+            Row::SlideEnd => {
+                game.scroll.room[0] = 0;
+                game.scroll.ppu_ctrl = 0xA8;
+                Flow::Done
+            }
+            Row::Wait(count) => wait(frame, count),
+            Row::GreyPalette => {
+                game.effects.vram.push(0x3F00, 0, &[0x10; 32]);
+                Flow::Done
+            }
+            Row::LightPicture => {
+                self.light(game, chr);
+                Flow::Done
+            }
+            Row::StopMusic => {
+                game.effects.music = 0xFF;
+                Flow::Done
             }
         }
-    }
-
-    /// One frame of `$612D`'s count; false when the count has run out.
-    fn wait(&mut self) -> bool {
-        self.hold -= 1;
-        self.hold != 0
     }
 
     /// The picture's song, CHR banks and dark palette (`$600B-$6053`).

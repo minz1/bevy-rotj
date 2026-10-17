@@ -16,6 +16,7 @@ pub mod pause;
 pub mod player;
 pub mod raster;
 pub mod room;
+pub mod script;
 pub mod scroll;
 pub mod slots;
 mod sound_test;

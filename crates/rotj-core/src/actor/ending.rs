@@ -4,6 +4,7 @@
 
 use super::Game;
 use super::cutscene::{ScreenClear, copy_frame, draw_block, draw_sprite, payload_byte, read_bytes};
+use super::script::{Flow, Runner, wait};
 use super::stage::Fade;
 
 /// What the payload does from `$999C` on, in order: each step runs one frame or more,
@@ -158,14 +159,6 @@ const SCRIPT: &[Action] = &[
     Action::Hold,
 ];
 
-/// How a step's frame went.
-enum Flow {
-    /// It waited for the NMI and runs again next frame.
-    Waited,
-    /// It has run; the next step runs in this frame.
-    Done,
-}
-
 /// The `$6D12` table's credit lines and the list they are read from.
 const CREDIT_LINES: u16 = 0x6D12;
 const CREDIT_LIST: u16 = 0x6D2E;
@@ -198,10 +191,8 @@ const WALKER_POSE_FRAMES: u16 = 0x6F59;
 /// The ending, one frame per [`Ending::step`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ending {
-    /// The step running ([`SCRIPT`]).
-    at: usize,
-    /// Frames the step has run.
-    frame: u16,
+    /// Where the ending is in [`SCRIPT`].
+    runner: Runner,
     fade: Option<Fade>,
     clear: ScreenClear,
     /// WRAM `$7FC0-$7FFF`, the payload's buffer for palettes, fills and built sprites.
@@ -220,8 +211,7 @@ pub struct Ending {
 impl Default for Ending {
     fn default() -> Self {
         Ending {
-            at: 0,
-            frame: 0,
+            runner: Runner::default(),
             fade: None,
             clear: ScreenClear::new(0),
             buffer: [0; 64],
@@ -239,34 +229,27 @@ impl Ending {
     /// True once the last screen holds (`$6656`), which it does for good.
     #[must_use]
     pub fn over(&self) -> bool {
-        SCRIPT[self.at] == Action::Hold
+        self.runner.row(SCRIPT) == Some(&Action::Hold)
     }
 
     /// Runs one frame up to its NMI wait.
     pub fn step(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) {
         loop {
-            if let Flow::Waited = self.run(SCRIPT[self.at], game, prg, chr) {
-                self.frame = self.frame.saturating_add(1);
+            let action = *self.runner.row(SCRIPT).expect("the ending holds for good");
+            let flow = self.run(action, game, prg, chr);
+            if self.runner.advance(flow) {
                 return;
             }
-            self.at += 1;
-            self.frame = 0;
         }
     }
 
     /// Runs a step's frame, or the whole of a step that takes none.
     fn run(&mut self, action: Action, game: &mut Game, prg: &[u8], chr: &[u8]) -> Flow {
         let read = |addr| wram(chr, &self.buffer, addr);
-        let frames = |count: u16| {
-            if self.frame < count {
-                Flow::Waited
-            } else {
-                Flow::Done
-            }
-        };
+        let frames = |count: u16| wait(self.runner.frame, count);
         match action {
             Action::FadeOut | Action::FadeIn => {
-                if self.frame == 0 {
+                if self.runner.frame == 0 {
                     self.fade = Some(Fade::new(action == Action::FadeIn, false));
                 }
                 let Some(fade) = &mut self.fade else {
@@ -278,18 +261,18 @@ impl Ending {
                 Flow::Waited
             }
             Action::CopyPayload => {
-                if self.frame < 3 {
+                if self.runner.frame < 3 {
                     copy_frame(
                         game,
                         prg,
-                        u8::try_from(self.frame).expect("< 3"),
+                        u8::try_from(self.runner.frame).expect("< 3"),
                         crate::levelmap::PAYLOAD_FIRST_BANK,
                     );
                 }
                 frames(3)
             }
             Action::Clear(fill) => {
-                if self.frame == 0 {
+                if self.runner.frame == 0 {
                     self.clear = ScreenClear::new(fill);
                 }
                 if !self.clear.step(game) {
@@ -299,23 +282,25 @@ impl Ending {
                 Flow::Done
             }
             Action::ShowBuffer => {
-                if self.frame == 0 {
+                if self.runner.frame == 0 {
                     game.effects.vram.push(0x3F00, 0, &self.buffer[..32]);
                 }
                 frames(1)
             }
             Action::Pattern => {
-                if self.frame < 15 {
+                if self.runner.frame < 15 {
                     let row = read_bytes(&read, 0x66E0, 0x40);
-                    game.effects.vram.push(0x2400 + self.frame * 0x40, 0, &row);
+                    game.effects
+                        .vram
+                        .push(0x2400 + self.runner.frame * 0x40, 0, &row);
                 }
                 frames(15)
             }
             Action::Blocks(list, count) => {
-                if self.frame == 0 {
+                if self.runner.frame == 0 {
                     self.cursor = 0;
                 }
-                if self.frame < u16::from(count) {
+                if self.runner.frame < u16::from(count) {
                     let buffer = &self.buffer;
                     draw_block(game, |addr| wram(chr, buffer, addr), list, &mut self.cursor);
                 }
@@ -326,20 +311,20 @@ impl Ending {
             Action::Rise => self.rise(game, chr),
             Action::Skyline => self.skyline(game, chr),
             Action::Watch(count) => {
-                if self.frame < count {
+                if self.runner.frame < count {
                     watcher(game, read);
                 }
                 frames(count)
             }
             Action::Walk(count) => {
-                if self.frame < count {
+                if self.runner.frame < count {
                     self.walker.step(game, read);
                 }
                 frames(count)
             }
             Action::Credits => self.credits(game, chr),
             Action::WalkOff => {
-                if self.frame == 0 {
+                if self.runner.frame == 0 {
                     self.walker.mode = 0xFF;
                 } else if self.walker.x == 0xFE {
                     return Flow::Done;
@@ -416,7 +401,7 @@ impl Ending {
     /// A frame of the falling figure (`$61D0`), its pose's tile set in the built sprite
     /// (`$68A2`), until the burst at (`$68`, `$60`) has run its four shapes.
     fn fall(&mut self, game: &mut Game, chr: &[u8]) -> Flow {
-        if self.frame == 0 {
+        if self.runner.frame == 0 {
             self.figure = Figure {
                 x: 0x68,
                 y: 0x60,
@@ -443,7 +428,7 @@ impl Ending {
     /// pose's tiles set in the built sprite (`$62C3`, `$6864`).
     fn rise(&mut self, game: &mut Game, chr: &[u8]) -> Flow {
         let figure = &mut self.figure;
-        if self.frame == 0 {
+        if self.runner.frame == 0 {
             *figure = Figure {
                 x: 0x20,
                 y: 0xFF,
@@ -472,10 +457,10 @@ impl Ending {
     /// until each has run its shapes, then the watcher.
     fn skyline(&mut self, game: &mut Game, chr: &[u8]) -> Flow {
         const STARTS: [u16; 3] = [0, 0x38, 0x58];
-        if self.frame == 0x100 {
+        if self.runner.frame == 0x100 {
             return Flow::Done;
         }
-        if self.frame == 0 {
+        if self.runner.frame == 0 {
             self.bursts = [
                 Burst::at(0x74, 0x98),
                 Burst::at(0x80, 0xA4),
@@ -484,7 +469,7 @@ impl Ending {
         }
         let read = |addr| payload_byte(chr, addr);
         for (burst, start) in self.bursts.iter_mut().zip(STARTS) {
-            if self.frame >= start && burst.stage != 4 {
+            if self.runner.frame >= start && burst.stage != 4 {
                 burst.step(game, read);
             }
         }
@@ -494,7 +479,7 @@ impl Ending {
 
     /// A frame of the credits (`$64D5`): a line's block under the walker, then its hold.
     fn credits(&mut self, game: &mut Game, chr: &[u8]) -> Flow {
-        if self.frame == 0 {
+        if self.runner.frame == 0 {
             (self.credit, self.hold) = (0, 0);
         }
         let read = |addr| payload_byte(chr, addr);
