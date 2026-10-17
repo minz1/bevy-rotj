@@ -17,7 +17,8 @@ const DAMAGE: u8 = 4;
 const STEP: i16 = 3;
 const SHIFT_X: u16 = 0xFFD8;
 
-/// `$7DD0` bit 7: the offset runs back up toward zero; clear, it runs down.
+/// `$7DD0` bit 7: set, the offset drops by 3 a frame (the part rises) until it goes below
+/// zero; clear, it climbs by 3 (the part falls) until it reaches zero.
 const RISING: u8 = 0x80;
 /// `anim` bit 7 once the offset has crossed zero: the part holds.
 const HOLDING: u8 = 0x80;

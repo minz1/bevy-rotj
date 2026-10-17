@@ -35,7 +35,7 @@ const DRAW_BANK: u8 = 9;
 
 /// `$3A` keeps its drift's table index in `phase` and its metasprite in `sprite`; the `$3C`
 /// shell counts its frames in the pair `[counter, timer]`, zeroed at spawn, and detonates
-/// at `$0200` at the latest.
+/// at `$0200` or on reaching the player.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
