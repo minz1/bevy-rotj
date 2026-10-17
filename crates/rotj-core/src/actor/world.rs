@@ -266,7 +266,7 @@ pub struct World {
     pub room: u8,
     /// Joypad 1 held buttons (`$F6`): bit 0 right, 1 left, 2 down, 3 up.
     pub pad: u8,
-    /// Joypad 1 buttons newly pressed this frame (`$F5`).
+    /// Joypad 1 buttons newly pressed this frame, the edges of [`World::pad`] (`$F5`).
     pub pressed: u8,
     /// The actor spawn distance from the camera (`$D7`), set outside the actors;
     /// type `$12` reads it.
@@ -494,14 +494,14 @@ pub struct Projectile {
     pub level_y_lo: u8,
 }
 
-/// The weapon arrays, 16 wide each.
+/// The projectile arrays, 16 wide each.
 pub const PROJECTILE_ARRAYS: [u16; 19] = [
     0x7BD0, 0x7B80, 0x7B90, 0x7F30, 0x7F20, 0x7D00, 0x7D10, 0x7D20, 0x7EB0, 0x7C80, 0x7CB0, 0x7C20,
     0x7F40, 0x7F50, 0x7F60, 0x7BB0, 0x7BC0, 0x7C60, 0x7C70,
 ];
 
 impl Projectile {
-    /// The weapon's byte in `array` (one of [`WEAPON_ARRAYS`]).
+    /// The projectile's byte in `array` (one of [`PROJECTILE_ARRAYS`]).
     #[must_use]
     pub fn byte(&self, array: u16) -> u8 {
         let across = self.vx.to_be_bytes();
@@ -753,11 +753,11 @@ mod layout {
     impl Effects {
         pub(crate) fn lift(ram: &[u8; 2048], wram: &[u8; 8192]) -> Effects {
             let projectiles = std::array::from_fn(|i| {
-                let mut weapon = Projectile::default();
+                let mut projectile = Projectile::default();
                 for array in PROJECTILE_ARRAYS {
-                    weapon.set_byte(array, wram[usize::from(array - 0x6000) + i]);
+                    projectile.set_byte(array, wram[usize::from(array - 0x6000) + i]);
                 }
-                weapon
+                projectile
             });
             Effects {
                 sound: [ram[0x42], ram[0x43]],
@@ -851,9 +851,9 @@ mod layout {
             wram[0x1FD0..0x1FE2].copy_from_slice(&self.pause_name);
             wram[0x1FF1] = self.pause_aux;
             self.vram.project(ram);
-            for (i, weapon) in self.projectiles.iter().enumerate() {
+            for (i, projectile) in self.projectiles.iter().enumerate() {
                 for array in PROJECTILE_ARRAYS {
-                    wram[usize::from(array - 0x6000) + i] = weapon.byte(array);
+                    wram[usize::from(array - 0x6000) + i] = projectile.byte(array);
                 }
             }
         }
@@ -917,6 +917,36 @@ mod layout {
 #[cfg(test)]
 mod tests {
     use super::{Motion, Rng, Weapon};
+
+    #[test]
+    fn set_first_colours_sets_every_fourth_entry() {
+        let mut palette: [u8; 32] = std::array::from_fn(|i| u8::try_from(i).expect("32"));
+        super::set_first_colours(&mut palette, 0x0F);
+        for (i, &colour) in palette.iter().enumerate() {
+            let expected = if i % 4 == 0 {
+                0x0F
+            } else {
+                u8::try_from(i).expect("32")
+            };
+            assert_eq!(colour, expected, "entry {i}");
+        }
+    }
+
+    #[test]
+    fn the_pose_bits_are_the_games() {
+        use super::pose;
+        assert_eq!(
+            [
+                pose::TURNING,
+                pose::SHOT,
+                pose::RESUME,
+                pose::LANDING,
+                pose::SAVED_MOTION,
+                pose::LONG_LANDING
+            ],
+            [0x80, 0x40, 0x20, 0x10, 0x0F, 0x01]
+        );
+    }
 
     #[test]
     fn weapon_bytes_round_trip() {

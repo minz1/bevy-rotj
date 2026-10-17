@@ -803,8 +803,8 @@ impl Port<'_, '_> {
         let held = (self.cx.effects.attack & 0x80) << 1;
         self.player.pose = held;
         self.player.walk_gate = held;
-        self.pressed &= 0x10;
-        self.pad &= 0x10;
+        self.pressed &= button::START;
+        self.pad &= button::START;
         self.player.facing = if self.cx.world.frame & 0x04 != 0 {
             self.player.facing & 0x40
         } else {

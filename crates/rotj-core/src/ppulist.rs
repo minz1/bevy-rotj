@@ -110,6 +110,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_list_ends_at_any_byte_with_bit_7() {
+        let list = [0x20, 0x00, 1, 0xAA, 0x80, 0x00, 1, 0xBB];
+        let entries: Vec<_> = WriteList::new(&list).collect();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(WriteList::new(&list).nth(1), None);
+        let mut walk = WriteList::new(&list);
+        walk.next();
+        assert_eq!(walk.end_offset(), Some(5));
+    }
+
+    #[test]
     fn decodes_entries_and_finds_the_terminator() {
         // Two entries then $FF: $2000 <- 01 02, $3F00 <- 0F.
         let data = [

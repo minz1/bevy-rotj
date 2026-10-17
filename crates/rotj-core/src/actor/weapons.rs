@@ -17,9 +17,9 @@ use crate::actor::button;
 pub const CHARGE_START: u8 = 0x80;
 
 /// The homing weapon's charged attack, by projectile `kind`.
-mod homing {
+mod homing_stage {
     /// Gathering a ball while B is held.
-    pub const GATHER: u8 = 0x80;
+    pub const GATHER: u8 = super::CHARGE_START;
     /// The ball thrown.
     pub const THROWN: u8 = 0x81;
     /// The three parts circling the ball (they do nothing on their own).
@@ -28,17 +28,17 @@ mod homing {
 
 /// The splitter's charged attack: `kind` `$81` and up fly the plain path, its high bit
 /// picking the thrown sprites.
-mod splitter {
+mod splitter_stage {
     /// The four parts orbiting the player.
-    pub const ORBIT: u8 = 0x80;
+    pub const ORBIT: u8 = super::CHARGE_START;
     /// A part let go.
     pub const THROWN: u8 = 0x81;
 }
 
 /// The wave's charged attack.
-mod wave {
+mod wave_stage {
     /// Gathering for 8 frames.
-    pub const CHARGE: u8 = 0x80;
+    pub const CHARGE: u8 = super::CHARGE_START;
     /// The 64-frame fan.
     pub const SPREAD: u8 = 0x81;
     /// The fan's shots: every `kind` from here up.
@@ -46,9 +46,9 @@ mod wave {
 }
 
 /// The three-way weapon's charged attack.
-mod three_way {
+mod three_way_stage {
     /// Bubbles every 8th frame.
-    pub const BREW: u8 = 0x80;
+    pub const BREW: u8 = super::CHARGE_START;
     /// A bubble.
     pub const BUBBLE: u8 = 0x81;
     /// The tether.
@@ -56,9 +56,9 @@ mod three_way {
 }
 
 /// The super weapon's attack.
-mod super_weapon {
+mod super_stage {
     /// The charge that claims the other slots.
-    pub const UNLEASH: u8 = 0x80;
+    pub const UNLEASH: u8 = super::CHARGE_START;
     /// A part orbiting the centre.
     pub const ORBITER: u8 = 0x81;
     /// The pair spawner.
@@ -98,7 +98,7 @@ fn power_up_pieces(work: &mut Work, cx: &mut Cx<'_>) {
             continue;
         }
         advance(slot, work, cx);
-        if on_screen_kept(slot, work, cx) {
+        if project_keep(slot, work, cx) {
             let frame = rom_byte(
                 cx.prg,
                 5,
@@ -144,16 +144,16 @@ fn power_up_pieces(work: &mut Work, cx: &mut Cx<'_>) {
 }
 
 /// The shared slot scan (`$8037`): `$9A`/`$A4`/`$98` reset, then slots 15 down to 0.
-fn each_projectile(work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scroll, projectile: Weapon) {
+fn each_projectile(work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scroll, weapon: Weapon) {
     work.anchor = 0;
     work.tile = 0;
     work.chr_slot = 4;
-    if projectile == Weapon::ThreeWay {
+    if weapon == Weapon::ThreeWay {
         work.attr = 0;
     }
     for slot in (0..16).rev() {
         if cx.effects.projectiles[slot].kind != 0 {
-            match projectile {
+            match weapon {
                 Weapon::Bolt => bolt(slot, work, cx),
                 Weapon::Homing => homing(slot, work, cx),
                 Weapon::Splitter => splitter(slot, work, cx),
@@ -163,11 +163,12 @@ fn each_projectile(work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scroll, projec
                         return;
                     }
                 }
-                Weapon::Wave | Weapon::PowerUpPieces => {
+                Weapon::Wave => {
                     if !wave(slot, work, cx) {
                         return;
                     }
                 }
+                Weapon::PowerUpPieces => unreachable!("the pieces fly in power_up_pieces"),
             }
         }
     }
@@ -209,13 +210,13 @@ fn advance(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
 }
 
 /// Projects the working position onto the screen, freeing the slot when off it (`$9E46`, `A = 0`).
-fn on_screen_or_free(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
+fn project_or_free(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
     project_to_screen(slot, work, cx, false)
 }
 
 /// `$9E46` with `A = $80`: off the screen keeps the slot, and a row just below it
 /// sets the bottom anchor `$9A`.
-fn on_screen_kept(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
+fn project_keep(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
     project_to_screen(slot, work, cx, true)
 }
 
@@ -302,9 +303,9 @@ fn homing(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         cx.effects.sound[0] = 0x2E;
     }
     match kind {
-        homing::GATHER => homing_gather(slot, work, cx),
-        homing::THROWN => homing_thrown(slot, work, cx),
-        homing::CIRCLING => {}
+        homing_stage::GATHER => homing_gather(slot, work, cx),
+        homing_stage::THROWN => homing_thrown(slot, work, cx),
+        homing_stage::CIRCLING => {}
         other => panic!("handler 1's type ${other:02X} is past the $876E table"),
     }
 }
@@ -461,7 +462,7 @@ fn homing_gather(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         }
     }
     work.y = work.y.wrapping_add(0x0380);
-    if on_screen_kept(slot, work, cx) || work.anchor & 0x40 != 0 {
+    if project_keep(slot, work, cx) || work.anchor & 0x40 != 0 {
         work.attr = 0;
         draw(work, cx);
         if cx.effects.projectiles[slot].param != 0 {
@@ -506,7 +507,7 @@ fn homing_spawn_circlers(source: usize, cx: &mut Cx<'_>) -> bool {
         if (over_shots && kind < 0x80) || kind == 0 {
             let angle = rom_byte(cx.prg, 5, 0x887C + u16::try_from(count).expect("< 3"));
             let projectile = &mut cx.effects.projectiles[index];
-            projectile.kind = homing::CIRCLING;
+            projectile.kind = homing_stage::CIRCLING;
             projectile.damage = 1;
             projectile.flags = 0xE0;
             projectile.state = 0;
@@ -556,7 +557,7 @@ fn homing_draw_circlers(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         if projectile.param >= 0x20 {
             projectile.param = 0;
         }
-        if on_screen_kept(slot, work, cx) || work.anchor & 0x40 != 0 {
+        if project_keep(slot, work, cx) || work.anchor & 0x40 != 0 {
             draw(work, cx);
             let projectile = &mut cx.effects.projectiles[part];
             projectile.screen_x = work.screen_x;
@@ -592,7 +593,7 @@ fn homing_launch(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.vx = vx.cast_signed();
     projectile.vy = vy.cast_signed();
-    projectile.kind = homing::THROWN;
+    projectile.kind = homing_stage::THROWN;
     homing_in_front(slot, work, cx);
 }
 
@@ -602,7 +603,7 @@ fn homing_thrown(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     #[cfg(test)]
     super::oracle::seen(0x8515);
     advance(slot, work, cx);
-    if on_screen_or_free(slot, work, cx) {
+    if project_or_free(slot, work, cx) {
         homing_draw_circlers(slot, work, cx);
     } else {
         homing_clear_charge(cx);
@@ -667,13 +668,13 @@ fn super_weapon(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scro
 /// super attack; false when the handler returns before the other slots.
 fn super_attack(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scroll) -> bool {
     match cx.effects.projectiles[slot].kind {
-        super_weapon::UNLEASH => super_unleash(slot, work, cx, scroll),
-        super_weapon::ORBITER => super_orbiter(slot, work, cx, scroll),
-        super_weapon::PAIRS => {
+        super_stage::UNLEASH => super_unleash(slot, work, cx, scroll),
+        super_stage::ORBITER => super_orbiter(slot, work, cx, scroll),
+        super_stage::PAIRS => {
             super_pairs(slot, cx);
             true
         }
-        super_weapon::CLAIMED | super_weapon::CENTRE => true,
+        super_stage::CLAIMED | super_stage::CENTRE => true,
         other => panic!("handler 5's type ${other:02X} is past the $9D24 table"),
     }
 }
@@ -708,13 +709,13 @@ fn super_unleash(slot: usize, work: &Work, cx: &mut Cx<'_>, scroll: &mut Scroll)
     let kept = cx.effects.scroll_lock;
     cx.effects.scroll_lock = 0xFF;
     let projectile = &mut cx.effects.projectiles[slot];
-    projectile.kind = super_weapon::PAIRS;
+    projectile.kind = super_stage::PAIRS;
     projectile.part = 0;
     projectile.part_timer = 0;
     projectile.timer = kept;
     for projectile in &mut cx.effects.projectiles {
         if projectile.kind & 0x80 == 0 {
-            projectile.kind = super_weapon::CLAIMED;
+            projectile.kind = super_stage::CLAIMED;
             projectile.flags = 0xE0;
         }
     }
@@ -751,13 +752,13 @@ fn super_pairs(slot: usize, cx: &mut Cx<'_>) {
     let claimed = |cx: &Cx<'_>, below: usize| {
         (0..below)
             .rev()
-            .find(|&i| cx.effects.projectiles[i].kind == super_weapon::CLAIMED)
+            .find(|&i| cx.effects.projectiles[i].kind == super_stage::CLAIMED)
             .expect("the charge claimed every other slot, enough for five pairs")
     };
     let orbiter = claimed(cx, 16);
-    cx.effects.projectiles[orbiter].kind = super_weapon::ORBITER;
+    cx.effects.projectiles[orbiter].kind = super_stage::ORBITER;
     let centre = claimed(cx, orbiter);
-    cx.effects.projectiles[centre].kind = super_weapon::CENTRE;
+    cx.effects.projectiles[centre].kind = super_stage::CENTRE;
     let source = cx.effects.projectiles[slot];
     let orbiter_weapon = &mut cx.effects.projectiles[orbiter];
     [
@@ -781,7 +782,7 @@ fn super_pairs(slot: usize, cx: &mut Cx<'_>) {
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.part_timer += 1;
     if projectile.part_timer >= 5 {
-        projectile.kind = super_weapon::CLAIMED;
+        projectile.kind = super_stage::CLAIMED;
     }
 }
 
@@ -815,7 +816,7 @@ fn super_orbiter(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scr
         .wrapping_add(dx.cast_unsigned());
     work.y = u16::from_be_bytes([centre_weapon.level_y_hi, centre_weapon.level_y_lo])
         .wrapping_add(dy.cast_unsigned());
-    if on_screen_kept(slot, work, cx) {
+    if project_keep(slot, work, cx) {
         let hi = cx.effects.projectiles[slot].level_x_hi;
         let (table, step) = if hi & 0x80 != 0 {
             (0x9C99, !hi & 0x0F)
@@ -968,7 +969,7 @@ fn flying_shot(
                 #[cfg(test)]
                 super::oracle::seen(0x80CD);
                 cx.effects.projectiles[slot].timer = timer | 1;
-                on_screen_or_free(slot, work, cx);
+                project_or_free(slot, work, cx);
                 return;
             }
             #[cfg(test)]
@@ -977,7 +978,7 @@ fn flying_shot(
             bounce_off_wall(slot, cx, positive);
         }
     }
-    if !on_screen_or_free(slot, work, cx) {
+    if !project_or_free(slot, work, cx) {
         return;
     }
     let (phase, timer) = {
@@ -1001,7 +1002,7 @@ fn flying_shot(
 /// Handler `$8891` (`$0476` 2): the splitter, which flies on, pushing its speed toward a
 /// cruise, and splits at a wall or when spent.
 fn splitter(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
-    if cx.effects.projectiles[slot].kind == splitter::ORBIT {
+    if cx.effects.projectiles[slot].kind == splitter_stage::ORBIT {
         splitter_orbit(slot, work, cx);
         return;
     }
@@ -1024,11 +1025,11 @@ fn splitter(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
                 return;
             }
             cx.effects.projectiles[slot].timer = timer | 1;
-            on_screen_or_free(slot, work, cx);
+            project_or_free(slot, work, cx);
             return;
         }
     }
-    if !on_screen_or_free(slot, work, cx) {
+    if !project_or_free(slot, work, cx) {
         return;
     }
     let (attr, phase, timer, bounce) = {
@@ -1134,9 +1135,9 @@ fn splitter_part(slot: usize, part: usize, source: usize, cx: &mut Cx<'_>) {
 /// returns before the other slots (`$8FD6`).
 fn wave(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
     match cx.effects.projectiles[slot].kind {
-        wave::CHARGE => return wave_charge(slot, work, cx),
-        wave::SPREAD => return wave_spread(slot, cx),
-        wave::SPREAD_SHOT.. => {
+        wave_stage::CHARGE => return wave_charge(slot, work, cx),
+        wave_stage::SPREAD => return wave_spread(slot, cx),
+        wave_stage::SPREAD_SHOT.. => {
             wave_spread_shot(slot, work, cx);
             return true;
         }
@@ -1157,7 +1158,7 @@ fn wave(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
             let timer = cx.effects.projectiles[slot].timer;
             if timer & 1 == 0 {
                 cx.effects.projectiles[slot].timer = timer | 1;
-                on_screen_or_free(slot, work, cx);
+                project_or_free(slot, work, cx);
                 return true;
             }
             let positive = cx.world.rng[0] & 0x80 == 0;
@@ -1172,9 +1173,9 @@ fn wave(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
 /// `$80` and up are its charged attack (`$92C4`).
 fn three_way(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     match cx.effects.projectiles[slot].kind {
-        three_way::BREW => return three_way_brew(slot, cx),
-        three_way::BUBBLE => return three_way_bubble(slot, work, cx),
-        three_way::TETHER => return three_way_tether(slot, work, cx),
+        three_way_stage::BREW => return three_way_brew(slot, cx),
+        three_way_stage::BUBBLE => return three_way_bubble(slot, work, cx),
+        three_way_stage::TETHER => return three_way_tether(slot, work, cx),
         other @ 0x83.. => panic!("handler 4's type ${other:02X} is past the $95EF table"),
         _ => {}
     }
@@ -1193,7 +1194,7 @@ fn three_way(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
             let timer = cx.effects.projectiles[slot].timer;
             if timer & 1 == 0 {
                 cx.effects.projectiles[slot].timer = timer | 1;
-                on_screen_or_free(slot, work, cx);
+                project_or_free(slot, work, cx);
                 return;
             }
             if timer & 0x80 != 0 {
@@ -1217,7 +1218,7 @@ fn three_way(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
             }
         }
     }
-    if !on_screen_or_free(slot, work, cx) {
+    if !project_or_free(slot, work, cx) {
         return;
     }
     let projectile = &mut cx.effects.projectiles[slot];
@@ -1292,7 +1293,7 @@ fn three_way_blow(slot: usize, vx: i16, cx: &mut Cx<'_>) {
     let attr = rom_byte(cx.prg, 5, 0x9637 + u16::from(cx.world.frame & 0x08 != 0));
     let rise = cx.world.rng[0] | 0xE0;
     let projectile = &mut cx.effects.projectiles[slot];
-    projectile.kind = three_way::BUBBLE;
+    projectile.kind = three_way_stage::BUBBLE;
     projectile.state = 0;
     projectile.part_timer = 0;
     projectile.flags = 0x20;
@@ -1316,7 +1317,7 @@ fn three_way_let_go(slot: usize, cx: &mut Cx<'_>) {
     let vx = word(cx, 0x9EF5 + pick, 0x9EEF + pick);
     let vy = word(cx, 0x9F01 + pick, 0x9EFB + pick);
     let projectile = &mut cx.effects.projectiles[slot];
-    projectile.kind = three_way::TETHER;
+    projectile.kind = three_way_stage::TETHER;
     projectile.damage = 1;
     projectile.state = 0;
     projectile.param = 0;
@@ -1348,7 +1349,7 @@ fn three_way_bubble(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     work.attr = projectile.attr;
     work.chr_slot = 4;
     advance(slot, work, cx);
-    if !on_screen_or_free(slot, work, cx) {
+    if !project_or_free(slot, work, cx) {
         return;
     }
     let projectile = &mut cx.effects.projectiles[slot];
@@ -1400,7 +1401,7 @@ fn three_way_tether(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         let vx = cx.effects.projectiles[slot].vx;
         three_way_blow(free, vx, cx);
     }
-    if on_screen_kept(slot, work, cx) {
+    if project_keep(slot, work, cx) {
         let frame = (cx.effects.projectiles[slot].part >> 1) & 0x06;
         work.pointer = rom_word(cx.prg, 5, 0x963F + u16::from(frame));
         draw(work, cx);
@@ -1500,7 +1501,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         );
         (x.wrapping_add(vx), y.wrapping_add(vy))
     };
-    if on_screen_kept(slot, work, cx) {
+    if project_keep(slot, work, cx) {
         work.anchor = 0;
         work.attr = 0;
         work.pointer = rom_word(cx.prg, 5, 0x8C6D + u16::from((cx.world.frame & 4) >> 1));
@@ -1514,7 +1515,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     cx.effects.sound[0] = 0x2F;
     let (aim_up, left) = (cx.effects.player.motion == Motion::AimingUp, faces_left(cx));
     let projectile = &mut cx.effects.projectiles[slot];
-    projectile.kind = splitter::THROWN;
+    projectile.kind = splitter_stage::THROWN;
     [projectile.level_x_hi, projectile.level_x_lo] = work.x.to_be_bytes();
     [projectile.level_y_hi, projectile.level_y_lo] = work.y.to_be_bytes();
     projectile.flags = 0;
@@ -1574,7 +1575,7 @@ fn wave_charge(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
         };
         beside_player(cx, dx, word(cx, 0x917A + motion, 0x916E + motion))
     };
-    if on_screen_kept(slot, work, cx) && !cx.world.frame_odd {
+    if project_keep(slot, work, cx) && !cx.world.frame_odd {
         let frame = cx.effects.projectiles[slot].part_timer & 0x02;
         work.pointer = rom_word(cx.prg, 5, 0x9142 + u16::from(frame));
         draw(work, cx);
@@ -1584,7 +1585,7 @@ fn wave_charge(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
     if projectile.part_timer != 8 {
         return true;
     }
-    projectile.kind = wave::SPREAD;
+    projectile.kind = wave_stage::SPREAD;
     projectile.part_timer = 0;
     projectile.part = 0;
     wave_spread(slot, cx)
@@ -1636,7 +1637,7 @@ fn wave_spread(slot: usize, cx: &mut Cx<'_>) -> bool {
     };
     let projectile = &mut cx.effects.projectiles[free];
     projectile.part = (source.part_timer & 0x04) >> 1;
-    projectile.kind = wave::SPREAD_SHOT;
+    projectile.kind = wave_stage::SPREAD_SHOT;
     projectile.part_timer = 0;
     projectile.damage = 1;
     projectile.flags = 0xE0;
@@ -1674,7 +1675,7 @@ fn wave_spread_shot(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     work.tile = 0;
     work.chr_slot = 4;
     advance(slot, work, cx);
-    if !on_screen_or_free(slot, work, cx) || cx.world.frame_odd {
+    if !project_or_free(slot, work, cx) || cx.world.frame_odd {
         return;
     }
     let projectile = &cx.effects.projectiles[slot];
@@ -1708,7 +1709,7 @@ fn bounce_off_wall(slot: usize, cx: &mut Cx<'_>, positive: bool) {
 
 /// Projects, weaves and draws the wave's part (`$8D7E`-`$8E62`).
 fn wave_flight(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
-    if !on_screen_or_free(slot, work, cx) {
+    if !project_or_free(slot, work, cx) {
         return;
     }
     let (phase, timer) = {

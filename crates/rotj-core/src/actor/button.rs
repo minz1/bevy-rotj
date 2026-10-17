@@ -25,3 +25,20 @@ pub const UP_OR_DOWN: u8 = UP | DOWN;
 pub const ACCEPT: u8 = A | B | START;
 /// A, B, Select or Start.
 pub const FACE: u8 = A | B | SELECT | START;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_buttons_are_the_games_order() {
+        assert_eq!(
+            [RIGHT, LEFT, DOWN, UP, START, SELECT, B, A],
+            [1, 2, 4, 8, 0x10, 0x20, 0x40, 0x80]
+        );
+        assert_eq!(
+            [SIDEWAYS, UP_OR_DOWN, ACCEPT, FACE],
+            [0x03, 0x0C, 0xD0, 0xF0]
+        );
+    }
+}
