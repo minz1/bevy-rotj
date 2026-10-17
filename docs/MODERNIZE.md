@@ -195,7 +195,22 @@ New candidates, each to be classified (state, flags, table index) before it chan
   the `on_foot` test) and `engine::hurt_player` repeat the same rule; one function.
 - **Runtime ROM tables** (about 390 `rom_byte`/`rom_word` reads in 90 files): velocities,
   hitboxes, metasprite pointers, per-motion offsets. Typed data the level importer
-  produces (roadmap A3, B1), which new content and kaizo levels need.
+  produces (roadmap A3, B1), which new content and kaizo levels need. Surveyed
+  2026-10-17: about 145 metasprite pointers (stay ROM reads: the OAM builder walks the
+  bytes, and a pointer's target sits in another bank), about 100 per-family constant
+  tables (velocities, offsets, turn and knockback tables; lo and hi often in separate
+  tables), 12 hitbox reads (`$ABB2`/`$ABC1`/`$ABD0` back to back, 15 ids each; the boss's
+  `$B0FE`/`$B103` 5 apart; `$A0A8` is entry 1 of `$A0A7`), about 52 player and 36 weapon
+  tables, about 45 level-ish reads, about 40 text reads and about 30 pointer chases (stay
+  ROM reads). First slice: the hitboxes, then the family tables. Parked on the owner's ECS
+  answer: ROM constants cannot live in `World` (liftable from RAM alone), so typed tables
+  travel beside `prg` through `Game`'s API, or become a resource under B2; one decision
+  for all the groups, not one per slice.
+- **The overflow flag carried between routines**: `Work::cpu_overflow` mirrors the 6502's V
+  for one reader, `$9790` (weapon 5's charge waits while V is set), which sees whatever
+  the last V-setting routine left (`bit`'s 52 callers in `player.rs`, the OAM draw, the
+  projections). Naming it needs a trace of which setter is last before `$9790` on each
+  path; until then `bit` and the setters stay.
 - **Helper names in `player.rs`** still shaped by the probe they call: `stun`, `bit`
   (the 6502 `BIT` flag mirror kept for its N/V side effects: name what each caller tests).
 
