@@ -660,6 +660,23 @@ mod tests {
     use super::*;
     use crate::actor::world::Effects;
 
+    /// The fields are the arrays `WIDE` and `NARROW` list, narrow exactly where they say.
+    #[test]
+    fn fields_are_the_slot_arrays() {
+        let mut arrays: Vec<u16> = WIDE.into_iter().chain(NARROW).collect();
+        arrays.sort_unstable();
+        let mut fields: Vec<u16> = Field::ALL.map(Field::base).to_vec();
+        fields.sort_unstable();
+        assert_eq!(fields, arrays);
+        for field in Field::ALL {
+            assert_eq!(
+                field.is_narrow(),
+                NARROW.contains(&field.base()),
+                "{field:?}"
+            );
+        }
+    }
+
     /// Every field of every slot reads and writes the WRAM byte the game's layout puts it
     /// at (`base + slot`), through the aliases and the second-class slots.
     #[test]
@@ -700,7 +717,14 @@ mod tests {
                 }
             }
             for slot in 0..32 {
-                assert_eq!(slots.kind(slot), wram[usize::from(KINDS - 0x6000) + slot]);
+                let at = usize::from(KINDS - 0x6000) + slot;
+                assert_eq!(slots.kind(slot), wram[at]);
+                let mut moved = slots.clone();
+                moved.set_kind(slot, !wram[at]);
+                let mut image = wram;
+                moved.project(&mut image);
+                let changed: Vec<usize> = (0..8192).filter(|&i| image[i] != wram[i]).collect();
+                assert_eq!(changed, [at], "the kind of slot {slot}");
             }
         }
     }
