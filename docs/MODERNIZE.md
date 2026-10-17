@@ -199,6 +199,12 @@ New candidates, each to be classified (state, flags, table index) before it chan
   (probes two tiles off the player's y; check the axis before naming it), `stun`, `bit`
   (the 6502 `BIT` flag mirror kept for its N/V side effects: name what each caller tests).
 
+- Released as 1.1.3: the families declared once, `SecondBrain`, the frame's steps named
+  (`docs/specs/2026-10-17-frame-steps-design.md`), and #13 in substance: the actors' fields
+  by name (`slots::Field`, one alias mapping; `docs/specs/2026-10-17-slot-fields-design.md`).
+  Still address-keyed on purpose: `next_area_gate`'s read of a projectile array by actor
+  slot, `turret::Indexed` (a register index that runs past slot 31), and the WRAM-image
+  tooling (`lift`/`project`, `room.rs`'s image), which keep `find_owner`.
 - **A lead (unreached):** a running slot 16+c that writes slot c's aliased bytes through
   `cx` (slot c's narrow fields, `Anim`, `DyingTimer`) has those writes undone by
   `store_aliases` when it finishes; in the game the write stands. No lockstep reaches it
