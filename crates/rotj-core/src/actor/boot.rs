@@ -1209,9 +1209,9 @@ mod tests {
     /// The attract loop re-enters the power-on table at its one payload copy.
     #[test]
     fn the_power_table_copies_the_payload_once() {
-        let copies = POWER
+        let copies = super::POWER
             .iter()
-            .filter(|&&row| row == PowerRow::CopyPayload)
+            .filter(|&&row| row == super::PowerRow::CopyPayload)
             .count();
         assert_eq!(copies, 1);
     }
