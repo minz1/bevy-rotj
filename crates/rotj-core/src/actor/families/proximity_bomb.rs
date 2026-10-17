@@ -27,20 +27,25 @@ const DRAW_ATTR: u8 = 2;
 const HITBOX: u8 = 6;
 const DAMAGE: u8 = 2;
 
+/// The phase (`$7DD0`) in which it hovers until the player comes near.
+const HOVERING: u8 = 0;
+/// The phase (`$7DD0`) in which it falls until it lands and explodes.
+const FALLING: u8 = 1;
+
 /// Type `$60` keeps its whole state in [`Body`] (`$7DD0`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
 impl State {
-    /// One frame of the handler (`$84F4`; the `$7DD0` phase is 0, then 1).
+    /// One frame of the handler (`$84F4`; it hovers, then falls).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         engine::integrate(body, work);
-        if body.phase == 0 {
+        if body.phase == HOVERING {
             work.vy = HOVER;
             if engine::player_dx(work, &cx.effects.player).unsigned_abs() < WAKE_DISTANCE {
                 body.vy = 0;
-                body.phase = 1;
+                body.phase = FALLING;
             }
         } else {
             if work.y.to_be_bytes()[0] >= FALL_LIMIT_ROW {

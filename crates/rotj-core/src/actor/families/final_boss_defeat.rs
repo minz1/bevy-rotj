@@ -14,6 +14,16 @@ const DRAW_BANK: u8 = 9;
 /// The `$BA` value that starts the ending (`$D967`).
 const ENDING: u8 = 6;
 
+phases! {
+    /// The fall's phase (`$7DD0`), which picks its handler (`$94AC`).
+    Phase {
+        /// Holding the metasprite still for `$80` frames.
+        Holding = 0,
+        /// Flickering for 16 frames, then sinking until the ending starts.
+        Flickering = 1,
+    }
+}
+
 /// Type `$B8` keeps its whole state in [`Body`]: the screen position in
 /// `behaviour`/`subtype`, the frame in `sprite`, its timer in `anim`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -22,19 +32,19 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$93FC`, phases at `$94AC`).
     pub fn step(&mut self, _kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-        match body.phase {
-            0 => {
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Holding) => {
                 body.sprite = 0;
                 body.behaviour = 0x80;
                 body.subtype = 0x58;
                 body.anim = body.anim.wrapping_add(1);
                 if body.anim >= 0x80 {
-                    body.phase = 1;
+                    body.phase = Phase::Flickering.byte();
                     body.counter = 0;
                     body.anim = 0;
                 }
             }
-            1 if body.counter & 0x80 != 0 => {
+            Some(Phase::Flickering) if body.counter & 0x80 != 0 => {
                 body.sprite = 3;
                 if body.anim.is_multiple_of(4) {
                     body.subtype = body.subtype.wrapping_add(1);
@@ -44,7 +54,7 @@ impl State {
                     cx.effects.transition = ENDING;
                 }
             }
-            1 => {
+            Some(Phase::Flickering) => {
                 body.sprite = ((body.anim & 8) >> 3) + 1;
                 body.anim = body.anim.wrapping_add(1);
                 if body.anim >= 0x10 {
@@ -52,7 +62,7 @@ impl State {
                     body.anim = 0;
                 }
             }
-            phase => panic!("type $B8 phase {phase} is past the $94AC table"),
+            None => panic!("type $B8 phase {} is past the $94AC table", body.phase),
         }
         work.attr = 0;
         work.tile = 0;

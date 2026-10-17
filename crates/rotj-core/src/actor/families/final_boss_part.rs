@@ -1,6 +1,6 @@
 //! Type `$B6` (bank 12 `$9153`, area 22:00): a stage-7 boss-area part drawn at
 //! fixed screen offsets, cycling three `$7DD0` phases and dropping a `$BA` part
-//! when its phase-2 counter passes `$10`.
+//! when its spawning counter passes `$10`.
 //!
 //! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$A56E`
 //! (`dying`, variant 0), `$C0C6` (`Vram::push`, through its own `$9249` tail),
@@ -38,6 +38,18 @@ const SPAWN_STATES: u16 = 0x93C4;
 /// The queue room `$9249` needs before it runs (`$0181` >= `$70`).
 const VRAM_ROOM: u8 = 0x70;
 
+phases! {
+    /// The part's phase (`$7DD0`), which picks its handler (`$9324`).
+    Phase {
+        /// Animating until the player's boss-entry motion ends.
+        Waiting = 0,
+        /// Animating for `$C0` frames until a frame boundary.
+        Cycling = 1,
+        /// Playing the spawn animation and dropping a `$BA` part.
+        Spawning = 2,
+    }
+}
+
 /// Type `$B6` keeps its whole state in [`Body`] (`$7DD0` phase, `$7E90` counter,
 /// `$7E10` latch, `$7C30` sprite frame).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -60,29 +72,29 @@ impl State {
             engine::dying(kind, body, work, 0, cx);
             return;
         }
-        match body.phase {
-            0 => {
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Waiting) => {
                 body.sprite = (cx.world.frame >> 2) & 3;
                 if cx.effects.player.motion != Motion::BossEntry {
-                    body.phase = 1;
+                    body.phase = Phase::Cycling.byte();
                     body.anim = 0;
                 }
             }
-            1 => {
+            Some(Phase::Cycling) => {
                 body.sprite = (cx.world.frame >> 2) & 3;
                 body.anim = body.anim.wrapping_add(1);
                 if body.anim >= 0xC0 && cx.world.frame & 0x0C == 0 {
-                    body.phase = 2;
+                    body.phase = Phase::Spawning.byte();
                     body.anim = 0;
                     body.counter = 0;
                 }
             }
-            2 => {
+            Some(Phase::Spawning) => {
                 if body.counter != 0 {
                     body.sprite = ((body.anim & 0x1C) >> 2) + 4;
                     body.anim = body.anim.wrapping_add(1);
                     if body.anim >= 0x1C {
-                        body.phase = 1;
+                        body.phase = Phase::Cycling.byte();
                         body.anim = 0;
                     }
                 } else {
@@ -94,7 +106,7 @@ impl State {
                     }
                 }
             }
-            phase => panic!("type $B6 phase {phase} is past the $9324 table"),
+            None => panic!("type $B6 phase {} is past the $9324 table", body.phase),
         }
         // `$9209`: the draw, then contact. `$94`-`$99` are set here, `$98`
         // (CHR slot) is whatever `load` carried.
@@ -202,9 +214,9 @@ mod tests {
     }
 
     /// Area 22:00 from the level-start record (frame 39680): the four `$B6` slots
-    /// run their whole lives, phases 0, 1 and 2, drawn every loop, then the
+    /// run their whole lives, every phase, drawn every loop, then the
     /// player's weapon kills them at 39913 and the dying tail runs. Pinning the
-    /// phases proves each arm of the `$9324` dispatch and the phase-2 spawn run.
+    /// phases proves each arm of the `$9324` dispatch and the spawning drop run.
     #[test]
     fn matches_the_oracle() {
         let Some(scene) = without_children(39680) else {
@@ -222,7 +234,7 @@ mod tests {
         );
     }
 
-    /// The phase-2 spawn is non-vacuous: a `$BA` part lands in a free child slot
+    /// The spawning drop is non-vacuous: a `$BA` part lands in a free child slot
     /// at a running `$B6`'s position, with its `$7D50`/`$7E90` cleared.
     #[test]
     fn the_phase_two_spawn_drops_a_ba_part() {
@@ -237,7 +249,7 @@ mod tests {
                 (window[0].pc, window[1].pc) == (0xD450, 0xD453)
                     && (0x1CD0..0x1CD8).any(|addr| window[1].wram[addr] == 0xBA)
             })
-            .expect("phase 2 drops a $BA part");
+            .expect("spawning drops a $BA part");
         let (begin, end) = (&spawn[0], &spawn[1]);
         // The child slot (16-23) is the `$7CD0` byte's index.
         let child = (0x1CD0..0x1CD8usize)

@@ -35,42 +35,54 @@ const THROW_FRAMES: u8 = 0x3C;
 const THROW_OFFSET_X: u16 = 0x00E0;
 const THROW_OFFSET_Y: u16 = 0x01D0;
 
+phases! {
+    /// The thrower's phase (`$7DD0`): the game stores its doubled index into `$940A`.
+    Phase {
+        /// Standing until the player is near and it is not mid-hit.
+        Standing = 0,
+        /// Crouching for eight frames, then holding until it throws or is hurt.
+        Crouching = 2,
+        /// Throwing a projectile every eighth frame.
+        Throwing = 4,
+    }
+}
+
 /// Type `$3E` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
 impl State {
-    /// One frame of the handler (`$92B9`; phases 0, 2 and 4 through the table at `$940A`).
+    /// One frame of the handler (`$92B9`; phases through the table at `$940A`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         if engine::dying(kind, body, work, 0x80, cx) {
             return;
         }
         work.attr |= body.flags;
-        match body.phase {
-            0 => wait(body, work, cx),
-            2 => hop(body),
-            4 => throw(body, work, cx),
-            phase => panic!("type $3E phase {phase} is past the $940A table"),
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Standing) => standing(body, work, cx),
+            Some(Phase::Crouching) => crouching(body),
+            Some(Phase::Throwing) => throwing(body, work, cx),
+            None => panic!("type $3E phase {} is past the $940A table", body.phase),
         }
         tail(kind, body, work, cx);
     }
 }
 
-/// Phase 0 (`$92DD`): stand until the player is near and the actor is not mid-hit.
-fn wait(body: &mut Body, work: &Work, cx: &Cx<'_>) {
+/// Standing (`$92DD`): stand until the player is near and the actor is not mid-hit.
+fn standing(body: &mut Body, work: &Work, cx: &Cx<'_>) {
     body.sprite = 0;
     body.contact = 0x80;
     if body.anim & 0x80 == 0
         && engine::player_dx(work, &cx.effects.player).unsigned_abs() < WAKE_DISTANCE
     {
-        body.phase = 2;
+        body.phase = Phase::Crouching.byte();
         body.timer = 0;
     }
 }
 
-/// Phase 2 (`$9302`): crouch for eight frames, then hold until it throws or is hurt.
-fn hop(body: &mut Body) {
+/// Crouching (`$9302`): crouch for eight frames, then hold until it throws or is hurt.
+fn crouching(body: &mut Body) {
     body.contact = 0x10;
     body.timer = body.timer.wrapping_add(1);
     if body.timer < 8 {
@@ -78,18 +90,18 @@ fn hop(body: &mut Body) {
         return;
     }
     if body.anim & 0x80 != 0 {
-        body.phase = 0;
+        body.phase = Phase::Standing.byte();
         return;
     }
     if body.timer >= WALK_FRAMES {
-        body.phase = 4;
+        body.phase = Phase::Throwing.byte();
         body.timer = 0;
     }
     body.sprite = 3;
 }
 
-/// Phase 4 (`$933A`): throw every eighth frame, alternating two poses.
-fn throw(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
+/// Throwing (`$933A`): throw every eighth frame, alternating two poses.
+fn throwing(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     if body.timer.is_multiple_of(8) {
         cx.effects.sound[0] = THROW_SOUND;
         spawn_projectile(body, work, cx);
@@ -98,7 +110,7 @@ fn throw(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     body.timer = body.timer.wrapping_add(1);
     if body.timer >= THROW_FRAMES {
         body.anim = 0x80;
-        body.phase = 2;
+        body.phase = Phase::Crouching.byte();
     }
 }
 

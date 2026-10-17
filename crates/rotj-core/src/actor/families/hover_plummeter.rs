@@ -40,25 +40,35 @@ const DRAW_ATTR: u8 = 6;
 const HITBOX: u8 = 9;
 const DAMAGE: u8 = 2;
 
+phases! {
+    /// The plummeter's phase (`$7DD0`), which picks its handler (`$83C7`).
+    Phase {
+        /// Hovering until the player comes within [`WAKE_DISTANCE`].
+        Hovering = 0,
+        /// Falling and bursting into parts the first time its feet find ground.
+        Falling = 1,
+    }
+}
+
 /// Type `$9E` keeps its whole state in [`Body`] (`$7DD0`, `$7DF0`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
 impl State {
-    /// One frame of the handler (`$8309`, phases 0 then 1).
+    /// One frame of the handler (`$8309`, hovering, then falling).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         engine::integrate(body, work);
-        match body.phase {
-            0 => {
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Hovering) => {
                 work.vy = HOVER;
                 if engine::player_dx(work, &cx.effects.player).unsigned_abs() < WAKE_DISTANCE {
-                    body.phase = 1;
+                    body.phase = Phase::Falling.byte();
                     body.counter = 0;
                     body.anim = 0;
                 }
             }
-            1 => {
+            Some(Phase::Falling) => {
                 if work.y.to_be_bytes()[0] >= FALL_LIMIT_ROW {
                     *kind = 0;
                     return;
@@ -75,7 +85,7 @@ impl State {
                     work.vy = work.vy.wrapping_add(FALL_STEP);
                 }
             }
-            phase => panic!("type $9E phase {phase} is past the $83C7 table"),
+            None => panic!("type $9E phase {} is past the $83C7 table", body.phase),
         }
         match engine::on_screen(work, cx.world) {
             Visibility::On => {

@@ -15,6 +15,18 @@ const DRAW_BANK: u8 = 1;
 const SOURCE_BANK: u8 = 11;
 const BLAST_DROP: u8 = 0x2B;
 
+phases! {
+    /// The bomber's phase (`$7DD0`): the game stores its doubled index into `$8514`.
+    Phase {
+        /// Starting the first dive.
+        Starting = 0,
+        /// Sweeping sideways and flapping, then diving.
+        Sweeping = 2,
+        /// Dropping a bomb, hovering, then rising.
+        Bombing = 4,
+    }
+}
+
 /// Type `$2A` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -28,11 +40,11 @@ impl State {
         }
         work.attr |= body.flags;
         engine::integrate(body, work);
-        match body.phase {
-            0 => phase0(body, work),
-            2 => phase2(body, work, cx),
-            4 => phase4(body, work, cx),
-            phase => panic!("type $2A phase {phase} is past the $8514 table"),
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Starting) => starting(body, work),
+            Some(Phase::Sweeping) => sweeping(body, work, cx),
+            Some(Phase::Bombing) => bombing(body, work, cx),
+            None => panic!("type $2A phase {} is past the $8514 table", body.phase),
         }
         tail(kind, body, work, cx);
     }
@@ -42,18 +54,18 @@ fn camera_row(cx: &Cx<'_>) -> u8 {
     cx.world.camera_y.to_be_bytes()[0]
 }
 
-/// `$82AB`: set the first dive going.
-fn phase0(body: &mut Body, work: &mut Work) {
+/// Starting (`$82AB`): set the first dive going.
+fn starting(body: &mut Body, work: &mut Work) {
     body.sprite = 0;
     body.anim = 0;
-    body.phase = 2;
+    body.phase = Phase::Sweeping.byte();
     work.step_x = 4;
     work.vy = i16::from_be_bytes([0xFF, 0xF0]);
     body.counter = 0xFA;
 }
 
-/// `$82CD`: steer the lift on odd frames, sweep sideways, then flap.
-fn phase2(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
+/// Sweeping (`$82CD`): steer the lift on odd frames, sweep sideways, then flap.
+fn sweeping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
     if cx.world.frame_odd {
         let rows = work.y.to_be_bytes()[0].checked_sub(camera_row(cx));
         body.counter = match rows {
@@ -95,7 +107,7 @@ fn phase2(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
         body.anim = 0;
     }
     if body.anim >= 0x40 {
-        body.phase = 4;
+        body.phase = Phase::Bombing.byte();
         body.sprite = 0;
         body.anim = 0;
         body.timer = 0;
@@ -107,8 +119,8 @@ fn phase2(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
     }
 }
 
-/// `$8395`: drop a bomb, hover for 64 frames, then rise and return to phase 2.
-fn phase4(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+/// Bombing (`$8395`): drop a bomb, hover for 64 frames, then rise and return to sweeping.
+fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if body.timer & 0x80 == 0 {
         if body.counter & 0x80 == 0 {
             cx.effects.sound[0] = DROP_SOUND;
@@ -138,7 +150,7 @@ fn phase4(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         body.subtype = 0;
     }
     if work.y.to_be_bytes()[0].wrapping_sub(camera_row(cx)) < 4 {
-        body.phase = 2;
+        body.phase = Phase::Sweeping.byte();
         body.timer = 0;
         body.anim = 0;
         body.counter = 0xF0;

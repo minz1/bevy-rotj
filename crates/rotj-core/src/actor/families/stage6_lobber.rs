@@ -10,7 +10,7 @@
 //!
 //! The spawner writes its contact byte `$50`, whose bit 6 makes `$A9C4` skip the
 //! player check: the `$96` never hurts the player, only the `$AA57` weapon scan
-//! acts, so a hit kills it. Phase 2 leaves a `$9A` child (bank 12 `$8208`,
+//! acts, so a hit kills it. Its lobbing phase leaves a `$9A` child (bank 12 `$8208`,
 //! unported) in slots 16-23.
 
 use crate::actor::engine::{self, Work};
@@ -21,7 +21,7 @@ use crate::actor::world::Cx;
 const METASPRITES: u16 = 0x81B4;
 /// The bank `$81C6` maps at `$A000` around the draw.
 const DRAW_BANK: u8 = 9;
-/// The child type the phase-2 step puts in a free slot (`$817E`).
+/// The child type the lobbing step puts in a free slot (`$817E`).
 const CHILD: u8 = 0x9A;
 /// The hit box the contact uses (`$8149`).
 const HITBOX: u8 = 0x0B;
@@ -41,6 +41,18 @@ const LOOP_PHASE: u8 = 0x18;
 const CHILD_PHASE: u8 = 0xE8;
 const CHILD_TIMER: u8 = 0xFF;
 
+phases! {
+    /// The sprite's phase (`$7DD0`), which picks its handler (`$81C0`).
+    Phase {
+        /// Appearing: stepping through its first sprite frames.
+        Appearing = 0,
+        /// Holding the resting sprite.
+        Holding = 1,
+        /// Lobbing: dropping the `$9A` child, then back to holding.
+        Lobbing = 2,
+    }
+}
+
 /// Type `$96` keeps its phase, animation counter and sprite frame in [`Body`]
 /// (`$7DD0`, `$7E90`, `$7C30`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -51,31 +63,31 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         if engine::dying(kind, body, work, 0x80, cx) {
-            // `$806F`: the dying sprite clears its spawner's phase byte (`$7E10,x`).
+            // `$806F`: the dying sprite clears its spawner's phase byte (`$7DD0,x`, x from `$7E10`).
             cx.set_byte(0x7DD0 + u16::from(body.counter), 0);
             return;
         }
         work.attr |= body.flags;
         work.x = cx.world.camera_x.wrapping_add(CAMERA_X_OFFSET);
         work.y = cx.world.camera_y.wrapping_add(CAMERA_Y_OFFSET);
-        match body.phase {
-            0 => {
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Appearing) => {
                 body.sprite = body.anim >> 3;
                 body.anim = body.anim.wrapping_add(1);
                 if body.anim >= NEXT_PHASE {
-                    body.phase = 1;
+                    body.phase = Phase::Holding.byte();
                     body.anim = 0;
                 }
             }
-            1 => {
+            Some(Phase::Holding) => {
                 body.sprite = 2;
                 body.anim = body.anim.wrapping_add(1);
                 if body.anim >= NEXT_PHASE {
-                    body.phase = 2;
+                    body.phase = Phase::Lobbing.byte();
                     body.anim = 0;
                 }
             }
-            2 => {
+            Some(Phase::Lobbing) => {
                 body.anim = body.anim.wrapping_add(1);
                 if body.anim == NEXT_PHASE
                     && let Some(slot) = engine::free_child_slot(cx.slots)
@@ -83,14 +95,14 @@ impl State {
                     spawn_child(work, slot, cx);
                 }
                 if body.anim == LOOP_PHASE {
-                    body.phase = 1;
+                    body.phase = Phase::Holding.byte();
                     body.sprite = 2;
                     body.anim = 2;
                 } else {
                     body.sprite = ((body.anim & 0x18) >> 3) + 3;
                 }
             }
-            phase => panic!("type $96 phase {phase} is past the $81C0 table"),
+            None => panic!("type $96 phase {} is past the $81C0 table", body.phase),
         }
         work.pointer = engine::rom_word(cx.prg, 12, METASPRITES + 2 * u16::from(body.sprite));
         work.screen_x = SCREEN_X;

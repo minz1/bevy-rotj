@@ -1,6 +1,6 @@
 //! Type `$38`, the stage 1 boss (bank 11 `$8D1F`).
 //!
-//! Phases through the table at `$910D` (`$7DD0` 0-4); every phase ends in the
+//! Phases through the table at `$910D` (`$7DD0`, [`Phase`]); every phase ends in the
 //! shared draw/contact tail at `$8EDB`. It spawns type `$3A` parts into slots
 //! 16-23 (`$8FB9`) and, from phase 2, type `$3C` parts into slots 0-15 (`$909B`).
 
@@ -29,6 +29,22 @@ const DRAW_BANK: u8 = 9;
 const SPAWN_SOUND: u8 = 0x28;
 /// The `$AFD6` amount the boss drains from `$B2` on contact.
 const CONTACT: u16 = 0x00E0;
+
+phases! {
+    /// The boss's phase (`$7DD0`), which picks its handler (`$910D`).
+    Phase {
+        /// Standing until the player's boss entry ends.
+        Standing = 0,
+        /// Waiting, spawning `$3A` parts on the timer, then jumping out.
+        Spawning = 1,
+        /// Hovering for `$40` frames, then spawning the `$3C` parts.
+        Hovering = 2,
+        /// A short wait that spawns `$3A` parts.
+        Lingering = 3,
+        /// Winding up, jumping and landing.
+        Jumping = 4,
+    }
+}
 
 /// Type `$38` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -63,13 +79,13 @@ impl State {
         if grounded {
             body.vx_drift = drift(probe);
         }
-        match body.phase {
-            0 => phase0(body, cx),
-            1 => phase1(body, work, cx),
-            2 => phase2(body, cx),
-            3 => phase3(body, work, cx),
-            4 => phase4(body, work, grounded, cx),
-            phase => panic!("type $38 phase {phase} is past the $910D table"),
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Standing) => standing(body, cx),
+            Some(Phase::Spawning) => spawning(body, work, cx),
+            Some(Phase::Hovering) => hovering(body, cx),
+            Some(Phase::Lingering) => lingering(body, work, cx),
+            Some(Phase::Jumping) => jumping(body, work, grounded, cx),
+            None => panic!("type $38 phase {} is past the $910D table", body.phase),
         }
         finish(body, work, cx);
     }
@@ -91,7 +107,7 @@ fn face(work: &mut Work, cx: &Cx<'_>) {
 }
 
 /// `$8D9F`: stand, then leave unless the level state is `$09`.
-fn phase0(body: &mut Body, cx: &mut Cx<'_>) {
+fn standing(body: &mut Body, cx: &mut Cx<'_>) {
     body.sprite = 4;
     if cx.effects.player.motion != Motion::BossEntry {
         advance(body, cx.prg);
@@ -99,7 +115,7 @@ fn phase0(body: &mut Body, cx: &mut Cx<'_>) {
 }
 
 /// `$8DB1`: wait, spawn `$3A` parts on the timer, then jump out at `$A0`.
-fn phase1(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+fn spawning(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     body.counter = 0;
     face(work, cx);
     if body.timer & 0x80 == 0 {
@@ -125,7 +141,7 @@ fn phase1(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 }
 
 /// `$8E09`: hover for `$40` frames, then spawn three `$3C` parts and leave.
-fn phase2(body: &mut Body, cx: &mut Cx<'_>) {
+fn hovering(body: &mut Body, cx: &mut Cx<'_>) {
     body.counter = 0x40 | ((body.timer & 0x04) >> 2);
     body.sprite = 0x0A;
     body.timer = body.timer.wrapping_add(1);
@@ -136,7 +152,7 @@ fn phase2(body: &mut Body, cx: &mut Cx<'_>) {
 }
 
 /// `$8E2D`: a short wait that spawns `$3A` parts, then leaves at `$50`.
-fn phase3(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+fn lingering(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     body.counter = 0;
     body.sprite = 9;
     if body.timer >= 0x20 && body.timer.is_multiple_of(8) {
@@ -151,7 +167,7 @@ fn phase3(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 }
 
 /// `$8E67`: wind up for `$20` frames into a jump (`vy` -160), land, then leave.
-fn phase4(body: &mut Body, work: &mut Work, grounded: bool, cx: &mut Cx<'_>) {
+fn jumping(body: &mut Body, work: &mut Work, grounded: bool, cx: &mut Cx<'_>) {
     body.counter = 0;
     if body.timer & 0x80 != 0 {
         if grounded {
@@ -213,7 +229,7 @@ fn finish(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 fn third_draw(body: &Body, work: &mut Work, cx: &mut Cx<'_>) {
     let saved_y = work.screen_y;
     let saved_x = work.screen_x;
-    let index = if body.phase == 1 {
+    let index = if body.phase == Phase::Spawning.byte() {
         let Some(y) = saved_y.checked_sub(0x3B) else {
             return;
         };
@@ -260,7 +276,7 @@ fn spawn_3a(body: &Body, work: &Work, cx: &mut Cx<'_>) {
     cx.effects.sound[0] = SPAWN_SOUND;
     put(cx, 0x7C00, slot, work.attr);
     let left = work.attr & 0x40 != 0;
-    let (dx, dy, phase, frame) = if body.phase == 1 {
+    let (dx, dy, phase, frame) = if body.phase == Phase::Spawning.byte() {
         (0x01D0, 0x03B0, if left { 2 } else { 3 }, 1)
     } else {
         (0x0270, 0x01E0, u8::from(left), 0)

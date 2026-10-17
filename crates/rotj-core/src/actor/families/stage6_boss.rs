@@ -1,8 +1,8 @@
 //! Type `$A6`, the stage 6 boss (bank 12 `$84EB`).
 //!
-//! Phases through the table at `$87C5` (`$7DD0` 0-2; any larger value indexes
+//! Phases through the table at `$87C5` (`$7DD0`, three phases; any larger value indexes
 //! past the table). The draw tail at `$86CB` maps bank 9 into `$A000` for its two
-//! metasprites and runs the boss contact `$AFD6`. Phase 1 spawns two `$A8` parts
+//! metasprites and runs the boss contact `$AFD6`. Its drifting phase spawns two `$A8` parts
 //! into slots 16-23 (`$8737`) every 32 frames; the dying path spawns a `$50`
 //! (`$B1C4`) and an `$AA` (`$8785`) once, when `$7F00` reaches 1.
 
@@ -14,7 +14,7 @@ use crate::actor::world::{Cx, Motion};
 const METASPRITES: u16 = 0x87C1;
 /// Second-draw metasprite pointers (`$87E0`), by `$7C30 * 2` (`0` when bit 7 set).
 const SECOND_METASPRITES: u16 = 0x87E0;
-/// The phase-2 animation table (`$87CB`), by `$7DB0 >> 3`.
+/// The animating phase's table (`$87CB`), by `$7DB0 >> 3`.
 const ANIMATION: u16 = 0x87CB;
 /// The `$A8` parts' phases (`$87E8`) and timers (`$87EA`), by the spawn index.
 const CHILD_PHASE: u16 = 0x87E8;
@@ -28,6 +28,18 @@ const CHR_7: u8 = 0xC7;
 const CONTACT: u16 = 0x0190;
 /// The `$42` request when an `$A8` part spawns (`$8748`).
 const SPAWN_SOUND: u8 = 0x2B;
+
+phases! {
+    /// The boss's phase (`$7DD0`), which picks its handler (`$87C5`).
+    Phase {
+        /// Standing still until the boss entry ends.
+        Waiting = 0,
+        /// Drifting, steering and arming the dive, spawning `$A8` parts.
+        Drifting = 1,
+        /// Running the `$87CB` animation, then drifting again.
+        Animating = 2,
+    }
+}
 
 /// Type `$A6` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -50,27 +62,27 @@ impl State {
             }
             return;
         }
-        match body.phase {
-            0 => phase0(body, cx),
-            1 => phase1(body, work, cx),
-            2 => phase2(body, cx),
-            phase => panic!("type $A6 phase {phase} is past the $87C5 table"),
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Waiting) => waiting(body, cx),
+            Some(Phase::Drifting) => drifting(body, work, cx),
+            Some(Phase::Animating) => animating(body, cx),
+            None => panic!("type $A6 phase {} is past the $87C5 table", body.phase),
         }
         tail(body, work, cx);
     }
 }
 
-/// `$8530`: stand still, then leave for phase 1 unless the level state is `$09`.
-fn phase0(body: &mut Body, cx: &mut Cx<'_>) {
+/// `$8530`: stand still, then leave for drifting unless the level state is `$09`.
+fn waiting(body: &mut Body, cx: &mut Cx<'_>) {
     body.sprite = 0;
     if cx.effects.player.motion != Motion::BossEntry {
         body.vx_drift = 0x10;
-        body.phase = 1;
+        body.phase = Phase::Drifting.byte();
     }
 }
 
 /// `$854E`: drift, steer, and arm the dive; hand off to `$8633` when diving.
-fn phase1(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+fn drifting(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     body.sprite = 0;
     work.x = work.x.wrapping_add_signed(body.vx_drift);
     work.y = work.y.wrapping_add_signed(body.vy);
@@ -142,7 +154,7 @@ fn clamp_x(body: &mut Body, work: &mut Work) {
     }
 }
 
-/// `$85D0`: count and re-arm the dive, then check for the phase-2 hand-off.
+/// `$85D0`: count and re-arm the dive, then check for the animating hand-off.
 fn dive(body: &mut Body, work: &mut Work) {
     work.x = u16::from_be_bytes([work.x.to_be_bytes()[0], 0]);
     body.counter = body.counter.wrapping_add(1);
@@ -154,10 +166,10 @@ fn dive(body: &mut Body, work: &mut Work) {
     steer_end(body, work);
 }
 
-/// `$8603`: at exactly x `$0800` on an even counter step, enter phase 2.
+/// `$8603`: at exactly x `$0800` on an even counter step, start animating.
 fn steer_end(body: &mut Body, work: &mut Work) {
     if work.x == 0x0800 && body.counter & 0x04 == 0 {
-        body.phase = 2;
+        body.phase = Phase::Animating.byte();
         body.anim = body.vx_drift.to_be_bytes()[0];
         body.vx_drift = 0;
         body.vy = 0;
@@ -166,13 +178,13 @@ fn steer_end(body: &mut Body, work: &mut Work) {
 }
 
 /// `$869E`: run the `$87CB` animation until `$7DB0` reaches `$A8`, then re-dive.
-fn phase2(body: &mut Body, cx: &mut Cx<'_>) {
+fn animating(body: &mut Body, cx: &mut Cx<'_>) {
     body.sprite = engine::rom_byte(cx.prg, 12, ANIMATION + u16::from(body.subtype >> 3));
     body.subtype = body.subtype.wrapping_add(1);
     if body.subtype >= 0xA8 {
         let lo = if body.anim & 0x80 == 0 { 0x10 } else { 0xF0 };
         body.vx_drift = i16::from_be_bytes([body.anim, lo]);
-        body.phase = 1;
+        body.phase = Phase::Drifting.byte();
     }
 }
 

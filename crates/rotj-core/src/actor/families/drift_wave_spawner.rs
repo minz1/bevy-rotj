@@ -7,7 +7,7 @@ use crate::actors::STATE_UNTARGETED;
 
 /// The type the handler hands to the highest free main slot.
 const CHILD: u8 = 0xC4;
-/// CPU `$9883`: per-subtype player x high byte the phase-0 wait ends at.
+/// CPU `$9883`: per-subtype player x high byte the waiting phase's wait ends at.
 const WAIT_TABLE: u16 = 0x9883;
 /// CPU `$9887`: per-subtype `vx_drift`/`vy` pairs the child is thrown with.
 const VELOCITY_TABLE: u16 = 0x9887;
@@ -16,21 +16,31 @@ const SPAWN_DELAY: u8 = 0x08;
 /// Spawns before the handler frees its own slot (`$7DF0` checked at `$9873`).
 const SPAWN_LIMIT: u8 = 0x10;
 
+phases! {
+    /// The spawner's phase (`$7DD0`): the game stores its doubled index into `$987F`.
+    Phase {
+        /// Waiting for the player to reach its x page.
+        Waiting = 0,
+        /// Spawning a `$C4` every few frames.
+        Spawning = 2,
+    }
+}
+
 /// Type `$C2` keeps its phase, timer and counter in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
 impl State {
-    /// One frame of the handler (`$97B6`, phases 0 and 2 of the `$987F` table).
+    /// One frame of the handler (`$97B6`, phases through the `$987F` table).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
-        match body.phase {
-            0 => {
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Waiting) => {
                 let wait = engine::rom_byte(cx.prg, 12, WAIT_TABLE + u16::from(body.subtype));
                 if wait == cx.effects.player.x.to_be_bytes()[0] {
-                    body.phase = 2;
+                    body.phase = Phase::Spawning.byte();
                 }
             }
-            2 => {
+            Some(Phase::Spawning) => {
                 body.counter = body.counter.wrapping_sub(1);
                 if body.counter & 0x80 == 0 {
                     return;
@@ -73,7 +83,7 @@ impl State {
                     *kind = 0;
                 }
             }
-            phase => panic!("type $C2 phase {phase} is past the $987F table"),
+            None => panic!("type $C2 phase {} is past the $987F table", body.phase),
         }
     }
 }

@@ -1,8 +1,8 @@
 //! Type `$42` (bank 11 `$947A`): a boss that charges a counter on every other
 //! frame, drifts sideways when hit, and draws a six-cell energy bar.
 //!
-//! `$7DD0` is the phase: 0 waits, 1 decays the sideways drift, 2 (counter at
-//! `$C0`) only draws. It calls only routines in `docs/ACTORS.md` §9c: `$A000`
+//! `$7DD0` is the phase: waiting, drifting (decaying the sideways drift) or
+//! charged (counter at `$C0`, it only draws). It calls only routines in `docs/ACTORS.md` §9c: `$A000`
 //! (`load`), `$AF97` (`boss_flash`), `$B1C4` (`boss_defeated`), `$A79B`
 //! (`integrate`), `$A852` (`on_screen`), `$C247` (`draw`, bank 9 as `$C229`
 //! maps it), `$AFD6` (`boss_contact`), `$AF38` (`free_child_slot`) and `$A934`
@@ -41,6 +41,18 @@ const CHARGED: u8 = 0xC0;
 const CONTACT: u16 = 0x00E0;
 const KNOCK: i16 = 0x40;
 
+phases! {
+    /// The boss's phase (`$7DD0`), which picks its handler (`$96FD`).
+    Phase {
+        /// Stepping its animation and charging the counter.
+        Waiting = 0,
+        /// Drifting sideways after a hit, charging the counter.
+        Drifting = 1,
+        /// The counter reached `$C0`: only draws.
+        Charged = 2,
+    }
+}
+
 /// Type `$42` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -65,17 +77,17 @@ impl State {
         work.attr |= body.flags;
         body.vy = 0;
         engine::integrate(body, work);
-        match body.phase {
-            0 => {
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Waiting) => {
                 wait(body, cx);
                 charge(body, cx);
             }
-            1 => {
+            Some(Phase::Drifting) => {
                 decay_drift(body, work);
                 charge(body, cx);
             }
-            2 => {}
-            phase => panic!("type $42 phase {phase} is past the $96FD table"),
+            Some(Phase::Charged) => {}
+            None => panic!("type $42 phase {} is past the $96FD table", body.phase),
         }
         finish(body, work, cx);
     }
@@ -102,7 +114,7 @@ fn wait(body: &mut Body, cx: &mut Cx<'_>) {
 /// `$94F9`/`$94FD`: the drift is spent, back to waiting.
 fn settle(body: &mut Body) {
     body.vx_drift = 0;
-    body.phase = 0;
+    body.phase = Phase::Waiting.byte();
 }
 
 /// `$94E5`: pull the drift back to zero by 4 a frame, snapping at the edges.
@@ -138,7 +150,7 @@ fn decay_drift(body: &mut Body, work: &mut Work) {
     }
 }
 
-/// `$954A`: on even frames shoot, on odd frames charge; at `$C0` start phase 2.
+/// `$954A`: on even frames shoot, on odd frames charge; at `$C0` become charged.
 fn charge(body: &mut Body, cx: &mut Cx<'_>) {
     if cx.effects.player.motion == Motion::BossEntry {
         return;
@@ -151,7 +163,7 @@ fn charge(body: &mut Body, cx: &mut Cx<'_>) {
     if body.counter != CHARGED {
         return;
     }
-    body.phase = 2;
+    body.phase = Phase::Charged.byte();
     body.counter = 0;
     body.vx_drift = 0;
     let own = own_slot(cx);
@@ -223,8 +235,8 @@ fn finish(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 
 /// `$9616`: the first hit starts the drift away from the nearer edge; every hit lowers the counter.
 fn knock_back(body: &mut Body, work: &Work, cx: &Cx<'_>) {
-    if body.phase == 0 {
-        body.phase = 1;
+    if body.phase == Phase::Waiting.byte() {
+        body.phase = Phase::Drifting.byte();
         let x_high = work.x.to_be_bytes()[0];
         let leftwards = x_high >= 0x0A || (x_high >= 0x07 && cx.world.rng[0] & 0x80 != 0);
         body.vx_drift = if leftwards { -KNOCK } else { KNOCK };
@@ -293,7 +305,7 @@ mod tests {
     }
 
     /// Area 14:00, the stage-4 boss room. The player's fire hits the boss on the
-    /// sixth frame, so phases 0 and 1 both run; the boss draws every frame.
+    /// sixth frame, so waiting and drifting both run; the boss draws every frame.
     #[test]
     fn matches_the_oracle() {
         let Some((scene, _)) = fight() else {
@@ -313,7 +325,7 @@ mod tests {
         }
     }
 
-    /// Phase 2 (the counter reached `$C0`) is a counter cycle the 300-frame scene
+    /// The charged phase (the counter reached `$C0`) is a counter cycle the 300-frame scene
     /// does not run: the player's hits keep draining `$7E10`. Forcing `$7DD0` each
     /// loop drives the same 6502 path in both machines, so the diff proves it.
     #[test]

@@ -17,6 +17,20 @@ const TURN_HI: u16 = 0x9821;
 /// The child spawned at `$97FF`.
 const CHILD: u8 = 0x24;
 
+phases! {
+    /// The soldier's phase (`$7DD0`), which picks its handler (`$980B`).
+    Phase {
+        /// Falling until the feet find ground.
+        Falling = 0,
+        /// Idling on the timer, then jumping or shooting.
+        Idling = 1,
+        /// Walking in, then firing up to four `$24` children.
+        Firing = 2,
+        /// The recoil jump, until it lands.
+        Recoiling = 3,
+    }
+}
+
 /// Type `$22` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -31,12 +45,12 @@ impl State {
         work.attr |= body.flags;
         engine::integrate(body, work);
         let mut probe = Probe::default();
-        match body.phase {
-            0 => phase0(body, work, &mut probe, cx),
-            1 => phase1(body, work, &mut probe, cx),
-            2 => phase2(body, work, &mut probe, cx),
-            3 => phase3(body, work, &mut probe, cx),
-            phase => panic!("type $22 phase {phase} is past the $980B table"),
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Falling) => falling(body, work, &mut probe, cx),
+            Some(Phase::Idling) => idling(body, work, &mut probe, cx),
+            Some(Phase::Firing) => firing(body, work, &mut probe, cx),
+            Some(Phase::Recoiling) => recoiling(body, work, &mut probe, cx),
+            None => panic!("type $22 phase {} is past the $980B table", body.phase),
         }
         tail(kind, body, work, &mut probe, cx);
     }
@@ -47,12 +61,12 @@ fn on_ground(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
     collision::feet(work, probe, cx) & 0x80 == 0 || collision::ride_here(work, probe, cx)
 }
 
-/// Phase 0 (`$957E`): fall until the feet find ground, then idle.
-fn phase0(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
+/// Falling (`$957E`): fall until the feet find ground, then idle.
+fn falling(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
     if on_ground(work, probe, cx) {
         body.vx_drift = drift(*probe);
         body.timer = 0x20;
-        body.phase = 1;
+        body.phase = Phase::Idling.byte();
         body.anim = 1;
         body.sprite = 2;
     } else {
@@ -60,8 +74,8 @@ fn phase0(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
     }
 }
 
-/// Phase 1 (`$95B0`): idle on the timer, then face the player and jump or shoot.
-fn phase1(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
+/// Idling (`$95B0`): idle on the timer, then face the player and jump or shoot.
+fn idling(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
     if on_ground(work, probe, cx) {
         body.vx_drift = drift(*probe);
     }
@@ -74,7 +88,7 @@ fn phase1(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
     let dx_hi = dx.unsigned_abs().to_be_bytes()[0];
     work.attr = (work.attr & 0x03) | engine::face(dx);
     if dx_hi >= 5 {
-        body.phase = 2;
+        body.phase = Phase::Firing.byte();
         body.timer = 0;
         body.counter = 0;
         anim(body);
@@ -88,12 +102,12 @@ fn phase1(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
         let lo = engine::rom_byte(cx.prg, 8, TURN_LO + u16::from(turn));
         body.vx = i16::from_be_bytes([hi, lo]);
         work.vy = -0x60;
-        body.phase = 3;
+        body.phase = Phase::Recoiling.byte();
     }
 }
 
-/// Phase 2 (`$963C`): walk in, then fire up to four `$24` children.
-fn phase2(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
+/// Firing (`$963C`): walk in, then fire up to four `$24` children.
+fn firing(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
     if on_ground(work, probe, cx) {
         body.vx_drift = drift(*probe);
     }
@@ -108,7 +122,7 @@ fn phase2(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
     }
     body.counter = body.counter.wrapping_add(1);
     if body.counter >= 4 {
-        body.phase = 1;
+        body.phase = Phase::Idling.byte();
         body.anim = 1;
         body.timer = 0x80;
         body.sprite = 2;
@@ -121,8 +135,8 @@ fn phase2(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
     }
 }
 
-/// Phase 3 (`$969E`): the recoil jump; land and go back to the idle timer.
-fn phase3(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
+/// Recoiling (`$969E`): the recoil jump; land and go back to the idle timer.
+fn recoiling(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
     let mut flags = 0u8;
     work.ax = 0;
     let feet = collision::feet(work, probe, cx);
@@ -144,7 +158,7 @@ fn phase3(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
     if flags & 0x40 != 0 {
         body.vx_drift = drift(*probe);
         body.vx = 0;
-        body.phase = 1;
+        body.phase = Phase::Idling.byte();
         body.anim = 1;
         body.timer = 0x20;
         body.sprite = 2;
@@ -170,7 +184,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, probe: &mut Probe, cx: 
     work.pointer = engine::rom_word(cx.prg, 8, METASPRITES + u16::from(body.sprite));
     engine::tile_bits(work, cx.prg);
     engine::draw(work, 1, cx);
-    if body.phase == 2
+    if body.phase == Phase::Firing.byte()
         && body.timer >= 0x18
         && body.timer & 0x06 == 0
         && let Some(x) = shot_x(work)

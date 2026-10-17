@@ -18,6 +18,16 @@ const ANIMATION: u16 = 0x8D19;
 /// The `$24` child it drops (`$8CAE`).
 const CHILD: u8 = 0x24;
 
+phases! {
+    /// The bomber's phase (`$7DD0`), which picks its handler (`$8D0B`).
+    Phase {
+        /// Drifting, then arming after a run of frames.
+        Drifting = 0,
+        /// Dropping a bomb, then drifting until the facing settles.
+        Bombing = 1,
+    }
+}
+
 /// Type `$36` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -31,17 +41,17 @@ impl State {
         }
         work.attr |= body.flags;
         engine::integrate(body, work);
-        match body.phase {
-            0 => phase0(body, work),
-            1 => phase1(body, work, cx),
-            phase => panic!("type $36 phase {phase} is past the $8D0B table"),
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Drifting) => drifting(body, work),
+            Some(Phase::Bombing) => bombing(body, work, cx),
+            None => panic!("type $36 phase {} is past the $8D0B table", body.phase),
         }
         tail(kind, body, work, cx);
     }
 }
 
-/// Phase 0 (`$8ABB`): drift, then arm after `$20` frames of a non-zero behaviour.
-fn phase0(body: &mut Body, work: &mut Work) {
+/// Drifting (`$8ABB`): drift, then arm after `$20` frames of a non-zero behaviour.
+fn drifting(body: &mut Body, work: &mut Work) {
     drift(body, work);
     body.sprite = 0;
     if body.behaviour == 0 || body.timer & 0x80 != 0 {
@@ -53,12 +63,12 @@ fn phase0(body: &mut Body, work: &mut Work) {
     }
     body.counter = 0;
     body.vx_drift = 0;
-    body.phase = 1;
+    body.phase = Phase::Bombing.byte();
     body.sprite = 2;
 }
 
-/// Phase 1 (`$8AF0`): drop a `$24` bomb, then drift until the facing settles.
-fn phase1(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+/// Bombing (`$8AF0`): drop a `$24` bomb, then drift until the facing settles.
+fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if body.timer == 0 {
         body.counter = body.counter.wrapping_add(1);
         if body.counter < 0x10 {
@@ -87,7 +97,7 @@ fn phase1(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     }
     if body.behaviour & 0x01 == 0 || body.subtype >= 0x02 {
         body.timer = 0x80;
-        body.phase = 0;
+        body.phase = Phase::Drifting.byte();
         body.sprite = 0;
     } else {
         body.timer = 0;

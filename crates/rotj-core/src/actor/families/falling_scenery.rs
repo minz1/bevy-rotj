@@ -5,17 +5,31 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
-/// Phase 0's metasprite table (bank 8 `$8EC3`).
-const PHASE0: u16 = 0x8EC3;
-/// Phase 2's single metasprite (bank 8 `$8EC9`).
-const PHASE2: u16 = 0x8EC9;
-/// Phase 3's metasprite table (bank 8 `$8ECB`).
-const PHASE3: u16 = 0x8ECB;
+/// The appearing phase's metasprite table (bank 8 `$8EC3`).
+const APPEARING_SPRITES: u16 = 0x8EC3;
+/// The falling phase's single metasprite (bank 8 `$8EC9`).
+const FALLING_SPRITE: u16 = 0x8EC9;
+/// The landed phase's metasprite table (bank 8 `$8ECB`).
+const LANDED_SPRITES: u16 = 0x8ECB;
 /// The camera-relative x pair (bank 14 `$C5F2` high, `$C6F2` low).
 const X_HIGH: u16 = 0xC5F2;
 const X_LOW: u16 = 0xC6F2;
 /// The type `$14` child spawned at `$8EAB`.
 const CHILD: u8 = 0x18;
+
+phases! {
+    /// The scenery's phase (`$7DD0`), which picks its handler (`$8EBB`).
+    Phase {
+        /// Falling into view, drawn until it keeps the x it entered.
+        Appearing = 0,
+        /// Counting down before it drops.
+        Waiting = 1,
+        /// Falling and drifting right until its feet find ground.
+        Falling = 2,
+        /// Sitting on the ground, touching the player, then spawning a child.
+        Landed = 3,
+    }
+}
 
 /// Type `$14` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -25,41 +39,41 @@ impl State {
     /// One frame of the handler (`$8D70`; phases through the table at `$8EBB`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
-        match body.phase {
-            0 => phase0(body, work, cx),
-            1 => phase1(body, cx),
-            2 => phase2(kind, body, work, cx),
-            3 => phase3(kind, body, work, cx),
-            phase => panic!("type $14 phase {phase} is past the $8EBB table"),
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Appearing) => appearing(body, work, cx),
+            Some(Phase::Waiting) => waiting(body, cx),
+            Some(Phase::Falling) => falling(kind, body, work, cx),
+            Some(Phase::Landed) => landed(kind, body, work, cx),
+            None => panic!("type $14 phase {} is past the $8EBB table", body.phase),
         }
     }
 }
 
-/// Phase 0 (`$8D85`): draw while it falls into view, then keep the x it entered.
-fn phase0(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+/// Appearing (`$8D85`): draw while it falls into view, then keep the x it entered.
+fn appearing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if engine::on_screen(work, cx.world) != Visibility::On {
         return;
     }
     work.tile = 0;
     work.attr = 3;
     let frame = u16::from((body.counter >> 1) & 0xFE);
-    work.pointer = engine::rom_word(cx.prg, 8, PHASE0 + frame);
+    work.pointer = engine::rom_word(cx.prg, 8, APPEARING_SPRITES + frame);
     engine::draw(work, 1, cx);
     body.counter = body.counter.wrapping_add(1);
     if body.counter >= 0x0C {
         body.counter = 0x40;
-        body.phase = 1;
+        body.phase = Phase::Waiting.byte();
         body.timer = work.screen_x;
     }
 }
 
-/// Phase 1 (`$8DC6`): count down, then drop from the camera plus the saved screen x.
-fn phase1(body: &mut Body, cx: &Cx<'_>) {
+/// Waiting (`$8DC6`): count down, then drop from the camera plus the saved screen x.
+fn waiting(body: &mut Body, cx: &Cx<'_>) {
     body.counter = body.counter.wrapping_sub(1);
     if body.counter != 0 {
         return;
     }
-    body.phase = 2;
+    body.phase = Phase::Falling.byte();
     let index = u16::from(body.timer);
     let high = engine::rom_byte(cx.prg, 14, X_HIGH + index);
     let low = engine::rom_byte(cx.prg, 14, X_LOW + index);
@@ -71,8 +85,8 @@ fn phase1(body: &mut Body, cx: &Cx<'_>) {
     body.behaviour = 0x40;
 }
 
-/// Phase 2 (`$8DF4`): fall and drift right until the feet find ground.
-fn phase2(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+/// Falling (`$8DF4`): fall and drift right until the feet find ground.
+fn falling(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     let [y_hi, y_lo] = work.y.to_be_bytes();
     let (y_lo, carry) = y_lo.overflowing_add(body.behaviour);
     work.y = u16::from_be_bytes([y_hi.wrapping_add(u8::from(carry)), y_lo]);
@@ -87,21 +101,21 @@ fn phase2(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     let mut probe = Probe::default();
     if collision::feet(work, &mut probe, cx) & 0x80 == 0 {
         cx.effects.sound[0] = 0x22;
-        body.phase = 3;
+        body.phase = Phase::Landed.byte();
         body.counter = 0;
     }
     if engine::on_screen(work, cx.world) == Visibility::On {
         work.tile = 0;
         work.attr = 2;
-        work.pointer = engine::rom_word(cx.prg, 8, PHASE2);
+        work.pointer = engine::rom_word(cx.prg, 8, FALLING_SPRITE);
         engine::draw(work, 1, cx);
     } else {
         *kind = 0;
     }
 }
 
-/// Phase 3 (`$8E61`): sit and touch the player, then spawn a `$18` child.
-fn phase3(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+/// Landed (`$8E61`): sit and touch the player, then spawn a `$18` child.
+fn landed(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     work.hitbox = 0;
     if engine::on_screen(work, cx.world) != Visibility::On {
         *kind = 0;
@@ -110,7 +124,7 @@ fn phase3(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     work.tile = 0;
     work.attr = 3;
     let frame = u16::from((body.counter >> 1) & 0xFE);
-    work.pointer = engine::rom_word(cx.prg, 8, PHASE3 + frame);
+    work.pointer = engine::rom_word(cx.prg, 8, LANDED_SPRITES + frame);
     engine::draw(work, 1, cx);
     engine::touch(work, 2, cx);
     body.counter = body.counter.wrapping_add(1);

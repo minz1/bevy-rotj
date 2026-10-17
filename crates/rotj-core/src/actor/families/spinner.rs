@@ -4,7 +4,7 @@
 //! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$A79B`
 //! (`integrate`), `$A7DD` (`collision::feet`), `$AF7D` (`collision::below`),
 //! `$A852` (`on_screen`), `$C247` (`draw`, bank 9 as `$84CA` maps it), `$AEE3`
-//! (`touch`) and `$A934` (`store`). Its phase 6 also calls the bank-0 helper
+//! (`touch`) and `$A934` (`store`). Its spawning phase also calls the bank-0 helper
 //! `$8D84`, which spawns a type `$7A` child (bank 0 `$8DB5`, unported) at the
 //! parent's x and sets the parent's `$7D50` to `$40`.
 
@@ -15,16 +15,15 @@ use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 use crate::actors::STATE_UNTARGETED;
 
-/// `$7DD0` phase jump table (`$9243`): 7 entries, phases 0-6.
 /// `$9251`: the metasprite pointer, overlapping words indexed by `$7C30`.
 const METASPRITES: u16 = 0x9251;
-/// `$9257`: phase 0's vy low every `$7E90` 8-15 (index `$7E90 - 8`).
+/// `$9257`: the idling vy low every `$7E90` 8-15 (index `$7E90 - 8`).
 const PHASE0_VY: u16 = 0x9257;
-/// `$925F`/`$926B`: phase 2's vy low/high with `$7D90` bit 7 clear (index `$7E90`).
+/// `$925F`/`$926B`: the swinging vy low/high with `$7D90` bit 7 clear (index `$7E90`).
 const PHASE2_VY: (u16, u16) = (0x925F, 0x926B);
-/// `$9277`/`$927F`: phase 2's vy low/high with `$7D90` bit 7 set.
+/// `$9277`/`$927F`: the swinging vy low/high with `$7D90` bit 7 set.
 const PHASE2_VY_SET: (u16, u16) = (0x9277, 0x927F);
-/// `$9287`/`$928F`: phase 3's grounded vy low/high (index `$F1 & 7`).
+/// `$9287`/`$928F`: the falling grounded vy low/high (index `$F1 & 7`).
 const PHASE3_VY: (u16, u16) = (0x9287, 0x928F);
 /// `$84CA` maps bank 9 at `$A000` for the draw.
 const DRAW_BANK: u8 = 9;
@@ -33,6 +32,26 @@ const HITBOX: u8 = 3;
 const DAMAGE: u8 = 2;
 /// The type `$8D84` spawns, at the parent's x with `$7B40:$7B60` = `$0C00`.
 const CHILD: u8 = 0x7A;
+
+phases! {
+    /// The spinner's phase (`$7DD0`), which picks its handler (`$9243`).
+    Phase {
+        /// Counting up on the spot, bobbing slightly, until it wakes.
+        Idling = 0,
+        /// Rising towards the head row until the feet leave the ground.
+        Rising = 1,
+        /// Swinging through the vy table, then rising again or falling.
+        Swinging = 2,
+        /// Falling with a drift once the ground below is gone.
+        Falling = 3,
+        /// Flashing for eight frames.
+        Flashing = 4,
+        /// Descending towards the head row.
+        Descending = 5,
+        /// Spawning the `$7A` child and freeing the slot.
+        Spawning = 6,
+    }
+}
 
 /// Type `$7E` keeps its whole state in [`Body`]: `$7DD0` phase, `$7E90` its
 /// timer, `$7C30` the metasprite index and `$7E70:$7E80` its vy.
@@ -45,14 +64,14 @@ impl State {
         engine::load(body, work);
         work.attr = (body.flags & 0x03) | 0x01;
         engine::integrate(body, work);
-        match body.phase {
-            0 => phase0(body, cx),
-            1 => phase1(body, work, cx),
-            2 => phase2(body, cx),
-            3 => phase3(body, work, cx),
-            4 => phase4(body, work),
-            5 => phase5(body, work),
-            6 => {
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Idling) => idling(body, cx),
+            Some(Phase::Rising) => rising(body, work, cx),
+            Some(Phase::Swinging) => swinging(body, cx),
+            Some(Phase::Falling) => falling(body, work, cx),
+            Some(Phase::Flashing) => flashing(body, work),
+            Some(Phase::Descending) => descending(body, work),
+            Some(Phase::Spawning) => {
                 // `$91E5`: spawn the `$7A` child, free the slot, no store.
                 if spawn_child(body, cx) {
                     body.state = STATE_UNTARGETED;
@@ -60,14 +79,14 @@ impl State {
                 *kind = 0;
                 return;
             }
-            phase => panic!("type $7E phase {phase} is past the $9243 table"),
+            None => panic!("type $7E phase {} is past the $9243 table", body.phase),
         }
         tail(kind, body, work, cx);
     }
 }
 
 /// `$9053`: count `$7E90` up; set the idle vy, a slight one, then wake.
-fn phase0(body: &mut Body, cx: &Cx<'_>) {
+fn idling(body: &mut Body, cx: &Cx<'_>) {
     body.anim = body.anim.wrapping_add(1);
     let timer = body.anim;
     if timer < 0x08 {
@@ -76,16 +95,16 @@ fn phase0(body: &mut Body, cx: &Cx<'_>) {
         let low = engine::rom_byte(cx.prg, 0, PHASE0_VY + u16::from(timer.wrapping_sub(0x08)));
         body.vy = i16::from_be_bytes([0, low]);
     } else {
-        body.phase = 1;
+        body.phase = Phase::Rising.byte();
         body.anim = 0;
     }
     body.sprite = 0;
 }
 
 /// `$908D`: rise until the head row, then drop when the feet leave the ground.
-fn phase1(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+fn rising(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if work.y.to_be_bytes()[0] >= 0x0D {
-        body.phase = 6;
+        body.phase = Phase::Spawning.byte();
         return;
     }
     let low = body.vy.to_be_bytes()[1].wrapping_add(1);
@@ -97,18 +116,18 @@ fn phase1(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if collision::feet(work, &mut probe, cx) & 0x80 == 0 {
         body.vy = 0;
         body.anim = 0;
-        body.phase = 2;
+        body.phase = Phase::Swinging.byte();
     }
 }
 
 /// `$90C9`: swing through the vy table for `$7D90 & $80` frames, then fall.
-fn phase2(body: &mut Body, cx: &Cx<'_>) {
+fn swinging(body: &mut Body, cx: &Cx<'_>) {
     body.anim = body.anim.wrapping_add(1);
     let time = body.anim;
     let (low_table, high_table) = if body.behaviour & 0x80 == 0 {
         if time >= 0x0C {
             body.vy = 0;
-            body.phase = 1;
+            body.phase = Phase::Rising.byte();
             body.anim = 0x80;
             return;
         }
@@ -116,7 +135,7 @@ fn phase2(body: &mut Body, cx: &Cx<'_>) {
     } else {
         if time >= 0x08 {
             body.vy = 0;
-            body.phase = 3;
+            body.phase = Phase::Falling.byte();
             return;
         }
         PHASE2_VY_SET
@@ -127,7 +146,7 @@ fn phase2(body: &mut Body, cx: &Cx<'_>) {
 }
 
 /// `$911F`: probe a step down for ground; land there or come down with a drift.
-fn phase3(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+fn falling(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     work.y = work.y.wrapping_add(0x40);
     let mut probe = Probe::default();
     let below = collision::below(work, &mut probe, cx);
@@ -147,29 +166,29 @@ fn phase3(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     body.vy = 0x10;
     body.anim = 0;
     body.sprite = 2;
-    body.phase = 4;
+    body.phase = Phase::Flashing.byte();
 }
 
 /// `$918E`: flash (`$40` in the attr) while `$7E90` counts to 8, then hold.
-fn phase4(body: &mut Body, work: &mut Work) {
+fn flashing(body: &mut Body, work: &mut Work) {
     if body.behaviour & 0x01 == 0 {
         work.attr |= 0x40;
     }
     body.anim = body.anim.wrapping_add(1);
     if body.anim >= 0x08 {
-        body.phase = 5;
+        body.phase = Phase::Descending.byte();
         body.vx_drift = 0;
         body.sprite = 4;
     }
 }
 
 /// `$91B9`: flash while descending to the head row, else ramp the vy.
-fn phase5(body: &mut Body, work: &mut Work) {
+fn descending(body: &mut Body, work: &mut Work) {
     if body.behaviour & 0x01 == 0 {
         work.attr |= 0x40;
     }
     if work.y.to_be_bytes()[0] >= 0x0D {
-        body.phase = 6;
+        body.phase = Phase::Spawning.byte();
         return;
     }
     let low = body.vy.to_be_bytes()[1].wrapping_add(3);
@@ -327,7 +346,7 @@ mod tests {
         assert_eq!((coverage.occupied, coverage.drawn), (30, 0), "{coverage:?}");
     }
 
-    /// The tail's `$AEE3` touch (phase 6 never draws, so it cannot hurt).
+    /// The tail's `$AEE3` touch (spawning never draws, so it cannot hurt).
     #[test]
     fn hurts_the_player_up_close() {
         let Some(mut scene) = solo(27931) else {

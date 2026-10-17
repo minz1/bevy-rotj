@@ -11,6 +11,16 @@ const FLOOR_ROW: u8 = 0x0A;
 const WARP_Y: u16 = 0x0BFF;
 const LAST_FRAME: u8 = 0x0F;
 
+phases! {
+    /// The warp's phase (`$7DD0`), which picks its handler (`$9A22`).
+    Phase {
+        /// Drifting right until it lands.
+        Falling = 0,
+        /// Playing out the warp animation, then moving the player.
+        Warping = 1,
+    }
+}
+
 /// Type `$C6` keeps its phase, timer and animation counter in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -20,8 +30,8 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         engine::integrate(body, work);
-        match body.phase {
-            0 => {
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Falling) => {
                 body.vx_drift = DRIFT;
                 body.sprite = 0;
                 if body.y.to_be_bytes()[0] >= FLOOR_ROW {
@@ -29,11 +39,11 @@ impl State {
                     let mut probe = Probe::default();
                     if collision::feet(work, &mut probe, cx) == 0 {
                         body.vx_drift = 0;
-                        body.phase = 1;
+                        body.phase = Phase::Warping.byte();
                     }
                 }
             }
-            1 => {
+            Some(Phase::Warping) => {
                 work.y = WARP_Y;
                 body.y = WARP_Y;
                 body.sprite = ((body.anim & 0xFC) >> 2).wrapping_add(2);
@@ -48,7 +58,7 @@ impl State {
                     *kind = 0;
                 }
             }
-            phase => panic!("type $C6 phase {phase} is past the $9A22 table"),
+            None => panic!("type $C6 phase {} is past the $9A22 table", body.phase),
         }
         engine::on_screen(work, cx.world);
         work.tile = 0;
@@ -66,7 +76,7 @@ mod tests {
 
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
 
-    /// Route frames 641-685: the `$C6` in slot 1 falls (phase 0) then warps (phase 1).
+    /// Route frames 641-685: the `$C6` in slot 1 falls then warps.
     #[test]
     fn matches_the_oracle() {
         let Some(scene) = Scene::route(640) else {

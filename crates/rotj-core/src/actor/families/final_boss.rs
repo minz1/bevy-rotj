@@ -4,7 +4,7 @@
 //! metasprites through `$81C6` (bank 9 at `$A000`) and hands the visible parts to
 //! free slots — type `$52` into slots 0-15, `$B8`/`$BC`/`$BE`/`$C0` into 16-23,
 //! type `$50` through `$B1C4`. Its `$7DD0` phases come from the table at `$9100`;
-//! `$8DB8` leaves phases 2/3 for phase 4 once the boss's hit points reach `$4650`.
+//! `$8DB8` leaves holding/dropping for shedding once the boss's hit points reach `$4650`.
 //!
 //! Its only byte outside `Body`/`Work`/`Effects` is `$FD` (`$8EF1`), the camera's
 //! scroll x; see `REPORT.md` and the tests.
@@ -44,6 +44,26 @@ const CONTACT_MODE: u8 = 0xC0;
 /// `$8DB8`'s hit-point gate: above it the boss stays in its phase.
 const PHASE_GATE: u16 = 0x4650;
 
+phases! {
+    /// The boss's phase (`$7DD0`), which picks its handler (`$9100`).
+    Phase {
+        /// Holding until the player's boss-entry motion ends.
+        Waiting = 0,
+        /// Stepping the body sprite through 0/2/4/6 for 16 frames.
+        Animating = 1,
+        /// Counting `$7E90` down on the plain `$E2` bank.
+        Holding = 2,
+        /// Ramping `$E2` and dropping a `$BC` every 16 frames.
+        Dropping = 3,
+        /// Shedding `$52` parts while counting `$7E90` up.
+        Shedding = 4,
+        /// Counting `$7E90` to `$C0` between spawns.
+        Resting = 5,
+        /// Spawning `$C0` or `$BE` parts every 64 frames.
+        Summoning = 6,
+    }
+}
+
 /// Type `$B4` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -61,55 +81,55 @@ impl State {
             }
             return;
         }
-        match body.phase {
-            0 => phase0(body, work, cx),
-            1 => phase1(body, work, cx),
-            2 => phase2(body, work, cx),
-            3 => phase3(body, work, cx),
-            4 => phase4(body, work, cx),
-            5 => phase5(body, work, cx),
-            6 => phase6(body, work, cx),
-            phase => panic!("type $B4 phase {phase} is past the $9100 table"),
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Waiting) => waiting(body, work, cx),
+            Some(Phase::Animating) => animating(body, work, cx),
+            Some(Phase::Holding) => holding(body, work, cx),
+            Some(Phase::Dropping) => dropping(body, work, cx),
+            Some(Phase::Shedding) => shedding(body, work, cx),
+            Some(Phase::Resting) => resting(body, work, cx),
+            Some(Phase::Summoning) => summoning(body, work, cx),
+            None => panic!("type $B4 phase {} is past the $9100 table", body.phase),
         }
     }
 }
 
-/// `$8C8B`: hold until the player reaches motion 9, then animate.
-fn phase0(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+/// Waiting (`$8C8B`): hold until the player reaches motion 9, then animate.
+fn waiting(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     cx.oam.chr[7] = 0xD1;
     if cx.effects.player.motion != Motion::BossEntry {
-        body.phase = 1;
+        body.phase = Phase::Animating.byte();
         body.anim = 0;
     }
     tail(body, work, cx);
 }
 
-/// `$8CA3`: step `$7C30` through 0/2/4/6 for 16 frames, then phase 2.
-fn phase1(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+/// Animating (`$8CA3`): step `$7C30` through 0/2/4/6 for 16 frames, then hold.
+fn animating(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     cx.oam.chr[7] = 0xD1;
     body.sprite = (body.anim >> 2) & 0x06;
     body.anim = body.anim.wrapping_add(1);
     if body.anim >= 0x10 {
-        body.phase = 2;
+        body.phase = Phase::Holding.byte();
         body.anim = 0;
     }
     tail(body, work, cx);
 }
 
-/// `$8CC8`: pick the `$E2` CHR bank and wait `$7E90` out into phase 3.
-fn phase2(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+/// Holding (`$8CC8`): pick the `$E2` CHR bank and wait `$7E90` out into dropping.
+fn holding(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     cx.oam.chr[7] = 0xD1;
     cx.oam.chr[2] = 0x71;
     if body.anim == 0 {
-        body.phase = 3;
+        body.phase = Phase::Dropping.byte();
     } else {
         body.anim = body.anim.wrapping_sub(1);
     }
     gate(body, work, cx);
 }
 
-/// `$8CE3`: ramp `$E2` on `$7E90`, drop a `$BC` every 16 frames, then back to 2.
-fn phase3(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+/// Dropping (`$8CE3`): ramp `$E2` on `$7E90`, drop a `$BC` every 16 frames, then back to holding.
+fn dropping(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     cx.oam.chr[7] = 0xD1;
     let anim = body.anim;
     if anim < 0x18 {
@@ -125,14 +145,14 @@ fn phase3(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         spawn_bc(cx);
     }
     if body.anim >= 0x32 {
-        body.phase = 2;
+        body.phase = Phase::Holding.byte();
         body.anim = 0x80;
     }
     gate(body, work, cx);
 }
 
-/// `$8D2D`: count `$7E90` up through `$8EDB`, drawing the shape from `$68`.
-fn phase4(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+/// Shedding (`$8D2D`): count `$7E90` up through `$8EDB`, drawing the shape from `$68`.
+fn shedding(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     cx.oam.chr[6] = 0xB3;
     count_up(body, work, cx);
     if body.anim >= 0x68 {
@@ -144,12 +164,12 @@ fn phase4(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     }
 }
 
-/// `$8D50`: count `$7E90` to `$C0`, then hand over to phase 6 with the y offset.
-fn phase5(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+/// Resting (`$8D50`): count `$7E90` to `$C0`, then hand over to summoning with the y offset.
+fn resting(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     cx.oam.chr[7] = 0xD4;
     body.anim = body.anim.wrapping_add(1);
     if body.anim == 0xC0 {
-        body.phase = 6;
+        body.phase = Phase::Summoning.byte();
         body.anim = 0;
         body.timer = cx.effects.player.x.to_be_bytes()[0].wrapping_shl(4);
     }
@@ -157,8 +177,8 @@ fn phase5(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     tail(body, work, cx);
 }
 
-/// `$8D7A`: alternate the `7D30` bit every 64 frames and drop `$C0` or `$BE` parts.
-fn phase6(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+/// Summoning (`$8D7A`): alternate the `7D30` bit every 64 frames and drop `$C0` or `$BE` parts.
+fn summoning(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     cx.oam.chr[7] = 0xD4;
     body.sprite = ((body.anim & 0x08) >> 2).wrapping_add(2);
     body.anim = body.anim.wrapping_add(1);
@@ -170,12 +190,12 @@ fn phase6(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             spawn_c0(body, work, cx);
         }
         body.anim = 0;
-        body.phase = 5;
+        body.phase = Phase::Resting.byte();
     }
     tail(body, work, cx);
 }
 
-/// `$8EDB`: the phase-4 count, its `$FD` write and the `$E2 = $68` swap at `$60`.
+/// `$8EDB`: the shedding count, its `$FD` write and the `$E2 = $68` swap at `$60`.
 fn count_up(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     if body.anim < 0xAF && body.anim.is_multiple_of(0x04) {
         spawn_52(body, work, cx);
@@ -183,7 +203,7 @@ fn count_up(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     cx.scroll.scroll_x = u8::from(cx.world.frame & 0x04 != 0);
     body.anim = body.anim.wrapping_add(1);
     if body.anim >= 0xC0 {
-        body.phase = 5;
+        body.phase = Phase::Resting.byte();
         body.counter = 0;
         body.anim = 0;
         body.sprite = 0;
@@ -194,7 +214,7 @@ fn count_up(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     }
 }
 
-/// `$8DB8`: pick `$7C30`, then leave for phase 4 above the hit-point gate or draw on.
+/// `$8DB8`: pick `$7C30`, then leave for shedding above the hit-point gate or draw on.
 fn gate(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     body.sprite = engine::rom_byte(
         cx.prg,
@@ -205,7 +225,7 @@ fn gate(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         tail(body, work, cx);
         return;
     }
-    body.phase = 4;
+    body.phase = Phase::Shedding.byte();
     body.timer = 0;
     body.counter = 0;
     body.anim = 0;

@@ -26,12 +26,22 @@ const GROUND: u8 = 0x40;
 const WALL: u8 = 0x80;
 const AIRBORNE_FLOOR: u8 = 0x20;
 
+phases! {
+    /// The walker's phase (`$7DD0`): the game stores its doubled index into `$975A`.
+    Phase {
+        /// Walking, until a wall or a ledge.
+        Walking = 0,
+        /// Standing still to turn round, then walking again.
+        Turning = 2,
+    }
+}
+
 /// Type `$88` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
 impl State {
-    /// One frame of the handler (`$95F6`; the `$7DD0` phase is 0 or 2).
+    /// One frame of the handler (`$95F6`; the `$7DD0` phases are the doubled indices of [`Phase`]).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         if engine::dying(kind, body, work, 0x80, cx) {
@@ -57,17 +67,17 @@ impl State {
         if flags & (GROUND | AIRBORNE_FLOOR) != 0 {
             body.vx_drift = i16::from_be_bytes([probe.landing[1], probe.landing[0]]);
         }
-        match body.phase {
-            0 => walk(body, work, flags, &mut probe, cx),
-            2 => turn(body, work),
-            phase => panic!("type $88 phase {phase} is past the $975A table"),
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Walking) => walking(body, work, flags, &mut probe, cx),
+            Some(Phase::Turning) => turning(body, work),
+            None => panic!("type $88 phase {} is past the $975A table", body.phase),
         }
         tail(kind, body, work, cx);
     }
 }
 
-/// Phase 0 (`$9667`): walk, and turn round at a wall or a ledge.
-fn walk(body: &mut Body, work: &mut Work, flags: u8, probe: &mut Probe, cx: &mut Cx<'_>) {
+/// Walking (`$9667`): walk, and turn round at a wall or a ledge.
+fn walking(body: &mut Body, work: &mut Work, flags: u8, probe: &mut Probe, cx: &mut Cx<'_>) {
     let facing_left = work.attr & 0x40 != 0;
     let at_edge = flags & WALL != 0 || {
         probe.x = if facing_left {
@@ -79,7 +89,7 @@ fn walk(body: &mut Body, work: &mut Work, flags: u8, probe: &mut Probe, cx: &mut
         collision::solid(probe, 0x84, cx) & 0x80 == 0
     };
     if at_edge {
-        body.phase = 2;
+        body.phase = Phase::Turning.byte();
         body.ref_vx = 0;
         body.anim = 0;
         body.vx = 0;
@@ -95,14 +105,14 @@ fn walk(body: &mut Body, work: &mut Work, flags: u8, probe: &mut Probe, cx: &mut
     }
 }
 
-/// Phase 2 (`$96E4`): stand still, flip the facing, then go back to walking.
-fn turn(body: &mut Body, work: &mut Work) {
+/// Turning (`$96E4`): stand still, flip the facing, then go back to walking.
+fn turning(body: &mut Body, work: &mut Work) {
     body.sprite = TURNING_SPRITE;
     body.anim = body.anim.wrapping_add(1);
     if body.anim == TURN_FLIP {
         work.attr ^= 0x40;
     } else if body.anim >= TURN_LENGTH {
-        body.phase = 0;
+        body.phase = Phase::Walking.byte();
         body.anim = 0;
     }
 }

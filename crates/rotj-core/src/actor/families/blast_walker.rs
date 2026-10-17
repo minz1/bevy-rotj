@@ -27,6 +27,20 @@ const DAMAGE: u8 = 2;
 const SIDE: u16 = 0x180;
 const ABOVE: u16 = 0x11F;
 
+phases! {
+    /// The walker's phase (`$7DD0`), which picks its handler (`$9022`).
+    Phase {
+        /// Waiting for the player to come within the wake distance.
+        Waiting = 0,
+        /// Dwelling for `$80` frames before the blast.
+        Dwelling = 1,
+        /// Drifting aside and spawning the `$24` blast.
+        Blasting = 2,
+        /// Falling, dropping one more `$7A` marker, until it is freed.
+        Falling = 3,
+    }
+}
+
 /// Type `$7C` keeps every field in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -40,19 +54,18 @@ impl State {
         }
         work.attr |= body.flags;
         engine::integrate(body, work);
-        // `asl` drops bit 7, so `$80-$83` reach the same entries as `$00-$03`.
-        let ended = match (u16::from(body.phase) << 1) & 0xFF {
-            0 => phase0(body, work, cx),
-            2 => {
-                phase1(body, work);
+        let ended = match Phase::from_byte(body.phase) {
+            Some(Phase::Waiting) => waiting(body, work, cx),
+            Some(Phase::Dwelling) => {
+                dwelling(body, work);
                 false
             }
-            4 => {
-                phase2(body, work, cx);
+            Some(Phase::Blasting) => {
+                blasting(body, work, cx);
                 false
             }
-            6 => phase3(kind, body, work, cx),
-            _ => panic!("type $7C phase {} is past the $9022 table", body.phase),
+            Some(Phase::Falling) => falling(kind, body, work, cx),
+            None => panic!("type $7C phase {} is past the $9022 table", body.phase),
         };
         if ended {
             return;
@@ -61,15 +74,15 @@ impl State {
     }
 }
 
-/// Phase 0 (`$8E24`): wake when the player is near, drop the `$7A` marker, face him.
-fn phase0(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) -> bool {
+/// Waiting (`$8E24`): wake when the player is near, drop the `$7A` marker, face him.
+fn waiting(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) -> bool {
     let dx = engine::player_dx(work, &cx.effects.player);
     if dx.unsigned_abs() >= WAKE {
         return true;
     }
     body.vy = i16::from_be_bytes([body.subtype, body.behaviour]);
     spawn_marker(body, body.x, cx);
-    body.phase = 1;
+    body.phase = Phase::Dwelling.byte();
     body.sprite = 0;
     body.state = 0;
     if dx >= 0 {
@@ -78,8 +91,8 @@ fn phase0(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) -> bool {
     false
 }
 
-/// Phase 1 (`$8E62`): a `$80`-frame dwell, then the blast.
-fn phase1(body: &mut Body, work: &Work) {
+/// Dwelling (`$8E62`): a `$80`-frame dwell, then the blast.
+fn dwelling(body: &mut Body, work: &Work) {
     if work.vy < 0 {
         return;
     }
@@ -90,27 +103,27 @@ fn phase1(body: &mut Body, work: &Work) {
     } else {
         body.counter = body.counter.wrapping_sub(1);
         if body.counter == 0 {
-            body.phase = 2;
+            body.phase = Phase::Blasting.byte();
             body.counter = 0;
             body.timer = 0;
         }
     }
 }
 
-/// Phase 2 (`$8E91`): drift aside, then spawn the `$24` blast.
-fn phase2(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
+/// Blasting (`$8E91`): drift aside, then spawn the `$24` blast.
+fn blasting(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     body.anim = 4;
     let drift = if work.attr & 0x40 != 0 { 0x10 } else { -0x10 };
     body.vx_drift = body.vx_drift.wrapping_add(drift);
     body.sprite = 4;
-    body.phase = 3;
+    body.phase = Phase::Falling.byte();
     body.timer = 3;
     spawn_blast(body, cx);
 }
 
-/// Phase 3 (`$8EC5`): drop one more `$7A` once it is low enough, then free the
+/// Falling (`$8EC5`): drop one more `$7A` once it is low enough, then free the
 /// slot below row `$0F`. Returns whether the slot was freed.
-fn phase3(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) -> bool {
+fn falling(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) -> bool {
     if body.timer & 0x80 == 0 && work.y.to_be_bytes()[0] >= 0x0C {
         let x = work.x;
         spawn_marker(body, x, cx);

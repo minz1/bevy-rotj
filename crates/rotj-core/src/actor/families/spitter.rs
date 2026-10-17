@@ -26,20 +26,24 @@ const END_FRAME: u8 = 0x10;
 const REST_AFTER_SPIT: u8 = 0x30;
 const REST_AFTER_SPIT_WITH_BEHAVIOUR: u8 = 0x18;
 const FACING_LEFT: u8 = 0x40;
+/// The phase (`$7DD0`) in which it idles until the player comes near.
+const WAITING: u8 = 0;
+/// The phase (`$7DD0`) in which it spits a child.
+const SPITTING: u8 = 1;
 
 /// Type `$8A` keeps its phase, rest timer and spit counter in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
 impl State {
-    /// One frame of the handler (`$9762`; phase 0 waits, phase 1 spits).
+    /// One frame of the handler (`$9762`; it waits, then spits).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         if engine::dying(kind, body, work, 0x80, cx) {
             return;
         }
         work.attr |= body.flags;
-        if body.phase == 0 {
+        if body.phase == WAITING {
             wait(body, work, cx);
         } else {
             spit(body, cx);
@@ -70,7 +74,7 @@ fn wait(body: &mut Body, work: &Work, cx: &Cx<'_>) {
     if body.timer != 0 {
         body.timer -= 1;
     } else if distance_high_byte < WAKE_DISTANCE_HIGH_BYTE {
-        body.phase = 1;
+        body.phase = SPITTING;
         body.anim = 0;
     }
 }
@@ -86,7 +90,7 @@ fn spit(body: &mut Body, cx: &mut Cx<'_>) {
         }
     }
     if body.anim == END_FRAME {
-        body.phase = 0;
+        body.phase = WAITING;
         body.sprite = 0;
     } else {
         body.sprite = ((body.anim & 0x0C) >> 1) + 4;

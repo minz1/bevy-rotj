@@ -19,6 +19,18 @@ const FLASH: u16 = 0x9C35;
 /// The child `$9BB0` spawns into slots 16-23.
 const CHILD: u8 = 0x24;
 
+phases! {
+    /// The walker's phase (`$7DD0`): the game stores its doubled index into `$9C27`.
+    Phase {
+        /// Idling, walking or hopping a gap.
+        Walking = 0,
+        /// Charging for 32 frames before it attacks.
+        Charging = 2,
+        /// Biting twice, spawning a `$24` child on each bite's 8th frame.
+        Biting = 4,
+    }
+}
+
 /// Type `$26` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -53,11 +65,11 @@ impl State {
         if flags & 0x60 != 0 {
             body.vx_drift = drift(probe);
         }
-        match body.phase {
-            0 => phase0(body, work, &mut probe, flags, cx),
-            2 => phase2(body, work, flags, cx),
-            4 => phase4(body, cx),
-            phase => panic!("type $26 phase {phase} is past the $9C27 table"),
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Walking) => walking(body, work, &mut probe, flags, cx),
+            Some(Phase::Charging) => charging(body, work, flags, cx),
+            Some(Phase::Biting) => biting(body, cx),
+            None => panic!("type $26 phase {} is past the $9C27 table", body.phase),
         }
         tail(kind, body, work, cx);
     }
@@ -82,8 +94,8 @@ fn face(work: &mut Work, dx: i16) {
     work.attr = (work.attr & 0x23) | engine::face(dx);
 }
 
-/// Phase 0 (`$994E`): idle, walk, or hop a gap; phase 2 when the player is within 6 px.
-fn phase0(body: &mut Body, work: &mut Work, probe: &mut Probe, flags: u8, cx: &mut Cx<'_>) {
+/// Walking (`$994E`): idle, walk, or hop a gap; charge when the player is within 6 px.
+fn walking(body: &mut Body, work: &mut Work, probe: &mut Probe, flags: u8, cx: &mut Cx<'_>) {
     if body.timer != 0 {
         if flags & 0x60 != 0 {
             body.timer = 0;
@@ -97,7 +109,7 @@ fn phase0(body: &mut Body, work: &mut Work, probe: &mut Probe, flags: u8, cx: &m
     }
     let dx = engine::player_dx(work, &cx.effects.player);
     if dx.unsigned_abs().to_be_bytes()[0] < 6 {
-        body.phase = 2;
+        body.phase = Phase::Charging.byte();
         body.ref_vx = 0;
         body.anim = 0;
         return;
@@ -120,8 +132,8 @@ fn phase0(body: &mut Body, work: &mut Work, probe: &mut Probe, flags: u8, cx: &m
     work.vy = -0x60;
 }
 
-/// Phase 2 (`$9A13`): a 32-frame charge, then attack if the player is close enough.
-fn phase2(body: &mut Body, work: &mut Work, flags: u8, cx: &mut Cx<'_>) {
+/// Charging (`$9A13`): a 32-frame charge, then attack if the player is close enough.
+fn charging(body: &mut Body, work: &mut Work, flags: u8, cx: &mut Cx<'_>) {
     if flags & 0x40 == 0 {
         body.vx = 0;
         work.ax = 0;
@@ -133,13 +145,13 @@ fn phase2(body: &mut Body, work: &mut Work, flags: u8, cx: &mut Cx<'_>) {
         let dx = engine::player_dx(work, &cx.effects.player);
         face(work, dx);
         if dx.unsigned_abs().to_be_bytes()[0] >= 7 {
-            body.phase = 0;
+            body.phase = Phase::Walking.byte();
             body.timer = 0;
             return;
         }
         let dy = engine::player_dy(work, &cx.effects.player);
         if dy.unsigned_abs().to_be_bytes()[0] < 3 {
-            body.phase = 4;
+            body.phase = Phase::Biting.byte();
             body.timer = 0;
             body.anim = 0;
             body.ref_vx = 0;
@@ -155,8 +167,8 @@ fn phase2(body: &mut Body, work: &mut Work, flags: u8, cx: &mut Cx<'_>) {
     };
 }
 
-/// Phase 4 (`$9AC5`): two 16-frame bites, each spawning a `$24` child on its 8th frame.
-fn phase4(body: &mut Body, cx: &mut Cx<'_>) {
+/// Biting (`$9AC5`): two 16-frame bites, each spawning a `$24` child on its 8th frame.
+fn biting(body: &mut Body, cx: &mut Cx<'_>) {
     body.counter = 0;
     body.timer = body.timer.wrapping_add(1);
     if body.timer == 8 {
@@ -167,7 +179,7 @@ fn phase4(body: &mut Body, cx: &mut Cx<'_>) {
         body.anim = body.anim.wrapping_add(1);
         body.timer = 0;
         if body.anim >= 2 {
-            body.phase = 0;
+            body.phase = Phase::Walking.byte();
         }
         return;
     }
@@ -330,7 +342,7 @@ mod tests {
         let [hi, lo] = 0x0200u16.to_be_bytes();
         let wram = &mut scene.machine.bus.wram;
         (wram[0x1B40 + slot], wram[0x1B60 + slot]) = (hi, lo);
-        // With no ground below, phase 0 takes the `$998C` hop, then `$99EC` until
+        // With no ground below, walking takes the `$998C` hop, then `$99EC` until
         // the actor leaves the top of the screen and despawns.
         let coverage = assert_actor_phases(scene, 16, &[0x26]);
         assert_eq!(

@@ -4,7 +4,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
-/// Phase 0's sprite selector, indexed by `$7E90 >> 3` (`$893F`).
+/// The waiting phase's sprite selector, indexed by `$7E90 >> 3` (`$893F`).
 const SELECTOR: u16 = 0x893F;
 /// The first draw's metasprite pointers, indexed by `$7C30` (`$8944`, bank 9).
 const FIRST: u16 = 0x8944;
@@ -12,8 +12,18 @@ const FIRST: u16 = 0x8944;
 const SECOND: u16 = 0x894E;
 /// The draws map bank 9 at `$A000` (`$8900`).
 const DRAW_BANK: u8 = 9;
-/// Phase 0 flips to phase 1 when `$7E90` reaches this (`$889D`).
-const PHASE_1: u8 = 0x28;
+/// The waiting phase ends when `$7E90` reaches this (`$889D`).
+const WAIT_FRAMES: u8 = 0x28;
+
+phases! {
+    /// The part's phase (`$7DD0`), which picks its handler (`$893B`).
+    Phase {
+        /// Counting `$28` frames on its sprite selector.
+        Waiting = 0,
+        /// Rising until it leaves the screen.
+        Rising = 1,
+    }
+}
 
 /// Type `$AA` keeps its whole state in [`Body`] (`$7DD0` phase, `$7E90` counter,
 /// `$7E10` draw index, `$7C30` sprite index, `$7E70:$7E80` velocity).
@@ -24,17 +34,17 @@ impl State {
     /// One frame of the handler (`$8870`, phases at `$893B`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
-        match body.phase {
-            0 => {
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Waiting) => {
                 body.sprite = engine::rom_byte(cx.prg, 12, SELECTOR + u16::from(body.anim >> 3));
                 body.counter = 0;
                 body.anim = body.anim.wrapping_add(1);
-                if body.anim >= PHASE_1 {
+                if body.anim >= WAIT_FRAMES {
                     body.vy = 0;
-                    body.phase = 1;
+                    body.phase = Phase::Rising.byte();
                 }
             }
-            1 => {
+            Some(Phase::Rising) => {
                 body.counter = 1;
                 body.sprite = 3 + ((cx.world.frame & 0x04) >> 2);
                 work.y = work.y.wrapping_add_signed(body.vy);
@@ -43,7 +53,7 @@ impl State {
                 let hi = if borrow { hi.wrapping_sub(1) } else { hi };
                 body.vy = i16::from_be_bytes([hi, if lo >= 0xD0 { lo } else { 0xC0 }]);
             }
-            phase => panic!("type $AA phase {phase} is past the $893B table"),
+            None => panic!("type $AA phase {} is past the $893B table", body.phase),
         }
         if engine::on_screen(work, cx.world) != Visibility::On {
             *kind = 0;

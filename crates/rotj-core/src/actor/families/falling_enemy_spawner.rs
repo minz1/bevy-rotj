@@ -1,6 +1,6 @@
-//! Type `$B0`, a stage-7 spawner (bank 12 `$8B92`): it counts `$7E90` in phase 0,
-//! then in phase 1 hands a type `$AE` child to the highest free main slot every
-//! frame it runs, re-arming phase 0 after its `$7E10` counter underflows. It never
+//! Type `$B0`, a stage-7 spawner (bank 12 `$8B92`): it counts `$7E90` while counting,
+//! then while spawning hands a type `$AE` child to the highest free main slot every
+//! frame it runs, re-arming the count after its `$7E10` counter underflows. It never
 //! draws and never touches the player.
 
 use crate::actor::engine::Work;
@@ -10,6 +10,11 @@ use crate::actor::world::Cx;
 /// The type the handler hands to the highest free main slot.
 const CHILD: u8 = 0xAE;
 
+/// The phase (`$7DD0`) in which it counts `$7E90` down.
+const COUNTING: u8 = 0;
+/// The phase (`$7DD0`) in which it hands out children.
+const SPAWNING: u8 = 1;
+
 /// Type `$B0` keeps its whole state in [`Body`] (`$7DD0` phase, `$7E90` timer,
 /// `$7E10` counter).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -18,9 +23,9 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$8B92`).
     pub fn step(&mut self, _kind: &mut u8, body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
-        if body.phase == 0 {
+        if body.phase == COUNTING {
             if body.anim == 0xFF {
-                body.phase = 1;
+                body.phase = SPAWNING;
                 body.anim = 0;
                 body.counter = 8;
             } else {
@@ -34,7 +39,7 @@ impl State {
         }
         body.counter = body.counter.wrapping_sub(1);
         if body.counter & 0x80 != 0 {
-            body.phase = 0;
+            body.phase = COUNTING;
             body.anim = 0xC0;
         }
         let Some(index) = (0..16).rev().find(|&y| cx.slots.main[y].kind == 0) else {
@@ -74,10 +79,10 @@ mod tests {
 
     /// Area 20:02 (stage 7), slot 0, from the frame it first spawns (38784) through
     /// its whole isolated life (288 loop frames, to 39072). The handler hands a `$AE`
-    /// child to the highest free main slot every frame of phase 1; the child is freed
+    /// child to the highest free main slot every frame of spawning; the child is freed
     /// at `$D450` each frame (slot 15) so the unported `$AE` handler never runs. The
     /// child bytes it does write are still compared, so the spawn is measured, not
-    /// just sidestepped: phase 1 runs on the TAS's own `$7E90`/`$F9` values with no
+    /// just sidestepped: spawning runs on the TAS's own `$7E90`/`$F9` values with no
     /// forced state.
     ///
     /// §8b lists the type in slots 0 and 2. Slot 2's spawn (~39050 in the full TAS)
@@ -128,7 +133,7 @@ mod tests {
             .find(|window| {
                 (window[0].pc, window[1].pc) == (0xD450, 0xD453) && window[1].wram[0x1CCF] == 0xAE
             })
-            .expect("phase 1 spawns a child");
+            .expect("spawning hands out a child");
         let (begin, end) = (&spawn[0], &spawn[1]);
         let random_lo = begin.ram[0xF9];
         let random_hi = begin.ram[0xFA];

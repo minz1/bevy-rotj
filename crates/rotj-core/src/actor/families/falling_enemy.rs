@@ -3,7 +3,7 @@
 //! The handler calls `$A000` (`load`), `$A79B` (`integrate`), `$A852`
 //! (`on_screen`), `$A934` (`store`), `$A9C4` (`contact`) and the `$C93B` solid
 //! probe. Its draw goes through `$81C6`, which maps bank 9 at `$A000` for
-//! `$C247`. It dispatches on `$7DD0` (0, 2, 4) through the bank-12 table
+//! `$C247`. It dispatches on `$7DD0` (its doubled index) through the bank-12 table
 //! `$8B8C`; the metasprite pointers it draws are the bank-9 words at `$8B82`.
 //! It never calls `$A8E4`, so gravity is entirely its own.
 
@@ -21,15 +21,27 @@ const HITBOX: u8 = 0x0C;
 /// Contact damage (`A` = 2).
 const DAMAGE: u8 = 2;
 
+phases! {
+    /// The enemy's phase (`$7DD0`): the game stores its doubled index into `$8B8C`.
+    Phase {
+        /// Rising, slowing until it turns to fall.
+        Rising = 0,
+        /// Falling until it hits a wall or its fall runs out.
+        Falling = 2,
+        /// Dying: flashing through its death frames, then freed.
+        Dying = 4,
+    }
+}
+
 /// Type `$AE` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
 impl State {
-    /// One frame of the handler (`$8A52`; the `$7DD0` phases are 0, 2 and 4).
+    /// One frame of the handler (`$8A52`; the `$7DD0` phases are the doubled indices of [`Phase`]).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
-        if body.phase != 4 && body.hit & 0x80 != 0 {
+        if body.phase != Phase::Dying.byte() && body.hit & 0x80 != 0 {
             body.hit = 0;
             body.sprite = cx.world.frame & 0x01;
             work.y = work.y.wrapping_sub(0x04C0);
@@ -39,17 +51,17 @@ impl State {
         }
         work.attr |= body.flags;
         engine::integrate(body, work);
-        match body.phase {
-            0 => {
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Rising) => {
                 let vy = body.vy.wrapping_sub(5);
                 body.vy = vy;
                 if vy < 0 {
                     body.vy = i16::from_be_bytes([vy.to_be_bytes()[0], cx.world.rng[0] | 0xF0]);
-                    body.phase = 2;
+                    body.phase = Phase::Falling.byte();
                 }
                 body.sprite = 1;
             }
-            2 => {
+            Some(Phase::Falling) => {
                 body.sprite = (cx.world.frame & 0x10) >> 4;
                 if cx.world.frame_odd {
                     let mut probe = Probe {
@@ -64,7 +76,7 @@ impl State {
                     }
                 }
             }
-            4 => {
+            Some(Phase::Dying) => {
                 body.sprite = ((body.anim & 0x0C) >> 2) + 2;
                 body.anim = body.anim.wrapping_add(1);
                 if body.anim == 0x0C {
@@ -72,7 +84,7 @@ impl State {
                     return;
                 }
             }
-            phase => panic!("type $AE phase {phase} is past the $8B8C table"),
+            None => panic!("type $AE phase {} is past the $8B8C table", body.phase),
         }
         tail(kind, body, work, cx);
     }
@@ -80,7 +92,7 @@ impl State {
 
 /// `$8B69`: enter the death phase and clear the velocities and the timer.
 fn death(body: &mut Body) {
-    body.phase = 4;
+    body.phase = Phase::Dying.byte();
     body.vy = 0;
     body.vx_drift = 0;
     body.anim = 0;
@@ -97,7 +109,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         work.tile = 0;
         work.attr = 3;
         engine::draw(work, DRAW_BANK, cx);
-        if body.phase != 4 {
+        if body.phase != Phase::Dying.byte() {
             let energy = cx.effects.player.energy;
             work.hitbox = HITBOX;
             engine::contact(kind, body, work, DAMAGE, cx);

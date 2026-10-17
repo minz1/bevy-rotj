@@ -1,5 +1,5 @@
 //! Type `$72` (bank 0 `$8A7D`): a sprite that drifts in, drops four `$74` parts (at timer $40 and $60)
-//! and dives at the player. Phases at `$8C74`: 0 drift, 1 wait and shed, 2 dive, 3 leave.
+//! and dives at the player. Its [`Phase`]s run through `$8C74`.
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
@@ -17,6 +17,20 @@ const PART_COUNTER: [u8; 4] = [0xFF, 0xFF, 0x00, 0x00];
 const PART_PHASE: [u8; 4] = [0x00, 0x00, 0x80, 0x80];
 const PART_DY: i16 = -24;
 
+phases! {
+    /// The sprite's phase (`$7DD0`), which picks its handler (`$8C74`).
+    Phase {
+        /// Drifting in from the right.
+        Drifting = 0,
+        /// Waiting and shedding the parts.
+        Shedding = 1,
+        /// Diving at the player.
+        Diving = 2,
+        /// Slowing its drift until it reverses.
+        Leaving = 3,
+    }
+}
+
 /// Type `$72` keeps its whole state in [`Body`]; `$7E90` bit 7 is "has been drawn".
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -31,12 +45,12 @@ impl State {
         engine::integrate(body, work);
         work.attr |= body.flags;
         let visibility = engine::on_screen(work, cx.world);
-        match body.phase {
-            0 => drift(body, work),
-            1 => shed(body, work, cx),
-            2 => dive(body, work),
-            3 => leave(body),
-            phase => panic!("type $72 phase {phase} is past the $8C74 table"),
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Drifting) => drifting(body, work),
+            Some(Phase::Shedding) => shedding(body, work, cx),
+            Some(Phase::Diving) => diving(body, work),
+            Some(Phase::Leaving) => leaving(body),
+            None => panic!("type $72 phase {} is past the $8C74 table", body.phase),
         }
         if visibility != Visibility::On {
             *kind = 0;
@@ -53,8 +67,8 @@ impl State {
     }
 }
 
-/// `$8AAD`.
-fn drift(body: &mut Body, work: &Work) {
+/// Drifting (`$8AAD`).
+fn drifting(body: &mut Body, work: &Work) {
     body.vy = 0;
     if body.timer & 0x80 == 0 {
         body.vx_drift = -0x40;
@@ -64,15 +78,15 @@ fn drift(body: &mut Body, work: &Work) {
         if work.screen_x < 0xC0 {
             body.vx_drift = 0x0A;
             body.timer = 0;
-            body.phase = 1;
+            body.phase = Phase::Shedding.byte();
         } else {
             body.vx_drift = body.vx_drift.wrapping_add(3);
         }
     }
 }
 
-/// `$8B00`: the parts leave at timer `$40` and `$60`, the dive is picked at `$80`.
-fn shed(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
+/// Shedding (`$8B00`): the parts leave at timer `$40` and `$60`, the dive is picked at `$80`.
+fn shedding(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     body.vy = 0;
     body.timer = body.timer.wrapping_add(1);
     let mut result = body.timer;
@@ -80,7 +94,7 @@ fn shed(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
         result = spawn_parts(body, work, cx);
     }
     if result == 0x80 {
-        body.phase = 2;
+        body.phase = Phase::Diving.byte();
         body.counter = 0x30;
         if engine::player_dy(work, &cx.effects.player) < 0 {
             body.timer = 0;
@@ -115,8 +129,8 @@ fn spawn_parts(parent: &Body, work: &Work, cx: &mut Cx<'_>) -> u8 {
     result
 }
 
-/// `$8B25`: turns at the screen's top and bottom edges, `$7E10` counts the dive.
-fn dive(body: &mut Body, work: &Work) {
+/// Diving (`$8B25`): turns at the screen's top and bottom edges, `$7E10` counts the dive.
+fn diving(body: &mut Body, work: &Work) {
     let turn = if body.timer & 0x80 == 0 {
         work.screen_y < 0x40
     } else {
@@ -130,18 +144,18 @@ fn dive(body: &mut Body, work: &Work) {
     if body.counter == 0 {
         body.subtype = body.subtype.wrapping_add(1);
         if body.subtype < 3 {
-            body.phase = 1;
+            body.phase = Phase::Shedding.byte();
             body.timer = 0;
             body.vy = 0;
         } else {
-            body.phase = 3;
+            body.phase = Phase::Leaving.byte();
             body.timer = 3;
         }
     }
 }
 
-/// `$8B81`: slows the drift until it reverses.
-fn leave(body: &mut Body) {
+/// Leaving (`$8B81`): slows the drift until it reverses.
+fn leaving(body: &mut Body) {
     if body.timer & 0x80 == 0 {
         body.vy = 0;
         body.vx_drift = body.vx_drift.wrapping_sub(3);

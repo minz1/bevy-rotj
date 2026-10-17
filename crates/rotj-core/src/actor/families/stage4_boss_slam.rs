@@ -5,7 +5,7 @@
 //! then flashes the screen white for 12 frames (`$7DF0` = `$C0`, the `$04A0`
 //! palette through `$C33C`). On the last frame it restores the palette
 //! (`$C34B`), hurts the player and drains `$03E8` from `$B2:$B3` while the boss
-//! has hit points (`$B17F`), frees itself and sets the boss back to phase 0.
+//! has hit points (`$B17F`), frees itself and sets the boss back to waiting.
 //! It calls `$A000` (`load`), `$A852` (`on_screen`), `$C247` (`draw`, bank 9
 //! through `$826F`) and `$A934` (`store`).
 
@@ -115,7 +115,10 @@ fn flash(kind: &mut u8, body: &mut Body, cx: &mut Cx<'_>) {
         engine::hurt_player(cx.effects);
     }
     *kind = 0;
-    cx.set_byte(0x7DD0 + u16::from(body.anim), 0);
+    cx.set_byte(
+        0x7DD0 + u16::from(body.anim),
+        super::stage4_boss::Phase::Waiting.byte(),
+    );
 }
 
 /// `$98DC`: draw and store.
