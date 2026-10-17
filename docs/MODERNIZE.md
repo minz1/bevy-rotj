@@ -234,7 +234,12 @@ New candidates, each to be classified (state, flags, table index) before it chan
   `cx` (slot c's narrow fields, `Anim`, `DyingTimer`) has those writes undone by
   `store_aliases` when it finishes; in the game the write stands. No lockstep reaches it
   (the stand-in review of `docs/specs/2026-10-17-slot-fields-design.md`); worth an oracle
-  test before any change.
+  test before any change. Probed 2026-10-17 (a throwaway check around `step_actors`'
+  `store_aliases`): slots 16-23 ran about 27,000 handler steps over the TAS, and no step
+  in the TAS, the lib suite, the Classic suites, a 1-seed sweep or a 300-branch
+  exploration wrote an aliased byte through `cx`. Unreached by the game as shipped; new
+  content that places actors differently (kaizo levels) could reach it, so the fix (write
+  back only the fields the handler changed) belongs with that content's own tests.
 
 ### Done in 1.1.x (2026-10-16, released as 1.1.1)
 
