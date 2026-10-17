@@ -1,6 +1,6 @@
 //! Second-class type `$10`, a platform that falls away once stood on (bank 12 `$8952`).
 
-use crate::actor::families::s06;
+use crate::actor::families::crumbling_block;
 use crate::actor::slots::{Body, PRESSED};
 use crate::actor::world::Cx;
 
@@ -18,7 +18,7 @@ impl State {
             (body.hit, body.behaviour, body.subtype, body.phase) = (0, 0, 0, 0);
             return;
         }
-        s06::accelerate_fall(body);
+        crumbling_block::accelerate_fall(body);
         if body.y >= 0x1000 {
             *kind = 0;
         }

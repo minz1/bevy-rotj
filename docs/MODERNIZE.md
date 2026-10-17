@@ -220,6 +220,12 @@ New candidates, each to be classified (state, flags, table index) before it chan
   stops at bit 7 as the game's `BMI` does (the two lists it was verified on are theirs).
 - #12 `Play::compose` reads the nametables flat instead of copying 2 KiB a frame.
 - New: `engine::spend` nearly repeats `weapons::bounce_off_wall`.
+- The family files and `Brain` variants are named for what each actor is (`k08.rs` →
+  `harmless_burst.rs`, `Brain::K38` → `Brain::AceRanger`, ...), from two read-only surveys
+  that checked the uncertain names against the handlers; the stage number is in a name only
+  where it is certain. The main families are listed once (`with_main_families!`).
+- Next for the families: `Brain`'s declaration, `new` and `lift` still repeat the list; one
+  declaration macro could generate them from it.
 
 ## Leads (could not verify)
 

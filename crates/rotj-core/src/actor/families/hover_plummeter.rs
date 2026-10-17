@@ -101,7 +101,7 @@ mod tests {
 
     /// Area 1C:00 (level 11). With `isolate` the `$9E` hovers at a fixed x and the
     /// player never comes within its `$300` wake range, so the player is placed
-    /// next to it (as `k0a::matches_the_oracle_up_close` does): the `$9E` wakes
+    /// next to it (as `hover_diver::matches_the_oracle_up_close` does): the `$9E` wakes
     /// into phase 1, falls and bursts into `$08` parts. Both slots 3-4 run, so the
     /// phase-0 hover (85 slot-frames) and the phase-1 fall (199) both appear.
     #[test]

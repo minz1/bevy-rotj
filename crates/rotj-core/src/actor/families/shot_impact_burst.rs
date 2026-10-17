@@ -64,13 +64,13 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use crate::actor::families::k90;
+    use crate::actor::families::stage3_boss_shot;
     use crate::actor::oracle::{Scene, assert_actor_phases};
 
     /// The `$8E`'s first burst with the pad released (`k90`), run to the frame its
     /// first `$92` lands (15093), and that `$92`'s slot.
     fn first_burst() -> Option<(Scene, usize)> {
-        let mut scene = k90::tests::before_the_burst()?;
+        let mut scene = stage3_boss_shot::tests::before_the_burst()?;
         for _ in 0..40 {
             scene.run(1, &[]);
             let wram = &scene.machine.bus.wram;

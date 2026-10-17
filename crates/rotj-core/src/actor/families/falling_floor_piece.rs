@@ -5,9 +5,9 @@ use crate::actor::engine::Work;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
-use super::s06::fall;
+use super::crumbling_block::fall;
 
-/// Falls like the crumbling block [`super::s06`] from its sixth frame.
+/// Falls like the crumbling block [`super::crumbling_block`] from its sixth frame.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
