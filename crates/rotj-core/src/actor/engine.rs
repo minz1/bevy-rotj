@@ -90,6 +90,12 @@ pub(crate) fn rom_bytes<const N: usize>(prg: &[u8], bank: u8, addr: u16) -> [u8;
     std::array::from_fn(|i| bytes[i])
 }
 
+/// `N` 16-bit values from a table of their high bytes at `hi` and one of their low bytes at `lo`.
+pub(crate) fn rom_split_words<const N: usize>(prg: &[u8], bank: u8, hi: u16, lo: u16) -> [u16; N] {
+    let (high, low): ([u8; N], [u8; N]) = (rom_bytes(prg, bank, hi), rom_bytes(prg, bank, lo));
+    std::array::from_fn(|i| u16::from_be_bytes([high[i], low[i]]))
+}
+
 /// How close the player must be to touch an actor, in pixels.
 #[derive(Clone, Copy)]
 pub struct Hitbox {

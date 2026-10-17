@@ -97,19 +97,12 @@ impl Tables {
             turn_frames: engine::rom_bytes(prg, 12, TURN_FRAMES),
             piece_x: std::array::from_fn(|i| positions[2 * i]),
             piece_y: std::array::from_fn(|i| positions[2 * i + 1]),
-            be_x: split_words(prg, BE_X_HI, BE_X_LO),
-            be_y: split_words(prg, BE_Y_HI, BE_Y_LO),
-            spot_x: split_words(prg, SPOT_X_HI, SPOT_X_LO),
-            spot_y: split_words(prg, SPOT_Y_HI, SPOT_Y_LO),
+            be_x: engine::rom_split_words(prg, 12, BE_X_HI, BE_X_LO),
+            be_y: engine::rom_split_words(prg, 12, BE_Y_HI, BE_Y_LO),
+            spot_x: engine::rom_split_words(prg, 12, SPOT_X_HI, SPOT_X_LO),
+            spot_y: engine::rom_split_words(prg, 12, SPOT_Y_HI, SPOT_Y_LO),
         }
     }
-}
-
-/// The words with their high bytes at `hi` and low bytes at `lo`.
-fn split_words<const N: usize>(prg: &[u8], hi: u16, lo: u16) -> [u16; N] {
-    let hi: [u8; N] = engine::rom_bytes(prg, 12, hi);
-    let lo: [u8; N] = engine::rom_bytes(prg, 12, lo);
-    std::array::from_fn(|i| u16::from_be_bytes([hi[i], lo[i]]))
 }
 
 /// Type `$B4` keeps its whole state in [`Body`]; `scratch` bit 7 is summoning's toggle.

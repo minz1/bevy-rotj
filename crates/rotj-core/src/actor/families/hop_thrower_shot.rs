@@ -27,10 +27,8 @@ pub struct Tables {
 impl Tables {
     /// Reads the tables from the PRG.
     pub(crate) fn import(prg: &[u8]) -> Tables {
-        let low: [u8; 2] = engine::rom_bytes(prg, HOME_BANK, OFFSET_LOW);
-        let high: [u8; 2] = engine::rom_bytes(prg, HOME_BANK, OFFSET_HIGH);
         Tables {
-            side_offset: std::array::from_fn(|i| u16::from_be_bytes([high[i], low[i]])),
+            side_offset: engine::rom_split_words(prg, HOME_BANK, OFFSET_HIGH, OFFSET_LOW),
         }
     }
 }

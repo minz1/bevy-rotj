@@ -32,11 +32,10 @@ pub struct Tables {
 impl Tables {
     /// Reads the tables from the PRG.
     pub(crate) fn import(prg: &[u8]) -> Tables {
-        let vx_low: [u8; 2] = engine::rom_bytes(prg, BANK, SIDE_VX_LOW);
-        let vx_high: [u8; 2] = engine::rom_bytes(prg, BANK, SIDE_VX_HIGH);
         Tables {
             side_x_high: engine::rom_bytes(prg, BANK, SIDE_X_HIGH),
-            side_vx: std::array::from_fn(|i| i16::from_be_bytes([vx_high[i], vx_low[i]])),
+            side_vx: engine::rom_split_words(prg, BANK, SIDE_VX_HIGH, SIDE_VX_LOW)
+                .map(u16::cast_signed),
         }
     }
 }

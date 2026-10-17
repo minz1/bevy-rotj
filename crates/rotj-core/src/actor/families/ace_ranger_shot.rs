@@ -38,17 +38,9 @@ pub struct Tables {
 impl Tables {
     /// Reads the tables from the PRG.
     pub(crate) fn import(prg: &[u8]) -> Tables {
-        let (x_lo, x_hi): ([u8; 4], [u8; 4]) = (
-            engine::rom_bytes(prg, 11, 0x91C8),
-            engine::rom_bytes(prg, 11, 0x91CC),
-        );
-        let (y_lo, y_hi): ([u8; 4], [u8; 4]) = (
-            engine::rom_bytes(prg, 11, 0x91D0),
-            engine::rom_bytes(prg, 11, 0x91D4),
-        );
         Tables {
-            move_x: std::array::from_fn(|i| u16::from_be_bytes([x_hi[i], x_lo[i]])),
-            move_y: std::array::from_fn(|i| u16::from_be_bytes([y_hi[i], y_lo[i]])),
+            move_x: engine::rom_split_words(prg, 11, 0x91CC, 0x91C8),
+            move_y: engine::rom_split_words(prg, 11, 0x91D4, 0x91D0),
         }
     }
 }

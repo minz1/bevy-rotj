@@ -40,21 +40,11 @@ pub struct Tables {
 impl Tables {
     /// Reads the tables from the PRG.
     pub(crate) fn import(prg: &[u8]) -> Tables {
-        let swinging_low: [u8; 12] = engine::rom_bytes(prg, 0, 0x925F);
-        let swinging_high: [u8; 12] = engine::rom_bytes(prg, 0, 0x926B);
-        let set_low: [u8; 8] = engine::rom_bytes(prg, 0, 0x9277);
-        let set_high: [u8; 8] = engine::rom_bytes(prg, 0, 0x927F);
-        let falling_low: [u8; 8] = engine::rom_bytes(prg, 0, 0x9287);
-        let falling_high: [u8; 8] = engine::rom_bytes(prg, 0, 0x928F);
         Tables {
             idling_vy: engine::rom_bytes(prg, 0, 0x9257),
-            swinging_vy: std::array::from_fn(|i| {
-                i16::from_be_bytes([swinging_high[i], swinging_low[i]])
-            }),
-            swinging_vy_set: std::array::from_fn(|i| i16::from_be_bytes([set_high[i], set_low[i]])),
-            falling_vy: std::array::from_fn(|i| {
-                i16::from_be_bytes([falling_high[i], falling_low[i]])
-            }),
+            swinging_vy: engine::rom_split_words(prg, 0, 0x926B, 0x925F).map(u16::cast_signed),
+            swinging_vy_set: engine::rom_split_words(prg, 0, 0x927F, 0x9277).map(u16::cast_signed),
+            falling_vy: engine::rom_split_words(prg, 0, 0x928F, 0x9287).map(u16::cast_signed),
         }
     }
 }

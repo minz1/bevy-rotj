@@ -36,10 +36,8 @@ pub struct Tables {
 impl Tables {
     /// Reads the tables from the PRG.
     pub(crate) fn import(prg: &[u8]) -> Tables {
-        let high: [u8; 256] = engine::rom_bytes(prg, 0, 0x87F5);
-        let low: [u8; 256] = engine::rom_bytes(prg, 0, 0x87F7);
         Tables {
-            knockback: std::array::from_fn(|i| i16::from_be_bytes([high[i], low[i]])),
+            knockback: engine::rom_split_words(prg, 0, 0x87F5, 0x87F7).map(u16::cast_signed),
         }
     }
 }
