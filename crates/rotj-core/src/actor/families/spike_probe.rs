@@ -11,9 +11,6 @@ use crate::actor::world::{Cx, Motion};
 const MOTION: u16 = 0x9E6F;
 /// The two 4-byte palettes `$5A` alternates into `$04E4` (bank 11 `$9EBA`).
 const PALETTES: u16 = 0x9EBA;
-/// The probe's camera-relative offset pair (`index << 4`): bank 14 `$C5F2`/`$C6F2`.
-const OFFSET_HIGH: u16 = 0xC5F2;
-const OFFSET_LOW: u16 = 0xC6F2;
 
 /// Both kinds keep no state outside [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -49,14 +46,9 @@ fn probe(work: &mut Work, cx: &mut Cx<'_>) {
         ))
         .wrapping_sub(u8::from(borrow));
     let index = cx.effects.scroll_y.wrapping_add(0x60);
-    let (y_lo, carry) =
-        y_lo.overflowing_add(engine::rom_byte(cx.prg, 14, OFFSET_LOW + u16::from(index)));
-    let y_hi = y_hi
-        .wrapping_add(engine::rom_byte(cx.prg, 14, OFFSET_HIGH + u16::from(index)))
-        .wrapping_add(u8::from(carry));
     let mut probe = Probe {
         x: u16::from_be_bytes([x_hi, x_lo]),
-        y: u16::from_be_bytes([y_hi, y_lo]),
+        y: u16::from_be_bytes([y_hi, y_lo]).wrapping_add(u16::from(index) << 4),
         flags: 0,
         landing: [0; 2],
     };

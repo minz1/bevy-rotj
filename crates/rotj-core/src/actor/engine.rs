@@ -84,8 +84,14 @@ pub(crate) fn rom_word(prg: &[u8], bank: u8, addr: u16) -> u16 {
     u16::from_le_bytes([rom_byte(prg, bank, addr), rom_byte(prg, bank, addr + 1)])
 }
 
+/// `N` bytes of PRG `bank` from a CPU address.
+pub(crate) fn rom_bytes<const N: usize>(prg: &[u8], bank: u8, addr: u16) -> [u8; N] {
+    let bytes = bank_slice(prg, bank, addr & 0x1FFF).expect("address inside PRG");
+    std::array::from_fn(|i| bytes[i])
+}
+
 /// How close the player must be to touch an actor, in pixels.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct Hitbox {
     /// Most x distance.
     pub half_width: u8,
@@ -94,7 +100,6 @@ pub struct Hitbox {
 }
 
 /// The hit-box tables (banks 13 and 14), each by [`Work::hitbox`] unless noted.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Hitboxes {
     /// [`contact`]'s (`$ABB2`, `$ABC1`).
     pub actors: [Hitbox; 15],
@@ -115,29 +120,25 @@ pub struct Hitboxes {
 impl Hitboxes {
     /// Reads the tables from the PRG.
     pub(crate) fn import(prg: &[u8]) -> Hitboxes {
-        let bytes =
-            |bank, addr: u16| bank_slice(prg, bank, addr & 0x1FFF).expect("address inside PRG");
-        let table = |half_width, height| {
-            let (x, y) = (bytes(13, half_width), bytes(13, height));
-            move |id: usize| Hitbox {
-                half_width: x[id],
-                height: y[id],
-            }
-        };
-        let widths = |addr| {
-            let x = bytes(13, addr);
-            move |id: usize| x[id]
-        };
         Hitboxes {
-            actors: std::array::from_fn(table(0xABB2, 0xABC1)),
-            actor_projectile_half_widths: std::array::from_fn(widths(0xABD0)),
-            bosses: std::array::from_fn(table(0xB0F9, 0xB0FE)),
-            boss_projectile_half_widths: std::array::from_fn(widths(0xB103)),
-            hazards: std::array::from_fn(table(0xAF2A, 0xAF31)),
-            exit: table(0xA0A7, 0xA0A8)(0),
-            platform_half_widths: std::array::from_fn(|id| bytes(14, 0xCE7D)[id]),
+            actors: hitboxes(prg, 0xABB2, 0xABC1),
+            actor_projectile_half_widths: rom_bytes(prg, 13, 0xABD0),
+            bosses: hitboxes(prg, 0xB0F9, 0xB0FE),
+            boss_projectile_half_widths: rom_bytes(prg, 13, 0xB103),
+            hazards: hitboxes(prg, 0xAF2A, 0xAF31),
+            exit: hitboxes::<1>(prg, 0xA0A7, 0xA0A8)[0],
+            platform_half_widths: rom_bytes(prg, 14, 0xCE7D),
         }
     }
+}
+
+/// A bank-13 hit-box table from its half-width and height columns.
+fn hitboxes<const N: usize>(prg: &[u8], half_width: u16, height: u16) -> [Hitbox; N] {
+    let (x, y): ([u8; N], [u8; N]) = (rom_bytes(prg, 13, half_width), rom_bytes(prg, 13, height));
+    std::array::from_fn(|id| Hitbox {
+        half_width: x[id],
+        height: y[id],
+    })
 }
 
 /// Loads the slot into the working set (`$A000`).
@@ -1215,6 +1216,18 @@ pub fn move_by_velocity(body: &mut Body, lo: u16, hi: u16, velocity: u16) -> u16
 mod tests {
     use super::super::oracle::{Routine, Scene, assert_routine};
     use super::*;
+
+    /// Bank 14's `$C5F2`/`$C6F2` pair is `x << 4`, which its readers compute instead.
+    #[test]
+    fn the_shift_table_is_times_sixteen() {
+        let Some(prg) = crate::prg::for_test() else {
+            return;
+        };
+        for x in 0..=255u16 {
+            let entry = [rom_byte(prg, 14, 0xC5F2 + x), rom_byte(prg, 14, 0xC6F2 + x)];
+            assert!(u16::from_be_bytes(entry) == x << 4, "entry {x}");
+        }
+    }
 
     #[test]
     fn adc_overflow_edge_cases() {

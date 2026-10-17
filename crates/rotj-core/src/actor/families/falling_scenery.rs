@@ -11,9 +11,6 @@ const APPEARING_SPRITES: u16 = 0x8EC3;
 const FALLING_SPRITE: u16 = 0x8EC9;
 /// The landed phase's metasprite table (bank 8 `$8ECB`).
 const LANDED_SPRITES: u16 = 0x8ECB;
-/// The camera-relative x pair (bank 14 `$C5F2` high, `$C6F2` low).
-const X_HIGH: u16 = 0xC5F2;
-const X_LOW: u16 = 0xC6F2;
 /// The type `$14` child spawned at `$8EAB`.
 const CHILD: u8 = 0x18;
 
@@ -74,13 +71,7 @@ fn waiting(body: &mut Body, cx: &Cx<'_>) {
         return;
     }
     body.phase = Phase::Falling.byte();
-    let index = u16::from(body.timer);
-    let high = engine::rom_byte(cx.prg, 14, X_HIGH + index);
-    let low = engine::rom_byte(cx.prg, 14, X_LOW + index);
-    body.x = cx
-        .world
-        .camera_x
-        .wrapping_add(u16::from_be_bytes([high, low]));
+    body.x = cx.world.camera_x.wrapping_add(u16::from(body.timer) << 4);
     body.y = 0;
     body.behaviour = 0x40;
 }

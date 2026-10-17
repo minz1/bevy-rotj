@@ -10,22 +10,10 @@ use crate::actor::world::Cx;
 const OVERLAYS: u16 = 0x8A64;
 /// The impact metasprites (bank 8 `$8A76`, by `$F1 & 6`).
 const IMPACTS: u16 = 0x8A76;
-/// The counter the landing starts on (bank 8 `$8A6E`, by `$7DF0`).
-const TIMERS: u16 = 0x8A6E;
-/// The stomping's animation index (bank 8 `$8A7E`, by `$7DF0`).
-const ANIMS: u16 = 0x8A7E;
-/// The stomping's screen-x offset (bank 8 `$8A86`, by `$7E90`).
-const XOFF: u16 = 0x8A86;
 /// The stomping's frame-pointer table (bank 8 `$8A89`, by `$7E90`).
 const FRAMES: u16 = 0x8A89;
 /// The stomping's touch-enable table (bank 8 `$8AB8`, by `$7E90`).
 const TOUCHES: u16 = 0x8AB8;
-/// The stomping's step limit (bank 8 `$8AAD`, by `$7E90`).
-const LIMIT: u16 = 0x8AAD;
-/// The stomping's stomp counter (bank 8 `$8AB1`, by `$7E90`).
-const STOMP: u16 = 0x8AB1;
-/// The stomping's stomp x shift (bank 8 `$8AB4`, by `$7E90`).
-const SHIFT: u16 = 0x8AB4;
 /// The hit-flash metasprite (bank 8 `$8ACD`).
 const FLASH: u16 = 0x8ACD;
 /// The pointer to the 3x3 metatiles a death leaves (bank 8 `$8AE9`).
@@ -42,6 +30,38 @@ phases! {
         Landing = 1,
         /// Stepping across the floor, stomping.
         Stomping = 2,
+    }
+}
+
+/// The stomper's tables (bank 8): by the stomp number `timer` (0-7), or by the stomping's
+/// `anim` (0-2, taken from `anims`).
+pub struct Tables {
+    /// The landing's counter, by `timer` (`$8A6E`).
+    pub landing_counters: [u8; 8],
+    /// The stomping's `anim`, by `timer` (`$8A7E`).
+    pub anims: [u8; 8],
+    /// How far left of its x the stomping is drawn, by `anim` (`$8A86`).
+    pub draw_offsets: [u8; 3],
+    /// The stomping's step count, by `anim` (`$8AAD`).
+    pub step_counts: [u8; 3],
+    /// The step the stomp lands on, by `anim` (`$8AB1`).
+    pub stomp_steps: [u8; 3],
+    /// How far a stomp moves it left, by `anim`; entries overlap a byte (`$8AB4`).
+    pub stomp_shifts: [u16; 3],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let shifts: [u8; 4] = engine::rom_bytes(prg, 8, 0x8AB4);
+        Tables {
+            landing_counters: engine::rom_bytes(prg, 8, 0x8A6E),
+            anims: engine::rom_bytes(prg, 8, 0x8A7E),
+            draw_offsets: engine::rom_bytes(prg, 8, 0x8A86),
+            step_counts: engine::rom_bytes(prg, 8, 0x8AAD),
+            stomp_steps: engine::rom_bytes(prg, 8, 0x8AB1),
+            stomp_shifts: std::array::from_fn(|i| u16::from_le_bytes([shifts[i], shifts[i + 1]])),
+        }
     }
 }
 
@@ -138,7 +158,7 @@ fn hovering(
         let [hi, lo] = dx.unsigned_abs().to_be_bytes();
         if hi & 0xF0 == 0 && hi & 0x0F < 5 && (hi & 0x0F < 4 || lo < 0x80) {
             body.phase = Phase::Landing.byte();
-            body.counter = engine::rom_byte(cx.prg, 8, TIMERS + u16::from(body.timer));
+            body.counter = cx.prg.families.stomper.landing_counters[usize::from(body.timer)];
         }
     }
     overlay(work, 0, cx);
@@ -181,7 +201,7 @@ fn landing(
         cx.effects.sound[0] = 0x35;
         body.phase = Phase::Stomping.byte();
         body.counter = 0;
-        body.anim = engine::rom_byte(cx.prg, 8, ANIMS + u16::from(body.timer));
+        body.anim = cx.prg.families.stomper.anims[usize::from(body.timer)];
     }
 }
 
@@ -193,6 +213,8 @@ fn stomping(
     visibility: Visibility,
     cx: &mut Cx<'_>,
 ) {
+    let tables = &cx.prg.families.stomper;
+    let anim = usize::from(body.anim);
     body.contact = 0;
     if visibility == Visibility::On {
         work.hitbox = 0;
@@ -200,17 +222,14 @@ fn stomping(
         if body.hit & hit::DYING != 0 {
             return;
         }
-        let anim = u16::from(body.anim);
-        let (screen_x, borrow) =
-            work.screen_x
-                .overflowing_sub(engine::rom_byte(cx.prg, 8, XOFF + anim));
+        let (screen_x, borrow) = work.screen_x.overflowing_sub(tables.draw_offsets[anim]);
         work.screen_x = screen_x;
         if borrow {
             return;
         }
         work.screen_y = 0xAF;
-        let frames = table_word(cx.prg, FRAMES, anim);
-        let touches = table_word(cx.prg, TOUCHES, anim);
+        let frames = table_word(cx.prg, FRAMES, u16::from(body.anim));
+        let touches = table_word(cx.prg, TOUCHES, u16::from(body.anim));
         let index = u16::from(body.counter & 0xFE);
         work.pointer = engine::rom_word(cx.prg, 8, frames + index);
         if engine::rom_byte(cx.prg, 8, touches + ((index + 1) >> 1)) != 0 {
@@ -224,15 +243,11 @@ fn stomping(
         overlay(work, 2, cx);
     }
     body.counter = body.counter.wrapping_add(1);
-    let anim = u16::from(body.anim);
-    if body.counter < engine::rom_byte(cx.prg, 8, LIMIT + anim) {
-        if body.counter != engine::rom_byte(cx.prg, 8, STOMP + anim) || visibility != Visibility::On
-        {
+    if body.counter < tables.step_counts[anim] {
+        if body.counter != tables.stomp_steps[anim] || visibility != Visibility::On {
             return;
         }
-        let shift = engine::rom_byte(cx.prg, 8, SHIFT + anim + 1);
-        let shift = u16::from_be_bytes([shift, engine::rom_byte(cx.prg, 8, SHIFT + anim)]);
-        work.x = work.x.wrapping_sub(shift);
+        work.x = work.x.wrapping_sub(tables.stomp_shifts[anim]);
         engine::spawn_parts(3, work, cx);
         return;
     }
@@ -281,6 +296,21 @@ fn table_word(prg: &[u8], base: u16, index: u16) -> u16 {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+
+    /// Every `anim` the stomping can take indexes the tables sized by it.
+    #[test]
+    fn every_anim_is_in_the_tables() {
+        let Some(prg) = crate::prg::for_test() else {
+            return;
+        };
+        let tables = &prg.families.stomper;
+        assert!(
+            tables
+                .anims
+                .iter()
+                .all(|&anim| usize::from(anim) < tables.draw_offsets.len())
+        );
+    }
 
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
 

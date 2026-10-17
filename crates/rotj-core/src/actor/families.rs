@@ -151,6 +151,21 @@ use crate::actor::engine::Work;
 use crate::actor::slots::{Second, Slot};
 use crate::actor::world::Cx;
 
+/// The families' behaviour tables, imported from the PRG.
+pub struct Tables {
+    /// [`stomper`]'s.
+    pub stomper: stomper::Tables,
+}
+
+impl Tables {
+    /// Reads every family's tables.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            stomper: stomper::Tables::import(prg),
+        }
+    }
+}
+
 /// Declares every handler family once: `Brain` and `SecondBrain` (one variant per
 /// family, its kinds in its doc), `Brain::new` and `SecondBrain::new` (kind to family),
 /// and the main slots' dispatch `step`.

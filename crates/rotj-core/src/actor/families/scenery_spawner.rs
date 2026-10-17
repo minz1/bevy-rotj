@@ -13,9 +13,6 @@ const TARGET_HIGH: u16 = 0x8D4E;
 const PHASE_HIGH: u16 = 0x8D5E;
 /// The x low-byte offset at the camera's `$90` page (bank 8 `$8D6E`).
 const X_OFFSET: u16 = 0x8D6E;
-/// The camera-relative x pair (bank 14 `$C5F2` high, `$C6F2` low): `index << 4`.
-const X_HIGH: u16 = 0xC5F2;
-const X_LOW: u16 = 0xC6F2;
 /// The type `$14` child written at `$8D19`.
 const CHILD: u8 = 0x14;
 
@@ -60,24 +57,18 @@ impl State {
 fn spawn(slot: usize, phase: u8, cx: &mut Cx<'_>) {
     let prg = cx.prg;
     let distance = cx.world.spawn_distance;
-    let [cam_hi, cam_lo] = cx.world.camera_x.to_be_bytes();
+    let [cam_hi, _] = cx.world.camera_x.to_be_bytes();
     let index = if distance & 0x80 == 0 {
         distance
     } else {
         distance.wrapping_neg()
     };
-    let off_hi = engine::rom_byte(prg, 14, X_HIGH + u16::from(index));
-    let off_lo = engine::rom_byte(prg, 14, X_LOW + u16::from(index));
-    let (lo, carry) = if distance & 0x80 == 0 {
-        cam_lo.overflowing_sub(off_lo)
+    let x = if distance & 0x80 == 0 {
+        cx.world.camera_x.wrapping_sub(u16::from(index) << 4)
     } else {
-        cam_lo.overflowing_add(off_lo)
+        cx.world.camera_x.wrapping_add(u16::from(index) << 4)
     };
-    let hi = if distance & 0x80 == 0 {
-        cam_hi.wrapping_sub(off_hi).wrapping_sub(u8::from(carry))
-    } else {
-        cam_hi.wrapping_add(off_hi).wrapping_add(u8::from(carry))
-    };
+    let [hi, lo] = x.to_be_bytes();
     let offset = engine::rom_byte(prg, 8, X_OFFSET + u16::from(cam_hi == 0x90));
     let (lo, carry) = lo.overflowing_add(offset);
     let table = engine::rom_byte(prg, 8, PHASE_HIGH + u16::from(phase));
