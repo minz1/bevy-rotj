@@ -40,7 +40,7 @@ workspace version in `Cargo.toml` and the in-game version string are the same.
 | 1.0.4 | ROM-less builds find the ROM at start-up (argument, `ROTJ_ROM`, beside the exe), and each release carries ROM-less Windows and Linux exes (the owner's design, 2026-10-16) | **tagged** |
 | 1.0.5 | The owner's playtest of 1.0.4: integer scaling, no audio pops (the output filter and a queue that follows the device), opposite directions as the game reads them | **tagged** |
 | 1.1.0 | The settings file and menu, one picture per tick (`docs/specs/2026-10-16-settings-menu-design.md`), and the game's own HUD, pause card, title cursor and password entry as Bevy UI, the HUD label steady (`docs/specs/2026-10-16-faithful-ui-design.md`) | **tagged** |
-| 1.1.x | Modernisation, one patch per step, no behaviour change (owner, 2026-10-16: "replace the NES stuff ALL with modern patterns and modern tech"): the GPU renderer (Bevy tilemaps and sprites; the GPU's readback must equal `Frame`), the game loop on Bevy schedules and `States`, the player as a character (enum state machines, the ECS pilot), actors as entities family by family, levels as assets (an importer run on the player's ROM at build time), scripts as data, input as actions | |
+| 1.1.x | Modernisation, one patch per step, no behaviour change (owner, 2026-10-16: "replace the NES stuff ALL with modern patterns and modern tech"): the GPU renderer (Bevy tilemaps and sprites; the GPU's readback must equal `Frame`), the game loop on Bevy schedules and `States`, the player as a character (enum state machines, the ECS pilot), actors mirrored to entities for everything that reads them (the Classic simulation stays `Slots`, owner 2026-10-17), levels as assets (an importer run on the player's ROM at build time), scripts as data, input as actions | |
 | 1.2.0 onward | Enhanced features, each once its prerequisite has landed: interpolated motion and a `frame_rate` setting (after the GPU renderer and actors as entities), CRT filters (after the renderer), widescreen (after actors and levels), remastered audio | |
 | then | Chapter select and passwords (revisit: the game's own password screen is ported) | |
 | then | Prototype music (enhanced mode) | |
@@ -89,8 +89,8 @@ The ranked survey with file:line, risk and the Classic proof for each item is
 - The app's NES-style compositor (`play::compose`, nametables and band splits) ->
   Bevy tilemaps and sprites, checked against Classic's picture.
 - Title, HUD and pause screen -> Bevy UI with NES styling.
-- The 32 actor slots as fixed arrays (`Slots`) -> entities, projected to the slot layout
-  for Classic.
+- The 32 actor slots as fixed arrays (`Slots`) -> a read-only entity mirror for the
+  renderer, inspector and editor; `Slots` stays the Classic simulation (owner, 2026-10-17).
 - `Outside` brackets and routine-shaped modules mirroring the 6502 listing -> systems
   named for what they do.
 - Settings passed as one value into the core (`docs/specs/2026-10-15-classic-and-enhanced-modes-design.md`).

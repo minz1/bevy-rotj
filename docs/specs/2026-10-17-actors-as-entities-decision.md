@@ -1,8 +1,10 @@
 # Actors as entities: the spike's questions, answered (1.1.x step B3)
 
-Status: **spiked; the result is for the owner** (the owner chose "spike first", 2026-10-17
-night; the spike, `docs/specs/2026-10-17-ecs-spike.md`, ran the same night: its results
-are below). The roadmap and PLAN change only with the owner's choice. Step B3 of
+Status: **decided: the mirror** (the owner, 2026-10-17 morning, after the spike's results
+below: Classic's actor model is a fixed array walked in a fixed order, so a core on
+`bevy_ecs` is `Slots` with extra steps; the ECS serves what reads the simulation, not the
+simulation). The spike, `docs/specs/2026-10-17-ecs-spike.md`, ran 2026-10-17 night on the
+branch `ecs-spike`. "Proposed decision" below is the decision. Step B3 of
 `docs/specs/2026-10-16-modernisation-roadmap-design.md` ("actors as entities, opening with
 a one-family spike ... The fallback, the default unless the spike shows the ECS buys more:
 the simulation stays a `Slots` resource and a one-way sync mirrors each slot to an entity

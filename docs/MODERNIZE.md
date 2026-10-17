@@ -202,10 +202,11 @@ New candidates, each to be classified (state, flags, table index) before it chan
   tables), 12 hitbox reads (`$ABB2`/`$ABC1`/`$ABD0` back to back, 15 ids each; the boss's
   `$B0FE`/`$B103` 5 apart; `$A0A8` is entry 1 of `$A0A7`), about 52 player and 36 weapon
   tables, about 45 level-ish reads, about 40 text reads and about 30 pointer chases (stay
-  ROM reads). First slice: the hitboxes, then the family tables. Parked on the owner's ECS
-  answer: ROM constants cannot live in `World` (liftable from RAM alone), so typed tables
-  travel beside `prg` through `Game`'s API, or become a resource under B2; one decision
-  for all the groups, not one per slice.
+  ROM reads). First slice: the hitboxes, then the family tables. ROM constants cannot live
+  in `World` (liftable from RAM alone), and with the mirror decided (2026-10-17) the core
+  keeps no Bevy resources, so typed tables travel beside `prg`: one decision for all the
+  groups (e.g. the `prg: &[u8]` threaded through `Game`, `Cx` and the oracle becomes one
+  struct holding the PRG and the imported tables), made in the first slice's spec.
 - **The overflow flag carried between routines**: `Work::cpu_overflow` mirrors the 6502's V
   for one reader, `$9790` (weapon 5's charge waits while V is set), which sees whatever
   the last V-setting routine left (`bit`'s 52 callers in `player.rs`, the OAM draw, the

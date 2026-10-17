@@ -12,7 +12,8 @@ should be a touchpoint for NES software, maybe for kaizo ROTJ levels). This repl
 
 ## Goal
 
-By the end of 1.1.x the shipped game is idiomatic Rust on Bevy's ECS: named states instead
+By the end of 1.1.x the shipped game is idiomatic Rust, with Bevy's ECS at the app boundary
+(decided 2026-10-17, Phase B): named states instead
 of state bytes, actors as entities, levels as assets, scripts as data, rendering from the
 entities. The only NES-shaped code left is test-side (the 6502 oracle, each subsystem's
 projection to the NES RAM layout, the tapes) and Classic's rules, written as named, tested
@@ -82,6 +83,13 @@ update order and RNG steps unchanged.
 Parked for the owner: removing `Outside`/`Brain::Unported` changes the tape format.
 
 ## Phase B: levels as assets, then the core on Bevy's ECS
+
+Decided 2026-10-17 (the owner, after B3's spike;
+`docs/specs/2026-10-17-actors-as-entities-decision.md`): the Classic simulation stays plain
+Rust (`Slots` owns the actors, `Game::frame` walks them), and the ECS sits at the app
+boundary as a one-way, read-only mirror for the renderer, the inspector, the editor and the
+Enhanced picture. B2's schedule and B3's entity move below are superseded by that; a
+simulation free of Classic's parity, if ever wanted, is a separate mode with its own tests.
 
 Reordered 2026-10-17 (`docs/specs/2026-10-17-frame-steps-design.md`): B2 opens with its
 first slice (the frame's steps named, no new dependency); B3's one-family spike then comes

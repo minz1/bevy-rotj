@@ -77,9 +77,9 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    **1.1.2, the second: tagged `1.1.2`** (2026-10-17). **1.1.3, the third: tagged
    `1.1.3`** (2026-10-17). **1.1.4, the fourth: tagged `1.1.4`** (2026-10-17). **1.1.5,
    the fifth: tagged `1.1.5`** (2026-10-17). **1.1.6, the sixth: tagged `1.1.6`**
-   (2026-10-17). **1.1.7, the seventh: tagged `1.1.7`** (2026-10-17). Next: the owner's choice after the ECS spike
-   (the mirror or the core on `bevy_ecs`), the named-bytes pattern extended where it pays,
-   then Phase C's spec.
+   (2026-10-17). **1.1.7, the seventh: tagged `1.1.7`** (2026-10-17). Next: the ECS mirror is decided (2026-10-17);
+   the behaviour tables' storage beside `prg` or as a resource (`docs/MODERNIZE.md`), then
+   Phase C's spec (the mirror, the draw-call record, rendering from it).
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
@@ -107,6 +107,12 @@ from the game's own requests.
 None open.
 
 ## Owner decisions made
+
+- **The core on Bevy's ECS: the mirror (2026-10-17 morning).** After the spike's results,
+  the owner chose the mirror: `Slots` stays the Classic simulation's owner, and the ECS is a
+  one-way, read-only mirror at the app boundary for Phase C's renderer, the inspector, the
+  editor and the Enhanced picture. In their words, the ECS and Classic's parity are at odds;
+  a simulation free of parity would be a separate mode with its own tests.
 
 - **The core on Bevy's ECS: spike first (2026-10-17 night).** Asked whether the core
   should move to `bevy_ecs` or stay plain Rust with a read-only ECS mirror in the app
