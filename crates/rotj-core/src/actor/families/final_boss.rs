@@ -62,8 +62,8 @@ phases! {
         Shedding = 4,
         /// Counting `anim` to `$C0` between spawns.
         Resting = 5,
-        /// Spawning `$BE` or `$C0` parts as `scratch` bit 7 flips, once `anim` counts
-        /// 64 frames.
+        /// Spawning `$BE` or `$C0` parts as `scratch` bit 7 flips, each time `anim` reaches
+        /// `$3F`.
         Summoning = 6,
     }
 }
@@ -181,7 +181,7 @@ fn resting(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     tail(body, work, cx);
 }
 
-/// Summoning (`$8D7A`): alternate the `7D30` bit every 64 frames and drop `$C0` or `$BE` parts.
+/// Summoning (`$8D7A`): alternate the `7D30` bit as `anim` reaches `$3F` and drop `$C0` or `$BE` parts.
 fn summoning(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     cx.oam.chr[7] = 0xD4;
     body.sprite = ((body.anim & 0x08) >> 2).wrapping_add(2);

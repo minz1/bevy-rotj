@@ -31,7 +31,7 @@ const MODE: u8 = 0x80;
 
 /// Type `$C0` keeps its whole state in [`Body`]: `$7DD0:$7DB0` its x velocity,
 /// `$7E10:$7DF0` its y velocity, `$7E90`/`$7CE0` the animation and `$7C90` the
-/// CHR shadow; it has none of its own.
+/// CHR shadow, and its parent's slot in `sprite`; it has none of its own.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 

@@ -4,7 +4,8 @@ use crate::actor::families::crumbling_block;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
-/// It keeps its fall speed in `hit` (1/16 px) and `behaviour` (px).
+/// It keeps its fall speed in the pair `[behaviour, hit]`: `hit` the low byte in 1/16 px,
+/// `behaviour` the high byte in 16 px.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 

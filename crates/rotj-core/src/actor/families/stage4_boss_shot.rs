@@ -19,7 +19,7 @@ const Y_ACCEL_LOW: u16 = 0x97EF;
 const METASPRITES: u16 = 0x97F7;
 const LIFE: u8 = 0x08;
 
-/// Type `$44` keeps its whole state in [`Body`].
+/// Type `$44` keeps its whole state in [`Body`], its parent's slot in `sprite`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 

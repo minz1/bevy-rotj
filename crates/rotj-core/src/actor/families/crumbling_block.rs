@@ -12,7 +12,8 @@ const UNCLEARED: u8 = 0x80;
 const WAIT: u8 = 5;
 
 /// The block keeps its wait in `state` (bit 7 until it is cleared from the map) and its
-/// fall speed in `hit` (1/16 px) and `behaviour` (px).
+/// fall speed in the pair `[behaviour, hit]`: `hit` the low byte in 1/16 px (at most
+/// `$80`), `behaviour` the high byte in 16 px.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
