@@ -357,6 +357,6 @@ mod tests {
         let before = slots.clone();
         spawn_column(&mut slots, &mut schedule, &table, &world, false);
         assert_eq!(slots, before);
-        assert_eq!(schedule.cells[0x03], 0x80);
+        assert_eq!(schedule.cells[0x03], CELL_PENDING);
     }
 }
