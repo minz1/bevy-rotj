@@ -1,7 +1,7 @@
 //! Type `$30` (bank 11 `$887A`): the child a `$2E` lowers, then throws at the
 //! player.
 //!
-//! It flies with the velocity the throw gave it (`family k2e`) until it drops to
+//! It flies with the velocity the throw gave it (`dropper`) until it drops to
 //! the player's y, then hovers for eight frames of a landing animation and frees
 //! itself, clearing its parent's phase.
 

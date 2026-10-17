@@ -3,7 +3,7 @@
 set -euo pipefail
 
 script=$(realpath "$(dirname "$0")/check-fanout.sh")
-family=crates/rotj-core/src/actor/families/k24.rs
+family=crates/rotj-core/src/actor/families/enemy_shot.rs
 
 fresh() {
     local dir
@@ -11,7 +11,7 @@ fresh() {
     git -C "$dir" init -q
     mkdir -p "$dir/crates/rotj-core/src/actor/families" "$dir/docs"
     for f in crates/rotj-core/src/actor/engine.rs crates/rotj-core/src/actor/families.rs \
-        crates/rotj-core/src/actor/families/k0a.rs docs/ACTORS.md; do
+        crates/rotj-core/src/actor/families/hover_diver.rs docs/ACTORS.md; do
         echo "// $f" >"$dir/$f"
     done
     git -C "$dir" add -A
@@ -36,13 +36,13 @@ expect 0 "family file, arms and docs" "$d"
 d=$(fresh); echo "// edit" >>"$d/crates/rotj-core/src/actor/engine.rs"
 expect 1 "uncommitted core edit" "$d"
 
-d=$(fresh); git -C "$d" mv crates/rotj-core/src/actor/engine.rs crates/rotj-core/src/actor/families/kff.rs
+d=$(fresh); git -C "$d" mv crates/rotj-core/src/actor/engine.rs crates/rotj-core/src/actor/families/moved_engine.rs
 expect 1 "rename of a core file" "$d"
 
 d=$(fresh); git -C "$d" rm -q docs/ACTORS.md
 expect 1 "deletion" "$d"
 
-d=$(fresh); echo "// edit" >>"$d/crates/rotj-core/src/actor/families/k0a.rs"
+d=$(fresh); echo "// edit" >>"$d/crates/rotj-core/src/actor/families/hover_diver.rs"
 expect 1 "another family's file" "$d"
 
 d=$(fresh); printf 'impl Body {}\n' >"$d/$family"

@@ -3,13 +3,13 @@
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then
-    echo "usage: $0 <base-ref> crates/rotj-core/src/actor/families/k<id>.rs" >&2
+    echo "usage: $0 <base-ref> crates/rotj-core/src/actor/families/<name>.rs" >&2
     exit 2
 fi
 base=$(git merge-base "$1" HEAD)
 family=$2
 
-if [[ ! $family =~ ^crates/rotj-core/src/actor/families/k[0-9a-f]{2}\.rs$ ]]; then
+if [[ ! $family =~ ^crates/rotj-core/src/actor/families/[a-z0-9_]+\.rs$ ]]; then
     echo "not a family file: $family" >&2
     exit 2
 fi

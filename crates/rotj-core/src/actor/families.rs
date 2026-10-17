@@ -99,7 +99,7 @@ pub mod table_bobber;
 pub mod top_screen_room_exit;
 pub mod turret;
 pub mod two_stage_drifter;
-pub mod two_stage_drifter_second;
+pub mod two_stage_drifter_continuation;
 pub mod vertical_bobber;
 pub mod vertical_shuttle_platform;
 pub mod volley_shot;
@@ -185,7 +185,7 @@ pub enum Brain {
     /// Type `$6E`.
     TwoStageDrifter(two_stage_drifter::State),
     /// Type `$70`.
-    TwoStageDrifterSecond(two_stage_drifter_second::State),
+    TwoStageDrifterContinuation(two_stage_drifter_continuation::State),
     /// Type `$54`.
     FlightSteer(flight_steer::State),
     /// Type `$76`.
@@ -367,7 +367,7 @@ impl Brain {
             0x34 => Brain::BossStatus(boss_status::State),
             0x6C => Brain::Spellcaster(spellcaster::State),
             0x6E => Brain::TwoStageDrifter(two_stage_drifter::State),
-            0x70 => Brain::TwoStageDrifterSecond(two_stage_drifter_second::State),
+            0x70 => Brain::TwoStageDrifterContinuation(two_stage_drifter_continuation::State),
             0x54 => Brain::FlightSteer(flight_steer::State),
             0x76 => Brain::RowTablePairPatch(row_table_pair_patch::State),
             0x78 => Brain::MarkerTrigger(marker_trigger::State),
@@ -531,7 +531,7 @@ macro_rules! with_main_families {
             BossStatus,
             Spellcaster,
             TwoStageDrifter,
-            TwoStageDrifterSecond,
+            TwoStageDrifterContinuation,
             FlightSteer,
             RowTablePairPatch,
             MarkerTrigger,

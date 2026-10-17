@@ -136,7 +136,7 @@ mod tests {
     ///
     /// Every 65 frames the handler drops a type `$24` into a free slot 16-23; the
     /// child carries `$7C30` = 6 and draws the bank-8 `$98D0` metasprite, which
-    /// `k24` now handles.
+    /// `enemy_shot` now handles.
     fn scene_at(frame: u64) -> Option<Scene> {
         Scene::tas(frame)
     }

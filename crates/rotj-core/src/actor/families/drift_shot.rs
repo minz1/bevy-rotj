@@ -161,7 +161,7 @@ mod tests {
     /// The actor's `$7EE0` contact byte is `$88`, so `$A9C4` runs the player
     /// check. The TAS player never touches the projectile (it flies past), so the
     /// test pins it onto him at `$D450` each frame and clears `$0472` bit 7 and
-    /// `$047A` bit 6, which gate the check off as `k88`/`k3e` do. Energy drops by
+    /// `$047A` bit 6, which gate the check off as `ledge_walker`/`hop_thrower` do. Energy drops by
     /// 2 a frame until it wraps, so `hits` counts the seven hits before the wrap.
     #[test]
     fn hurts_the_player_up_close() {

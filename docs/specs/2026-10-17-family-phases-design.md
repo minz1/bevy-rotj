@@ -21,7 +21,7 @@ A1's and A2's pattern (`Motion`, `Weapon`), from a read-only survey of `actor/fa
   thing in each family.
 - In about 70 families `phase` is not a machine: a direction bit seeded by the parent, a
   counter (`pickup`, `swinging_hazard`, `volley_thrower`, `stage4_boss_slam`), an animation
-  index (`flash_marker`, `two_stage_drifter_second`), a flag in bit 7 (13 families), or a
+  index (`flash_marker`, `two_stage_drifter_continuation`), a flag in bit 7 (13 families), or a
   cache (`boss_status`).
 - Every write into a machine's phase from outside its own family is 0: `Body::spawn`, the
   parents' array-zeroing writes (`stage6_boss` → `$AA`, `spinner_spawner` → `$7E`,

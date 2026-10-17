@@ -129,10 +129,10 @@ mod tests {
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
 
     /// The TAS scene at `frame` with the `$24` children the handler spawns freed at
-    /// every loop head. They belong to `k24`: a `$24` with `$7C30` 1 reads its
+    /// every loop head. They belong to `enemy_shot`: a `$24` with `$7C30` 1 reads its
     /// metasprite from `$98CA`, which the CPU fetches from the `$8000` window
-    /// (bank 8), but the port's `k24` passes bank 1 and panics there (a lead in
-    /// `REPORT.md`). `k0a` clears other families' children the same way.
+    /// (bank 8), but the port's `enemy_shot` passes bank 1 and panics there (a lead in
+    /// `REPORT.md`). `hover_diver` clears other families' children the same way.
     fn scene_at(frame: u64) -> Option<Scene> {
         let mut scene = Scene::tas(frame)?;
         for slot in 16..24 {

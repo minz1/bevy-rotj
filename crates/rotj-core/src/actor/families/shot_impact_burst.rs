@@ -67,7 +67,7 @@ mod tests {
     use crate::actor::families::stage3_boss_shot;
     use crate::actor::oracle::{Scene, assert_actor_phases};
 
-    /// The `$8E`'s first burst with the pad released (`k90`), run to the frame its
+    /// The `$8E`'s first burst with the pad released (`stage3_boss_shot`), run to the frame its
     /// first `$92` lands (15093), and that `$92`'s slot.
     fn first_burst() -> Option<(Scene, usize)> {
         let mut scene = stage3_boss_shot::tests::before_the_burst()?;

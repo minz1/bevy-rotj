@@ -4,7 +4,7 @@
 //! `$3A` (`$8FB9`) drifts by a fixed per-`$7DD0` offset each frame and drains the
 //! player's energy on `$AFD6` contact; `$3C` (`$909B`) homes on the player, drains
 //! the boss's `$B2:$B3` pool when it reaches him, and detonates. Both draw bank-9
-//! metasprites through the `$826F` helper. One module, as `k06` covers
+//! metasprites through the `$826F` helper. One module, as `breakable_block` covers
 //! `$04`/`$06`.
 
 use crate::actor::engine::{self, Visibility, Work};
@@ -342,7 +342,7 @@ mod tests {
 
     /// The boss and the `$3A` parts it keeps spawning run together in one actor
     /// loop: the `$8FB9` spawn, the slots-16-23 aliasing and both draws match,
-    /// which the `k38` fight test cannot reach (it clears every part).
+    /// which the `ace_ranger` fight test cannot reach (it clears every part).
     #[test]
     fn the_boss_runs_with_its_parts() {
         let Some(scene) = boss_with_parts(6282, 1, 24) else {

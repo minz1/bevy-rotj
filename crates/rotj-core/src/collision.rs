@@ -287,7 +287,18 @@ impl Level {
     /// metatiles, the attributes of ids past the known palette classes and
     /// [`Level::unread`] from what the stream does not reach.
     #[must_use]
+    ///
+    /// # Panics
+    /// If the stream is longer than the image or there are more corners than ids.
     pub fn from_terrain(terrain: &crate::terrain::Terrain, mut image: [u8; 0x1000]) -> Level {
+        assert!(
+            terrain.stream.len() <= image.len(),
+            "the stream overruns $7000-$7FFF"
+        );
+        assert!(
+            terrain.corners.len() <= CLASS_COUNT,
+            "more corners than metatile ids"
+        );
         image[..terrain.stream.len()].copy_from_slice(&terrain.stream);
         let rows = crate::levelmap::transpose(&image);
         let mut map = [0u8; 4096];
@@ -346,7 +357,7 @@ impl Level {
     }
 
     /// The map stream's byte at `$7000 + at` (`$89FE` writes it there, then transposes
-    /// it into the map), for `at` within [`crate::levelmap::map_reach`].
+    /// it into the map), for `at` within the stream ([`crate::levelmap::streamed_map`]).
     #[must_use]
     pub fn streamed(&self, at: usize) -> u8 {
         self.map[streamed_cell(at)]

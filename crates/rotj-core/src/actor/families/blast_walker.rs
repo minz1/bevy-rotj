@@ -298,7 +298,7 @@ mod tests {
         let x = u16::from_be_bytes([wram[0x1B00 + slot], wram[0x1B20 + slot]]);
         let y = u16::from_be_bytes([wram[0x1B40 + slot], wram[0x1B60 + slot]]);
         // The TAS leaves `$047A` bit 6 set (the player's hurt invulnerability), which
-        // gates `$A9C4`'s player check off; clear it at the loop entry as `k2e` does.
+        // gates `$A9C4`'s player check off; clear it at the loop entry as `dropper` does.
         scene.machine.bus.trace.pokes.push((0xD450, 0x047A, 0));
         let mut probe = scene.clone();
         let mut energy = probe.machine.bus.ram[0x478];

@@ -240,17 +240,8 @@ pub fn map_over(
     Some(transpose(image))
 }
 
-/// How many bytes of `$7000-$7FFF` area `area`'s map stream writes: map page `p` row
-/// `k` comes from `$7000 + p * 256 + k * 16`, so the cells past the reach hold what
-/// that WRAM held at load time.
-#[must_use]
-pub fn map_reach(prg: &[u8], chr: &[u8], area: usize) -> Option<usize> {
-    let (stream, count) = map_stream(prg, chr, area)?;
-    Some(decompress(&stream[6..], count, &mut [0; 0x1000]).min(0x1000))
-}
-
-/// The bytes area `area`'s map stream writes over `$7000`, in that order ([`map_reach`] of
-/// them).
+/// The bytes area `area`'s map stream writes over `$7000`, in that order: the cells past
+/// them keep what that WRAM held at load time.
 #[must_use]
 pub fn streamed_map(prg: &[u8], chr: &[u8], area: usize) -> Option<Vec<u8>> {
     let (stream, count) = map_stream(prg, chr, area)?;
@@ -475,10 +466,9 @@ fn auto_tile_corners(handler: usize, bytes: &[u8]) -> Option<[u8; 4]> {
     Some(corners.map(|corner| u8::try_from(corner & 0xFF).expect("masked to a byte")))
 }
 
-/// The per-metatile 2-bit palette class table (`$7B00`) for one area, decoded
-/// from the CHR area definition. See [`attributes_from_rom`] for the layout.
-/// The packed 2-bit palette classes by id, and how many ids the packing covers (four a
-/// byte).
+/// One area's 2-bit palette classes (`$7B00`) by id, decoded from the CHR area definition,
+/// and how many ids the packing covers (four a byte). See [`attributes_from_rom`] for the
+/// layout.
 #[must_use]
 pub fn classes_from_chr(prg: &[u8], chr: &[u8], area: usize) -> Option<([u8; 256], usize)> {
     let start = class_start(prg, area)?;

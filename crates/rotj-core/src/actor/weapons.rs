@@ -75,7 +75,7 @@ pub fn step(work: &mut Work, cx: &mut Cx<'_>) {
     let mut scroll = std::mem::take(cx.scroll);
     match cx.effects.weapon {
         Weapon::PowerUpPieces => power_up_pieces(work, cx),
-        projectile => each_projectile(work, cx, &mut scroll, projectile),
+        weapon => each_projectile(work, cx, &mut scroll, weapon),
     }
     *cx.scroll = scroll;
 }

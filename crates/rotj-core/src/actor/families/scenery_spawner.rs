@@ -100,7 +100,7 @@ mod tests {
     /// cycle. From frame 3000 the cycle survives isolation; from 2116 an isolated
     /// room change clears the slot at frame 3593, one target short of phase 13.
     ///
-    /// The `$14` children reach k14 phase 3, which spawns a `$18` without setting its
+    /// The `$14` children reach falling_scenery phase 3, which spawns a `$18` without setting its
     /// brain (a `$14` bug outside this family), and the column spawner keeps arming
     /// cells after the one-time `isolate`. Free every other slot each frame so this
     /// scene diffs the slot-0 `$12` alone: it is never drawn and never contacts.

@@ -105,10 +105,10 @@ The ranked survey with file:line, risk and the Classic proof for each item is
   with the compositor swap.
 - From the agents' reports (2026-10-15): `Brain::Unported`/`engine::unported` are
   unreachable now that all 100 types are ported (an unreachable panic, or gone);
-  `k92`/`k08` share the parts loop and `integrate`, `k90`/`k24` the step-table
+  `shot_impact_burst`/`harmless_burst` share the parts loop and `integrate`, `stage3_boss_shot`/`enemy_shot` the step-table
   projectile shape; `player::step_move` works on a copy of the player that the probe
   wrappers sync (work on `cx.effects.player` directly); stale test scaffolding that
-  frees `$90`/`$46` children each loop (`k8e`, `k42`); blending the intro's 30 Hz
+  frees `$90`/`$46` children each loop (`stage3_boss`, `stage4_boss`); blending the intro's 30 Hz
   logo/subtitle flicker into one picture (an Enhanced option).
 - Audio: `rotj-music` (the game's driver: which notes when) and `rotj-apu` (the 2A03:
   how they sound) stay as Classic's sound and its spec; their shape becomes a
