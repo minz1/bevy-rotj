@@ -1,8 +1,8 @@
-//! `rotj actors`: dump a level screen's spawn data from the ROM.
+//! `rotj actors`: dump a room's spawn data from the ROM.
 //!
-//! Decodes, for one `$0400`/`$0402` pair, the bank-14 `$DA18` screen record and
-//! the bank-3 `$A000` actor spawn records, and prints the located `$7D90`
-//! behaviour table and `$7D50` state dispatch table. See
+//! Prints, for one `$0400`/`$0402` pair, the room's screen record (`rotj_core::rooms`)
+//! and the bank-3 `$A000` actor spawn records, then the located `$7D90` behaviour table
+//! and `$7D50` state dispatch table. See
 //! `rotj_core::actors` and `docs/ACTORS.md` for the evidence and the open
 //! questions.
 
@@ -25,31 +25,17 @@ pub fn dump(rom_path: &Path, stage: u8, sublevel: u8, area: u8) -> Result<()> {
         "stage {stage} sublevel {sublevel}, area ${area:02X} ($0400={area:02X} $0402={stage:02X})"
     );
 
-    let _ = writeln!(
-        out,
-        "-- level screen record (bank {:02X} ${:04X})",
-        actors::SCREEN_BANK,
-        actors::SCREEN_TABLE
-    );
-    match actors::screen_record_at(&prg, area, stage)? {
-        None => {
-            let _ = writeln!(out, "   empty record (${:02X})", actors::SCREEN_EMPTY);
+    let _ = writeln!(out, "-- room (screen record: bank 14 $DA18)");
+    match rotj_core::rooms::Room::import(&prg, area, stage) {
+        Some(layout) => {
+            let _ = writeln!(
+                out,
+                "   raster {:?} arrival {:?}\n   fixed rows {:?}\n   fixed quads {:?}",
+                layout.raster, layout.arrival, layout.fixed_rows, layout.fixed_quads
+            );
         }
-        Some(rec) => {
-            let _ = writeln!(
-                out,
-                "   record ${:04X}: header {}",
-                rec.addr,
-                hex(&rec.header)
-            );
-            let _ = writeln!(out, "   $70 {}", hex(&rec.block_a));
-            let _ = writeln!(out, "   $60 {}", hex(&rec.block_b));
-            let _ = writeln!(
-                out,
-                "   script ${:04X} ({:?}, plain 6502)",
-                rec.script,
-                actors::script_kind(rec.script)
-            );
+        None => {
+            let _ = writeln!(out, "   (no room here)");
         }
     }
 
@@ -108,13 +94,4 @@ pub fn dump(rom_path: &Path, stage: u8, sublevel: u8, area: u8) -> Result<()> {
     );
     print!("{out}");
     Ok(())
-}
-
-/// Render bytes as space-separated uppercase hex.
-fn hex(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .map(|b| format!("{b:02X}"))
-        .collect::<Vec<_>>()
-        .join(" ")
 }

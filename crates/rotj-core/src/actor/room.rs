@@ -10,7 +10,7 @@ use super::world::{
     Effects, Motion, Projectile, Schedule, View, VramWrite, World, orientation, set_first_colours,
 };
 use crate::actors::spawn_schedule;
-use crate::rooms::Room;
+use crate::rooms::{Arrival, Room};
 
 /// The room change `$BA = 1` starts, one frame per [`RoomChange::step`] (`$B7EC`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -784,36 +784,33 @@ fn animate_banks(game: &mut Game, prg: &[u8]) {
 
 /// The room's parameters, the stream masks and the room's player setup (`$D992`).
 pub fn parameters(game: &mut Game, prg: &[u8]) {
-    let (area, room) = (game.world.area, game.world.room);
-    let data = rom_word(
-        prg,
-        14,
-        rom_word(prg, 14, 0xDA18 + u16::from(area)) + u16::from(room),
-    );
-    let byte = |i: u16| rom_byte(prg, 14, data + i);
+    let layout = Room::import(prg, game.world.area, game.world.room).expect("the room's layout");
     let scroll = &mut game.scroll;
-    if byte(0) == 0x77 {
+    let flag = |set: bool| if set { 0x80 } else { 0 };
+    let Some(raster) = layout.raster else {
         scroll.room[0] = 0;
         scroll.fixed_rows = [0; 16];
         scroll.fixed_quads = [0; 8];
         return;
-    }
+    };
     scroll.room = [0; 13];
-    for i in 0..5 {
-        scroll.room[i] = byte(u16::try_from(i).expect("small"));
-    }
-    for i in 0..16 {
-        scroll.fixed_rows[i] = byte(5 + u16::try_from(i).expect("small"));
-    }
-    for i in 0..8 {
-        scroll.fixed_quads[i] = byte(21 + u16::try_from(i).expect("small"));
-    }
+    let [cycles_low, cycles_high] = raster.first_irq_cycles.to_le_bytes();
+    scroll.room[..5].copy_from_slice(&[
+        flag(raster.armed),
+        cycles_low,
+        cycles_high,
+        raster.handler,
+        raster.next_irq,
+    ]);
+    scroll.fixed_rows = layout.fixed_rows.map(flag);
+    scroll.fixed_quads = layout.fixed_quads.map(flag);
     let player = &mut game.effects.player;
-    match rom_word(prg, 14, data + 29) {
-        0xDA0E => {}
-        0xDA0F => (player.motion, player.stage_script) = (Motion::Held, 0xE0),
-        0xD9FF => (player.anim, player.motion, player.stage_script) = (0x85, Motion::Flying, 0xA0),
-        other => panic!("room handler ${other:04X} ($D9FC) is not ported"),
+    match layout.arrival {
+        Arrival::Unchanged => {}
+        Arrival::Held => (player.motion, player.stage_script) = (Motion::Held, 0xE0),
+        Arrival::Flying => {
+            (player.anim, player.motion, player.stage_script) = (0x85, Motion::Flying, 0xA0);
+        }
     }
 }
 

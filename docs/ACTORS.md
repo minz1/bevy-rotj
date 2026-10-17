@@ -185,7 +185,9 @@ Bank 14 at `$C000`: direction handlers dispatch through `$CADD`; the x-move adds
 
 ## 7. Spawn records and scripts — decoded (`rotj actors`)
 
-Read from the ROM bytes and exposed by `rotj_core::actors`. This section
+Read from the ROM bytes and exposed by `rotj_core::actors` (the spawn records) and
+`rotj_core::rooms::Room` (the screen records: `raster`, `fixed_rows`, `fixed_quads`,
+`arrival`). This section
 corrects §5: `$D992` is a **screen-metadata loader, not an actor spawner**, and
 the `JMP ($0032)` target is **plain 6502, not a bytecode**. The actual actor
 spawner is a separate, table-driven routine at `$D714`.
@@ -207,7 +209,7 @@ pointers. A record is:
 
 | bytes | staged to | evidence |
 | --- | --- | --- |
-| first byte `$77` | (empty) zero `$D0-$DC`, `$70-$7F`, `$60-$67`, `RTS` | `$D9AD` |
+| first byte `$77` | (empty, one byte) zero `$D0`, `$70-$7F`, `$60-$67`, `RTS` (`$D1-$DC` keep their values) | `$D9AD`, `$D9B5` |
 | 5 | `$D0-$D4`, then `$D0-$DC` zero-extended | `$D9C6`-`$D9DB` |
 | 16 | `$70-$7F` | `$D9DD` |
 | 8 | `$60-$67` | `$D9E9` |
@@ -354,8 +356,8 @@ bank-3 tables also yields `$03/$06/$07/$08/$09/$0C/$1E/$22/$3A/$40/$41/$4C/$4E/$
   non-zero while the spawned objects are present, so its relation to the
   `$7CC0` bank is unresolved.
 - The rest of `$7D50`'s value space (`$20`/`$40`/`$60`/`$61`/...) per actor type.
-- The job of the `[5][16][8]` screen blocks (they land on `$D0-$DC`/`$70-$7F`/
-  `$60-$67`; no capture exercises them).
+- What the screen records' fixed rows and quads (`$70-$7F`/`$60-$67`, bit 7 keeps a
+  metatile row or attribute half-row from the column stream) protect in each room.
 - `$A000` is indexed by `$0400` directly; whether sublevel -> area comes from
   `$D57D` alone (docs/LEVELDATA §5a) is unproven. `$0402` reset is 1 (odd), so
   it is not a plain stage*2 in the attract state.

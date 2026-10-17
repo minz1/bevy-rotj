@@ -1,34 +1,7 @@
-//! Actor spawn data: what the ROM holds for a level screen, decoded.
+//! Actor spawn data, decoded from the ROM, and the live actor slots, decoded from WRAM.
+//! A room's screen record (bank 14 `$DA18`) is part of [`crate::rooms::Room`].
 //!
-//! Two adjacent systems exist, and they are **not** the same thing. Both are
-//! decoded here because the per-slot fields they write (`$7D50`, `$7D90`,
-//! `$7DB0`) are read together.
-//!
-//! # 1. The level screen records (bank 14, `$DA18`)
-//!
-//! The routine at CPU `$D992` (bank [`SCREEN_BANK`] offset `$1992`) is the
-//! per-screen *screen metadata* loader that `docs/ACTORS.md` §5 calls the
-//! "spawn path". It is table-driven, not a bytecode interpreter:
-//!
-//! ```text
-//! LDX $0400            ; area, a byte offset into a 16-bit pointer table
-//! LDA $DA18,x ; STA $30
-//! LDA $DA19,x ; STA $31
-//! LDY $0402            ; stage, a byte offset into the per-area table
-//! LDA ($30),y ; TAX ; INY ; LDA ($30),y ; STA $31 ; STX $30
-//! LDY #$00
-//! LDA ($30),y ; CMP #$77 ; BEQ empty
-//! ```
-//!
-//! A non-empty record is `[5 bytes -> $D0-$D4][16 bytes -> $70-$7F]
-//! [8 bytes -> $60-$67][2 bytes -> $32/$33][JMP ($0032)]`. `$D0-$D4` is also
-//! zero-extended to `$D0-$DC`. The trailing pointer is a **plain 6502 entry
-//! point**, not a bytecode program: for every record the ROM defines it is one
-//! of the three tiny routines at `$D9FF`/`$DA0E`/`$DA0F` that set the level
-//! state bytes `$0466`/`$046E`/`$0481` and `RTS`. No record points into the
-//! WRAM level payload. See [`script_kind`] and [`ScreenRecord`].
-//!
-//! # 2. The actual actor spawn records (bank 3, `$A000`)
+//! # The actor spawn records (bank 3, `$A000`)
 //!
 //! The routine at CPU `$D714` (bank 14) maps bank [`SPAWN_BANK`] into `$A000`
 //! and spawns actors from a **12-byte record** per pending slot. The 256-byte
@@ -53,10 +26,6 @@
 //!   tables, so it holds `stage * 2`; frame 700 of sublevel 1-1 reads `$0402 =
 //!   0` (`$0400 = 0`). The reset value is `1` (`$E351`), which is not even, so
 //!   the reset path is a separate state, not a gameplay stage.
-//! - The job of the 5/16/8-byte screen blocks is not decoded. They land in
-//!   zero page `$D0-$DC`/`$70-$7F`/`$60-$67`; `docs/MAP.md` §10 attributes
-//!   `$D0-$D4` to IRQ split state, and bank 14's display-list executor uses
-//!   `$60`/`$70` as staging, but no capture exercises it.
 //! - `$7D90` and `$7DB0` are **not** handler indexes: `$7D90` selects a 16-bit
 //!   knock-back velocity from [`BEHAVIOUR_HI`]/[`BEHAVIOUR_LO`] (bank 0 `$1125`),
 //!   and `$7DB0` indexes a per-type position offset at bank 0 `$9932`. The
@@ -78,54 +47,6 @@
 use thiserror::Error;
 
 use crate::ines::FME7_PRG_BANK_SIZE;
-
-/// FME-7 PRG bank holding the bank-14 screen records and the spawn routine.
-pub const SCREEN_BANK: u8 = 0x0E;
-
-/// CPU window `$DA18` lives in for [`SCREEN_BANK`].
-pub const SCREEN_WINDOW: u16 = 0xC000;
-
-/// CPU `$DA18`: 16-bit LE table indexed by `$0400` (area, as a byte offset)
-/// whose entries point at per-area tables of stage pointers.
-pub const SCREEN_TABLE: u16 = 0xDA18;
-
-/// First byte of an empty screen record (`CMP #$77`, `$D9AD`).
-pub const SCREEN_EMPTY: u8 = 0x77;
-
-/// Bytes of the screen record's first block (staged to `$D0-$D4`).
-pub const SCREEN_HEADER_BYTES: usize = 5;
-
-/// Bytes of the screen record's second block (staged to `$70-$7F`).
-pub const SCREEN_BLOCK_A_BYTES: usize = 16;
-
-/// Bytes of the screen record's third block (staged to `$60-$67`).
-pub const SCREEN_BLOCK_B_BYTES: usize = 8;
-
-/// The three `JMP ($0032)` script entry points the ROM's records use, all of
-/// which only set level state and `RTS`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScriptKind {
-    /// CPU `$D9FF`: sets `$0466 = $85`, `$046E = $0B`, `$0481 = $A0`.
-    LevelState,
-    /// CPU `$DA0E`: a bare `RTS`.
-    Return,
-    /// CPU `$DA0F`: sets `$046E = $0A`, branches back to `$DA0B` to set
-    /// `$0481 = $E0`, then `RTS`.
-    ScreenState,
-    /// An entry point not among the three the ROM defines.
-    Other,
-}
-
-/// Classify a script entry point.
-#[must_use]
-pub const fn script_kind(addr: u16) -> ScriptKind {
-    match addr {
-        0xD9FF => ScriptKind::LevelState,
-        0xDA0E => ScriptKind::Return,
-        0xDA0F => ScriptKind::ScreenState,
-        _ => ScriptKind::Other,
-    }
-}
 
 /// FME-7 PRG bank holding the actor spawn tables.
 pub const SPAWN_BANK: u8 = 0x03;
@@ -341,96 +262,6 @@ fn word_at(prg: &[u8], bank: u8, window: u16, addr: u16) -> Result<u16, ActorErr
     Ok(u16::from_le_bytes([bytes[0], bytes[1]]))
 }
 
-/// A byte-count constant as a `u16` address offset.
-///
-/// The block sizes are tiny, so the conversion cannot fail.
-fn block_offset(bytes: usize) -> u16 {
-    u16::try_from(bytes).expect("block sizes are far below u16::MAX")
-}
-
-/// One bank-14 `$DA18` screen record: a `[5][16][8]` staged block plus the
-/// `JMP ($0032)` target.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ScreenRecord {
-    /// CPU address the record was read from.
-    pub addr: u16,
-    /// First block, staged to `$D0-$D4` (and zero-extended to `$D0-$DC`).
-    pub header: [u8; SCREEN_HEADER_BYTES],
-    /// Second block, staged to `$70-$7F`.
-    pub block_a: [u8; SCREEN_BLOCK_A_BYTES],
-    /// Third block, staged to `$60-$67`.
-    pub block_b: [u8; SCREEN_BLOCK_B_BYTES],
-    /// CPU address the record's `JMP ($0032)` enters (plain 6502, not a
-    /// bytecode). Classify it with [`script_kind`].
-    pub script: u16,
-}
-
-/// Read the screen record at CPU `addr` inside `SCREEN_BANK`.
-///
-/// Returns `Ok(None)` for the empty record ([`SCREEN_EMPTY`]).
-pub fn screen_record(prg: &[u8], addr: u16) -> Result<Option<ScreenRecord>, ActorError> {
-    let (first, _) = bytes_at(prg, SCREEN_BANK, SCREEN_WINDOW, addr, 1)?
-        .split_first()
-        .ok_or(ActorError::OutOfRange {
-            bank: SCREEN_BANK,
-            offset: addr.wrapping_sub(SCREEN_WINDOW),
-            len: prg.len(),
-        })?;
-    if *first == SCREEN_EMPTY {
-        return Ok(None);
-    }
-    let header = bytes_at(prg, SCREEN_BANK, SCREEN_WINDOW, addr, SCREEN_HEADER_BYTES)?;
-    let block_a = bytes_at(
-        prg,
-        SCREEN_BANK,
-        SCREEN_WINDOW,
-        addr + block_offset(SCREEN_HEADER_BYTES),
-        SCREEN_BLOCK_A_BYTES,
-    )?;
-    let block_b = bytes_at(
-        prg,
-        SCREEN_BANK,
-        SCREEN_WINDOW,
-        addr + block_offset(SCREEN_HEADER_BYTES + SCREEN_BLOCK_A_BYTES),
-        SCREEN_BLOCK_B_BYTES,
-    )?;
-    let script = word_at(
-        prg,
-        SCREEN_BANK,
-        SCREEN_WINDOW,
-        addr + block_offset(SCREEN_HEADER_BYTES + SCREEN_BLOCK_A_BYTES + SCREEN_BLOCK_B_BYTES),
-    )?;
-    Ok(Some(ScreenRecord {
-        addr,
-        header: header.try_into().expect("length checked above"),
-        block_a: block_a.try_into().expect("length checked above"),
-        block_b: block_b.try_into().expect("length checked above"),
-        script,
-    }))
-}
-
-/// Follow [`SCREEN_TABLE`] for `area`/`stage` (the RAM `$0400`/`$0402` values,
-/// each a byte offset) and decode the screen record it names.
-pub fn screen_record_at(
-    prg: &[u8],
-    area: u8,
-    stage: u8,
-) -> Result<Option<ScreenRecord>, ActorError> {
-    let area_table = word_at(
-        prg,
-        SCREEN_BANK,
-        SCREEN_WINDOW,
-        SCREEN_TABLE + u16::from(area),
-    )?;
-    let addr = word_at(
-        prg,
-        SCREEN_BANK,
-        SCREEN_WINDOW,
-        area_table + u16::from(stage),
-    )?;
-    screen_record(prg, addr)
-}
-
 /// One bank-3 actor spawn record: what the spawners write into a free slot.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SpawnRecord {
@@ -553,38 +384,12 @@ mod tests {
         base(SPAWN_BANK) + usize::from(addr - SPAWN_WINDOW)
     }
 
-    /// A 16-bank PRG holding one screen record and one actor spawn.
+    /// A 16-bank PRG holding the actor spawn tables and records.
     fn synthetic_prg() -> Vec<u8> {
         let mut prg = vec![0u8; 16 * FME7_PRG_BANK_SIZE];
-        let screen = base(SCREEN_BANK);
         let spawn = base(SPAWN_BANK);
         let behaviour = base(BEHAVIOUR_BANK);
         let state = base(STATE_BANK);
-
-        // $DA18[0] = $DA30, $DA18[2] = $DA40.
-        put16(&mut prg, screen + 0x1A18, 0xDA30);
-        put16(&mut prg, screen + 0x1A1A, 0xDA40);
-        // $DA30[0] = $DA80 (stage 0 full record), $DA30[2] = $DAC0 (empty).
-        put16(&mut prg, screen + 0x1A30, 0xDA80);
-        put16(&mut prg, screen + 0x1A32, 0xDAC0);
-        // $DA40 area 1 -> stage 0 record at $DAD0 (empty).
-        put16(&mut prg, screen + 0x1A40, 0xDAD0);
-        prg[screen + 0x1AC0] = SCREEN_EMPTY;
-        prg[screen + 0x1AD0] = SCREEN_EMPTY;
-        // $DA80: a full record (31 bytes, $DA80-$DA9E).
-        let rec = screen + 0x1A80;
-        prg[rec..rec + 5].copy_from_slice(&[0x11, 0x22, 0x33, 0x44, 0x55]);
-        for i in 0..16 {
-            prg[rec + 5 + i] = u8::try_from(0xA0 + i).expect("fits");
-        }
-        for i in 0..8 {
-            prg[rec + 21 + i] = u8::try_from(0xB0 + i).expect("fits");
-        }
-        put16(&mut prg, rec + 29, 0xDB00);
-        // The script the record names: LDA #$85, RTS at $DB00.
-        prg[screen + 0x1B00] = 0xA9;
-        prg[screen + 0x1B01] = 0x85;
-        prg[screen + 0x1B02] = 0x60;
 
         // Bank 3: $A000[0] = $A024, $A000[2] = $A030.
         put16(&mut prg, spawn, 0xA024);
@@ -630,44 +435,6 @@ mod tests {
         let bytes = value.to_le_bytes();
         prg[at] = bytes[0];
         prg[at + 1] = bytes[1];
-    }
-
-    #[test]
-    fn screen_record_decodes_blocks_and_script() {
-        let prg = synthetic_prg();
-        let rec = screen_record_at(&prg, 0, 0).unwrap().unwrap();
-        assert_eq!(rec.addr, 0xDA80);
-        assert_eq!(rec.header, [0x11, 0x22, 0x33, 0x44, 0x55]);
-        assert_eq!(rec.block_a[0], 0xA0);
-        assert_eq!(rec.block_a[15], 0xAF);
-        assert_eq!(rec.block_b[0], 0xB0);
-        assert_eq!(rec.block_b[7], 0xB7);
-        assert_eq!(rec.script, 0xDB00);
-        assert_eq!(script_kind(rec.script), ScriptKind::Other);
-    }
-
-    #[test]
-    fn script_kind_classifies_the_three_rom_entry_points() {
-        assert_eq!(script_kind(0xD9FF), ScriptKind::LevelState);
-        assert_eq!(script_kind(0xDA0E), ScriptKind::Return);
-        assert_eq!(script_kind(0xDA0F), ScriptKind::ScreenState);
-        assert_eq!(script_kind(0x1234), ScriptKind::Other);
-    }
-
-    #[test]
-    fn empty_screen_record_is_none() {
-        let prg = synthetic_prg();
-        assert_eq!(screen_record_at(&prg, 2, 0).unwrap(), None);
-        assert_eq!(screen_record_at(&prg, 0, 2).unwrap(), None);
-    }
-
-    #[test]
-    fn screen_record_out_of_range_is_an_error() {
-        let prg = vec![0u8; 16];
-        assert!(matches!(
-            screen_record(&prg, 0xDA60),
-            Err(ActorError::OutOfRange { .. })
-        ));
     }
 
     #[test]
