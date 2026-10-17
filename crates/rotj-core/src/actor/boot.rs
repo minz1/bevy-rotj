@@ -176,7 +176,7 @@ enum PowerRow {
     /// The dark palette (`$D3BB`).
     DarkPalette,
     /// The music stopped (`$FF`) and the level 0, for no frame (`$98C3`).
-    StopMusic,
+    PreparePayload,
     /// The payload copied from CHR `$F0-$F7` (`$98CB`).
     CopyPayload,
     /// The payload entered at `$6000`: the PPU ctrl, the mask off, the clear reset.
@@ -189,7 +189,7 @@ enum PowerRow {
 const POWER: &[PowerRow] = &[
     PowerRow::Reset,
     PowerRow::DarkPalette,
-    PowerRow::StopMusic,
+    PowerRow::PreparePayload,
     PowerRow::CopyPayload,
     PowerRow::Enter,
     PowerRow::IntroPalette,
@@ -235,7 +235,7 @@ enum Slide {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TitleSetupRow {
     /// The music stopped (`$FF`) and the clear reset, for no frame (`$62A3`).
-    StopMusic,
+    Start,
     /// The screen cleared (`$7EC9`).
     ClearScreen,
     /// The title's banks and attributes.
@@ -252,7 +252,7 @@ enum TitleSetupRow {
 
 /// The title drawn at once, then the title.
 const TITLE_SETUP: &[TitleSetupRow] = &[
-    TitleSetupRow::StopMusic,
+    TitleSetupRow::Start,
     TitleSetupRow::ClearScreen,
     TitleSetupRow::ShowBanks,
     TitleSetupRow::Wait(1),
@@ -466,7 +466,7 @@ impl Boot {
                 }
                 wait(frame, 1)
             }
-            PowerRow::StopMusic => {
+            PowerRow::PreparePayload => {
                 game.effects.music = 0xFF;
                 self.level = 0;
                 Flow::Done
@@ -635,7 +635,7 @@ impl Boot {
         };
         let frame = self.runner.frame;
         let flow = match row {
-            TitleSetupRow::StopMusic => {
+            TitleSetupRow::Start => {
                 game.effects.music = 0xFF;
                 self.clear = ScreenClear::new(0);
                 Flow::Done
@@ -1206,6 +1206,16 @@ mod tests {
 
     /// The password screen: three of the fourteen passwords (`$6E6C`) start their
     /// stage, the fourteenth the thirteenth's, like the oracle.
+    /// The attract loop re-enters the power-on table at its one payload copy.
+    #[test]
+    fn the_power_table_copies_the_payload_once() {
+        let copies = POWER
+            .iter()
+            .filter(|&&row| row == PowerRow::CopyPayload)
+            .count();
+        assert_eq!(copies, 1);
+    }
+
     #[test]
     fn a_password_starts_its_stage_like_the_oracle() {
         for (letters, area) in [
