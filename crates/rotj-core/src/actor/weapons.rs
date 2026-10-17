@@ -9,8 +9,7 @@
 use super::collision::{self, Probe};
 use super::engine::{self, Work, rom_byte, rom_word};
 use super::scroll::Scroll;
-use super::slots;
-use super::slots::hit;
+use super::slots::{self, hit};
 use super::world::{Cx, Motion, Projectile, Weapon, set_first_colours};
 use crate::actor::button::Buttons;
 use crate::actors::STATE_UNTARGETED;

@@ -579,7 +579,7 @@ pub mod hit {
     /// The actor flashes from a hit; the low bits count the flash down.
     pub const FLASHING: u8 = 0x40;
     /// A fresh hit: flashing, two frames to count.
-    pub const STRUCK: u8 = 0x42;
+    pub const STRUCK: u8 = FLASHING | 2;
 }
 
 /// One main slot. A freed slot keeps its body, as the game keeps the bytes.

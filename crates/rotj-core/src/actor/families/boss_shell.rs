@@ -13,8 +13,7 @@
 //! which `$826F` maps bank 9 for) and `$A934` (`store`).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::hit;
-use crate::actor::slots::{Body, Field};
+use crate::actor::slots::{Body, Field, hit};
 use crate::actor::world::Cx;
 
 const HOME_BANK: u8 = 11;
@@ -153,7 +152,7 @@ mod tests {
     /// A dying shell (hit bit 7 set) clears its parent's `$7DD0`/`$7E10`. The
     /// parent is freed by isolation, so its live bytes are what the clear shows.
     #[test]
-    fn the_death_clears_the_parents_timer() {
+    fn the_death_clears_the_parents_phase_and_counter() {
         let Some(mut scene) = Scene::tas(26677) else {
             return;
         };

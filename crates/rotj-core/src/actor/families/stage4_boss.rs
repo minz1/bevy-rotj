@@ -12,6 +12,7 @@
 use crate::actor::engine::{self, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
+use crate::actor::slots::hit;
 use crate::actor::world::{Cx, Motion};
 
 const KIND: u8 = 0x42;
@@ -223,8 +224,8 @@ fn finish(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     engine::draw(work, DRAW_BANK, cx);
     draw_bar(body, work, cx);
     work.hitbox = 0;
-    let hit = engine::boss_contact(CONTACT, 0, body, work, cx);
-    if hit & 0x40 != 0 {
+    let contact = engine::boss_contact(CONTACT, 0, body, work, cx);
+    if contact & hit::FLASHING != 0 {
         knock_back(body, work, cx);
     }
     engine::store(body, work);

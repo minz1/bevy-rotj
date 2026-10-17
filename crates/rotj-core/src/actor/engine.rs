@@ -1,8 +1,7 @@
 //! The bank-13 routines handlers share, each called where the 6502 calls it.
 
 use super::oam::{DrawCall, Metasprite};
-use super::slots::hit;
-use super::slots::{Body, Field};
+use super::slots::{Body, Field, hit};
 use super::world::{
     Cx, Effects, Level, Motion, Player, Schedule, Weapon, World, orientation, pose,
 };
@@ -736,12 +735,12 @@ fn boss_damaged(damage: u8, body: &mut Body, cx: &mut Cx<'_>) -> u8 {
         body.hit = hit::DYING;
         body.dying_timer = 0;
         cx.effects.boss_hp = 0;
-        0x40
+        hit::FLASHING
     } else if body.hit & hit::FLASHING != 0 {
-        0x40
+        hit::FLASHING
     } else {
         body.hit = hit::STRUCK;
-        0x42
+        hit::STRUCK
     }
 }
 
