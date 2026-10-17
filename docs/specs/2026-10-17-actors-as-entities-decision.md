@@ -1,8 +1,8 @@
 # Actors as entities: the spike's questions, answered (1.1.x step B3)
 
-Status: **proposed, waiting for the owner** (reviewed by the Opus stand-in, 2026-10-17, who
-approved the analysis with changes, applied here, and said the owner must decide the
-question at the end; the roadmap and PLAN are not changed until then). Step B3 of
+Status: **spiked; the result is for the owner** (the owner chose "spike first", 2026-10-17
+night; the spike, `docs/specs/2026-10-17-ecs-spike.md`, ran the same night: its results
+are below). The roadmap and PLAN change only with the owner's choice. Step B3 of
 `docs/specs/2026-10-16-modernisation-roadmap-design.md` ("actors as entities, opening with
 a one-family spike ... The fallback, the default unless the spike shows the ECS buys more:
 the simulation stays a `Slots` resource and a one-way sync mirrors each slot to an entity
@@ -79,3 +79,37 @@ accessor over a field enum instead of the address-keyed `byte`/`set_byte`/`find_
 the 16-23 aliasing handled in that one place; it removes most raw `$7xxx + index` sites and
 makes any later entity move mechanical); B4 (input as actions); `Boot`'s linear parts as a
 script table; per-family names for the `Body` bytes; then Phase C's spec.
+
+## The spike's results (2026-10-17)
+
+Branch `ecs-spike` (kept for reference, not merged): the 24 main and 8 second-class slots
+as 32 entities in a `bevy_ecs` `World` inside `Slots` (`default-features = false,
+features = ["std"]`; no new packages, bevy 0.20 already locked), the walk unchanged
+(23 down to 0, over the entities), and `bobber_spawner`'s child drop rewritten as a query.
+
+- **Byte-exact first time:** the debug lib tests (552), the release `--ignored` suites
+  (27, the whole-game chain included), a 1-seed sweep: all clean, no fix needed. A test
+  pins the query version against the indexed one over six free-slot patterns.
+- **Build:** a clean release build of `rotj-core` takes **4 s** today and **15 s** with
+  the spike (`bevy_ecs` and its macros).
+- **Run:** the whole-game chain test in release, two runs each on an idle machine:
+  **18.5 s / 19.0 s** today, **21.9 s / 21.6 s** with the spike (about 15% slower: entity
+  lookups on every slot access).
+- **Code:** 133 call sites in 48 files changed, 122 of them only by an accessor
+  (`slots.main[i]` becomes `slots.main()[i]` or `slots.main_mut()[i]`), 11 in shape
+  (slices like `main[..16]` become `iter().take(16)`, loops over the arrays become
+  `iter_mut()`); `Slots` gains about 200 lines of plumbing (index views over the entities,
+  hand-written `Clone`, `PartialEq`, `Debug` and `Default`, which a `World` lacks, and a
+  `SlotIndex` component).
+- **The idiomatic family:** today's
+  `(0..16).rev().find(|&slot| cx.slots.kind(slot) == 0)` becomes a query over
+  `(Entity, &SlotIndex, &Slot)` filtered by index and kind, then `max_by_key` on the
+  index: a query's order is not the slot order, so the game's scan order (which is the
+  behaviour) has to be rebuilt from data instead of being visible in the loop. The field
+  writes after it are the same.
+
+**What it shows:** the ECS can hold the Classic simulation byte-exactly, at a cost of
+about 4x the core's clean build, about 15% run time, noisier call sites, and a family that
+is no clearer, because the lockstep's fixed order rules out what ECS is good at (queries
+in any order, parallel systems). Nothing in the simulation got simpler. The read-only
+mirror for the app's consumers remains the proposed decision; the owner chooses.
