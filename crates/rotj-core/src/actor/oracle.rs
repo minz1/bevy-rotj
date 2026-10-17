@@ -472,16 +472,8 @@ impl Routine<'_> {
                 &state.effects.projectiles,
             );
         }
-        let mut cx = Cx {
-            prg: self.prg,
-            world: &state.world,
-            slots: &mut state.slots,
-            schedule: &mut state.schedule,
-            effects: &mut state.effects,
-            scroll: &mut state.scroll,
-            oam: &mut state.oam,
-        };
-        let result = f(&mut slot, &mut state.work, &mut cx);
+        let (mut cx, work) = state.parts(self.prg);
+        let result = f(&mut slot, work, &mut cx);
         if index < 24 {
             super::slots::store_aliases(
                 &slot.body,

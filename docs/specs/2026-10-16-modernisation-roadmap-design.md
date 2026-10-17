@@ -83,6 +83,12 @@ Parked for the owner: removing `Outside`/`Brain::Unported` changes the tape form
 
 ## Phase B: levels as assets, then the core on Bevy's ECS
 
+Reordered 2026-10-17 (`docs/specs/2026-10-17-frame-steps-design.md`): B2 opens with its
+first slice (the frame's steps named, no new dependency); B3's one-family spike then comes
+before B2's resources and schedule, because the spike decides the actor walk's shape, which
+fixes `Cx` and the systems' signatures. The spike brings in `bevy_ecs` and records the
+clean-build and chain-test times.
+
 1. **Levels as assets** (before the ECS: it needs none, and it is what the editor, bonus
    levels and the community's own, kaizo, levels need): the ROM decoders become an importer
    run on the player's ROM at build time (like the embedded ROM, nothing ROM-derived

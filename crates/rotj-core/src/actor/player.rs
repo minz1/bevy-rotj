@@ -58,7 +58,8 @@ const WALK_TARGET: [i16; 3] = [0x0022, -0x0022, 0];
 /// `pad` is this frame's `$F6`. `probe` is the game's `$20-$28` working area,
 /// seeded from the frame's RAM: the ride fall-through reads landing bytes
 /// `$27/$28` a probe may have left, and those are also this call's inputs.
-pub fn step_move(pad: u8, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
+pub fn step_move(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
+    let pad = cx.world.pad;
     let mut player = cx.effects.player;
     if player.stage_script & 0x80 != 0 {
         hit!(0);
@@ -2535,9 +2536,8 @@ mod tests {
         assert_routine(&mut scene, frames, (0x800B, 4), &[0xD40B], |r| {
             *motions.entry(r.begin.ram[0x46E]).or_default() += 1;
             *scripts.entry(r.begin.ram[0x481]).or_default() += 1;
-            let pad = r.begin.ram[0xF6];
             let mut probe = Probe::lift(&r.begin.ram);
-            r.in_slot(|_, work, cx| step_move(pad, work, &mut probe, cx));
+            r.in_slot(|_, work, cx| step_move(work, &mut probe, cx));
         })
     }
 
@@ -2673,9 +2673,8 @@ mod tests {
         }
         let before = scene.machine.bus.ram[0x478];
         let checked = assert_routine(&mut scene, 4, (0x800B, 4), &[0xD40B], |r| {
-            let pad = r.begin.ram[0xF6];
             let mut probe = Probe::lift(&r.begin.ram);
-            r.in_slot(|_, work, cx| step_move(pad, work, &mut probe, cx));
+            r.in_slot(|_, work, cx| step_move(work, &mut probe, cx));
         });
         let after = scene.machine.bus.ram[0x478];
         assert!(checked >= 3, "$82B9: {checked} brackets compared");
@@ -2702,9 +2701,8 @@ mod tests {
         let spiked = scene.clone().run(4, &[0xCAA9]).len();
         assert!(spiked > 0, "the oracle never reached the spike response");
         let checked = assert_routine(&mut scene, 4, (0x800B, 4), &[0xD40B], |r| {
-            let pad = r.begin.ram[0xF6];
             let mut probe = Probe::lift(&r.begin.ram);
-            r.in_slot(|_, work, cx| step_move(pad, work, &mut probe, cx));
+            r.in_slot(|_, work, cx| step_move(work, &mut probe, cx));
         });
         assert!(checked >= 3, "$800B: {checked} brackets compared");
     }

@@ -109,6 +109,17 @@ impl Script {
     }
 }
 
+/// Where a frame resumes after the script's part (`$D45F-$D46C`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScriptFrame {
+    /// A script ran this frame; the frame is over.
+    Stepped,
+    /// The pause check, then the gameplay loop.
+    AtPauseCheck,
+    /// Past the pause check (a pause or the boot has just ended): the gameplay loop.
+    PastPauseCheck,
+}
+
 /// A routine [`Game::frame`] does not run itself and hands to its caller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outside {
@@ -144,65 +155,84 @@ impl Game {
             return;
         }
         self.scroll.ppu_ctrl &= 0xFB;
-        let mut past_pause = false;
+        match self.script_frame(prg, chr) {
+            ScriptFrame::Stepped => return,
+            ScriptFrame::AtPauseCheck if self.pause_requested() => {
+                self.start_script(Script::Pause(pause::Pause::default()), prg, chr);
+                return;
+            }
+            ScriptFrame::AtPauseCheck | ScriptFrame::PastPauseCheck => {}
+        }
+        self.loop_body(prg, outside);
+    }
+
+    /// The script's part of the frame: a running script's step, a finished one's end, or
+    /// the `$BA` dispatch (`$D4D3`) and a new script's first step.
+    fn script_frame(&mut self, prg: &[u8], chr: &[u8]) -> ScriptFrame {
         match self.script.take() {
-            Some(Script::PowerUp(power)) if power.done() => stage::PowerUp::finish(self, prg),
+            Some(Script::PowerUp(power)) if power.done() => {
+                stage::PowerUp::finish(self, prg);
+                ScriptFrame::AtPauseCheck
+            }
             Some(Script::Pause(pause)) if pause.done() => {
                 self.scroll.gate = 0xFF;
-                past_pause = true;
+                ScriptFrame::PastPauseCheck
             }
-            Some(Script::Boot(boot)) if boot.done() => past_pause = true,
-            Some(script) if script.done() => {}
-            Some(mut script) => {
-                script.step(self, prg, chr);
-                self.script = Some(script);
-                return;
+            Some(Script::Boot(boot)) if boot.done() => ScriptFrame::PastPauseCheck,
+            Some(script) if script.done() => ScriptFrame::AtPauseCheck,
+            Some(script) => {
+                self.start_script(script, prg, chr);
+                ScriptFrame::Stepped
             }
             None => {
                 self.scroll.speed_x = 0;
                 self.scroll.speed_y = 0;
-                let script = match self.effects.transition {
-                    0 => None,
-                    1 => Some(Script::RoomChange(room::RoomChange::new(
-                        self.effects.transition_arg,
-                    ))),
-                    2 => stage::stage_end(self, prg).then_some(Script::StageEnded),
-                    3 => Some(Script::NextArea(stage::NextArea::default())),
-                    4 => Some(Script::NextArea(stage::NextArea::life_lost())),
-                    5 => Some(Script::PowerUp(stage::PowerUp::default())),
-                    6 => Some(Script::Ending(ending::Ending::default())),
-                    other => panic!("$BA = {other} ($D4D3) is not ported"),
-                };
-                if let Some(mut script) = script {
-                    script.step(self, prg, chr);
-                    self.script = Some(script);
-                    return;
+                match self.dispatch_transition(prg) {
+                    Some(script) => {
+                        self.start_script(script, prg, chr);
+                        ScriptFrame::Stepped
+                    }
+                    None => ScriptFrame::AtPauseCheck,
                 }
             }
         }
-        if !past_pause && self.world.pressed & button::START != 0 && self.effects.busy & 0x80 == 0 {
-            let mut pause = pause::Pause::default();
-            pause.step(self, prg);
-            self.script = Some(Script::Pause(pause));
-            return;
+    }
+
+    /// The script `$BA` asks for (`$D4D3`), if any.
+    fn dispatch_transition(&mut self, prg: &[u8]) -> Option<Script> {
+        match self.effects.transition {
+            0 => None,
+            1 => Some(Script::RoomChange(room::RoomChange::new(
+                self.effects.transition_arg,
+            ))),
+            2 => stage::stage_end(self, prg).then_some(Script::StageEnded),
+            3 => Some(Script::NextArea(stage::NextArea::default())),
+            4 => Some(Script::NextArea(stage::NextArea::life_lost())),
+            5 => Some(Script::PowerUp(stage::PowerUp::default())),
+            6 => Some(Script::Ending(ending::Ending::default())),
+            other => panic!("$BA = {other} ($D4D3) is not ported"),
         }
+    }
+
+    /// Runs `script`'s frame and keeps it running.
+    fn start_script(&mut self, mut script: Script, prg: &[u8], chr: &[u8]) {
+        script.step(self, prg, chr);
+        self.script = Some(script);
+    }
+
+    /// Start pressed while the player may pause (`$0476`'s `$AF` busy bit clear).
+    fn pause_requested(&self) -> bool {
+        self.world.pressed & button::START != 0 && self.effects.busy & 0x80 == 0
+    }
+
+    /// The gameplay loop `$D3F9`, one step a line.
+    fn loop_body(&mut self, prg: &[u8], outside: &mut impl FnMut(Outside, &mut Game)) {
         self.oam.marking = oam::Mark::Hud;
         frame::draw_hud(self, prg);
         self.oam.marking = oam::Mark::Scene;
         step_second(prg, self);
-        let unported = |second: &slots::Second| {
-            second.kind != 0 && matches!(second.brain, families::SecondBrain::Unported)
-        };
-        if self.slots.second.iter().any(unported) {
-            outside(Outside::SecondClass, self);
-        }
-        let (pad, mut probe) = (self.world.pad, self.probe);
-        let (mut cx, work) = self.parts(prg);
-        player::step_move(pad, work, &mut probe, &mut cx);
-        self.probe = probe;
-        if self.effects.player.stage_script & 0xA0 == 0x80 {
-            (self.world.pad, self.world.pressed) = (0, 0);
-        }
+        self.report_unported_second(outside);
+        self.move_player(prg);
         scroll::speed(self, prg);
         scroll::step(self, prg);
         self.draw_player(prg, true);
@@ -211,20 +241,35 @@ impl Game {
         draw_second(prg, &self.world, &self.slots, &mut self.oam, &mut self.work);
         #[cfg(test)]
         oracle::overflow_at(0xD43B, self.work.cpu_overflow);
-        let mut cx = Cx {
-            prg,
-            world: &self.world,
-            slots: &mut self.slots,
-            schedule: &mut self.schedule,
-            effects: &mut self.effects,
-            scroll: &mut self.scroll,
-            oam: &mut self.oam,
-        };
-        weapons::step(&mut self.work, &mut cx);
+        let (mut cx, work) = self.parts(prg);
+        weapons::step(work, &mut cx);
         step_actors(prg, self);
         self.oam.finish();
         frame::animate_chr(self);
         frame::queue_palette(self);
+    }
+
+    /// Hands the second-class update to the caller when a live second-class type is
+    /// unported ([`Outside::SecondClass`]).
+    fn report_unported_second(&mut self, outside: &mut impl FnMut(Outside, &mut Game)) {
+        let unported = |second: &slots::Second| {
+            second.kind != 0 && matches!(second.brain, families::SecondBrain::Unported)
+        };
+        if self.slots.second.iter().any(unported) {
+            outside(Outside::SecondClass, self);
+        }
+    }
+
+    /// Batman's move (bank 4 `$8000`), then the pads cleared while a stage script holds
+    /// him (`$D40E`: `$0481` bits 7 and 5 = `10`).
+    fn move_player(&mut self, prg: &[u8]) {
+        let mut probe = self.probe;
+        let (mut cx, work) = self.parts(prg);
+        player::step_move(work, &mut probe, &mut cx);
+        self.probe = probe;
+        if self.effects.player.stage_script & 0xA0 == 0x80 {
+            (self.world.pad, self.world.pressed) = (0, 0);
+        }
     }
 
     /// True once GAME OVER has run its course, or the password screen's Select or the
@@ -241,19 +286,11 @@ impl Game {
     /// Batman's animate-and-draw (bank 4 `$84AB`), or the draw alone (`$94A6`).
     pub fn draw_player(&mut self, prg: &[u8], animate: bool) {
         let (mut pressed, mut pad) = (self.world.pressed, self.world.pad);
-        let mut cx = Cx {
-            prg,
-            world: &self.world,
-            slots: &mut self.slots,
-            schedule: &mut self.schedule,
-            effects: &mut self.effects,
-            scroll: &mut self.scroll,
-            oam: &mut self.oam,
-        };
+        let (mut cx, work) = self.parts(prg);
         if animate {
-            player::step_draw(&mut pressed, &mut pad, &mut self.work, &mut cx);
+            player::step_draw(&mut pressed, &mut pad, work, &mut cx);
         } else {
-            player::draw_player(&mut self.work, &mut cx);
+            player::draw_player(work, &mut cx);
         }
         (self.world.pressed, self.world.pad) = (pressed, pad);
     }
@@ -307,65 +344,45 @@ pub struct Vblank {
 
 /// One pass of the actor loop over slots 23 down to 0 (bank 14 `$CED5`).
 pub fn step_actors(prg: &[u8], game: &mut Game) {
-    let world = &game.world;
-    let slots = &mut game.slots;
-    let schedule = &mut game.schedule;
-    let effects = &mut game.effects;
-    let scroll = &mut game.scroll;
-    let oam = &mut game.oam;
-    let work = &mut game.work;
-    for index in (0..slots.main.len()).rev() {
-        if slots.main[index].kind == 0 {
+    for index in (0..game.slots.main.len()).rev() {
+        if game.slots.main[index].kind == 0 {
             continue;
         }
-        let mut slot = std::mem::take(&mut slots.main[index]);
-        slots.main[index].kind = slot.kind;
-        slots::load_aliases(&mut slot.body, index, slots, &effects.projectiles);
-        let mut cx = Cx {
-            prg,
-            world,
-            slots: &mut *slots,
-            schedule: &mut *schedule,
-            effects: &mut *effects,
-            scroll: &mut *scroll,
-            oam: &mut *oam,
-        };
-        work.slot = u8::try_from(index).expect("24 main slots");
+        let mut slot = std::mem::take(&mut game.slots.main[index]);
+        game.slots.main[index].kind = slot.kind;
+        slots::load_aliases(
+            &mut slot.body,
+            index,
+            &game.slots,
+            &game.effects.projectiles,
+        );
+        game.work.slot = u8::try_from(index).expect("24 main slots");
         let running = slot.kind;
+        let (mut cx, work) = game.parts(prg);
         families::step(&mut slot, work, &mut cx);
-        slots::store_aliases(&slot.body, index, slots, &mut effects.projectiles);
-        if slot.kind != 0 || slots.main[index].kind == running {
-            slots.main[index] = slot;
+        slots::store_aliases(
+            &slot.body,
+            index,
+            &mut game.slots,
+            &mut game.effects.projectiles,
+        );
+        if slot.kind != 0 || game.slots.main[index].kind == running {
+            game.slots.main[index] = slot;
         }
     }
 }
 
 /// One pass of the second-class loop over slots 31 down to 24 (bank 14 `$CE7F`).
 pub fn step_second(prg: &[u8], game: &mut Game) {
-    let world = &game.world;
-    let slots = &mut game.slots;
-    let schedule = &mut game.schedule;
-    let effects = &mut game.effects;
-    let scroll = &mut game.scroll;
-    let oam = &mut game.oam;
-    let work = &mut game.work;
-    for index in (0..slots.second.len()).rev() {
-        if slots.second[index].kind == 0 {
+    for index in (0..game.slots.second.len()).rev() {
+        if game.slots.second[index].kind == 0 {
             continue;
         }
-        let mut second = std::mem::take(&mut slots.second[index]);
-        slots.second[index].kind = second.kind;
-        let mut cx = Cx {
-            prg,
-            world,
-            slots: &mut *slots,
-            schedule: &mut *schedule,
-            effects: &mut *effects,
-            scroll: &mut *scroll,
-            oam: &mut *oam,
-        };
+        let mut second = std::mem::take(&mut game.slots.second[index]);
+        game.slots.second[index].kind = second.kind;
+        let (mut cx, work) = game.parts(prg);
         families::step_second(index, &mut second, work, &mut cx);
-        slots.second[index] = second;
+        game.slots.second[index] = second;
     }
 }
 
