@@ -225,6 +225,13 @@ New candidates, each to be classified (state, flags, table index) before it chan
   (`docs/specs/2026-10-17-levels-as-assets-design.md`).
 - Levels as assets, slice 2: a room's spawn records are typed `SpawnRecord`s, the schedule
   cell bits `CELL_*` (`docs/specs/2026-10-17-spawn-records-design.md`).
+- Released as 1.1.2: every family's phase machine is a `Phase` enum (`phases!`), the
+  other phase values named constants, the shared state bits `STATE_DROPS_PICKUP` and
+  `STATE_UNTARGETED` (`docs/specs/2026-10-17-family-phases-design.md`); levels as assets,
+  slices 3-5: `rooms::Room` with the screen record, the orientation bits, and
+  `collision::Surface` (`docs/specs/2026-10-17-rooms-design.md`,
+  `-screens-design.md`, `-surfaces-design.md`); scripts as data: `actor::script`'s runner
+  under the ending and the cutscene (`docs/specs/2026-10-17-scripts-as-data-design.md`).
 - Next for the families: `Brain`'s declaration, `new` and `lift` still repeat the list; one
   declaration macro could generate them from it.
 
