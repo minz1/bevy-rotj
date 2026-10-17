@@ -802,9 +802,9 @@ impl Port<'_, '_> {
             return;
         }
         self.cx.effects.attack &= 0x80;
-        let held = (self.cx.effects.attack & 0x80) << 1;
-        self.player.pose = held;
-        self.player.walk_gate = Buttons::from_bits(held);
+        // `ASL` of `$B8 & $80` shifts the bit out: both always get 0.
+        self.player.pose = 0;
+        self.player.walk_gate = Buttons::NONE;
         self.pressed &= Buttons::START;
         self.pad &= Buttons::START;
         self.player.facing = if self.cx.world.frame & 0x04 != 0 {

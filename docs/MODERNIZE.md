@@ -208,9 +208,9 @@ New candidates, each to be classified (state, flags, table index) before it chan
 - Released as 1.1.4: the pad as `Buttons` (`docs/specs/2026-10-17-buttons-design.md`;
   the core has no `Action` enum, remapping is the app's) and the boot's linear parts as
   script tables (`docs/specs/2026-10-17-boot-tables-design.md`).
-- **A lead (unreached):** `player.rs`'s `stun` computes `held = (attack & 0x80) << 1` on a
-  byte, which is always 0; probably a faithful `ASL` whose carry the game ignores, worth a
-  look against the listing.
+- **Resolved (2026-10-17):** `stun`'s `held = (attack & $80) << 1` was always 0, and so
+  is the ROM's (`$92E8`: `AND #$80`, `ASL`, `STA $047F`, `STA $0470`); the port now writes
+  the zeros plainly.
 - **A lead (unreached):** a running slot 16+c that writes slot c's aliased bytes through
   `cx` (slot c's narrow fields, `Anim`, `DyingTimer`) has those writes undone by
   `store_aliases` when it finishes; in the game the write stands. No lockstep reaches it
