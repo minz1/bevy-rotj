@@ -29,6 +29,8 @@ const RESTORED_HEALTH: u16 = 3;
 /// The hit reaction's drop-back on y (`$89B9`).
 const HIT_DROP: u16 = 0x04C0;
 
+/// The lifetime count from which it draws only on frames where bit 1 is set.
+const FLICKER: u8 = 0x80;
 /// Type `$70` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -63,7 +65,7 @@ impl State {
         }
         // `$8A07`: below `$80` it draws every frame; in `$80-$AF` only when the
         // counter's bit 1 is set, storing (and contacting) otherwise.
-        if body.phase < 0x80 || body.phase & 0x02 != 0 {
+        if body.phase < FLICKER || body.phase & 0x02 != 0 {
             draw(body, work, cx);
         }
         if work.anchor & 0x40 == 0 {

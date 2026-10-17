@@ -33,6 +33,12 @@ const BLACK: u8 = 0x0F;
 /// What the attack drains from `$B2:$B3` (`$981D`).
 const DRAIN: u16 = 0x03E8;
 
+/// The frame counter (`$7DD0`) at the start of the landing frames.
+const LANDING_START: u8 = 0;
+/// The frame counter at the start of the flash.
+const FLASH_START: u8 = 0;
+/// The frame counter the fall animation rewinds to once it passes its last frame.
+const FALL_LOOP: u8 = 0x18;
 /// Type `$46` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -69,13 +75,13 @@ fn fall(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) -> bool {
     if y_high >= FLOOR_ROW {
         cx.effects.sound[1] = LANDING_SOUND;
         work.y = u16::from_be_bytes([FLOOR_ROW, 0]);
-        body.phase = 0;
+        body.phase = LANDING_START;
         body.timer = LANDED;
         return true;
     }
     let mut index = (body.phase >> 2) & 0xFE;
     if index >= 6 {
-        body.phase = 0x18;
+        body.phase = FALL_LOOP;
         index = 4;
     }
     work.pointer = engine::rom_word(cx.prg, HOME_BANK, FALLING_SPRITES + u16::from(index));
@@ -94,7 +100,7 @@ fn land(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if body.phase >= LANDING_FRAMES {
         cx.effects.sound[1] = FLASH_SOUND;
         body.timer = FLASHING;
-        body.phase = 0;
+        body.phase = FLASH_START;
     }
 }
 

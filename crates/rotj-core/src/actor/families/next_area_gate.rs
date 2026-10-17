@@ -19,6 +19,8 @@ const MUSIC: u8 = 0xFC;
 /// The countdown's first value (`$898F`).
 const COUNTDOWN: u8 = 0xC0;
 
+/// The countdown's end: `$7DD0` reaching it arms the transition.
+const ELAPSED: u8 = 0;
 /// Type `$32` keeps its whole state in [`Body`] (`$7D90`, `$7DF0`, `$7DD0`,
 /// `$7D50`, `$7EF0`/`$7BE0`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -38,7 +40,7 @@ impl State {
             if body.timer & 0x80 != 0 {
                 // $8970, $8996: count the `$7DD0` timer down.
                 body.phase = body.phase.wrapping_sub(1);
-                if body.phase != 0 {
+                if body.phase != ELAPSED {
                     cx.effects.scroll_lock = 0xFF;
                     return;
                 }

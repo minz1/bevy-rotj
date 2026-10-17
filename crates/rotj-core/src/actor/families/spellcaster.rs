@@ -19,6 +19,8 @@ const HITBOX: u8 = 0x0C;
 const DAMAGE: u8 = 4;
 const CHILD: u8 = 0x24;
 
+/// `$7DD0` bit 7: it has been drawn on screen, so leaving the screen frees it.
+const DRAWN: u8 = 0x80;
 /// Type `$6C` keeps its state in [`Body`]: `$7E10` arms the shooting spell,
 /// `$7E90` counts it, `$7DF0` is the rest timer and `$7DD0` only an "on screen"
 /// flag (`$80`).
@@ -35,7 +37,7 @@ impl State {
         work.attr |= body.flags;
         engine::integrate(body, work);
         if engine::on_screen(work, cx.world) != Visibility::On {
-            if body.phase & 0x80 != 0 {
+            if body.phase & DRAWN != 0 {
                 *kind = 0;
             } else {
                 engine::store(body, work);
@@ -47,7 +49,7 @@ impl State {
         } else {
             rest(body, work);
         }
-        body.phase = 0x80;
+        body.phase = DRAWN;
         work.pointer = engine::rom_word(cx.prg, 0, METASPRITES + u16::from(body.sprite));
         engine::tile_bits(work, cx.prg);
         engine::draw(work, SPRITE_BANK, cx);

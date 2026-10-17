@@ -28,7 +28,7 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$9ADE`; `$7DD0` bit 7 parks it, `$7DF0` picks the side).
     pub fn step(&mut self, _kind: &mut u8, body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
-        if body.phase & 0x80 != 0 || cx.world.frame_odd {
+        if body.phase & FIRED != 0 || cx.world.frame_odd {
             return;
         }
         if body.counter < RELOAD {

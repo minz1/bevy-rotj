@@ -19,6 +19,10 @@ const X_LOW: u16 = 0xC6F2;
 /// The type `$14` child written at `$8D19`.
 const CHILD: u8 = 0x14;
 
+/// How many scenery phases there are (`$7DD0` wraps back at this count).
+const PHASE_COUNT: u8 = 0x10;
+/// The phase `$7DD0` wraps back to.
+const FIRST_PHASE: u8 = 0;
 /// Type `$12` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -43,8 +47,8 @@ impl State {
         cx.effects.sound[0] = 0x3D;
         spawn(slot, body.phase, cx);
         body.phase = body.phase.wrapping_add(1);
-        if body.phase >= 0x10 {
-            body.phase = 0;
+        if body.phase >= PHASE_COUNT {
+            body.phase = FIRST_PHASE;
             body.timer = 0;
             body.counter = 0;
         }

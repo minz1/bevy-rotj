@@ -22,6 +22,8 @@ const DAMAGE: u8 = 2;
 const END: u8 = 0x88;
 const PARENT: u8 = 0x2E;
 
+/// `$7DD0` bit 7, set by the `$2E` when it throws: until then the child does nothing.
+pub const THROWN: u8 = 0x80;
 /// Type `$30` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -29,7 +31,7 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$887A`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-        if body.phase & 0x80 == 0 {
+        if body.phase & THROWN == 0 {
             return;
         }
         engine::load(body, work);

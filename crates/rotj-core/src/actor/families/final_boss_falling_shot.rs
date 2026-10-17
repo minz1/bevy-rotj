@@ -31,6 +31,10 @@ const FREE_ROW: u8 = 0x0B;
 /// Frames of the parked fall before the slot frees (`$7D90` reaches `$20`).
 const FALL_FRAMES: u8 = 0x20;
 
+/// `$7DD0` as the x step's high byte once parked: `$FF` makes the step negative (leftward).
+const LEFTWARD: u8 = 0xFF;
+/// `$7DD0` as the x step's high byte once parked: 0 makes the step positive (rightward).
+const RIGHTWARD: u8 = 0;
 /// Type `$BC` keeps its whole state in [`Body`] (`$7DB0`/`$7DD0` the x step,
 /// `$7DF0`/`$7E10` the y step, `$7E90` the fall latch, `$7D90` the countdown).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -76,10 +80,10 @@ impl State {
             body.timer = 0xC0;
             let [seed, noise] = cx.world.rng;
             if seed & 0x80 != 0 {
-                body.phase = 0xFF;
+                body.phase = LEFTWARD;
                 body.subtype = noise | 0xF0;
             } else {
-                body.phase = 0;
+                body.phase = RIGHTWARD;
                 body.subtype = noise & 0x0F;
             }
         }

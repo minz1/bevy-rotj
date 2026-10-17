@@ -17,6 +17,8 @@ const DAMAGE: u8 = 4;
 const STEP: u8 = 3;
 const SHIFT_X: u16 = 0xFFD8;
 
+/// `$7DD0` bit 7: the offset runs back up toward zero; clear, it runs down.
+const RISING: u8 = 0x80;
 /// Type `$74` keeps its direction, offset and hold flag in [`Body`] (`$7DD0`, `$7DF0:$7E10`, `$7E90`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -28,7 +30,7 @@ impl State {
         if body.anim & 0x80 != 0 {
             work.vy = 0;
         } else {
-            let falling = body.phase & 0x80 == 0;
+            let falling = body.phase & RISING == 0;
             let (timer, carry) = if falling {
                 body.timer.overflowing_add(STEP)
             } else {

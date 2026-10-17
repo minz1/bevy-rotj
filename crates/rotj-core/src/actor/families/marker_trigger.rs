@@ -21,6 +21,8 @@ const SPAWNED: u8 = 0x80;
 /// The type the `$8D84` helper spawns.
 const MARKER: u8 = 0x7A;
 
+/// The phase while the player is above row `$0C`: no marker spawned yet.
+const WAITING: u8 = 0;
 /// Type `$78` keeps its whole state in [`Body`] (`$7DD0` only).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -30,12 +32,12 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
         let player = cx.effects.player;
         if player.y.to_be_bytes()[0] < ROW {
-            body.phase = 0;
+            body.phase = WAITING;
             return;
         }
         // `bmi`: the `$80` latch is the "already spawned" flag, so the handler
         // does nothing on later frames.
-        if body.phase & 0x80 != 0 {
+        if body.phase & SPAWNED != 0 {
             return;
         }
         body.phase = SPAWNED;

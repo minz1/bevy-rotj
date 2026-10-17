@@ -7,6 +7,8 @@ use crate::actor::world::Cx;
 /// The type the handler hands to the highest free main slot.
 const CHILD: u8 = 0x96;
 
+/// `$7DD0` bit 7: a child is out, so the spawner idles until its death clears the bit.
+const SPAWNED: u8 = 0x80;
 /// Type `$94` keeps its whole state in [`Body`] (`$7DD0` phase, `$7E90` counter).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -18,7 +20,7 @@ impl State {
             *kind = 0;
             return;
         }
-        if body.phase & 0x80 != 0 || !cx.world.frame_odd {
+        if body.phase & SPAWNED != 0 || !cx.world.frame_odd {
             return;
         }
         body.anim = body.anim.wrapping_sub(1);
@@ -28,7 +30,7 @@ impl State {
         let Some(index) = (0..16).rev().find(|&y| cx.slots.main[y].kind == 0) else {
             return;
         };
-        body.phase = 0x80;
+        body.phase = SPAWNED;
         body.anim = 0x80;
         let parent = work.slot;
         let child = &mut cx.slots.main[index];

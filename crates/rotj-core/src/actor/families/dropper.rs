@@ -178,7 +178,7 @@ fn throw_child(body: &Body, work: &mut Work, cx: &mut Cx<'_>) {
     let lo = engine::rom_byte(cx.prg, BANK, table + reach);
     let player_y = cx.effects.player.y.to_be_bytes();
     let child = &mut cx.slots.main[usize::from(body.anim)].body;
-    child.phase = 0x80;
+    child.phase = super::dropper_payload::THROWN;
     child.y = work.y.wrapping_sub(0x03B0);
     child.vy = -0x40;
     child.anim = 0;

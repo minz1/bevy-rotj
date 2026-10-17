@@ -13,23 +13,27 @@ const METASPRITES: u16 = 0x94A0;
 const CHILD: u8 = 0x20;
 /// `$937F`'s gate: the sprite only rolls on frames where `$F1 & 3` is clear.
 const FRAME_MASK: u8 = 0x03;
+/// `$7DD0` while it hovers; any other value rears a child.
+const HOVERING: u8 = 0;
+/// `$7DD0` while it rears a child.
+const REARING: u8 = 1;
 
 /// Type `$1E` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
 impl State {
-    /// One frame of the handler (`$9364`; `$7DD0` 0 hovers, 1 rears a child).
+    /// One frame of the handler (`$9364`): hovering, then rearing a child.
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         if engine::dying(kind, body, work, 0x80, cx) {
             return;
         }
         work.attr = (body.flags | work.attr) & 0xDF;
-        if body.phase == 0 {
-            phase0(body, work, cx);
+        if body.phase == HOVERING {
+            hovering(body, work, cx);
         } else {
-            phase1(body, work, cx);
+            rearing(body, work, cx);
         }
         if engine::on_screen(work, cx.world) != Visibility::On {
             engine::despawn(kind, body, CELL_PENDING, cx.schedule);
@@ -46,9 +50,9 @@ impl State {
     }
 }
 
-/// Phase 0 (`$937F`): the RNG picks a sprite until the player comes level, then
+/// Hovering (`$937F`): the RNG picks a sprite until the player comes level, then
 /// the actor rears a child.
-fn phase0(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+fn hovering(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if cx.world.frame & FRAME_MASK == 0 {
         body.counter = if cx.world.rng[0] >= 0xE8 { 8 } else { 0 };
     }
@@ -61,14 +65,14 @@ fn phase0(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     } else {
         let dy = engine::player_dy(work, &cx.effects.player);
         if (dy.unsigned_abs() >> 8) as u8 & 0x0F < 3 {
-            body.phase = 1;
+            body.phase = REARING;
             body.anim = 0;
         }
     }
 }
 
-/// Phase 1 (`$93D0`): count to `$20` in `$7E90`, re-arming a `$20` child at 4.
-fn phase1(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+/// Rearing (`$93D0`): count to `$20` in `$7E90`, re-arming a `$20` child at 4.
+fn rearing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if body.anim == 0 {
         face(work, engine::player_dx(work, &cx.effects.player));
     }
@@ -79,7 +83,7 @@ fn phase1(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         spawn_child(body, slot, cx);
     }
     if body.anim == 0x20 {
-        body.phase = 0;
+        body.phase = HOVERING;
         body.counter = 0;
         body.timer = 0x80;
     } else {
@@ -87,7 +91,7 @@ fn phase1(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     }
 }
 
-/// Turns to face the player `dx` away (`$939C`; phase 0 only from `$200` away, phase 1's
+/// Turns to face the player `dx` away (`$939C`; hovering only from `$200` away, rearing's
 /// `$93D8` at any distance).
 fn face(work: &mut Work, dx: i16) {
     work.attr = (work.attr & 0x03) | engine::face(dx);

@@ -6,6 +6,9 @@ use crate::actor::engine::Work;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
+/// `$7DD0` after the 16th step wrapped past `$F0`: the erase is done and the slot frees.
+const WRAPPED: u8 = 0;
+
 /// Type `$56` keeps no state outside [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -14,7 +17,7 @@ impl State {
     /// One frame of the handler (`$9DF9`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
         body.phase = body.phase.wrapping_add(0x10);
-        if body.phase == 0 {
+        if body.phase == WRAPPED {
             *kind = 0;
             return;
         }

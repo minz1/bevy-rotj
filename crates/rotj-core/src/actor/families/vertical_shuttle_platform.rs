@@ -6,6 +6,8 @@ use crate::actor::world::Cx;
 const STEP: u8 = 0x18;
 const LIMIT: u16 = 0x7BF0;
 
+/// `$7DD0` when the platform turns to go down: the cleared state.
+const REST: u8 = 0;
 /// The platform keeps its direction (`state` bits 2-3) and travel (`timer:health`) in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -34,7 +36,7 @@ impl State {
             body.state ^= 0x0C;
             if body.state & 0x08 == 0 {
                 body.subtype = 0;
-                body.phase = 0;
+                body.phase = REST;
             }
         }
     }

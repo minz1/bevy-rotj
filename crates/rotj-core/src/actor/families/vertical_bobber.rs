@@ -25,6 +25,8 @@ const DOWN_CLAMP: u8 = 0xE0;
 /// The bob's positive clamp (`$86B8`).
 const UP_CLAMP: u8 = 0x20;
 
+/// `$7DD0` bit 7: it has been drawn on screen, so leaving the screen frees it.
+const DRAWN: u8 = 0x80;
 /// Type `$66` keeps its whole state in [`Body`] (`$7DD0`, `$7D90`, `$7E70:$7E80`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -41,14 +43,14 @@ impl State {
         engine::integrate(body, work);
         if engine::on_screen(work, cx.world) != Visibility::On {
             // `$86F0` -> `$8908`: free a slot that has been drawn, else just store.
-            if body.phase & 0x80 != 0 {
+            if body.phase & DRAWN != 0 {
                 *kind = 0;
             } else {
                 engine::store(body, work);
             }
             return;
         }
-        body.phase = 0x80;
+        body.phase = DRAWN;
         work.pointer = engine::rom_word(cx.prg, 0, METASPRITE_PTR);
         engine::tile_bits(work, cx.prg);
         engine::draw(work, DRAW_BANK, cx);
