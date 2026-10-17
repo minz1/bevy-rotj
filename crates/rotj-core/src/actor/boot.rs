@@ -12,6 +12,7 @@ use super::stage::{Fade, NextArea, blackout, queue_palette};
 use crate::actor::button::Buttons;
 use crate::actor::world::{Weapon, set_first_colours};
 use crate::levelmap::BOOT_FIRST_BANK;
+use crate::prg::Prg;
 
 /// The WRAM byte at `addr` once `$98C3` has copied the payload (CHR `$F0-$F7`, in order).
 fn payload_byte(chr: &[u8], addr: u16) -> u8 {
@@ -426,7 +427,7 @@ impl Boot {
     }
 
     /// Runs one frame up to its NMI wait.
-    pub fn step(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) {
+    pub fn step(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) {
         if std::mem::take(&mut self.check) && game.world.pressed.intersects(Buttons::ACCEPT) {
             self.begin(Step::TitleSetup);
         }
@@ -435,7 +436,7 @@ impl Boot {
 
     /// One step's part of the frame: true when it ended at the NMI wait, false when the
     /// next step runs in the same frame.
-    fn frame(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
+    fn frame(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) -> bool {
         match self.step {
             Step::Power => self.power_frame(game, prg, chr),
             Step::Intro => self.intro_frame(game, chr),

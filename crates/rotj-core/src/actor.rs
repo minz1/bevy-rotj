@@ -27,6 +27,7 @@ mod tape;
 pub mod weapons;
 pub mod world;
 
+use crate::prg::Prg;
 use button::Buttons;
 use engine::Work;
 use oam::OamBuilder;
@@ -97,7 +98,7 @@ impl Script {
         }
     }
 
-    fn step(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) {
+    fn step(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) {
         match self {
             Script::RoomChange(change) => change.step(game, prg),
             Script::NextArea(load) => load.step(game, prg, chr),
@@ -131,7 +132,7 @@ pub enum Outside {
 
 impl Game {
     /// The handler context over this state, and the working registers beside it.
-    pub fn parts<'a>(&'a mut self, prg: &'a [u8]) -> (Cx<'a>, &'a mut Work) {
+    pub fn parts<'a>(&'a mut self, prg: &'a Prg) -> (Cx<'a>, &'a mut Work) {
         let cx = Cx {
             prg,
             world: &self.world,
@@ -151,7 +152,7 @@ impl Game {
     ///
     /// # Panics
     /// On a `$BA` past the dispatch table's seven entries (`$D60D`).
-    pub fn frame(&mut self, prg: &[u8], chr: &[u8], outside: &mut impl FnMut(Outside, &mut Game)) {
+    pub fn frame(&mut self, prg: &Prg, chr: &[u8], outside: &mut impl FnMut(Outside, &mut Game)) {
         if self.oam.hung {
             return;
         }
@@ -169,7 +170,7 @@ impl Game {
 
     /// The script's part of the frame: a running script's step, a finished one's end, or
     /// the `$BA` dispatch (`$D4D3`) and a new script's first step.
-    fn script_frame(&mut self, prg: &[u8], chr: &[u8]) -> ScriptFrame {
+    fn script_frame(&mut self, prg: &Prg, chr: &[u8]) -> ScriptFrame {
         match self.script.take() {
             Some(Script::PowerUp(power)) if power.done() => {
                 stage::PowerUp::finish(self, prg);
@@ -200,7 +201,7 @@ impl Game {
     }
 
     /// The script `$BA` asks for (`$D4D3`), if any.
-    fn dispatch_transition(&mut self, prg: &[u8]) -> Option<Script> {
+    fn dispatch_transition(&mut self, prg: &Prg) -> Option<Script> {
         match self.effects.transition {
             0 => None,
             1 => Some(Script::RoomChange(room::RoomChange::new(
@@ -216,7 +217,7 @@ impl Game {
     }
 
     /// Runs `script`'s frame and keeps it running.
-    fn start_script(&mut self, mut script: Script, prg: &[u8], chr: &[u8]) {
+    fn start_script(&mut self, mut script: Script, prg: &Prg, chr: &[u8]) {
         script.step(self, prg, chr);
         self.script = Some(script);
     }
@@ -227,7 +228,7 @@ impl Game {
     }
 
     /// The gameplay loop `$D3F9`, one step a line.
-    fn loop_body(&mut self, prg: &[u8], outside: &mut impl FnMut(Outside, &mut Game)) {
+    fn loop_body(&mut self, prg: &Prg, outside: &mut impl FnMut(Outside, &mut Game)) {
         self.oam.marking = oam::Mark::Hud;
         frame::draw_hud(self, prg);
         self.oam.marking = oam::Mark::Scene;
@@ -263,7 +264,7 @@ impl Game {
 
     /// Batman's move (bank 4 `$8000`), then the pads cleared while a stage script holds
     /// him (`$D40E`: `$0481` bits 7 and 5 = `10`).
-    fn move_player(&mut self, prg: &[u8]) {
+    fn move_player(&mut self, prg: &Prg) {
         let mut probe = self.probe;
         let (mut cx, work) = self.parts(prg);
         player::step_move(work, &mut probe, &mut cx);
@@ -287,7 +288,7 @@ impl Game {
     }
 
     /// Batman's animate-and-draw (bank 4 `$84AB`), or the draw alone (`$94A6`).
-    pub fn draw_player(&mut self, prg: &[u8], animate: bool) {
+    pub fn draw_player(&mut self, prg: &Prg, animate: bool) {
         let (mut pressed, mut pad) = (self.world.pressed, self.world.pad);
         let (mut cx, work) = self.parts(prg);
         if animate {
@@ -346,7 +347,7 @@ pub struct Vblank {
 }
 
 /// One pass of the actor loop over slots 23 down to 0 (bank 14 `$CED5`).
-pub fn step_actors(prg: &[u8], game: &mut Game) {
+pub fn step_actors(prg: &Prg, game: &mut Game) {
     for index in (0..game.slots.main.len()).rev() {
         if game.slots.main[index].kind == 0 {
             continue;
@@ -376,7 +377,7 @@ pub fn step_actors(prg: &[u8], game: &mut Game) {
 }
 
 /// One pass of the second-class loop over slots 31 down to 24 (bank 14 `$CE7F`).
-pub fn step_second(prg: &[u8], game: &mut Game) {
+pub fn step_second(prg: &Prg, game: &mut Game) {
     for index in (0..game.slots.second.len()).rev() {
         if game.slots.second[index].kind == 0 {
             continue;
@@ -497,7 +498,12 @@ mod tests {
     }
 
     fn replay_chain(tape: &Tape, rom: &Rom) -> GameRun {
-        replay(CHAIN, tape, &rom.prg, &rom.chr)
+        replay(
+            CHAIN,
+            tape,
+            crate::prg::for_test().expect("the test ROM"),
+            &rom.chr,
+        )
     }
 
     /// The chain's counts, which its tape's replay reproduces.
@@ -1959,15 +1965,16 @@ mod tests {
         let Some(rom) = rotj_rom::for_test() else {
             return;
         };
-        let mut game = super::room::start(&rom.prg, &rom.chr, 0);
+        let prg = crate::prg::for_test().expect("the test ROM");
+        let mut game = super::room::start(prg, &rom.chr, 0);
         let mut labels = 0;
         for _ in 0..8 {
             game.nmi(0);
             let mut alone = game.clone();
             alone.oam.clear();
             alone.oam.marking = super::oam::Mark::Hud;
-            super::frame::draw_hud(&mut alone, &rom.prg);
-            game.frame(&rom.prg, &rom.chr, &mut |_, _| {});
+            super::frame::draw_hud(&mut alone, prg);
+            game.frame(prg, &rom.chr, &mut |_, _| {});
             for mark in [super::oam::Mark::Hud, super::oam::Mark::Label] {
                 assert_eq!(
                     marked(&game.oam, mark),

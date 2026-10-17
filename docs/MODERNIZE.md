@@ -207,6 +207,11 @@ New candidates, each to be classified (state, flags, table index) before it chan
   keeps no Bevy resources, so typed tables travel beside `prg`: one decision for all the
   groups (e.g. the `prg: &[u8]` threaded through `Game`, `Cx` and the oracle becomes one
   struct holding the PRG and the imported tables), made in the first slice's spec.
+  **Decided and slice 1 done (1.1.8, `docs/specs/2026-10-17-behaviour-tables-design.md`):**
+  `prg::Prg` owns the image and the imported tables and derefs to the bytes, so only the
+  path to `Cx` takes `&Prg`; the hitboxes are `engine::Hitboxes` (the survey's 12 reads plus
+  `touch`'s `$AF2A`/`$AF31`, which it missed). Next: the family constants, then the player
+  and weapons, each as fields on `Prg`.
 - **The overflow flag carried between routines**: `Work::cpu_overflow` mirrors the 6502's V
   for one reader, `$9790` (weapon 5's charge waits while V is set), which sees whatever
   the last V-setting routine left (`bit`'s 52 callers in `player.rs`, the OAM draw, the

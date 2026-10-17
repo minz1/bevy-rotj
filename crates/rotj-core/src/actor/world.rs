@@ -648,8 +648,8 @@ impl Rng {
 
 /// What a handler may touch besides its own slot.
 pub struct Cx<'a> {
-    /// PRG image (or the shipped slice); ROM data decodes from it.
-    pub prg: &'a [u8],
+    /// The PRG image and its tables.
+    pub prg: &'a crate::prg::Prg,
     /// Read-only state.
     pub world: &'a World,
     /// The other slots; the running actor's own slot holds only its `kind` meanwhile.

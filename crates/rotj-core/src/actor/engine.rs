@@ -84,6 +84,62 @@ pub(crate) fn rom_word(prg: &[u8], bank: u8, addr: u16) -> u16 {
     u16::from_le_bytes([rom_byte(prg, bank, addr), rom_byte(prg, bank, addr + 1)])
 }
 
+/// How close the player must be to touch an actor, in pixels.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Hitbox {
+    /// Most x distance.
+    pub half_width: u8,
+    /// Most distance the player, or a projectile, may be above the actor.
+    pub height: u8,
+}
+
+/// The hit-box tables (banks 13 and 14), each by [`Work::hitbox`] unless noted.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Hitboxes {
+    /// [`contact`]'s (`$ABB2`, `$ABC1`).
+    pub actors: [Hitbox; 15],
+    /// [`projectile_hits`]' x reach (`$ABD0`).
+    pub actor_projectile_half_widths: [u8; 15],
+    /// [`boss_contact`]'s (`$B0F9`, `$B0FE`).
+    pub bosses: [Hitbox; 5],
+    /// [`boss_contact`]'s x reach for projectiles (`$B103`).
+    pub boss_projectile_half_widths: [u8; 5],
+    /// [`touch`]'s, for actors that only hurt (`$AF2A`, `$AF31`).
+    pub hazards: [Hitbox; 7],
+    /// [`player_proximity`]'s, whose callers all use hit box 0 (`$A0A7`, `$A0A8`).
+    pub exit: Hitbox,
+    /// Most x distance to ride a second-class platform, by its `scratch` (bank 14 `$CE7D`).
+    pub platform_half_widths: [u8; 2],
+}
+
+impl Hitboxes {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Hitboxes {
+        let bytes =
+            |bank, addr: u16| bank_slice(prg, bank, addr & 0x1FFF).expect("address inside PRG");
+        let table = |half_width, height| {
+            let (x, y) = (bytes(13, half_width), bytes(13, height));
+            move |id: usize| Hitbox {
+                half_width: x[id],
+                height: y[id],
+            }
+        };
+        let widths = |addr| {
+            let x = bytes(13, addr);
+            move |id: usize| x[id]
+        };
+        Hitboxes {
+            actors: std::array::from_fn(table(0xABB2, 0xABC1)),
+            actor_projectile_half_widths: std::array::from_fn(widths(0xABD0)),
+            bosses: std::array::from_fn(table(0xB0F9, 0xB0FE)),
+            boss_projectile_half_widths: std::array::from_fn(widths(0xB103)),
+            hazards: std::array::from_fn(table(0xAF2A, 0xAF31)),
+            exit: table(0xA0A7, 0xA0A8)(0),
+            platform_half_widths: std::array::from_fn(|id| bytes(14, 0xCE7D)[id]),
+        }
+    }
+}
+
 /// Loads the slot into the working set (`$A000`).
 pub fn load(body: &Body, work: &mut Work) {
     work.x = body.x;
@@ -517,14 +573,13 @@ pub fn draw_metasprite(work: &mut Work, sprite: &Metasprite, cx: &mut Cx<'_>) {
     work.cpu_overflow = cx.oam.draw(sprite, call, cx.world.frame_odd);
 }
 
-fn overlaps(work: &Work, player: &Player, x_table: u16, y_table: u16, prg: &[u8]) -> bool {
-    let hitbox = u16::from(work.hitbox);
+fn overlaps(work: &Work, player: &Player, hitbox: Hitbox) -> bool {
     let near_y = if work.screen_y < player.screen_y {
         player.screen_y - work.screen_y < player.reach_y
     } else {
-        work.screen_y - player.screen_y < rom_byte(prg, 13, y_table + hitbox)
+        work.screen_y - player.screen_y < hitbox.height
     };
-    work.screen_x.abs_diff(player.screen_x) < rom_byte(prg, 13, x_table + hitbox) && near_y
+    work.screen_x.abs_diff(player.screen_x) < hitbox.half_width && near_y
 }
 
 /// Contact with the player (`$A9C4`): an item is collected, the actor or the player hurt.
@@ -536,7 +591,8 @@ pub fn contact(kind: &mut u8, body: &mut Body, work: &mut Work, damage: u8, cx: 
     } else {
         body.contact & 0x01 != 0
     };
-    if checks_player && overlaps(work, &cx.effects.player, 0xABB2, 0xABC1, cx.prg) {
+    let hitbox = cx.prg.hitboxes.actors[usize::from(work.hitbox)];
+    if checks_player && overlaps(work, &cx.effects.player, hitbox) {
         if body.contact & 0x40 != 0 {
             collect(kind, body, cx);
             return;
@@ -559,20 +615,24 @@ pub fn contact(kind: &mut u8, body: &mut Body, work: &mut Work, damage: u8, cx: 
 
 /// Checks the player's projectiles against the actor: shields deflect, others hurt (`$AA57`).
 pub fn projectile_hits(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-    let hitbox = u16::from(work.hitbox);
+    let id = usize::from(work.hitbox);
+    let (half_width, height) = (
+        cx.prg.hitboxes.actor_projectile_half_widths[id],
+        cx.prg.hitboxes.actors[id].height,
+    );
     let [seed, noise] = cx.world.rng;
     for index in (0..16).rev() {
         let projectile = cx.effects.projectiles[index];
         if projectile.kind == 0 || projectile.flags & 0x80 != 0 {
             continue;
         }
-        if work.screen_x.abs_diff(projectile.screen_x) >= rom_byte(cx.prg, 13, 0xABD0 + hitbox) {
+        if work.screen_x.abs_diff(projectile.screen_x) >= half_width {
             continue;
         }
         let near_y = if work.screen_y < projectile.screen_y {
             projectile.screen_y - work.screen_y < 5
         } else {
-            work.screen_y - projectile.screen_y < rom_byte(cx.prg, 13, 0xABC1 + hitbox)
+            work.screen_y - projectile.screen_y < height
         };
         if !near_y {
             continue;
@@ -685,10 +745,16 @@ pub fn boss_flash(body: &mut Body, work: &mut Work, world: &World) -> u8 {
 /// A boss against the player and his projectiles (`$AFD6`): `$80` when it hurt him in
 /// `mode` `$80`, `$40`/`$42` when it was hit, else 0; touching him drains `amount` from `$B2`.
 pub fn boss_contact(amount: u16, mode: u8, body: &mut Body, work: &Work, cx: &mut Cx<'_>) -> u8 {
+    let id = usize::from(work.hitbox);
+    let hitbox = cx.prg.hitboxes.bosses[id];
+    let (half_width, height) = (
+        cx.prg.hitboxes.boss_projectile_half_widths[id],
+        hitbox.height,
+    );
     if mode & 0x40 == 0 {
         let attacking = cx.effects.player.sliding & sliding::ON != 0;
         let guarded = cx.effects.player.hurt & hurt::INVULNERABLE != 0;
-        if (attacking || !guarded) && overlaps(work, &cx.effects.player, 0xB0F9, 0xB0FE, cx.prg) {
+        if (attacking || !guarded) && overlaps(work, &cx.effects.player, hitbox) {
             if attacking && cx.effects.boss_hp == 0 {
                 return 0;
             }
@@ -707,19 +773,18 @@ pub fn boss_contact(amount: u16, mode: u8, body: &mut Body, work: &Work, cx: &mu
             return 0;
         }
     }
-    let hitbox = u16::from(work.hitbox);
     for index in (0..16).rev() {
         let projectile = &mut cx.effects.projectiles[index];
         if projectile.kind == 0 || projectile.flags & 0x80 != 0 {
             continue;
         }
-        if work.screen_x.abs_diff(projectile.screen_x) >= rom_byte(cx.prg, 13, 0xB103 + hitbox) {
+        if work.screen_x.abs_diff(projectile.screen_x) >= half_width {
             continue;
         }
         let near_y = if work.screen_y < projectile.screen_y {
             projectile.screen_y - work.screen_y < 3
         } else {
-            work.screen_y - projectile.screen_y < rom_byte(cx.prg, 13, 0xB0FE + hitbox)
+            work.screen_y - projectile.screen_y < height
         };
         if !near_y {
             continue;
@@ -788,7 +853,11 @@ pub fn queue_counters(value: u16, cx: &mut Cx<'_>) {
 pub fn touch(work: &Work, damage: u8, cx: &mut Cx<'_>) -> bool {
     if cx.effects.player.power_up & power_up::ON != 0
         || cx.effects.player.hurt & hurt::INVULNERABLE != 0
-        || !overlaps(work, &cx.effects.player, 0xAF2A, 0xAF31, cx.prg)
+        || !overlaps(
+            work,
+            &cx.effects.player,
+            cx.prg.hitboxes.hazards[usize::from(work.hitbox)],
+        )
     {
         return false;
     }
@@ -898,7 +967,9 @@ pub enum Proximity {
 /// Classifies the player's distance by the hit box in [`Work::hitbox`] (`$A025`).
 #[must_use]
 pub fn player_proximity(work: &Work, cx: &Cx<'_>) -> Proximity {
+    debug_assert_eq!(work.hitbox, 0, "every caller sets hit box 0");
     let player = &cx.effects.player;
+    let exit = cx.prg.hitboxes.exit;
     let class = |distance: u16| {
         if distance >= 0x1800 {
             Proximity::Far
@@ -910,7 +981,7 @@ pub fn player_proximity(work: &Work, cx: &Cx<'_>) -> Proximity {
     if dx >= 0x1000 {
         return class(dx);
     }
-    if low_byte(i32::from(dx >> 4)) >= rom_byte(cx.prg, 13, 0xA0A7 + u16::from(work.hitbox)) {
+    if low_byte(i32::from(dx >> 4)) >= exit.half_width {
         return Proximity::Clear;
     }
     let distance = work.y.abs_diff(player.y);
@@ -920,7 +991,7 @@ pub fn player_proximity(work: &Work, cx: &Cx<'_>) -> Proximity {
     let reach = if work.y < player.y {
         player.reach_y
     } else {
-        rom_byte(cx.prg, 13, 0xA0A8)
+        exit.height
     };
     if low_byte(i32::from(distance >> 4)) >= reach {
         Proximity::Clear
@@ -1692,7 +1763,7 @@ mod tests {
         );
         let mut scroll = super::super::scroll::Scroll::default();
         let mut cx = Cx {
-            prg: &[],
+            prg: &crate::prg::Prg::empty(),
             world: &world,
             slots: &mut slots,
             schedule: &mut schedule,

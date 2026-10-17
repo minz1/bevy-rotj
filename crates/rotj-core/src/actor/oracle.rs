@@ -1,5 +1,6 @@
 //! Oracle diffs: bracket a game routine with peeks and compare every byte either side changed.
 
+use crate::prg::Prg;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
@@ -322,8 +323,8 @@ impl Scene {
     }
 
     /// The PRG image.
-    pub(crate) fn prg(&self) -> Vec<u8> {
-        self.machine.bus.cart.prg.clone()
+    pub(crate) fn prg(&self) -> Prg {
+        Prg::new(self.machine.bus.cart.prg.clone())
     }
 
     /// Frees every slot whose type is not in `kinds` and drops their pending spawns.
@@ -429,7 +430,7 @@ impl Scene {
 /// One bracketed call of a routine, for the port to reproduce.
 pub(crate) struct Routine<'a> {
     pub begin: &'a PeekEvent,
-    pub prg: &'a [u8],
+    pub prg: &'a Prg,
     pub state: State,
     /// Scratch outputs the port writes (`$20-$3F` results), compared too.
     pub writes: Vec<(u16, u8)>,
@@ -1599,7 +1600,7 @@ impl Environment for TapePlayer<'_> {
 /// Replays the tape `name` through the port alone: the game [`assert_game`] recorded it
 /// from, checked at every compare. The interrupts' counts are not on the tape, so
 /// `injected` holds only the [`super::Outside`] routines.
-pub(crate) fn replay(name: &str, tape: &Tape, prg: &[u8], chr: &[u8]) -> GameRun {
+pub(crate) fn replay(name: &str, tape: &Tape, prg: &Prg, chr: &[u8]) -> GameRun {
     let mut player = TapePlayer {
         name,
         tape,
@@ -1855,7 +1856,7 @@ pub(crate) fn playtest_scene(level: u8, pads: &[u8]) -> Option<Scene> {
 
 /// The port's game loop from `env`'s start to its end, every injection and compare
 /// asked of `env`.
-pub(crate) fn run_game(env: &mut impl Environment, prg: &[u8], chr: &[u8]) -> GameRun {
+pub(crate) fn run_game(env: &mut impl Environment, prg: &Prg, chr: &[u8]) -> GameRun {
     let (mut game, mut started) = env.start();
     let mut run = GameRun::default();
     let mut pending: Option<StartKind> = None;

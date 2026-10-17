@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use rotj_core::actor::oam::Mark;
 use rotj_core::actor::world::Ppu;
 use rotj_core::actor::{Game, Script, raster};
+use rotj_core::prg::Prg;
 use rotj_core::render::{Frame, Line, MAX_SPRITES_PER_LINE, OAM_SPRITES, Picture};
 
 use crate::input::NesInput;
@@ -41,7 +42,7 @@ fn forced_level() -> Option<u8> {
 #[derive(Resource)]
 pub struct Play {
     game: Game,
-    prg: Vec<u8>,
+    prg: Prg,
     pub(crate) chr: Vec<u8>,
     pub(crate) ppu: Ppu,
     /// The NMI armed the raster IRQ (`$D0` bit 7), so this frame is split.
@@ -71,7 +72,7 @@ impl Play {
             marks: game.oam.marks,
             label: Vec::new(),
             game,
-            prg,
+            prg: Prg::new(prg),
             chr,
             ppu,
             raster: false,

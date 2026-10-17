@@ -266,7 +266,8 @@ pub fn ride(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
         }
         let body = &second.body;
         let dx = body.x.abs_diff(work.x);
-        if hi(dx) >= 0x10 || lo(dx >> 4) >= rom_byte(cx.prg, 14, 0xCE7D + u16::from(body.scratch)) {
+        let half_width = cx.prg.hitboxes.platform_half_widths[usize::from(body.scratch)];
+        if hi(dx) >= 0x10 || lo(dx >> 4) >= half_width {
             continue;
         }
         let (dy, above) = body.y.overflowing_sub(work.y);

@@ -9,6 +9,7 @@ use super::world::{Motion, VramWrite, Weapon, attack, set_first_colours, stage_s
 use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
 use crate::ppulist::WriteList;
+use crate::prg::Prg;
 
 /// The stage-end script's state (`$0408-$040C`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -30,7 +31,7 @@ pub struct StageEnd {
 ///
 /// # Panics
 /// On a phase past the script's five (`$95AD`).
-pub fn stage_end(game: &mut Game, prg: &[u8]) -> bool {
+pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
     let x = game.effects.player.x;
     let end = &mut game.effects.stage_end;
     let mut pads = None;
@@ -117,7 +118,7 @@ pub fn stage_end(game: &mut Game, prg: &[u8]) -> bool {
 }
 
 /// Moves the departing sprite up and left on the timer's beats and draws it (`$955A`, `$9574`).
-fn depart(game: &mut Game, prg: &[u8], x_beat: u8, y_beat: u8) {
+fn depart(game: &mut Game, prg: &Prg, x_beat: u8, y_beat: u8) {
     let end = &mut game.effects.stage_end;
     if end.timer & x_beat == 0 {
         end.x = end.x.wrapping_sub(1);
@@ -403,7 +404,7 @@ impl NextArea {
     ///
     /// # Panics
     /// On a level that does not decode.
-    pub fn step(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) {
+    pub fn step(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) {
         loop {
             match self.step {
                 Step::Start => {
@@ -651,7 +652,7 @@ enum Intro {
 
 impl BossIntro {
     /// Runs one frame up to its NMI wait; true on the last.
-    pub fn step(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
+    pub fn step(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) -> bool {
         match self.step {
             Intro::Clear => {
                 game.effects.music = 0xFF;
@@ -741,7 +742,7 @@ impl BossIntro {
 
     /// One frame of the card (`$BB81`, through `$BC9A[$12]`, and the draw `$BC3E`);
     /// true when the fade has run and the room loads in this frame instead.
-    fn slide(&mut self, game: &mut Game, prg: &[u8]) -> bool {
+    fn slide(&mut self, game: &mut Game, prg: &Prg) -> bool {
         match self.phase {
             0 => {
                 self.speed = self.speed.wrapping_add(0x20);

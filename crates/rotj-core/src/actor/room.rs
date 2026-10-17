@@ -12,6 +12,7 @@ use super::world::{
     set_first_colours, stage_script,
 };
 use crate::actors::spawn_schedule;
+use crate::prg::Prg;
 use crate::rooms::{Arrival, Room};
 
 /// The room change `$BA = 1` starts, one frame per [`RoomChange::step`] (`$B7EC`).
@@ -81,7 +82,7 @@ impl RoomChange {
     }
 
     /// Runs one frame of the change, up to its NMI wait.
-    pub fn step(&mut self, game: &mut Game, prg: &[u8]) {
+    pub fn step(&mut self, game: &mut Game, prg: &Prg) {
         loop {
             match self.phase {
                 Phase::FadeStart
@@ -244,7 +245,7 @@ impl RoomChange {
 
     /// One frame of the camera's move to a page edge (`$B7F3-$B8D9`), or the step
     /// past it; true when the frame ended.
-    fn align(&mut self, game: &mut Game, prg: &[u8]) -> bool {
+    fn align(&mut self, game: &mut Game, prg: &Prg) -> bool {
         game.oam.next = 0;
         game.work.anchor = 0;
         let [cy, fy] = game.world.camera_y.to_be_bytes();
@@ -272,7 +273,7 @@ impl RoomChange {
     }
 
     /// One 16 px step of the slide into the new room (`$B95D-$B9FA`).
-    fn slide(&self, game: &mut Game, prg: &[u8]) {
+    fn slide(&self, game: &mut Game, prg: &Prg) {
         game.oam.next = 0;
         let scroll = &mut game.scroll;
         let player = &mut game.effects.player;

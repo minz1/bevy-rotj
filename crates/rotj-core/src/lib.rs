@@ -11,6 +11,7 @@ pub mod level;
 pub mod levelmap;
 pub mod palette;
 pub mod ppulist;
+pub mod prg;
 pub mod render;
 pub mod rooms;
 pub mod stage;

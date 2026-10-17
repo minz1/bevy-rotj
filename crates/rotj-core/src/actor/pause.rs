@@ -6,6 +6,7 @@ use super::engine::{draw, draw_metasprite, rom_byte, rom_word};
 use super::oam::{Mark, Metasprite};
 use crate::actor::button::Buttons;
 use crate::actor::world::set_first_colours;
+use crate::prg::Prg;
 
 /// The area name's metasprite the pause builds in WRAM (`$7FD0-$7FE1`).
 pub const NAME: u16 = 0x7FD0;
@@ -46,7 +47,7 @@ impl Pause {
     }
 
     /// Runs one frame up to its NMI wait (`$9CAD`).
-    pub fn step(&mut self, game: &mut Game, prg: &[u8]) {
+    pub fn step(&mut self, game: &mut Game, prg: &Prg) {
         match self.step {
             Step::Start => {
                 game.effects.music = 0xFE;
@@ -86,7 +87,7 @@ impl Pause {
     }
 
     /// One paused frame (`$9C70-$9C85`): the sprites, the colour stepped, the palette.
-    fn frame(&mut self, game: &mut Game, prg: &[u8]) {
+    fn frame(&mut self, game: &mut Game, prg: &Prg) {
         game.oam.marking = Mark::Pause;
         draw_screen(game, prg);
         game.oam.marking = Mark::Scene;
@@ -117,7 +118,7 @@ impl Pause {
 
 /// The pause screen's sprites (`$9CE5`): five metasprites from bank 1, the area's
 /// name built at [`NAME`], the lives left and the stage's two digits.
-fn draw_screen(game: &mut Game, prg: &[u8]) {
+fn draw_screen(game: &mut Game, prg: &Prg) {
     let area = game.world.area;
     let lives = game.effects.lives.min(9);
     let (mut cx, work) = game.parts(prg);
