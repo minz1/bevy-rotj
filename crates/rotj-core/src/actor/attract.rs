@@ -3,6 +3,7 @@
 //! intro skipped if A, B or Start was held.
 
 use super::Game;
+use super::button::Buttons;
 use super::cutscene::draw_sprite_with;
 use super::engine::{rom_byte, rom_word};
 use super::room::build_palette;
@@ -10,7 +11,7 @@ use super::stage::{Fade, blackout, queue_palette};
 use super::world::{VramWrite, set_first_colours};
 
 /// The buttons that leave the attract mode while held (`$F6 & $D0`).
-const HELD_TO_LEAVE: u8 = 0xD0;
+const HELD_TO_LEAVE: Buttons = Buttons::ACCEPT;
 
 /// The CHR the screens read from WRAM (`$9B51`): banks `$EC-$EE` at `$7000`, the first
 /// screen's two nametables and the third's page, and banks `$F4-$F5` at `$6000`, the
@@ -137,7 +138,7 @@ impl Attract {
     /// The first screen (`$99F7-$9A6A`): the city scrolled into the second nametable,
     /// the story's next page drawn over the first.
     fn first_screen(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
-        let held = game.world.pad & HELD_TO_LEAVE != 0;
+        let held = game.world.pad.intersects(HELD_TO_LEAVE);
         match self.step {
             Step::Start => {
                 stop(game);
@@ -194,7 +195,7 @@ impl Attract {
 
     /// The second screen (`$9A6D-$9AC5`): its page into the second nametable, scrolled.
     fn second_screen(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
-        let held = game.world.pad & HELD_TO_LEAVE != 0;
+        let held = game.world.pad.intersects(HELD_TO_LEAVE);
         match self.step {
             Step::SecondPage => {
                 if self.copied == 0 {
@@ -237,7 +238,7 @@ impl Attract {
 
     /// The third screen (`$9AC8-$9B32`): its page into the first nametable, the figure and the stars.
     fn third_screen(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
-        let held = game.world.pad & HELD_TO_LEAVE != 0;
+        let held = game.world.pad.intersects(HELD_TO_LEAVE);
         match self.step {
             Step::ThirdDark => {
                 dark(game, prg);

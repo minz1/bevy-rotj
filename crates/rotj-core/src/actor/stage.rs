@@ -6,7 +6,7 @@ use super::cutscene::Cutscene;
 use super::engine::{draw, rom_byte, rom_word};
 use super::room;
 use super::world::{Motion, VramWrite, Weapon, set_first_colours};
-use crate::actor::button;
+use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
 use crate::ppulist::WriteList;
 
@@ -53,9 +53,9 @@ pub fn stage_end(game: &mut Game, prg: &[u8]) -> bool {
                 let end = &mut game.effects.stage_end;
                 (end.timer, end.phase, end.y, end.x) = (0, 2, 0x70, 0xFF);
                 game.effects.song = 0x0E;
-                pads = Some(0);
+                pads = Some(Buttons::NONE);
             } else {
-                pads = Some(1);
+                pads = Some(Buttons::RIGHT);
             }
         }
         2 => {
@@ -65,7 +65,7 @@ pub fn stage_end(game: &mut Game, prg: &[u8]) -> bool {
             if end.timer >= 0x80 {
                 (end.phase, end.timer) = (3, 0);
             }
-            pads = Some(0);
+            pads = Some(Buttons::NONE);
         }
         3 => {
             depart(game, prg, 0x03, 0x0F);
@@ -83,7 +83,7 @@ pub fn stage_end(game: &mut Game, prg: &[u8]) -> bool {
             } else if timer == 0x60 {
                 (end.phase, end.timer) = (4, 0);
             }
-            pads = Some(8);
+            pads = Some(Buttons::UP);
         }
         4 => {
             end.timer = end.timer.wrapping_add(1);
@@ -106,7 +106,7 @@ pub fn stage_end(game: &mut Game, prg: &[u8]) -> bool {
                 queue_faded(game, cap);
             }
             depart(game, prg, 0x07, 0x1F);
-            pads = Some(8);
+            pads = Some(Buttons::UP);
         }
         other => panic!("stage-end phase {other} is past $940C's table"),
     }
@@ -445,7 +445,7 @@ impl NextArea {
                 }
                 Step::BannerHolding => {
                     self.hold = self.hold.wrapping_sub(1);
-                    if self.hold != 0 && game.world.pressed & button::ACCEPT == 0 {
+                    if self.hold != 0 && !game.world.pressed.intersects(Buttons::ACCEPT) {
                         return;
                     }
                     self.fade = Fade::new(false, false);
@@ -1036,7 +1036,7 @@ impl Continue {
                     }
                 }
                 Countdown::Check => {
-                    self.step = if game.world.pad & button::START != 0 {
+                    self.step = if game.world.pad.contains(Buttons::START) {
                         Countdown::Leave
                     } else {
                         Countdown::Count
@@ -1112,7 +1112,7 @@ impl Continue {
                 }
                 Countdown::OverCheck => {
                     self.step = Countdown::OverScroll;
-                    if game.world.pressed & button::FACE != 0 {
+                    if game.world.pressed.intersects(Buttons::FACE) {
                         self.step = Countdown::Reset;
                     } else if !game.world.frame_odd {
                         self.timer = self.timer.wrapping_sub(1);
@@ -1209,7 +1209,7 @@ mod tests {
         let mut load = NextArea::default();
         let mut frames = 0;
         while !load.done() {
-            game.world.pressed = pressed;
+            game.world.pressed = super::super::button::Buttons::from_bits(pressed);
             load.step(&mut game, &scene.prg(), &scene.machine.bus.cart.chr);
             frames += 1;
         }

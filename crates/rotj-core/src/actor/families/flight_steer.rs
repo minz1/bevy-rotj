@@ -2,7 +2,7 @@
 //! his motion state to `$0B`, steps his position with the pad and sets his walk
 //! frame. It never draws and calls no engine or collision routine.
 
-use crate::actor::button;
+use crate::actor::button::Buttons;
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion};
@@ -35,20 +35,15 @@ impl State {
         player.x = player.x.wrapping_add(DRIFT);
         if cx.effects.scroll_lock != NO_CLAMP {
             let pad = cx.world.pad;
-            if pad & button::SIDEWAYS != 0 {
-                player.x = if pad & 1 != 0 {
+            if pad.intersects(Buttons::SIDEWAYS) {
+                player.x = if pad.contains(Buttons::RIGHT) {
                     player.x.wrapping_add(STEP)
                 } else {
                     player.x.wrapping_sub(STEP)
                 };
             }
-            if pad & button::UP_OR_DOWN != 0 {
-                if pad & button::UP == 0 {
-                    player.y = player.y.wrapping_add(STEP);
-                    if player.y.to_be_bytes()[0] >= Y_MAX {
-                        player.y = u16::from(Y_MAX) << 8;
-                    }
-                } else {
+            if pad.intersects(Buttons::UP_OR_DOWN) {
+                if pad.contains(Buttons::UP) {
                     let (low, borrow) = player.y.to_be_bytes()[1].overflowing_sub(0x20);
                     let mut high = player.y.to_be_bytes()[0];
                     if borrow {
@@ -57,6 +52,11 @@ impl State {
                     player.y = u16::from_be_bytes([high, low]);
                     if borrow && high < Y_MIN {
                         player.y = u16::from(Y_MIN) << 8;
+                    }
+                } else {
+                    player.y = player.y.wrapping_add(STEP);
+                    if player.y.to_be_bytes()[0] >= Y_MAX {
+                        player.y = u16::from(Y_MAX) << 8;
                     }
                 }
             }

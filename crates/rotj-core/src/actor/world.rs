@@ -1,5 +1,6 @@
 //! What actors read and write outside their own slot.
 
+use super::button::Buttons;
 use super::oam::OamBuilder;
 use super::scroll::Scroll;
 use super::slots::Slots;
@@ -230,7 +231,7 @@ pub struct Player {
     /// The platform's carry x velocity, 1/16 px (`$0467:$0468`).
     pub carrier: i16,
     /// Masks the pad's walk bits (`$0470`).
-    pub walk_gate: u8,
+    pub walk_gate: Buttons,
     /// The walk ramp timer (`$047C`).
     pub walk_timer: u8,
     /// The per-pose step (`$047D`); bits 7-6 are the air state's landing flags.
@@ -285,9 +286,9 @@ pub struct World {
     /// The room within the area (`$0402`).
     pub room: u8,
     /// Joypad 1 held buttons (`$F6`): bit 0 right, 1 left, 2 down, 3 up.
-    pub pad: u8,
+    pub pad: Buttons,
     /// Joypad 1 buttons newly pressed this frame, the edges of [`World::pad`] (`$F5`).
-    pub pressed: u8,
+    pub pressed: Buttons,
     /// The actor spawn distance from the camera (`$D7`), set outside the actors;
     /// type `$12` reads it.
     pub spawn_distance: u8,
@@ -649,6 +650,7 @@ mod layout {
         Effects, Level, Motion, PROJECTILE_ARRAYS, Player, Projectile, Schedule, View, Vram,
         VramWrite, Weapon, World,
     };
+    use crate::actor::button::Buttons;
 
     fn word(ram: &[u8; 2048], hi: usize) -> u16 {
         u16::from_be_bytes([ram[hi], ram[hi + 1]])
@@ -674,7 +676,7 @@ mod layout {
                 death_timer: ram[0x480],
                 anim: ram[0x466],
                 carrier: word(ram, 0x467).cast_signed(),
-                walk_gate: ram[0x470],
+                walk_gate: Buttons::from_bits(ram[0x470]),
                 walk_timer: ram[0x47C],
                 pose_step: ram[0x47D],
                 pose_timer: ram[0x47E],
@@ -710,7 +712,7 @@ mod layout {
             ram[0x480] = self.death_timer;
             ram[0x466] = self.anim;
             ram[0x467..0x469].copy_from_slice(&self.carrier.to_be_bytes());
-            ram[0x470] = self.walk_gate;
+            ram[0x470] = self.walk_gate.bits();
             ram[0x47C] = self.walk_timer;
             ram[0x47D] = self.pose_step;
             ram[0x47E] = self.pose_timer;
@@ -744,8 +746,8 @@ mod layout {
                 frame: 0,
                 area: 0,
                 room: 0,
-                pad: 0,
-                pressed: 0,
+                pad: Buttons::NONE,
+                pressed: Buttons::NONE,
                 spawn_distance: 0,
             }
         }
@@ -759,8 +761,8 @@ mod layout {
             [ram[0xF9], ram[0xFA]] = self.rng;
             ram[0xF7] = (ram[0xF7] & 0x7F) | (u8::from(self.frame_odd) << 7);
             ram[0xF1] = self.frame;
-            ram[0xF6] = self.pad;
-            ram[0xF5] = self.pressed;
+            ram[0xF6] = self.pad.bits();
+            ram[0xF5] = self.pressed.bits();
             ram[0xD7] = self.spawn_distance;
         }
 
@@ -780,8 +782,8 @@ mod layout {
                 frame: ram[0xF1],
                 area: ram[0x400],
                 room: ram[0x402],
-                pad: ram[0xF6],
-                pressed: ram[0xF5],
+                pad: Buttons::from_bits(ram[0xF6]),
+                pressed: Buttons::from_bits(ram[0xF5]),
                 spawn_distance: ram[0xD7],
             }
         }

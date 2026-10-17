@@ -8,7 +8,7 @@ use super::cutscene::{ScreenClear, copy_frame, draw_block, draw_sprite};
 use super::oam::Mark;
 use super::sound_test::SoundTest;
 use super::stage::{Fade, NextArea, blackout, queue_palette};
-use crate::actor::button;
+use crate::actor::button::Buttons;
 use crate::actor::world::{Weapon, set_first_colours};
 use crate::levelmap::BOOT_FIRST_BANK;
 
@@ -55,7 +55,7 @@ const FLASH_BLOCKS: u16 = 0x66F3;
 /// Frames the title waits for a choice before the attract mode (`$20:$21`).
 const TITLE_FRAMES: u16 = 0x0700;
 /// A and Start held at the stage start enter the sound test (`$D3C6`).
-const SOUND_TEST: u8 = button::A | button::START;
+const SOUND_TEST: Buttons = Buttons::from_bits(Buttons::A.bits() | Buttons::START.bits());
 
 /// The password screen's CHR banks (`$6E0A`), draw list (`$6992`) and palette (`$6DEA`).
 const PASSWORD_BANKS: u16 = 0x6E0A;
@@ -318,7 +318,7 @@ impl Boot {
 
     /// Runs one frame up to its NMI wait.
     pub fn step(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) {
-        if std::mem::take(&mut self.check) && game.world.pressed & button::ACCEPT != 0 {
+        if std::mem::take(&mut self.check) && game.world.pressed.intersects(Buttons::ACCEPT) {
             self.step = Step::TitleSetup(TitleSetup::Start);
         }
         while !self.frame(game, prg, chr) {}
@@ -618,15 +618,15 @@ impl Boot {
                     return false;
                 }
                 let world = &game.world;
-                if world.pressed & button::ACCEPT != 0 {
+                if world.pressed.intersects(Buttons::ACCEPT) {
                     self.step = Step::Title(Title::Chosen);
                     return false;
                 }
-                if world.pad & button::LEFT != 0 {
+                if world.pad.contains(Buttons::LEFT) {
                     self.choice = GAME_START;
-                } else if world.pad & button::RIGHT != 0 {
+                } else if world.pad.contains(Buttons::RIGHT) {
                     self.choice = PASSWORD;
-                } else if world.pressed & button::SELECT != 0 {
+                } else if world.pressed.contains(Buttons::SELECT) {
                     self.choice = if self.choice == PASSWORD {
                         GAME_START
                     } else {
@@ -751,11 +751,11 @@ impl Boot {
                 return false;
             }
             Password::Entry => {
-                if game.world.pressed & button::ACCEPT != 0 {
+                if game.world.pressed.intersects(Buttons::ACCEPT) {
                     self.step = Step::Password(Password::Submitted);
                     return false;
                 }
-                if game.world.pressed & button::SELECT != 0 {
+                if game.world.pressed.contains(Buttons::SELECT) {
                     self.fade = Fade::new(false, false);
                     self.step = Step::Password(Password::FadeOut { accepted: false });
                     return false;
@@ -866,10 +866,10 @@ impl Boot {
         let (pressed, held) = (game.world.pressed, game.world.pad);
         let entry = &mut self.entry;
         let column = usize::from(entry.column);
-        for bit in [button::UP, button::DOWN, button::LEFT, button::RIGHT] {
-            if pressed & bit != 0 {
+        for bit in [Buttons::UP, Buttons::DOWN, Buttons::LEFT, Buttons::RIGHT] {
+            if pressed.intersects(bit) {
                 entry.period = 0x1F;
-            } else if held & bit != 0 && entry.repeat {
+            } else if held.intersects(bit) && entry.repeat {
                 entry.period -= 4;
                 if entry.period == 0x0B {
                     entry.period = 0x0F;
@@ -881,9 +881,9 @@ impl Boot {
             game.effects.sound[0] = 0x39;
             let letter = &mut entry.letters[column];
             match bit {
-                button::UP => *letter = letter.checked_sub(1).unwrap_or(0x19),
-                button::DOWN => *letter = (*letter + 1) % 0x1A,
-                button::LEFT => entry.column = entry.column.wrapping_sub(1) & 3,
+                Buttons::UP => *letter = letter.checked_sub(1).unwrap_or(0x19),
+                Buttons::DOWN => *letter = (*letter + 1) % 0x1A,
+                Buttons::LEFT => entry.column = entry.column.wrapping_sub(1) & 3,
                 _ => entry.column = (entry.column + 1) & 3,
             }
             return;

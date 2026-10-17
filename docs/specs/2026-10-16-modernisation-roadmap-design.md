@@ -114,8 +114,10 @@ clean-build and chain-test times.
    fallback, the default unless the spike shows the ECS buys more: the simulation stays a
    `Slots` resource and a one-way sync mirrors each slot to an entity for rendering, the
    inspector and the editor.
-4. **Input as actions**: the game reads named actions; the `$F6` byte only at the Classic
-   boundary (recordings, the oracle).
+4. **Input as typed buttons**: the pad becomes `Buttons`, the game's own buttons with
+   its groups, and the `$F6` byte only at the Classic boundary (recordings, the oracle).
+   Remapping and any action layer are the app's (a settings step); the core has no
+   `Action` enum (`docs/specs/2026-10-17-buttons-design.md`).
 
 ## Phase C: rendering from the entities
 

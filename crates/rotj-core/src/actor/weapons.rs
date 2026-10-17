@@ -11,7 +11,7 @@ use super::engine::{self, Work, rom_byte, rom_word};
 use super::scroll::Scroll;
 use super::slots;
 use super::world::{Cx, Motion, Projectile, Weapon, set_first_colours};
-use crate::actor::button;
+use crate::actor::button::Buttons;
 use crate::actors::STATE_UNTARGETED;
 
 /// A charged attack's first stage, every weapon's: the `kind` the player's charge writes.
@@ -438,7 +438,12 @@ fn homing_gather(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
             homing_clear_charge(cx);
             return;
         }
-    } else if cx.world.pad & (button::A | button::UP_OR_DOWN | button::SIDEWAYS) != 0 || !held {
+    } else if cx
+        .world
+        .pad
+        .intersects(Buttons::A | Buttons::UP_OR_DOWN | Buttons::SIDEWAYS)
+        || !held
+    {
         homing_launch(slot, work, cx);
         homing_thrown(slot, work, cx);
         return;
@@ -578,18 +583,18 @@ fn homing_launch(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     super::oracle::seen(0x864A);
     cx.effects.attack &= 0x80;
     let pad = cx.world.pad;
-    let direction = if pad.trailing_zeros() >= 4 {
+    let direction = if !pad.intersects(Buttons::DPAD) {
         if cx.effects.player.motion == Motion::AimingUp {
             3
         } else {
             u16::from(faces_left(cx))
         }
-    } else if pad.trailing_zeros() >= 2 {
+    } else if !pad.intersects(Buttons::SIDEWAYS) {
         #[cfg(test)]
         super::oracle::seen(0x8668);
-        if pad & button::UP != 0 { 2 } else { 3 }
+        if pad.contains(Buttons::UP) { 2 } else { 3 }
     } else {
-        u16::from(pad & button::RIGHT == 0)
+        u16::from(!pad.contains(Buttons::RIGHT))
     };
     let vx = word(cx, 0x8885 + direction, 0x8881 + direction);
     let vy = word(cx, 0x888D + direction, 0x8889 + direction);

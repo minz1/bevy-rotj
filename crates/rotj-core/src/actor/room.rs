@@ -2,6 +2,7 @@
 //! draw (`$B351`) and the room parameters (bank 14 `$D992`).
 
 use super::Game;
+use super::button::Buttons;
 use super::engine::{rom_byte, rom_word};
 use super::slots::Slots;
 use super::spawn::{SpawnTable, spawn_row};
@@ -552,8 +553,8 @@ pub fn start(prg: &[u8], chr: &[u8], level: usize) -> Game {
             frame: 0,
             area: u8::try_from(area * 2).expect("an area index"),
             room: 0,
-            pad: 0,
-            pressed: 0,
+            pad: Buttons::NONE,
+            pressed: Buttons::NONE,
             spawn_distance: 0,
         },
         schedule: Schedule {

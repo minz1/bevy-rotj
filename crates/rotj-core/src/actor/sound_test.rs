@@ -8,7 +8,7 @@ use super::cutscene::draw_sprite;
 use super::engine::rom_byte;
 use super::stage::blackout;
 use super::world::VramWrite;
-use crate::actor::button;
+use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
 use crate::ppulist::WriteList;
 
@@ -91,7 +91,11 @@ impl SoundTest {
                     self.step = Step::Running;
                 }
                 Step::Running => {
-                    if game.world.pressed & !(button::SELECT | button::START) != 0 {
+                    if game
+                        .world
+                        .pressed
+                        .intersects(!(Buttons::SELECT | Buttons::START))
+                    {
                         self.input(game, prg);
                     }
                     if self.step == Step::Running {
@@ -113,7 +117,7 @@ impl SoundTest {
     /// with nothing drawn.
     fn input(&mut self, game: &mut Game, prg: &[u8]) {
         let pressed = game.world.pressed;
-        if pressed & button::A != 0 {
+        if pressed.contains(Buttons::A) {
             match self.row {
                 SONG_ROW => {
                     game.effects.music = 0xFF;
@@ -127,10 +131,10 @@ impl SoundTest {
                     self.step = Step::Exit;
                 }
             }
-        } else if pressed & button::B != 0 {
+        } else if pressed.contains(Buttons::B) {
             game.effects.music = 0xFF;
-        } else if pressed & button::SIDEWAYS != 0 {
-            let right = pressed & button::RIGHT != 0;
+        } else if pressed.intersects(Buttons::SIDEWAYS) {
+            let right = pressed.contains(Buttons::RIGHT);
             match self.row {
                 SONG_ROW => {
                     game.effects.music = 0xFF;
@@ -140,7 +144,7 @@ impl SoundTest {
                 _ => {}
             }
         } else {
-            self.row = step_wrapping(self.row, pressed & button::DOWN != 0, 3);
+            self.row = step_wrapping(self.row, pressed.contains(Buttons::DOWN), 3);
         }
     }
 

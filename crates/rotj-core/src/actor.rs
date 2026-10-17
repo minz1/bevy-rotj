@@ -27,6 +27,7 @@ mod tape;
 pub mod weapons;
 pub mod world;
 
+use button::Buttons;
 use engine::Work;
 use oam::OamBuilder;
 use slots::Slots;
@@ -222,7 +223,7 @@ impl Game {
 
     /// Start pressed while the player may pause (`$0476`'s `$AF` busy bit clear).
     fn pause_requested(&self) -> bool {
-        self.world.pressed & button::START != 0 && self.effects.busy & 0x80 == 0
+        self.world.pressed.contains(Buttons::START) && self.effects.busy & 0x80 == 0
     }
 
     /// The gameplay loop `$D3F9`, one step a line.
@@ -268,7 +269,7 @@ impl Game {
         player::step_move(work, &mut probe, &mut cx);
         self.probe = probe;
         if self.effects.player.stage_script & 0xA0 == 0x80 {
-            (self.world.pad, self.world.pressed) = (0, 0);
+            (self.world.pad, self.world.pressed) = (Buttons::NONE, Buttons::NONE);
         }
     }
 
@@ -316,8 +317,8 @@ impl Game {
         if held & 0x0C == 0x0C {
             held &= 0xF7;
         }
-        world.pressed = (held ^ world.pad) & pad;
-        world.pad = held;
+        world.pressed = Buttons::from_bits((held ^ world.pad.bits()) & pad);
+        world.pad = Buttons::from_bits(held);
         let effects = &mut self.effects;
         let sound = [
             std::mem::take(&mut effects.music),
@@ -2006,6 +2007,9 @@ mod tests {
         let mut game = super::room::start(&rom.prg, &rom.chr, 0);
         game.nmi(0xC1);
         game.nmi(0xC3);
-        assert_eq!((game.world.pad, game.world.pressed), (0xC2, 0x03));
+        assert_eq!(
+            (game.world.pad.bits(), game.world.pressed.bits()),
+            (0xC2, 0x03)
+        );
     }
 }
