@@ -151,344 +151,183 @@ use crate::actor::engine::Work;
 use crate::actor::slots::{Second, Slot};
 use crate::actor::world::Cx;
 
-/// A handler family's own state.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub enum Brain {
-    /// A type the port does not run yet.
-    #[default]
-    Unported,
-    /// Types `$04` and `$06`.
-    BreakableBlock(breakable_block::State),
-    /// Type `$02`.
-    RoomExit(room_exit::State),
-    /// Type `$08`.
-    HarmlessBurst(harmless_burst::State),
-    /// Type `$0A`.
-    HoverDiver(hover_diver::State),
-    /// Type `$0C`.
-    Stomper(stomper::State),
-    /// Type `$0E`.
-    StageEndTrigger(stage_end_trigger::State),
-    /// Type `$12`.
-    ScenerySpawner(scenery_spawner::State),
-    /// Type `$14`.
-    FallingScenery(falling_scenery::State),
-    /// Type `$16`.
-    MirroredScroller(mirrored_scroller::State),
-    /// Type `$18`.
-    HurtfulBurst(hurtful_burst::State),
-    /// Type `$1C`.
-    CellPainter(cell_painter::State),
-    /// Type `$1A`.
-    TopScreenRoomExit(top_screen_room_exit::State),
-    /// Type `$10`.
-    Pickup(pickup::State),
-    /// Type `$20`.
-    HoverShot(hover_shot::State),
-    /// Type `$1E`.
-    HoverShooter(hover_shooter::State),
-    /// Type `$96`.
-    Stage6Lobber(stage6_lobber::State),
-    /// Type `$B0`.
-    FallingEnemySpawner(falling_enemy_spawner::State),
-    /// Type `$B2`.
-    RowBaseReset(row_base_reset::State),
-    /// Type `$B6`.
-    FinalBossPart(final_boss_part::State),
-    /// Type `$B4`.
-    FinalBoss(final_boss::State),
-    /// Type `$B8`.
-    FinalBossDefeat(final_boss_defeat::State),
-    /// Type `$BA`.
-    FinalBossShot(final_boss_shot::State),
-    /// Type `$BE`.
-    FinalBossFallingPart(final_boss_falling_part::State),
-    /// Type `$BC`.
-    FinalBossFallingShot(final_boss_falling_shot::State),
-    /// Type `$24`.
-    EnemyShot(enemy_shot::State),
-    /// Type `$36`.
-    DriftingBomber(drifting_bomber::State),
-    /// Type `$66`.
-    VerticalBobber(vertical_bobber::State),
-    /// Type `$68`.
-    BobberSpawner(bobber_spawner::State),
-    /// Type `$26`.
-    PatrolWalker(patrol_walker::State),
-    /// Type `$32`.
-    NextAreaGate(next_area_gate::State),
-    /// Type `$28`.
-    WaypointPlatform(waypoint_platform::State),
-    /// Type `$34`.
-    BossStatus(boss_status::State),
-    /// Type `$6C`.
-    Spellcaster(spellcaster::State),
-    /// Type `$6E`.
-    TwoStageDrifter(two_stage_drifter::State),
-    /// Type `$70`.
-    TwoStageDrifterContinuation(two_stage_drifter_continuation::State),
-    /// Type `$54`.
-    FlightSteer(flight_steer::State),
-    /// Type `$76`.
-    RowTablePairPatch(row_table_pair_patch::State),
-    /// Type `$78`.
-    MarkerTrigger(marker_trigger::State),
-    /// Type `$7A`.
-    FlashMarker(flash_marker::State),
-    /// Type `$7C`.
-    BlastWalker(blast_walker::State),
-    /// Type `$74`.
-    DivingDropperPart(diving_dropper_part::State),
-    /// Type `$6A`.
-    LungingEnemy(lunging_enemy::State),
-    /// Second-class type `$04`.
-    VerticalShuttlePlatform(vertical_shuttle_platform::State),
-    /// Second-class type `$02`.
-    SidewaysPlatform(sideways_platform::State),
-    /// Second-class type `$08`.
-    SinkingPlatform(sinking_platform::State),
-    /// Second-class type `$0A`.
-    PathPlatform(path_platform::State),
-    /// Second-class type `$0C`.
-    CameraFloor(camera_floor::State),
-    /// Second-class type `$06`.
-    CrumblingBlock(crumbling_block::State),
-    /// Second-class type `$0E`.
-    FallingFloorPiece(falling_floor_piece::State),
-    /// Second-class type `$10`.
-    FallingPlatform(falling_platform::State),
-    /// Type `$22`.
-    CrateSoldier(crate_soldier::State),
-    /// Type `$C6`.
-    OpeningFallWarp(opening_fall_warp::State),
-    /// Type `$C2`.
-    DriftWaveSpawner(drift_wave_spawner::State),
-    /// Type `$C8`.
-    RowTableTailClear(row_table_tail_clear::State),
-    /// Type `$38`.
-    AceRanger(ace_ranger::State),
-    /// Type `$64`.
-    TableBobber(table_bobber::State),
-    /// Types `$3A` and `$3C`, the `$38` boss's parts.
-    AceRangerShot(ace_ranger_shot::State),
-    /// Type `$56`.
-    ColumnEraser(column_eraser::State),
-    /// Types `$58` and `$5A`, the stage 5 probe/palette pair.
-    SpikeProbe(spike_probe::State),
-    /// Type `$2E`.
-    Dropper(dropper::State),
-    /// Type `$30`.
-    DropperPayload(dropper_payload::State),
-    /// Type `$40`.
-    HopThrowerShot(hop_thrower_shot::State),
-    /// Type `$48`.
-    VolleyThrower(volley_thrower::State),
-    /// Type `$4A`.
-    VolleyShot(volley_shot::State),
-    /// Type `$44`.
-    Stage4BossShot(stage4_boss_shot::State),
-    /// Type `$5C`.
-    DriftingDecoration(drifting_decoration::State),
-    /// Type `$52`.
-    Explosion(explosion::State),
-    /// Type `$50`.
-    BossDefeatedScript(boss_defeated_script::State),
-    /// Type `$5E`.
-    SwingingHazard(swinging_hazard::State),
-    /// Type `$2A`.
-    DivingBomber(diving_bomber::State),
-    /// Type `$60`.
-    ProximityBomb(proximity_bomb::State),
-    /// Type `$62`.
-    FallingDebris(falling_debris::State),
-    /// Type `$72`.
-    DivingDropper(diving_dropper::State),
-    /// Type `$3E`.
-    HopThrower(hop_thrower::State),
-    /// Type `$86`.
-    FloorDebris(floor_debris::State),
-    /// Type `$88`.
-    LedgeWalker(ledge_walker::State),
-    /// Type `$84`.
-    CollapsingFloorController(collapsing_floor_controller::State),
-    /// Type `$42`.
-    Stage4Boss(stage4_boss::State),
-    /// Type `$4C`.
-    ShellSpawner(shell_spawner::State),
-    /// Type `$4E`.
-    BossShell(boss_shell::State),
-    /// Type `$2C`.
-    BomberBomb(bomber_bomb::State),
-    /// Type `$8A`.
-    Spitter(spitter::State),
-    /// Type `$8C`.
-    SpitShot(spit_shot::State),
-    /// Type `$80`.
-    SpinnerSpawner(spinner_spawner::State),
-    /// Type `$82`.
-    NextAreaCue(next_area_cue::State),
-    /// Type `$8E`.
-    Stage3Boss(stage3_boss::State),
-    /// Type `$7E`.
-    Spinner(spinner::State),
-    /// Type `$94`.
-    Stage6LobberSpawner(stage6_lobber_spawner::State),
-    /// Type `$98`.
-    Stage6FixedSprite(stage6_fixed_sprite::State),
-    /// Type `$9A`.
-    Stage6LobbedPiece(stage6_lobbed_piece::State),
-    /// Type `$A2`.
-    FallingHazard(falling_hazard::State),
-    /// Type `$AA`.
-    Stage6BossDeathPart(stage6_boss_death_part::State),
-    /// Type `$A4`.
-    HazardDropper(hazard_dropper::State),
-    /// Type `$A8`.
-    Stage6BossPart(stage6_boss_part::State),
-    /// Type `$A6`.
-    Stage6Boss(stage6_boss::State),
-    /// Type `$AE`.
-    FallingEnemy(falling_enemy::State),
-    /// Type `$C0`.
-    FinalBossBouncer(final_boss_bouncer::State),
-    /// Type `$9C`.
-    RowTableTailSet(row_table_tail_set::State),
-    /// Type `$A0`.
-    FallingHazardTrigger(falling_hazard_trigger::State),
-    /// Type `$9E`.
-    HoverPlummeter(hover_plummeter::State),
-    /// Type `$AC`.
-    Turret(turret::State),
-    /// Type `$C4`.
-    DriftShot(drift_shot::State),
-    /// Type `$46`.
-    Stage4BossSlam(stage4_boss_slam::State),
-    /// Type `$90`.
-    Stage3BossShot(stage3_boss_shot::State),
-    /// Type `$92`.
-    ShotImpactBurst(shot_impact_burst::State),
+/// Declares every handler family once: `Brain` (one variant per family, its kinds in
+/// its doc), `Brain::new` and `Brain::new_second` (kind to family), and the main slots'
+/// dispatch `step`.
+macro_rules! families {
+    (
+        main {
+            $($(#[$main_meta:meta])* $($main_kind:literal)|+ => $main:ident($main_module:ident),)+
+        }
+        second {
+            $($(#[$second_meta:meta])* $($second_kind:literal)|+ => $second:ident($second_module:ident),)+
+        }
+    ) => {
+        /// A handler family's own state.
+        #[derive(Debug, Clone, Default, PartialEq, Eq)]
+        pub enum Brain {
+            /// A type the port does not run yet.
+            #[default]
+            Unported,
+            $(
+                #[doc = concat!("Kind `", stringify!($($main_kind)|+), "`.")]
+                $(#[$main_meta])*
+                $main($main_module::State),
+            )+
+            $(
+                #[doc = concat!("Second-class kind `", stringify!($($second_kind)|+), "`.")]
+                $(#[$second_meta])*
+                $second($second_module::State),
+            )+
+        }
+
+        impl Brain {
+            /// The state an actor of `kind` starts in.
+            #[must_use]
+            #[deny(unreachable_patterns)]
+            pub fn new(kind: u8) -> Brain {
+                match kind {
+                    $($($main_kind)|+ => Brain::$main($main_module::State),)+
+                    _ => Brain::Unported,
+                }
+            }
+
+            /// The state a second-class actor of `kind` starts in (the `$CEC3` table).
+            #[must_use]
+            #[deny(unreachable_patterns)]
+            pub fn new_second(kind: u8) -> Brain {
+                match kind {
+                    $($($second_kind)|+ => Brain::$second($second_module::State),)+
+                    _ => Brain::Unported,
+                }
+            }
+        }
+
+        /// Runs one slot's handler (the `$CF72` dispatch).
+        pub(crate) fn step(slot: &mut Slot, work: &mut Work, cx: &mut Cx<'_>) {
+            slot.brain.follow(slot.kind);
+            match &mut slot.brain {
+                Brain::Unported => {
+                    crate::actor::engine::unported(&mut slot.kind, &slot.body, work, cx);
+                }
+                $(Brain::$second(_))|+ => panic!("a second-class family in a main slot"),
+                $(Brain::$main(state) => state.step(&mut slot.kind, &mut slot.body, work, cx),)+
+            }
+        }
+    };
 }
 
-impl Brain {
-    /// The state an actor of `kind` starts in.
-    #[must_use]
-    pub fn new(kind: u8) -> Brain {
-        match kind {
-            0x04 | 0x06 => Brain::BreakableBlock(breakable_block::State),
-            0x02 => Brain::RoomExit(room_exit::State),
-            0x08 => Brain::HarmlessBurst(harmless_burst::State),
-            0x0A => Brain::HoverDiver(hover_diver::State),
-            0x0C => Brain::Stomper(stomper::State),
-            0x0E => Brain::StageEndTrigger(stage_end_trigger::State),
-            0x14 => Brain::FallingScenery(falling_scenery::State),
-            0x16 => Brain::MirroredScroller(mirrored_scroller::State),
-            0x18 => Brain::HurtfulBurst(hurtful_burst::State),
-            0x1C => Brain::CellPainter(cell_painter::State),
-            0x1A => Brain::TopScreenRoomExit(top_screen_room_exit::State),
-            0x10 => Brain::Pickup(pickup::State),
-            0x12 => Brain::ScenerySpawner(scenery_spawner::State),
-            0x20 => Brain::HoverShot(hover_shot::State),
-            0x1E => Brain::HoverShooter(hover_shooter::State),
-            0x96 => Brain::Stage6Lobber(stage6_lobber::State),
-            0xB0 => Brain::FallingEnemySpawner(falling_enemy_spawner::State),
-            0xB2 => Brain::RowBaseReset(row_base_reset::State),
-            0xB6 => Brain::FinalBossPart(final_boss_part::State),
-            0xB4 => Brain::FinalBoss(final_boss::State),
-            0xB8 => Brain::FinalBossDefeat(final_boss_defeat::State),
-            0xBA => Brain::FinalBossShot(final_boss_shot::State),
-            0xBE => Brain::FinalBossFallingPart(final_boss_falling_part::State),
-            0xBC => Brain::FinalBossFallingShot(final_boss_falling_shot::State),
-            0x24 => Brain::EnemyShot(enemy_shot::State),
-            0x36 => Brain::DriftingBomber(drifting_bomber::State),
-            0x66 => Brain::VerticalBobber(vertical_bobber::State),
-            0x68 => Brain::BobberSpawner(bobber_spawner::State),
-            0x26 => Brain::PatrolWalker(patrol_walker::State),
-            0x32 => Brain::NextAreaGate(next_area_gate::State),
-            0x28 => Brain::WaypointPlatform(waypoint_platform::State),
-            0x34 => Brain::BossStatus(boss_status::State),
-            0x6C => Brain::Spellcaster(spellcaster::State),
-            0x6E => Brain::TwoStageDrifter(two_stage_drifter::State),
-            0x70 => Brain::TwoStageDrifterContinuation(two_stage_drifter_continuation::State),
-            0x54 => Brain::FlightSteer(flight_steer::State),
-            0x76 => Brain::RowTablePairPatch(row_table_pair_patch::State),
-            0x78 => Brain::MarkerTrigger(marker_trigger::State),
-            0x7A => Brain::FlashMarker(flash_marker::State),
-            0x7C => Brain::BlastWalker(blast_walker::State),
-            0x6A => Brain::LungingEnemy(lunging_enemy::State),
-            0x22 => Brain::CrateSoldier(crate_soldier::State),
-            0xC6 => Brain::OpeningFallWarp(opening_fall_warp::State),
-            0xC2 => Brain::DriftWaveSpawner(drift_wave_spawner::State),
-            0xC8 => Brain::RowTableTailClear(row_table_tail_clear::State),
-            0x38 => Brain::AceRanger(ace_ranger::State),
-            0x74 => Brain::DivingDropperPart(diving_dropper_part::State),
-            0x64 => Brain::TableBobber(table_bobber::State),
-            0x3A | 0x3C => Brain::AceRangerShot(ace_ranger_shot::State),
-            0x56 => Brain::ColumnEraser(column_eraser::State),
-            0x58 | 0x5A => Brain::SpikeProbe(spike_probe::State),
-            0x2E => Brain::Dropper(dropper::State),
-            0x30 => Brain::DropperPayload(dropper_payload::State),
-            0x40 => Brain::HopThrowerShot(hop_thrower_shot::State),
-            0x48 => Brain::VolleyThrower(volley_thrower::State),
-            0x4A => Brain::VolleyShot(volley_shot::State),
-            0x44 => Brain::Stage4BossShot(stage4_boss_shot::State),
-            0x5C => Brain::DriftingDecoration(drifting_decoration::State),
-            0x52 => Brain::Explosion(explosion::State),
-            0x50 => Brain::BossDefeatedScript(boss_defeated_script::State),
-            0x5E => Brain::SwingingHazard(swinging_hazard::State),
-            0x2A => Brain::DivingBomber(diving_bomber::State),
-            0x60 => Brain::ProximityBomb(proximity_bomb::State),
-            0x62 => Brain::FallingDebris(falling_debris::State),
-            0x72 => Brain::DivingDropper(diving_dropper::State),
-            0x3E => Brain::HopThrower(hop_thrower::State),
-            0x86 => Brain::FloorDebris(floor_debris::State),
-            0x88 => Brain::LedgeWalker(ledge_walker::State),
-            0x84 => Brain::CollapsingFloorController(collapsing_floor_controller::State),
-            0x42 => Brain::Stage4Boss(stage4_boss::State),
-            0x4C => Brain::ShellSpawner(shell_spawner::State),
-            0x4E => Brain::BossShell(boss_shell::State),
-            0x2C => Brain::BomberBomb(bomber_bomb::State),
-            0x8A => Brain::Spitter(spitter::State),
-            0x8C => Brain::SpitShot(spit_shot::State),
-            0x80 => Brain::SpinnerSpawner(spinner_spawner::State),
-            0x82 => Brain::NextAreaCue(next_area_cue::State),
-            0x8E => Brain::Stage3Boss(stage3_boss::State),
-            0x7E => Brain::Spinner(spinner::State),
-            0x94 => Brain::Stage6LobberSpawner(stage6_lobber_spawner::State),
-            0x98 => Brain::Stage6FixedSprite(stage6_fixed_sprite::State),
-            0x9A => Brain::Stage6LobbedPiece(stage6_lobbed_piece::State),
-            0xA2 => Brain::FallingHazard(falling_hazard::State),
-            0xAA => Brain::Stage6BossDeathPart(stage6_boss_death_part::State),
-            0xA4 => Brain::HazardDropper(hazard_dropper::State),
-            0xA8 => Brain::Stage6BossPart(stage6_boss_part::State),
-            0xA6 => Brain::Stage6Boss(stage6_boss::State),
-            0xAE => Brain::FallingEnemy(falling_enemy::State),
-            0xC0 => Brain::FinalBossBouncer(final_boss_bouncer::State),
-            0x9C => Brain::RowTableTailSet(row_table_tail_set::State),
-            0xA0 => Brain::FallingHazardTrigger(falling_hazard_trigger::State),
-            0x9E => Brain::HoverPlummeter(hover_plummeter::State),
-            0xAC => Brain::Turret(turret::State),
-            0xC4 => Brain::DriftShot(drift_shot::State),
-            0x46 => Brain::Stage4BossSlam(stage4_boss_slam::State),
-            0x90 => Brain::Stage3BossShot(stage3_boss_shot::State),
-            0x92 => Brain::ShotImpactBurst(shot_impact_burst::State),
-            _ => Brain::Unported,
-        }
+families! {
+    main {
+        0x02 => RoomExit(room_exit),
+        0x04 | 0x06 => BreakableBlock(breakable_block),
+        0x08 => HarmlessBurst(harmless_burst),
+        0x0A => HoverDiver(hover_diver),
+        0x0C => Stomper(stomper),
+        0x0E => StageEndTrigger(stage_end_trigger),
+        0x10 => Pickup(pickup),
+        0x12 => ScenerySpawner(scenery_spawner),
+        0x14 => FallingScenery(falling_scenery),
+        0x16 => MirroredScroller(mirrored_scroller),
+        0x18 => HurtfulBurst(hurtful_burst),
+        0x1A => TopScreenRoomExit(top_screen_room_exit),
+        0x1C => CellPainter(cell_painter),
+        0x1E => HoverShooter(hover_shooter),
+        0x20 => HoverShot(hover_shot),
+        0x22 => CrateSoldier(crate_soldier),
+        0x24 => EnemyShot(enemy_shot),
+        0x26 => PatrolWalker(patrol_walker),
+        0x28 => WaypointPlatform(waypoint_platform),
+        0x2A => DivingBomber(diving_bomber),
+        0x2C => BomberBomb(bomber_bomb),
+        0x2E => Dropper(dropper),
+        0x30 => DropperPayload(dropper_payload),
+        0x32 => NextAreaGate(next_area_gate),
+        0x34 => BossStatus(boss_status),
+        0x36 => DriftingBomber(drifting_bomber),
+        0x38 => AceRanger(ace_ranger),
+        /// The `$38` boss's parts.
+        0x3A | 0x3C => AceRangerShot(ace_ranger_shot),
+        0x3E => HopThrower(hop_thrower),
+        0x40 => HopThrowerShot(hop_thrower_shot),
+        0x42 => Stage4Boss(stage4_boss),
+        0x44 => Stage4BossShot(stage4_boss_shot),
+        0x46 => Stage4BossSlam(stage4_boss_slam),
+        0x48 => VolleyThrower(volley_thrower),
+        0x4A => VolleyShot(volley_shot),
+        0x4C => ShellSpawner(shell_spawner),
+        0x4E => BossShell(boss_shell),
+        0x50 => BossDefeatedScript(boss_defeated_script),
+        0x52 => Explosion(explosion),
+        0x54 => FlightSteer(flight_steer),
+        0x56 => ColumnEraser(column_eraser),
+        /// The stage 5 probe/palette pair.
+        0x58 | 0x5A => SpikeProbe(spike_probe),
+        0x5C => DriftingDecoration(drifting_decoration),
+        0x5E => SwingingHazard(swinging_hazard),
+        0x60 => ProximityBomb(proximity_bomb),
+        0x62 => FallingDebris(falling_debris),
+        0x64 => TableBobber(table_bobber),
+        0x66 => VerticalBobber(vertical_bobber),
+        0x68 => BobberSpawner(bobber_spawner),
+        0x6A => LungingEnemy(lunging_enemy),
+        0x6C => Spellcaster(spellcaster),
+        0x6E => TwoStageDrifter(two_stage_drifter),
+        0x70 => TwoStageDrifterContinuation(two_stage_drifter_continuation),
+        0x72 => DivingDropper(diving_dropper),
+        0x74 => DivingDropperPart(diving_dropper_part),
+        0x76 => RowTablePairPatch(row_table_pair_patch),
+        0x78 => MarkerTrigger(marker_trigger),
+        0x7A => FlashMarker(flash_marker),
+        0x7C => BlastWalker(blast_walker),
+        0x7E => Spinner(spinner),
+        0x80 => SpinnerSpawner(spinner_spawner),
+        0x82 => NextAreaCue(next_area_cue),
+        0x84 => CollapsingFloorController(collapsing_floor_controller),
+        0x86 => FloorDebris(floor_debris),
+        0x88 => LedgeWalker(ledge_walker),
+        0x8A => Spitter(spitter),
+        0x8C => SpitShot(spit_shot),
+        0x8E => Stage3Boss(stage3_boss),
+        0x90 => Stage3BossShot(stage3_boss_shot),
+        0x92 => ShotImpactBurst(shot_impact_burst),
+        0x94 => Stage6LobberSpawner(stage6_lobber_spawner),
+        0x96 => Stage6Lobber(stage6_lobber),
+        0x98 => Stage6FixedSprite(stage6_fixed_sprite),
+        0x9A => Stage6LobbedPiece(stage6_lobbed_piece),
+        0x9C => RowTableTailSet(row_table_tail_set),
+        0x9E => HoverPlummeter(hover_plummeter),
+        0xA0 => FallingHazardTrigger(falling_hazard_trigger),
+        0xA2 => FallingHazard(falling_hazard),
+        0xA4 => HazardDropper(hazard_dropper),
+        0xA6 => Stage6Boss(stage6_boss),
+        0xA8 => Stage6BossPart(stage6_boss_part),
+        0xAA => Stage6BossDeathPart(stage6_boss_death_part),
+        0xAC => Turret(turret),
+        0xAE => FallingEnemy(falling_enemy),
+        0xB0 => FallingEnemySpawner(falling_enemy_spawner),
+        0xB2 => RowBaseReset(row_base_reset),
+        0xB4 => FinalBoss(final_boss),
+        0xB6 => FinalBossPart(final_boss_part),
+        0xB8 => FinalBossDefeat(final_boss_defeat),
+        0xBA => FinalBossShot(final_boss_shot),
+        0xBC => FinalBossFallingShot(final_boss_falling_shot),
+        0xBE => FinalBossFallingPart(final_boss_falling_part),
+        0xC0 => FinalBossBouncer(final_boss_bouncer),
+        0xC2 => DriftWaveSpawner(drift_wave_spawner),
+        0xC4 => DriftShot(drift_shot),
+        0xC6 => OpeningFallWarp(opening_fall_warp),
+        0xC8 => RowTableTailClear(row_table_tail_clear),
     }
-
-    /// The state a second-class actor of `kind` starts in (the `$CEC3` table).
-    #[must_use]
-    pub fn new_second(kind: u8) -> Brain {
-        match kind {
-            0x04 => Brain::VerticalShuttlePlatform(vertical_shuttle_platform::State),
-            0x02 => Brain::SidewaysPlatform(sideways_platform::State),
-            0x08 => Brain::SinkingPlatform(sinking_platform::State),
-            0x0A => Brain::PathPlatform(path_platform::State),
-            0x0C => Brain::CameraFloor(camera_floor::State),
-            0x06 => Brain::CrumblingBlock(crumbling_block::State),
-            0x0E => Brain::FallingFloorPiece(falling_floor_piece::State),
-            0x10 => Brain::FallingPlatform(falling_platform::State),
-            _ => Brain::Unported,
-        }
+    second {
+        0x02 => SidewaysPlatform(sideways_platform),
+        0x04 => VerticalShuttlePlatform(vertical_shuttle_platform),
+        0x06 => CrumblingBlock(crumbling_block),
+        0x08 => SinkingPlatform(sinking_platform),
+        0x0A => PathPlatform(path_platform),
+        0x0C => CameraFloor(camera_floor),
+        0x0E => FallingFloorPiece(falling_floor_piece),
+        0x10 => FallingPlatform(falling_platform),
     }
 }
 
@@ -515,134 +354,6 @@ impl Brain {
             *self = brain;
         }
     }
-}
-
-/// Matches a main slot's brain to its family's `step`.
-macro_rules! main_families {
-    ($slot:ident, $work:ident, $cx:ident; $($family:ident),* $(,)?) => {
-        match &mut $slot.brain {
-            Brain::Unported => {
-                crate::actor::engine::unported(&mut $slot.kind, &$slot.body, $work, $cx);
-            }
-            Brain::VerticalShuttlePlatform(_) | Brain::SidewaysPlatform(_) | Brain::SinkingPlatform(_) | Brain::PathPlatform(_) | Brain::CameraFloor(_) | Brain::CrumblingBlock(_) | Brain::FallingFloorPiece(_) | Brain::FallingPlatform(_) => {
-                panic!("a second-class family in a main slot")
-            }
-            $(Brain::$family(state) => state.step(&mut $slot.kind, &mut $slot.body, $work, $cx),)*
-        }
-    };
-}
-
-/// Calls `$callback!` with its arguments and every main family's variant, the one list
-/// of the families a main slot can hold.
-macro_rules! with_main_families {
-    ($callback:ident!($($args:tt)*)) => {
-        $callback!(
-            $($args)*;
-            BreakableBlock,
-            RoomExit,
-            HarmlessBurst,
-            HoverDiver,
-            Stomper,
-            StageEndTrigger,
-            FallingScenery,
-            MirroredScroller,
-            HurtfulBurst,
-            CellPainter,
-            TopScreenRoomExit,
-            Pickup,
-            ScenerySpawner,
-            HoverShot,
-            HoverShooter,
-            Stage6Lobber,
-            FallingEnemySpawner,
-            RowBaseReset,
-            FinalBossPart,
-            FinalBoss,
-            FinalBossDefeat,
-            FinalBossShot,
-            FinalBossFallingPart,
-            FinalBossFallingShot,
-            EnemyShot,
-            DriftingBomber,
-            VerticalBobber,
-            BobberSpawner,
-            PatrolWalker,
-            NextAreaGate,
-            WaypointPlatform,
-            BossStatus,
-            Spellcaster,
-            TwoStageDrifter,
-            TwoStageDrifterContinuation,
-            FlightSteer,
-            RowTablePairPatch,
-            MarkerTrigger,
-            FlashMarker,
-            BlastWalker,
-            LungingEnemy,
-            CrateSoldier,
-            OpeningFallWarp,
-            DriftWaveSpawner,
-            RowTableTailClear,
-            AceRanger,
-            DivingDropperPart,
-            TableBobber,
-            AceRangerShot,
-            ColumnEraser,
-            SpikeProbe,
-            Dropper,
-            DropperPayload,
-            HopThrowerShot,
-            VolleyThrower,
-            VolleyShot,
-            Stage4BossShot,
-            DriftingDecoration,
-            Explosion,
-            BossDefeatedScript,
-            SwingingHazard,
-            DivingBomber,
-            ProximityBomb,
-            FallingDebris,
-            DivingDropper,
-            HopThrower,
-            FloorDebris,
-            LedgeWalker,
-            CollapsingFloorController,
-            Stage4Boss,
-            ShellSpawner,
-            BossShell,
-            BomberBomb,
-            Spitter,
-            SpitShot,
-            SpinnerSpawner,
-            NextAreaCue,
-            Stage3Boss,
-            Spinner,
-            Stage6LobberSpawner,
-            Stage6FixedSprite,
-            Stage6LobbedPiece,
-            FallingHazard,
-            Stage6BossDeathPart,
-            HazardDropper,
-            Stage6BossPart,
-            Stage6Boss,
-            FallingEnemy,
-            FinalBossBouncer,
-            RowTableTailSet,
-            FallingHazardTrigger,
-            HoverPlummeter,
-            Turret,
-            DriftShot,
-            Stage4BossSlam,
-            Stage3BossShot,
-            ShotImpactBurst,
-        )
-    };
-}
-
-/// Runs one slot's handler (the `$CF72` dispatch).
-pub(crate) fn step(slot: &mut Slot, work: &mut Work, cx: &mut Cx<'_>) {
-    slot.brain.follow(slot.kind);
-    with_main_families!(main_families!(slot, work, cx));
 }
 
 /// A family's state lifted from its slot's arrays.

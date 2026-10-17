@@ -232,8 +232,10 @@ New candidates, each to be classified (state, flags, table index) before it chan
   `collision::Surface` (`docs/specs/2026-10-17-rooms-design.md`,
   `-screens-design.md`, `-surfaces-design.md`); scripts as data: `actor::script`'s runner
   under the ending and the cutscene (`docs/specs/2026-10-17-scripts-as-data-design.md`).
-- Next for the families: `Brain`'s declaration, `new` and `lift` still repeat the list; one
-  declaration macro could generate them from it.
+- The families are declared once (`families!`: `Brain`, `new`, `new_second` and the
+  dispatch from one table in kind order; `docs/specs/2026-10-17-families-declared-once-design.md`).
+  Next for them: the second-class families as their own enum, so `step_second` is
+  exhaustive and the main dispatch loses its panic arm.
 
 ## Leads (could not verify)
 
