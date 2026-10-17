@@ -1,4 +1,4 @@
-# Status — where 1.1.7 stands
+# Status — where 1.1.8 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -31,6 +31,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.5 | **done, tag `1.1.5`** (2026-10-17): the fifth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The families' repurposed bytes named where it reads better (flag consts, 16-bit pairs as named values, the dropper's writes into its payload as the payload's own `arm`, the bosses' phase docs saying what each byte holds), `Body`'s docs back to the WRAM meaning; the stun's always-zero shift written as zeros (the ROM's `$92E8` agrees); the ECS spike's results for the owner (`docs/specs/2026-10-17-actors-as-entities-decision.md`: byte-exact, about 4x the core's clean build, about 15% slower chain test, no simpler code) |
 | 1.1.6 | **done, tag `1.1.6`** (2026-10-17): the sixth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The named-bytes pattern extended: the spawners', links' and flags' repurposed bytes named in their families; the `hit` byte's engine bits named (`slots::hit`: `DYING`, `FLASHING`, `STRUCK`); the families' 16-bit pairs (the slam's fall speed, the shot's and the bouncer's velocities, the dropper part's offset, the shell's life) as named 16-bit values, their byte-wise carries shown equivalent to 16-bit arithmetic for every input |
 | 1.1.7 | **done, tag `1.1.7`** (2026-10-17): the seventh modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The player's flag bytes named (`docs/specs/2026-10-17-player-flags-design.md`): `stage_script` (`FROZEN`, `HIDDEN`, `KEEP_PADS`), `busy::SCRIPTED`, `attack` (`CHARGEABLE`, `CHARGING`, `CHARGED`), and the three unrelated bytes that were `flags[0..3]` split into `power_up`, `sliding` and `hurt` (`STUNNED`, `INVULNERABLE`); `solid_below` (it probes above) is `headroom_blocked`, `draw_flash` is `drain_power_up`; `collision::damage`'s doc no longer calls the power-up "already hurt" |
+| 1.1.8 | **done, tag `1.1.8`** (2026-10-17): the eighth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The behaviour tables' storage decided (`docs/specs/2026-10-17-behaviour-tables-design.md`): `prg::Prg` owns the PRG image and the tables imported from it once, and derefs to the bytes, so only the path to `Cx` takes it; slice 1, the hitboxes, is `engine::Hitboxes` (the actors', the bosses', `touch`'s hazards, the room exits' reach and the second-class platforms' widths), every index's range read from its writes |
 
 ## Verified working
 
@@ -77,9 +78,10 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    **1.1.2, the second: tagged `1.1.2`** (2026-10-17). **1.1.3, the third: tagged
    `1.1.3`** (2026-10-17). **1.1.4, the fourth: tagged `1.1.4`** (2026-10-17). **1.1.5,
    the fifth: tagged `1.1.5`** (2026-10-17). **1.1.6, the sixth: tagged `1.1.6`**
-   (2026-10-17). **1.1.7, the seventh: tagged `1.1.7`** (2026-10-17). Next: the ECS mirror is decided (2026-10-17);
-   the behaviour tables' storage beside `prg` or as a resource (`docs/MODERNIZE.md`), then
-   Phase C's spec (the mirror, the draw-call record, rendering from it).
+   (2026-10-17). **1.1.7, the seventh: tagged `1.1.7`** (2026-10-17). **1.1.8, the eighth: tagged
+   `1.1.8`** (2026-10-17). Next: the behaviour tables' slice 2 (the family constants) and
+   slice 3 (the player and weapons) as fields on `Prg` (`docs/MODERNIZE.md`), then Phase C's
+   spec (the mirror, the draw-call record, rendering from it).
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
