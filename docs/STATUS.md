@@ -1,4 +1,4 @@
-# Status — where 1.1.4 stands
+# Status — where 1.1.5 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -28,6 +28,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.2 | **done, tag `1.1.2`** (2026-10-17): the second modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). Every actor family's phase machine is a named `Phase` enum (`phases!`, 26 families; the other phase values named constants), the actor state bits `STATE_DROPS_PICKUP`/`STATE_UNTARGETED`; levels as assets: a room's layout and screen record are a `rooms::Room` (palette selectors, CHR banks, orientation with named bits, page order, start record, raster split, fixed rows and quads, the player's arrival), a metatile class's behaviour a `collision::Surface` the probes dispatch on (pinned to the ROM's handler tables); scripts as data: a shared runner (`actor::script`) under the ending and the cutscene, which is now a table; dead duplicate decoders deleted (`palettes.rs`, `actors.rs`'s screen records, `collision`'s summary types) |
 | 1.1.3 | **done, tag `1.1.3`** (2026-10-17): the third modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The actor families are declared once (`families!`: `Brain`, `SecondBrain` for the second-class families, both `new`s and the dispatch from one kind-ordered table); `Game::frame` reads as its steps (`ScriptFrame`, `script_frame`, `loop_body`, `move_player`...); the actors' fields by name: a `slots::Field` per array with the slot aliasing in one mapping, the spawners', parents' and platforms' address-keyed writes typed (`cx.get`/`set`, `Slots::kind`, `platform_parameter`, `pressed`), the part tables through `Field::from_array`; left address-keyed on purpose: `next_area_gate`'s projectile read by actor slot and `turret`'s register-indexed bytes |
 | 1.1.4 | **done, tag `1.1.4`** (2026-10-17): the fourth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The pad is `Buttons` in the core (named buttons and groups, `contains` for one button and `intersects` for any of a group; the byte stays at the Classic boundary: `Game::nmi`, the recordings, the oracle); the boot's linear parts are script tables on the shared runner (power-on, the intro, the title set-up, the slide-in and its flicker, the title's chosen flash), deleting its hidden counters |
+| 1.1.5 | **done, tag `1.1.5`** (2026-10-17): the fifth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The families' repurposed bytes named where it reads better (flag consts, 16-bit pairs as named values, the dropper's writes into its payload as the payload's own `arm`, the bosses' phase docs saying what each byte holds), `Body`'s docs back to the WRAM meaning; the stun's always-zero shift written as zeros (the ROM's `$92E8` agrees); the ECS spike's results for the owner (`docs/specs/2026-10-17-actors-as-entities-decision.md`: byte-exact, about 4x the core's clean build, about 15% slower chain test, no simpler code) |
 
 ## Verified working
 
@@ -72,9 +73,10 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    Enhanced features (interpolation, CRT filters, widescreen, remastered audio) follow
    from 1.2.0. **1.1.1, the first modernisation patch: tagged `1.1.1`** (2026-10-17).
    **1.1.2, the second: tagged `1.1.2`** (2026-10-17). **1.1.3, the third: tagged
-   `1.1.3`** (2026-10-17). **1.1.4, the fourth: tagged `1.1.4`** (2026-10-17). Next: the
-   ECS spike's results for the owner, per-family names for `Body` bytes, then Phase C's
-   spec.
+   `1.1.3`** (2026-10-17). **1.1.4, the fourth: tagged `1.1.4`** (2026-10-17). **1.1.5,
+   the fifth: tagged `1.1.5`** (2026-10-17). Next: the owner's choice after the ECS spike
+   (the mirror or the core on `bevy_ecs`), the named-bytes pattern extended where it pays,
+   then Phase C's spec.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
