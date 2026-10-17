@@ -14,7 +14,7 @@ const DRAW_BANK: u8 = 9;
 const ATTR: u8 = 0x41;
 const HITBOX: u8 = 3;
 const DAMAGE: u8 = 4;
-const STEP: u8 = 3;
+const STEP: i16 = 3;
 const SHIFT_X: u16 = 0xFFD8;
 
 /// `$7DD0` bit 7: the offset runs back up toward zero; clear, it runs down.
@@ -22,7 +22,8 @@ const RISING: u8 = 0x80;
 /// `anim` bit 7 once the offset has crossed zero: the part holds.
 const HOLDING: u8 = 0x80;
 
-/// Type `$74` keeps its direction, offset and hold flag in [`Body`] (`$7DD0`, `$7E10:$7DF0`, `$7E90`).
+/// Type `$74` keeps its direction in `phase` bit 7, its per-frame y offset in the pair
+/// `[counter, timer]` and its hold flag in `anim` bit 7.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
@@ -34,19 +35,15 @@ impl State {
             work.vy = 0;
         } else {
             let falling = body.phase & RISING == 0;
-            let (timer, carry) = if falling {
-                body.timer.overflowing_add(STEP)
+            let offset = i16::from_be_bytes([body.counter, body.timer]);
+            let offset = if falling {
+                offset.wrapping_add(STEP)
             } else {
-                body.timer.overflowing_sub(STEP)
+                offset.wrapping_sub(STEP)
             };
-            body.timer = timer;
-            body.counter = if falling {
-                body.counter.wrapping_add(u8::from(carry))
-            } else {
-                body.counter.wrapping_sub(u8::from(carry))
-            };
-            work.vy = i16::from_be_bytes([body.counter, body.timer]);
-            if (body.counter & 0x80 != 0) != falling {
+            [body.counter, body.timer] = offset.to_be_bytes();
+            work.vy = offset;
+            if (offset < 0) != falling {
                 body.timer = 0;
                 body.counter = 0;
                 body.anim = HOLDING;

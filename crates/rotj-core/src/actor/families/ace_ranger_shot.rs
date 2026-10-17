@@ -33,7 +33,9 @@ const DETONATE_DROP: u16 = 0x04C0;
 /// `$826F` maps bank 9 into `$A000` for the draws (`$C247`).
 const DRAW_BANK: u8 = 9;
 
-/// Both kinds keep their whole state in [`Body`].
+/// `$3A` keeps its drift's table index in `phase` and its metasprite in `sprite`; the `$3C`
+/// shell counts its frames in the pair `[counter, timer]`, zeroed at spawn, and detonates
+/// at `$0200` at the latest.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
@@ -118,12 +120,9 @@ fn shell(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     };
     let dx = engine::player_dx(work, &cx.effects.player);
     body.vx_drift = if dx < 0 { 4 } else { -4 };
-    body.timer = body.timer.wrapping_add(1);
-    let mut detonate = false;
-    if body.timer == 0 {
-        body.counter = body.counter.wrapping_add(1);
-        detonate = body.counter >= 2;
-    }
+    let life = u16::from_be_bytes([body.counter, body.timer]).wrapping_add(1);
+    [body.counter, body.timer] = life.to_be_bytes();
+    let mut detonate = life.to_be_bytes()[1] == 0 && life >= 0x0200;
     if !detonate && engine::on_screen(work, cx.world) == Visibility::On {
         work.pointer = engine::rom_word(cx.prg, 11, SHELL_SPRITE + u16::from(cx.world.frame & 2));
         work.tile = 0;

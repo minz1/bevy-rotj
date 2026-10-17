@@ -19,7 +19,9 @@ const Y_ACCEL_LOW: u16 = 0x97EF;
 const METASPRITES: u16 = 0x97F7;
 const LIFE: u8 = 0x08;
 
-/// Type `$44` keeps its whole state in [`Body`], its parent's slot in `sprite`.
+/// Type `$44` keeps its x velocity in the pair `[subtype, behaviour]`, its y velocity in
+/// `[timer, phase]`, its table in `counter`, its age in `anim` and its parent's slot in
+/// `sprite`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
@@ -28,29 +30,17 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         let index = u16::from(body.counter);
-        let (behaviour, carry) = body.behaviour.overflowing_add(engine::rom_byte(
-            cx.prg,
-            HOME_BANK,
-            X_ACCEL_LOW + index,
-        ));
-        body.behaviour = behaviour;
-        body.subtype = body
-            .subtype
-            .wrapping_add(engine::rom_byte(cx.prg, HOME_BANK, X_ACCEL_HIGH + index))
-            .wrapping_add(u8::from(carry));
-        let (phase, carry) =
-            body.phase
-                .overflowing_add(engine::rom_byte(cx.prg, HOME_BANK, Y_ACCEL_LOW + index));
-        body.phase = phase;
-        body.timer = body.timer.wrapping_add(0xFF).wrapping_add(u8::from(carry));
+        let accel = |table: u16| engine::rom_byte(cx.prg, HOME_BANK, table + index);
+        let x_accel = u16::from_be_bytes([accel(X_ACCEL_HIGH), accel(X_ACCEL_LOW)]);
+        let x_velocity = u16::from_be_bytes([body.subtype, body.behaviour]).wrapping_add(x_accel);
+        [body.subtype, body.behaviour] = x_velocity.to_be_bytes();
+        let y_velocity = u16::from_be_bytes([body.timer, body.phase])
+            .wrapping_add(u16::from_be_bytes([0xFF, accel(Y_ACCEL_LOW)]));
+        [body.timer, body.phase] = y_velocity.to_be_bytes();
 
-        work.x = work
-            .x
-            .wrapping_add(u16::from_be_bytes([body.subtype, body.behaviour]));
+        work.x = work.x.wrapping_add(x_velocity);
         body.x = work.x;
-        work.y = work
-            .y
-            .wrapping_add(u16::from_be_bytes([body.timer, body.phase]));
+        work.y = work.y.wrapping_add(y_velocity);
         body.y = work.y;
 
         let parent = &cx.slots.main[usize::from(body.sprite)].body;

@@ -29,9 +29,9 @@ const CONTACT: u16 = 0x0320;
 /// The `$AFD6` mode (`Y` = `$80`).
 const MODE: u8 = 0x80;
 
-/// Type `$C0` keeps its whole state in [`Body`]: `$7DD0:$7DB0` its x velocity,
-/// `$7E10:$7DF0` its y velocity, `$7E90`/`$7CE0` the animation and `$7C90` the
-/// CHR shadow, and its parent's slot in `sprite`; it has none of its own.
+/// Type `$C0` keeps its x velocity in the pair `[phase, subtype]`, its y velocity in
+/// `[counter, timer]`, the animation in `anim`/`cell`, the CHR shadow in `chr_slot` and
+/// its parent's slot in `sprite`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
@@ -40,28 +40,26 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         work.attr = 0;
-        work.x = work
-            .x
-            .wrapping_add(u16::from_be_bytes([body.phase, body.subtype]));
-        work.y = work
-            .y
-            .wrapping_add(u16::from_be_bytes([body.counter, body.timer]));
+        let x_velocity = i16::from_be_bytes([body.phase, body.subtype]);
+        let y_velocity = i16::from_be_bytes([body.counter, body.timer]);
+        work.x = work.x.wrapping_add_signed(x_velocity);
+        work.y = work.y.wrapping_add_signed(y_velocity);
         if work.y.to_be_bytes()[0] & 0xF0 != 0 {
             free(kind, body, cx);
             return;
         }
-        if body.counter & 0x80 == 0 && work.y.to_be_bytes()[0] >= FLOOR_ROW {
+        if y_velocity >= 0 && work.y.to_be_bytes()[0] >= FLOOR_ROW {
             work.y = u16::from(FLOOR_ROW) << 8;
-            negate(&mut body.counter, &mut body.timer);
+            [body.counter, body.timer] = y_velocity.wrapping_neg().to_be_bytes();
         }
-        if body.phase & 0x80 != 0 {
+        if x_velocity < 0 {
             if work.x.to_be_bytes()[0] < 2 {
                 work.x = LEFT_WALL;
-                negate(&mut body.phase, &mut body.subtype);
+                [body.phase, body.subtype] = x_velocity.wrapping_neg().to_be_bytes();
             }
         } else if work.x.to_be_bytes()[0] >= 0x0E {
             work.x = RIGHT_WALL;
-            negate(&mut body.phase, &mut body.subtype);
+            [body.phase, body.subtype] = x_velocity.wrapping_neg().to_be_bytes();
         }
         let index = (u16::from(body.anim) << 2) | u16::from(cx.world.frame & 2);
         work.pointer = engine::rom_word(cx.prg, 12, METASPRITES + index);
@@ -93,13 +91,6 @@ fn free(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
         value & if body.behaviour == 0 { 0x7F } else { 0xBF },
     );
     *kind = 0;
-}
-
-/// Two's-complements the 16-bit [`Body`] velocity split as `(hi, lo)`.
-fn negate(hi: &mut u8, lo: &mut u8) {
-    let [h, l] = u16::from_be_bytes([*hi, *lo]).wrapping_neg().to_be_bytes();
-    *hi = h;
-    *lo = l;
 }
 
 #[cfg(test)]

@@ -62,18 +62,11 @@ impl State {
 
 /// `$9882`: accelerate down; true once it reaches the floor row.
 fn fall(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) -> bool {
-    let (low, carry) = body.behaviour.overflowing_add(GRAVITY);
-    body.behaviour = low;
-    if carry {
-        body.subtype = body.subtype.wrapping_add(1);
-    }
-    let [y_high, y_low] = work.y.to_be_bytes();
-    let (y_low, carry) = y_low.overflowing_add(body.behaviour);
-    let y_high = y_high
-        .wrapping_add(body.subtype)
-        .wrapping_add(u8::from(carry));
-    work.y = u16::from_be_bytes([y_high, y_low]);
-    if y_high >= FLOOR_ROW {
+    let fall_speed =
+        u16::from_be_bytes([body.subtype, body.behaviour]).wrapping_add(u16::from(GRAVITY));
+    [body.subtype, body.behaviour] = fall_speed.to_be_bytes();
+    work.y = work.y.wrapping_add(fall_speed);
+    if work.y.to_be_bytes()[0] >= FLOOR_ROW {
         cx.effects.sound[1] = LANDING_SOUND;
         work.y = u16::from_be_bytes([FLOOR_ROW, 0]);
         body.phase = LANDING_START;
