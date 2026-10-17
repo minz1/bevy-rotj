@@ -15,7 +15,8 @@ const ATTRS: u16 = 0x85B8;
 const LIFETIME: Field = Field::RefVxHigh;
 const GRAVITY: u8 = 0x0C;
 
-/// Type `$08` has no handler phase: its `$7DD0` byte is part 0's x velocity.
+/// Type `$08` has no handler phase: its `$7DD0` byte is part 0's x velocity, and a
+/// part's y byte lands in `scratch` (`$7D30`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 

@@ -7,7 +7,7 @@
 //! it back: the parent then draws and stores with the child's position.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::families::Brain;
+use crate::actor::families::{Brain, dropper_payload};
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
@@ -59,8 +59,13 @@ impl State {
     }
 }
 
+/// The child's slot, which the dropper keeps in `anim` (`$7E90`).
+fn child_slot(body: &Body) -> usize {
+    usize::from(body.anim)
+}
+
 fn free_child(body: &Body, cx: &mut Cx<'_>) {
-    if let Some(child) = cx.slots.main.get_mut(usize::from(body.anim)) {
+    if let Some(child) = cx.slots.main.get_mut(child_slot(body)) {
         child.kind = 0;
     }
 }
@@ -134,7 +139,7 @@ fn lowering(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 
 /// `$871F`: the child's fall; returns the sprite it takes and whether it reached the floor.
 fn lower_child(body: &Body, work: &Work, cx: &mut Cx<'_>) -> (u8, bool) {
-    let child = &mut cx.slots.main[usize::from(body.anim)].body;
+    let child = &mut cx.slots.main[child_slot(body)].body;
     child.y = child.y.wrapping_add_signed(child.vy);
     let [hi, lo] = child.vy.to_be_bytes();
     let (next, carry) = lo.overflowing_add(4);
@@ -152,7 +157,7 @@ fn lower_child(body: &Body, work: &Work, cx: &mut Cx<'_>) -> (u8, bool) {
 /// `$8774`: draws the child through the working set.
 fn draw_child(body: &Body, work: &mut Work, sprite: u8, cx: &mut Cx<'_>) {
     let saved = (work.x, work.y, work.chr_slot, work.attr);
-    let child = &cx.slots.main[usize::from(body.anim)].body;
+    let child = &cx.slots.main[child_slot(body)].body;
     work.x = child.x;
     work.y = child.y;
     work.attr = child.flags;
@@ -176,21 +181,14 @@ fn throw_child(body: &Body, work: &mut Work, cx: &mut Cx<'_>) {
         (0xFF, THROW_RIGHT)
     };
     let lo = engine::rom_byte(cx.prg, BANK, table + reach);
-    let player_y = cx.effects.player.y.to_be_bytes();
-    let child = &mut cx.slots.main[usize::from(body.anim)].body;
-    child.phase = super::dropper_payload::THROWN;
-    child.y = work.y.wrapping_sub(0x03B0);
-    child.vy = -0x40;
-    child.anim = 0;
-    child.ref_vx = 0;
-    child.vx_drift = 0;
-    child.state = 0;
-    child.hit = 0;
-    child.subtype = work.slot;
-    child.contact = 0x20;
-    child.timer = player_y[1];
-    child.counter = player_y[0];
-    child.vx = i16::from_be_bytes([hi, lo]);
+    let child = &mut cx.slots.main[child_slot(body)].body;
+    dropper_payload::arm(
+        child,
+        work.slot,
+        cx.effects.player.y,
+        work.y.wrapping_sub(0x03B0),
+        i16::from_be_bytes([hi, lo]),
+    );
 }
 
 /// Recovering (`$8678`): wait out the throw.

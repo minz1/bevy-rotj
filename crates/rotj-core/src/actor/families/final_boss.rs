@@ -45,26 +45,30 @@ const CONTACT_MODE: u8 = 0xC0;
 const PHASE_GATE: u16 = 0x4650;
 
 phases! {
-    /// The boss's phase (`$7DD0`), which picks its handler (`$9100`).
+    /// The boss's phase (`$7DD0`), which picks its handler (`$9100`). Outside shedding
+    /// `counter` is the hit flash's countdown (`$8E04`).
     Phase {
         /// Holding until the player's boss-entry motion ends.
         Waiting = 0,
-        /// Stepping the body sprite through 0/2/4/6 for 16 frames.
+        /// Stepping the body sprite through 0/2/4/6 while `anim` counts 16 frames.
         Animating = 1,
-        /// Counting `$7E90` down on the plain `$E2` bank.
+        /// Counting `anim` down to 0 on the plain `$E2` bank.
         Holding = 2,
-        /// Ramping `$E2` and dropping a `$BC` every 16 frames.
+        /// Ramping `$E2` by `anim`, counting up to `$32`, and dropping a `$BC` every 16;
+        /// leaves `$80` in `anim` for holding.
         Dropping = 3,
-        /// Shedding `$52` parts while counting `$7E90` up.
+        /// Shedding `$52` parts while `anim` counts up to `$C0`; `counter` picks the
+        /// next part's spot (0-5).
         Shedding = 4,
-        /// Counting `$7E90` to `$C0` between spawns.
+        /// Counting `anim` to `$C0` between spawns.
         Resting = 5,
-        /// Spawning `$C0` or `$BE` parts every 64 frames.
+        /// Spawning `$BE` or `$C0` parts as `scratch` bit 7 flips, once `anim` counts
+        /// 64 frames.
         Summoning = 6,
     }
 }
 
-/// Type `$B4` keeps its whole state in [`Body`].
+/// Type `$B4` keeps its whole state in [`Body`]; `scratch` bit 7 is summoning's toggle.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 

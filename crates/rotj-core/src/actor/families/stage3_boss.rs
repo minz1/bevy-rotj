@@ -34,19 +34,24 @@ const SHOT_KIND: u8 = 0x90;
 const CONTACT: u16 = 0x00E0;
 
 phases! {
-    /// The boss's phase (`$7DD0`), which picks its handler (`$9D91`).
+    /// The boss's phase (`$7DD0`), which picks its handler (`$9D91`). In every phase
+    /// `counter` holds the tail's extra draws: bit 6 the second (by bit 0), bit 7 the third.
     Phase {
-        /// Holding until the player has entered, then turning for 12 frames.
+        /// Holding until the player has entered (`anim` bit 7), then turning for 12
+        /// frames of `timer`.
         Opening = 0,
-        /// Rearing back and dropping.
+        /// Rearing back while `anim` counts down from `$90` to `$7F`, then dropping.
         Dropping = 1,
-        /// Dashing across the room.
+        /// Dashing across the room; `anim:timer` is the run, from the x distance to the
+        /// player, and a zero `anim` ends it.
         Dashing = 2,
-        /// Winding up and firing the `$90` burst.
+        /// Winding up on `timer`, then firing the `$90` burst when `anim`, counting up,
+        /// reaches `$50`; `$80` ends it.
         Firing = 3,
-        /// Landing and holding against the wall.
+        /// Landing (`timer` bit 7 once grounded), then holding against the wall while
+        /// `anim` counts 16 frames.
         Bracing = 4,
-        /// Counting on, flipping its facing every fourth count.
+        /// Counting `subtype` on, flipping its facing every fourth count.
         Flipping = 5,
     }
 }

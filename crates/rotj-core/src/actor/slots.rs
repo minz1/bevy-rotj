@@ -31,13 +31,13 @@ pub struct Body {
     pub counter: u8,
     /// Animation counter (`$7E90`).
     pub anim: u8,
-    /// Metasprite frame the handler draws (`$7C30`); `$44` and `$C0` store a parent slot.
+    /// Metasprite frame the handler draws (`$7C30`).
     pub sprite: u8,
     /// Schedule cell it spawned from (`$7CE0`).
     pub cell: u8,
     /// Frames of the dying animation (`$7F00`).
     pub dying_timer: u8,
-    /// A handler-local byte (`$7D30`): ride width, a type-`$08` part's y byte or `$B4`'s toggle.
+    /// A handler-local byte (`$7D30`); a second-class slot's ride width (`$CD5F`).
     pub scratch: u8,
     /// Hit points (`$7EF0:$7BE0`).
     pub health: u16,

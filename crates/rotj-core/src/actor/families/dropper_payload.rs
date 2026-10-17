@@ -23,8 +23,12 @@ const END: u8 = 0x88;
 const PARENT: u8 = 0x2E;
 
 /// `$7DD0` bit 7, set by the `$2E` when it throws: until then the child does nothing.
-pub const THROWN: u8 = 0x80;
-/// Type `$30` keeps its whole state in [`Body`].
+const THROWN: u8 = 0x80;
+/// `anim` bit 7 from the landing on; the bits below count the landing pose's frames.
+const LANDING: u8 = 0x80;
+
+/// Type `$30` keeps its parent's slot in `subtype`, the y it lands at in `counter:timer`
+/// and the landing in `anim`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
@@ -38,22 +42,20 @@ impl State {
         cx.oam.chr[usize::from(body.chr_slot)] = CHR;
         work.attr = body.flags;
         engine::integrate(body, work);
-        if work.y.to_be_bytes()[0] & 0x80 == 0
-            && work.y >= u16::from_be_bytes([body.counter, body.timer])
-            && body.anim & 0x80 == 0
-        {
+        let landing_y = u16::from_be_bytes([body.counter, body.timer]);
+        if work.y.to_be_bytes()[0] & 0x80 == 0 && work.y >= landing_y && body.anim & LANDING == 0 {
             cx.effects.sound[0] = SOUND;
             body.flags &= 0x03;
             work.attr = body.flags;
             body.vx = 0;
-            body.anim = 0x80;
+            body.anim = LANDING;
             work.y = work.y.wrapping_add(0x0100);
         }
         if engine::on_screen(work, cx.world) != Visibility::On {
             tail(body, work);
             return;
         }
-        if body.anim & 0x80 == 0 {
+        if body.anim & LANDING == 0 {
             work.hitbox = 0;
             work.pointer = engine::rom_word(cx.prg, BANK, REST_POINTER);
         } else {
@@ -77,10 +79,29 @@ impl State {
     }
 }
 
+/// The throw (`$87D3`): the `$2E` in `parent` sends the child from `y` at `vx`, to land
+/// at `landing_y`.
+pub(crate) fn arm(child: &mut Body, parent: u8, landing_y: u16, y: u16, vx: i16) {
+    let [landing_high, landing_low] = landing_y.to_be_bytes();
+    child.phase = THROWN;
+    child.y = y;
+    child.vy = -0x40;
+    child.anim = 0;
+    child.ref_vx = 0;
+    child.vx_drift = 0;
+    child.state = 0;
+    child.hit = 0;
+    child.subtype = parent;
+    child.contact = 0x20;
+    child.timer = landing_low;
+    child.counter = landing_high;
+    child.vx = vx;
+}
+
 /// `$8921`: no x acceleration, the landing holds its height, then the store.
 fn tail(body: &mut Body, work: &mut Work) {
     work.ax = 0;
-    if body.anim & 0x80 != 0 {
+    if body.anim & LANDING != 0 {
         work.vy = -6;
     }
     engine::end_frame(body, work);

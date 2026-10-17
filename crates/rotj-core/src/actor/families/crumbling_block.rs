@@ -6,7 +6,13 @@ use crate::actor::engine::{self, TileBlock, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
-/// The block keeps its fall speed in `hit` (1/16 px) and `behaviour` (px).
+/// `state` bit 7 while the block is still in the nametable and the map.
+const UNCLEARED: u8 = 0x80;
+/// Frames `state` counts before the block falls.
+const WAIT: u8 = 5;
+
+/// The block keeps its wait in `state` (bit 7 until it is cleared from the map) and its
+/// fall speed in `hit` (1/16 px) and `behaviour` (px).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
@@ -14,7 +20,7 @@ impl State {
     /// One frame (`$80F5`): on its first, blank the block in the nametable and the map;
     /// then wait five frames and fall, accelerating, until a wall probe finds the level.
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-        if body.state & 0x80 != 0 {
+        if body.state & UNCLEARED != 0 {
             if cx.effects.vram.top >= 0x60 {
                 clear(body, work, cx);
             }
@@ -31,7 +37,7 @@ impl State {
 /// Waits five frames, then falls, accelerating (`$8173`, also `$0E`'s `$94C3`); the
 /// probe at its new position.
 pub(crate) fn fall(body: &mut Body) -> Option<Probe> {
-    if body.state < 5 {
+    if body.state < WAIT {
         body.state += 1;
         return None;
     }
@@ -49,9 +55,8 @@ pub(crate) fn accelerate_fall(body: &mut Body) {
     if body.hit & 0x80 != 0 {
         body.hit = 0x80;
     }
-    body.y = body
-        .y
-        .wrapping_add(u16::from_be_bytes([body.behaviour, body.hit]));
+    let fall_speed = u16::from_be_bytes([body.behaviour, body.hit]);
+    body.y = body.y.wrapping_add(fall_speed);
 }
 
 /// Queues four blank tiles across two rows at the block and zeroes its two map cells (`$8106`).
