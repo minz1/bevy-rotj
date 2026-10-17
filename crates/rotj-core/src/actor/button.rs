@@ -1,7 +1,7 @@
 //! The pad's buttons in the order the game keeps them (`$F5`, `$F6`: its read at `$C1DB`
 //! shifts them in from Right up to A).
 
-use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};
+use std::ops::{BitAnd, BitAndAssign, BitOr, Not};
 
 /// A set of the pad's buttons, as the game's `$F5`/`$F6` byte holds them.
 #[repr(transparent)]
@@ -87,12 +87,6 @@ impl Not for Buttons {
 impl BitAndAssign for Buttons {
     fn bitand_assign(&mut self, other: Buttons) {
         self.0 &= other.0;
-    }
-}
-
-impl BitOrAssign for Buttons {
-    fn bitor_assign(&mut self, other: Buttons) {
-        self.0 |= other.0;
     }
 }
 
