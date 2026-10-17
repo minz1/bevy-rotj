@@ -16,7 +16,7 @@ use crate::actor::world::Cx;
 /// `$7DF0 & $0F`: the frame within the 16-frame spawn period.
 const SPAWN_MASK: u8 = 0x0F;
 /// `$8702`: the free-slot scan covers the 16 main slots (15 down to 0).
-const SLOTS: u16 = 16;
+const SLOTS: usize = 16;
 /// Child x high = camera x high + `$10`, i.e. 256 px right of the camera.
 const CHILD_DX: u8 = 0x10;
 /// Child `$7C00`.
@@ -38,26 +38,22 @@ impl State {
         if body.timer & SPAWN_MASK != 0 {
             return;
         }
-        let Some(child) = (0..SLOTS).rev().find(|&y| cx.byte(0x7CC0 + y) == 0) else {
+        let Some(child) = (0..SLOTS).rev().find(|&slot| cx.slots.kind(slot) == 0) else {
             return;
         };
-        let [cam_hi, cam_lo] = cx.world.camera_x.to_be_bytes();
-        let at = |array: u16| array + child;
-        cx.set_byte(at(0x7D90), body.behaviour);
-        cx.set_byte(at(0x7B60), body.y.to_be_bytes()[1]);
-        cx.set_byte(at(0x7B40), body.y.to_be_bytes()[0]);
-        cx.set_byte(at(0x7B20), cam_lo);
-        cx.set_byte(at(0x7B00), cam_hi.wrapping_add(CHILD_DX));
-        for array in [
-            0x7E80, 0x7E70, 0x7EE0, 0x7EF0, 0x7D50, 0x7D70, 0x7DD0, 0x7DF0, 0x7E10, 0x7E90, 0x7BE0,
-        ] {
-            cx.set_byte(at(array), 0);
-        }
-        cx.set_byte(at(0x7C00), CHILD_FLAGS);
-        cx.set_byte(at(0x7E50), CHILD_DRIFT[0]);
-        cx.set_byte(at(0x7E60), CHILD_DRIFT[1]);
-        cx.set_byte(at(0x7CC0), body.subtype);
-        cx.set_byte(at(0x7C90), body.chr_slot);
+        let [camera_high, camera_low] = cx.world.camera_x.to_be_bytes();
+        let slot = &mut cx.slots.main[child];
+        let child = &mut slot.body;
+        child.behaviour = body.behaviour;
+        child.y = body.y;
+        child.x = u16::from_be_bytes([camera_high.wrapping_add(CHILD_DX), camera_low]);
+        (child.vy, child.contact, child.health) = (0, 0, 0);
+        (child.state, child.hit, child.phase) = (0, 0, 0);
+        (child.timer, child.counter, child.anim) = (0, 0, 0);
+        child.flags = CHILD_FLAGS;
+        child.vx_drift = i16::from_be_bytes(CHILD_DRIFT);
+        child.chr_slot = body.chr_slot;
+        slot.kind = body.subtype;
         body.phase = body.phase.wrapping_add(1);
         if body.phase >= SPAWN_LIMIT {
             *kind = 0;

@@ -199,6 +199,12 @@ New candidates, each to be classified (state, flags, table index) before it chan
   (probes two tiles off the player's y; check the axis before naming it), `stun`, `bit`
   (the 6502 `BIT` flag mirror kept for its N/V side effects: name what each caller tests).
 
+- **A lead (unreached):** a running slot 16+c that writes slot c's aliased bytes through
+  `cx` (slot c's narrow fields, `Anim`, `DyingTimer`) has those writes undone by
+  `store_aliases` when it finishes; in the game the write stands. No lockstep reaches it
+  (the stand-in review of `docs/specs/2026-10-17-slot-fields-design.md`); worth an oracle
+  test before any change.
+
 ### Done in 1.1.x (2026-10-16, released as 1.1.1)
 
 - #9 the duplicate `integrate` (`k08`, `k92`) is `engine::move_by_velocity`.

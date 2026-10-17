@@ -73,6 +73,227 @@ const SPARE: u16 = 0x7F70;
 /// The player's weight on a second-class platform, one byte per slot (`$7F10`).
 pub(crate) const PRESSED: u16 = 0x7F10;
 
+/// One of a slot's arrays, by the [`Body`] field (or half of it) it holds; its value is
+/// the array's base address.
+#[repr(u16)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Field {
+    /// `$7B00`: the high byte of [`Body::x`].
+    XHigh = 0x7B00,
+    /// `$7B20`: the low byte of [`Body::x`].
+    XLow = 0x7B20,
+    /// `$7B40`: the high byte of [`Body::y`].
+    YHigh = 0x7B40,
+    /// `$7B60`: the low byte of [`Body::y`].
+    YLow = 0x7B60,
+    /// `$7C00`: [`Body::flags`].
+    Flags = 0x7C00,
+    /// `$7C90`: [`Body::chr_slot`].
+    ChrSlot = 0x7C90,
+    /// `$7D50`: [`Body::state`].
+    State = 0x7D50,
+    /// `$7D90`: [`Body::behaviour`].
+    Behaviour = 0x7D90,
+    /// `$7DB0`: [`Body::subtype`].
+    Subtype = 0x7DB0,
+    /// `$7D70`: [`Body::hit`].
+    Hit = 0x7D70,
+    /// `$7DD0`: [`Body::phase`].
+    Phase = 0x7DD0,
+    /// `$7DF0`: [`Body::timer`].
+    Timer = 0x7DF0,
+    /// `$7E10`: [`Body::counter`].
+    Counter = 0x7E10,
+    /// `$7E90`: [`Body::anim`].
+    Anim = 0x7E90,
+    /// `$7C30`: [`Body::sprite`].
+    Sprite = 0x7C30,
+    /// `$7CE0`: [`Body::cell`].
+    Cell = 0x7CE0,
+    /// `$7F00`: [`Body::dying_timer`].
+    DyingTimer = 0x7F00,
+    /// `$7D30`: [`Body::scratch`].
+    Scratch = 0x7D30,
+    /// `$7EE0`: [`Body::contact`].
+    Contact = 0x7EE0,
+    /// `$7BA0`: [`Body::age`].
+    Age = 0x7BA0,
+    /// `$7EF0`: the high byte of [`Body::health`].
+    HealthHigh = 0x7EF0,
+    /// `$7BE0`: the low byte of [`Body::health`].
+    HealthLow = 0x7BE0,
+    /// `$7E30`: the high byte of [`Body::vx`].
+    VxHigh = 0x7E30,
+    /// `$7E40`: the low byte of [`Body::vx`].
+    VxLow = 0x7E40,
+    /// `$7E50`: the high byte of [`Body::vx_drift`].
+    VxDriftHigh = 0x7E50,
+    /// `$7E60`: the low byte of [`Body::vx_drift`].
+    VxDriftLow = 0x7E60,
+    /// `$7E70`: the high byte of [`Body::vy`].
+    VyHigh = 0x7E70,
+    /// `$7E80`: the low byte of [`Body::vy`].
+    VyLow = 0x7E80,
+    /// `$7ED0`: the high byte of [`Body::ref_vx`].
+    RefVxHigh = 0x7ED0,
+    /// `$7EC0`: the low byte of [`Body::ref_vx`].
+    RefVxLow = 0x7EC0,
+}
+
+impl Field {
+    /// Every array, in [`Body`]'s order.
+    pub const ALL: [Field; 30] = [
+        Field::XHigh,
+        Field::XLow,
+        Field::YHigh,
+        Field::YLow,
+        Field::Flags,
+        Field::ChrSlot,
+        Field::State,
+        Field::Behaviour,
+        Field::Subtype,
+        Field::Hit,
+        Field::Phase,
+        Field::Timer,
+        Field::Counter,
+        Field::Anim,
+        Field::Sprite,
+        Field::Cell,
+        Field::DyingTimer,
+        Field::Scratch,
+        Field::Contact,
+        Field::Age,
+        Field::HealthHigh,
+        Field::HealthLow,
+        Field::VxHigh,
+        Field::VxLow,
+        Field::VxDriftHigh,
+        Field::VxDriftLow,
+        Field::VyHigh,
+        Field::VyLow,
+        Field::RefVxHigh,
+        Field::RefVxLow,
+    ];
+
+    /// The array's base address.
+    #[must_use]
+    pub const fn base(self) -> u16 {
+        self as u16
+    }
+
+    /// Kept by slots 0-15 only (16 wide); slots 16-31 index the next array.
+    #[must_use]
+    pub const fn is_narrow(self) -> bool {
+        matches!(
+            self,
+            Field::Contact
+                | Field::Age
+                | Field::HealthHigh
+                | Field::VxHigh
+                | Field::VxLow
+                | Field::VxDriftHigh
+                | Field::VxDriftLow
+                | Field::VyHigh
+                | Field::VyLow
+                | Field::RefVxHigh
+                | Field::RefVxLow
+        )
+    }
+
+    /// The field whose array starts at `array`, if one does.
+    #[must_use]
+    pub fn from_array(array: u16) -> Option<Field> {
+        Field::ALL.into_iter().find(|field| field.base() == array)
+    }
+}
+
+/// Where a slot's field lives: a body, or (slot 16-31's [`Field::Age`]) a projectile array.
+enum Location {
+    Main(usize, Field),
+    Second(usize, Field),
+    Projectile(usize, u16),
+}
+
+/// Where field `field` of slot `slot` (0-31, the game's index) lives: a narrow field of
+/// slot 16-31 is the next array's slot `slot - 16`.
+fn locate(slot: usize, field: Field) -> Location {
+    if field.is_narrow() && slot >= 16 {
+        let next = field.base() + 16;
+        return match Field::from_array(next) {
+            Some(next) => locate(slot - 16, next),
+            None => Location::Projectile(slot - 16, next),
+        };
+    }
+    if slot < 24 {
+        Location::Main(slot, field)
+    } else {
+        Location::Second(slot - 24, field)
+    }
+}
+
+/// Field `field` of slot `slot` (0-31), wherever the game's layout puts it.
+#[must_use]
+pub fn get(slots: &Slots, projectiles: &[Projectile; 16], slot: usize, field: Field) -> u8 {
+    match locate(slot, field) {
+        Location::Projectile(index, array) => projectiles[index].byte(array),
+        _ => slots.get(slot, field),
+    }
+}
+
+/// Writes field `field` of slot `slot` (0-31), wherever the game's layout puts it.
+pub fn set(
+    slots: &mut Slots,
+    projectiles: &mut [Projectile; 16],
+    slot: usize,
+    field: Field,
+    value: u8,
+) {
+    match locate(slot, field) {
+        Location::Projectile(index, array) => projectiles[index].set_byte(array, value),
+        _ => slots.set(slot, field, value),
+    }
+}
+
+impl Slots {
+    /// Field `field` of slot `slot` (0-31); panics where it is a projectile's (see [`get`]).
+    #[must_use]
+    pub fn get(&self, slot: usize, field: Field) -> u8 {
+        match locate(slot, field) {
+            Location::Main(slot, field) => self.main[slot].body.get(field),
+            Location::Second(slot, field) => self.second[slot].body.get(field),
+            Location::Projectile(..) => panic!("slot {slot}'s {field:?} is a weapon array"),
+        }
+    }
+
+    /// Writes field `field` of slot `slot` (0-31); panics where it is a projectile's.
+    pub fn set(&mut self, slot: usize, field: Field, value: u8) {
+        match locate(slot, field) {
+            Location::Main(slot, field) => self.main[slot].body.set(field, value),
+            Location::Second(slot, field) => self.second[slot].body.set(field, value),
+            Location::Projectile(..) => panic!("slot {slot}'s {field:?} is a weapon array"),
+        }
+    }
+
+    /// Slot `slot`'s occupant type (`$7CC0`, slots 0-31).
+    #[must_use]
+    pub fn kind(&self, slot: usize) -> u8 {
+        if slot < 24 {
+            self.main[slot].kind
+        } else {
+            self.second[slot - 24].kind
+        }
+    }
+
+    /// Sets slot `slot`'s occupant type (`$7CC0`, slots 0-31).
+    pub fn set_kind(&mut self, slot: usize, kind: u8) {
+        if slot < 24 {
+            self.main[slot].kind = kind;
+        } else {
+            self.second[slot - 24].kind = kind;
+        }
+    }
+}
+
 /// Who holds a slot-array byte.
 enum Owner {
     Kind(usize),
@@ -179,8 +400,8 @@ pub(crate) fn load_aliases(
     projectiles: &[Projectile; 16],
 ) {
     if index >= 16 {
-        for array in NARROW {
-            body.set_byte(array, read(slots, projectiles, array + slot_offset(index)));
+        for field in Field::ALL.into_iter().filter(|field| field.is_narrow()) {
+            body.set(field, get(slots, projectiles, index, field));
         }
     }
 }
@@ -193,19 +414,10 @@ pub(crate) fn store_aliases(
     projectiles: &mut [Projectile; 16],
 ) {
     if index >= 16 {
-        for array in NARROW {
-            write(
-                slots,
-                projectiles,
-                array + slot_offset(index),
-                body.byte(array),
-            );
+        for field in Field::ALL.into_iter().filter(|field| field.is_narrow()) {
+            set(slots, projectiles, index, field, body.get(field));
         }
     }
-}
-
-fn slot_offset(index: usize) -> u16 {
-    u16::try_from(index).expect("a slot index")
 }
 
 fn hi(value: u16) -> u8 {
@@ -217,83 +429,96 @@ fn lo(value: u16) -> u8 {
 }
 
 impl Body {
-    /// The slot's byte in `array` (one of [`WIDE`] or [`NARROW`]).
+    /// The slot's byte in `field`'s array.
     #[must_use]
-    pub fn byte(&self, array: u16) -> u8 {
-        match array {
-            0x7B00 => hi(self.x),
-            0x7B20 => lo(self.x),
-            0x7B40 => hi(self.y),
-            0x7B60 => lo(self.y),
-            0x7C00 => self.flags,
-            0x7C90 => self.chr_slot,
-            0x7D50 => self.state,
-            0x7D90 => self.behaviour,
-            0x7DB0 => self.subtype,
-            0x7D70 => self.hit,
-            0x7DD0 => self.phase,
-            0x7DF0 => self.timer,
-            0x7E10 => self.counter,
-            0x7E90 => self.anim,
-            0x7C30 => self.sprite,
-            0x7CE0 => self.cell,
-            0x7F00 => self.dying_timer,
-            0x7D30 => self.scratch,
-            0x7EE0 => self.contact,
-            0x7BA0 => self.age,
-            0x7EF0 => hi(self.health),
-            0x7BE0 => lo(self.health),
-            0x7E30 => hi(self.vx.cast_unsigned()),
-            0x7E40 => lo(self.vx.cast_unsigned()),
-            0x7E50 => hi(self.vx_drift.cast_unsigned()),
-            0x7E60 => lo(self.vx_drift.cast_unsigned()),
-            0x7E70 => hi(self.vy.cast_unsigned()),
-            0x7E80 => lo(self.vy.cast_unsigned()),
-            0x7ED0 => hi(self.ref_vx.cast_unsigned()),
-            0x7EC0 => lo(self.ref_vx.cast_unsigned()),
-            other => panic!("${other:04X} is not a Body array"),
+    pub fn get(&self, field: Field) -> u8 {
+        match field {
+            Field::XHigh => hi(self.x),
+            Field::XLow => lo(self.x),
+            Field::YHigh => hi(self.y),
+            Field::YLow => lo(self.y),
+            Field::Flags => self.flags,
+            Field::ChrSlot => self.chr_slot,
+            Field::State => self.state,
+            Field::Behaviour => self.behaviour,
+            Field::Subtype => self.subtype,
+            Field::Hit => self.hit,
+            Field::Phase => self.phase,
+            Field::Timer => self.timer,
+            Field::Counter => self.counter,
+            Field::Anim => self.anim,
+            Field::Sprite => self.sprite,
+            Field::Cell => self.cell,
+            Field::DyingTimer => self.dying_timer,
+            Field::Scratch => self.scratch,
+            Field::Contact => self.contact,
+            Field::Age => self.age,
+            Field::HealthHigh => hi(self.health),
+            Field::HealthLow => lo(self.health),
+            Field::VxHigh => hi(self.vx.cast_unsigned()),
+            Field::VxLow => lo(self.vx.cast_unsigned()),
+            Field::VxDriftHigh => hi(self.vx_drift.cast_unsigned()),
+            Field::VxDriftLow => lo(self.vx_drift.cast_unsigned()),
+            Field::VyHigh => hi(self.vy.cast_unsigned()),
+            Field::VyLow => lo(self.vy.cast_unsigned()),
+            Field::RefVxHigh => hi(self.ref_vx.cast_unsigned()),
+            Field::RefVxLow => lo(self.ref_vx.cast_unsigned()),
         }
     }
 
-    /// Writes the slot's byte in `array`, as `$AC16` writes parts generically.
-    pub fn set_byte(&mut self, array: u16, value: u8) {
+    /// Writes the slot's byte in `field`'s array.
+    pub fn set(&mut self, field: Field, value: u8) {
         let set_hi = |word: u16| u16::from_be_bytes([value, lo(word)]);
         let set_lo = |word: u16| u16::from_be_bytes([hi(word), value]);
         let set_hi_i = |word: i16| set_hi(word.cast_unsigned()).cast_signed();
         let set_lo_i = |word: i16| set_lo(word.cast_unsigned()).cast_signed();
-        match array {
-            0x7B00 => self.x = set_hi(self.x),
-            0x7B20 => self.x = set_lo(self.x),
-            0x7B40 => self.y = set_hi(self.y),
-            0x7B60 => self.y = set_lo(self.y),
-            0x7C00 => self.flags = value,
-            0x7C90 => self.chr_slot = value,
-            0x7D50 => self.state = value,
-            0x7D90 => self.behaviour = value,
-            0x7DB0 => self.subtype = value,
-            0x7D70 => self.hit = value,
-            0x7DD0 => self.phase = value,
-            0x7DF0 => self.timer = value,
-            0x7E10 => self.counter = value,
-            0x7E90 => self.anim = value,
-            0x7C30 => self.sprite = value,
-            0x7CE0 => self.cell = value,
-            0x7F00 => self.dying_timer = value,
-            0x7D30 => self.scratch = value,
-            0x7EE0 => self.contact = value,
-            0x7BA0 => self.age = value,
-            0x7EF0 => self.health = set_hi(self.health),
-            0x7BE0 => self.health = set_lo(self.health),
-            0x7E30 => self.vx = set_hi_i(self.vx),
-            0x7E40 => self.vx = set_lo_i(self.vx),
-            0x7E50 => self.vx_drift = set_hi_i(self.vx_drift),
-            0x7E60 => self.vx_drift = set_lo_i(self.vx_drift),
-            0x7E70 => self.vy = set_hi_i(self.vy),
-            0x7E80 => self.vy = set_lo_i(self.vy),
-            0x7ED0 => self.ref_vx = set_hi_i(self.ref_vx),
-            0x7EC0 => self.ref_vx = set_lo_i(self.ref_vx),
-            other => panic!("${other:04X} is not a Body array"),
+        match field {
+            Field::XHigh => self.x = set_hi(self.x),
+            Field::XLow => self.x = set_lo(self.x),
+            Field::YHigh => self.y = set_hi(self.y),
+            Field::YLow => self.y = set_lo(self.y),
+            Field::Flags => self.flags = value,
+            Field::ChrSlot => self.chr_slot = value,
+            Field::State => self.state = value,
+            Field::Behaviour => self.behaviour = value,
+            Field::Subtype => self.subtype = value,
+            Field::Hit => self.hit = value,
+            Field::Phase => self.phase = value,
+            Field::Timer => self.timer = value,
+            Field::Counter => self.counter = value,
+            Field::Anim => self.anim = value,
+            Field::Sprite => self.sprite = value,
+            Field::Cell => self.cell = value,
+            Field::DyingTimer => self.dying_timer = value,
+            Field::Scratch => self.scratch = value,
+            Field::Contact => self.contact = value,
+            Field::Age => self.age = value,
+            Field::HealthHigh => self.health = set_hi(self.health),
+            Field::HealthLow => self.health = set_lo(self.health),
+            Field::VxHigh => self.vx = set_hi_i(self.vx),
+            Field::VxLow => self.vx = set_lo_i(self.vx),
+            Field::VxDriftHigh => self.vx_drift = set_hi_i(self.vx_drift),
+            Field::VxDriftLow => self.vx_drift = set_lo_i(self.vx_drift),
+            Field::VyHigh => self.vy = set_hi_i(self.vy),
+            Field::VyLow => self.vy = set_lo_i(self.vy),
+            Field::RefVxHigh => self.ref_vx = set_hi_i(self.ref_vx),
+            Field::RefVxLow => self.ref_vx = set_lo_i(self.ref_vx),
         }
+    }
+
+    /// The slot's byte in `array` (one of [`WIDE`] or [`NARROW`]).
+    #[must_use]
+    pub fn byte(&self, array: u16) -> u8 {
+        self.get(
+            Field::from_array(array).unwrap_or_else(|| panic!("${array:04X} is not a Body array")),
+        )
+    }
+
+    /// Writes the slot's byte in `array`, as `$AC16` writes parts generically.
+    pub fn set_byte(&mut self, array: u16, value: u8) {
+        let field =
+            Field::from_array(array).unwrap_or_else(|| panic!("${array:04X} is not a Body array"));
+        self.set(field, value);
     }
 }
 
@@ -425,6 +650,57 @@ mod layout {
             for (i, second) in self.second.iter().enumerate() {
                 wram[at(0x7CC0, 24 + i)] = second.kind;
                 second.body.project(wram, 24 + i);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::actor::world::Effects;
+
+    /// Every field of every slot reads and writes the WRAM byte the game's layout puts it
+    /// at (`base + slot`), through the aliases and the second-class slots.
+    #[test]
+    fn fields_match_the_wram_layout() {
+        for seed in [0x35u8, 0xC6] {
+            let mut wram = [0u8; 8192];
+            for (i, byte) in wram.iter_mut().enumerate() {
+                *byte = u8::try_from((i * 7 + i / 251) % 256).expect("a byte") ^ seed;
+            }
+            let ram = [0u8; 2048];
+            let mut slots = Slots::lift(&wram);
+            let mut effects = Effects::lift(&ram, &wram);
+            for field in Field::ALL {
+                assert_eq!(Field::from_array(field.base()), Some(field));
+                for slot in 0..32 {
+                    let at = usize::from(field.base() - 0x6000) + slot;
+                    assert_eq!(
+                        get(&slots, &effects.projectiles, slot, field),
+                        wram[at],
+                        "{field:?} of slot {slot}"
+                    );
+                    let value = !wram[at];
+                    set(&mut slots, &mut effects.projectiles, slot, field, value);
+                    let (mut slots_image, mut effects_image) = (wram, wram);
+                    slots.project(&mut slots_image);
+                    let mut ram_image = ram;
+                    effects.project(&mut ram_image, &mut effects_image);
+                    let changed = |image: &[u8; 8192]| {
+                        (0..8192)
+                            .filter(|&i| image[i] != wram[i])
+                            .collect::<Vec<_>>()
+                    };
+                    let mut moved = changed(&slots_image);
+                    moved.extend(changed(&effects_image));
+                    moved.dedup();
+                    assert_eq!(moved, [at], "{field:?} of slot {slot}");
+                    set(&mut slots, &mut effects.projectiles, slot, field, wram[at]);
+                }
+            }
+            for slot in 0..32 {
+                assert_eq!(slots.kind(slot), wram[usize::from(KINDS - 0x6000) + slot]);
             }
         }
     }

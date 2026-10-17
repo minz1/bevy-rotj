@@ -229,12 +229,12 @@ fn gate(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     body.timer = 0;
     body.counter = 0;
     body.anim = 0;
-    for index in 0..16u16 {
-        cx.set_byte(0x7CD0 + index, 0);
+    for slot in 16..32 {
+        cx.slots.set_kind(slot, 0);
     }
-    for index in 0..16u16 {
-        if cx.byte(0x7CC0 + index) == 0xB6 {
-            cx.set_byte(0x7CC0 + index, 0);
+    for slot in 0..16 {
+        if cx.slots.kind(slot) == 0xB6 {
+            cx.slots.set_kind(slot, 0);
         }
     }
     set_first_colours(&mut cx.effects.palette, 0x0F);
@@ -307,7 +307,7 @@ fn spawn_b8(body: &mut Body, cx: &mut Cx<'_>) {
     let Some(slot) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0) else {
         return;
     };
-    cx.set_byte(0x7CC0 + u16::try_from(slot).expect("slot < 16"), 0xB8);
+    cx.slots.main[slot].kind = 0xB8;
     body.counter = 0;
     body.anim = 0;
 }
@@ -317,14 +317,12 @@ fn spawn_bc(cx: &mut Cx<'_>) {
     let Some(slot) = engine::free_child_slot(cx.slots) else {
         return;
     };
-    let y = u16::try_from(slot - 16).expect("slot < 24");
-    cx.set_byte(0x7CD0 + y, 0xBC);
-    cx.set_byte(0x7B10 + y, 0x08);
-    cx.set_byte(0x7B70 + y, 0x80);
-    cx.set_byte(0x7B50 + y, 0x05);
-    for array in [0x7D60u16, 0x7DC0, 0x7DE0, 0x7E00, 0x7E20, 0x7EA0, 0x7B30] {
-        cx.set_byte(array + y, 0);
-    }
+    let child = &mut cx.slots.main[slot];
+    child.kind = 0xBC;
+    let body = &mut child.body;
+    (body.x, body.y) = (0x0800, 0x0580);
+    (body.state, body.subtype, body.phase) = (0, 0, 0);
+    (body.timer, body.counter, body.anim) = (0, 0, 0);
 }
 
 /// `$8F89`: up to four type `$BE` children at the `$9143` offsets.
@@ -333,23 +331,23 @@ fn spawn_be(body: &Body, cx: &mut Cx<'_>) {
         let Some(slot) = engine::free_child_slot(cx.slots) else {
             return;
         };
-        let y = u16::try_from(slot - 16).expect("slot < 24");
         let n = u16::from(count);
-        cx.set_byte(0x7CD0 + y, 0xBE);
-        cx.set_byte(0x7B30 + y, engine::rom_byte(cx.prg, 12, BE_X_LO + n));
-        cx.set_byte(0x7B10 + y, engine::rom_byte(cx.prg, 12, BE_X_HI + n));
-        cx.set_byte(0x7B70 + y, engine::rom_byte(cx.prg, 12, BE_Y_LO + n));
-        cx.set_byte(0x7B50 + y, engine::rom_byte(cx.prg, 12, BE_Y_HI + n));
-        for array in [0x7D60u16, 0x7E00, 0x7E20, 0x7EA0] {
-            cx.set_byte(array + y, 0);
-        }
+        let rom = |table: u16| engine::rom_byte(cx.prg, 12, table + n);
+        let (x, y) = (
+            u16::from_be_bytes([rom(BE_X_HI), rom(BE_X_LO)]),
+            u16::from_be_bytes([rom(BE_Y_HI), rom(BE_Y_LO)]),
+        );
         let (subtype, phase) = if body.timer & 0x80 == 0 {
             (if count < 2 { 0xF0 } else { 0xD8 }, 0xFF)
         } else {
             (if count < 2 { 0x28 } else { 0x10 }, 0)
         };
-        cx.set_byte(0x7DC0 + y, subtype);
-        cx.set_byte(0x7DE0 + y, phase);
+        let child = &mut cx.slots.main[slot];
+        child.kind = 0xBE;
+        let part = &mut child.body;
+        (part.x, part.y) = (x, y);
+        (part.state, part.timer, part.counter, part.anim) = (0, 0, 0, 0);
+        (part.subtype, part.phase) = (subtype, phase);
     }
 }
 
@@ -362,29 +360,21 @@ fn spawn_c0(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
         let Some(slot) = engine::free_child_slot(cx.slots) else {
             return;
         };
-        let y = u16::try_from(slot - 16).expect("slot < 24");
-        cx.set_byte(0x7CD0 + y, 0xC0);
-        cx.set_byte(0x7B30 + y, 0x00);
-        cx.set_byte(0x7B10 + y, 0x08);
-        cx.set_byte(0x7B70 + y, 0x80);
-        cx.set_byte(0x7B50 + y, 0x05);
-        for array in [0x7D60u16, 0x7EA0, 0x7CA0, 0x7CF0] {
-            cx.set_byte(array + y, 0);
-        }
-        cx.set_byte(0x7E00 + y, 0x14);
-        cx.set_byte(0x7E20 + y, 0);
-        if count == 0 {
-            cx.set_byte(0x7DA0 + y, 0);
+        let (behaviour, subtype, phase) = if count == 0 {
             body.behaviour |= 0x80;
-            cx.set_byte(0x7DC0 + y, 0x20);
-            cx.set_byte(0x7DE0 + y, 0);
+            (0, 0x20, 0)
         } else {
-            cx.set_byte(0x7DA0 + y, count);
             body.behaviour |= 0x40;
-            cx.set_byte(0x7DC0 + y, 0xE0);
-            cx.set_byte(0x7DE0 + y, 0xFF);
-        }
-        cx.set_byte(0x7C40 + y, work.slot);
+            (count, 0xE0, 0xFF)
+        };
+        let child = &mut cx.slots.main[slot];
+        child.kind = 0xC0;
+        let part = &mut child.body;
+        (part.x, part.y) = (0x0800, 0x0580);
+        (part.state, part.anim, part.chr_slot, part.cell) = (0, 0, 0, 0);
+        (part.timer, part.counter) = (0x14, 0);
+        (part.behaviour, part.subtype, part.phase) = (behaviour, subtype, phase);
+        part.sprite = work.slot;
     }
 }
 
@@ -406,14 +396,12 @@ fn spawn_52(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
         && y_hi & 0xF0 == 0
         && let Some(slot) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0)
     {
-        let y = u16::try_from(slot).expect("slot < 16");
-        cx.set_byte(0x7CC0 + y, 0x52);
-        cx.set_byte(0x7C90 + y, 0x06);
-        cx.set_byte(0x7B00 + y, x_hi);
-        cx.set_byte(0x7B20 + y, x_lo);
-        cx.set_byte(0x7B40 + y, y_hi);
-        cx.set_byte(0x7B60 + y, y_lo);
-        cx.set_byte(0x7E90 + y, 0);
+        let part = &mut cx.slots.main[slot];
+        part.kind = 0x52;
+        part.body.chr_slot = 0x06;
+        part.body.x = u16::from_be_bytes([x_hi, x_lo]);
+        part.body.y = u16::from_be_bytes([y_hi, y_lo]);
+        part.body.anim = 0;
     }
     body.counter = body.counter.wrapping_add(1);
     if body.counter >= 6 {

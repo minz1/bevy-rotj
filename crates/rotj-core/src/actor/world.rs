@@ -624,6 +624,23 @@ impl Cx<'_> {
     pub fn set_byte(&mut self, addr: u16, value: u8) {
         super::slots::write(self.slots, &mut self.effects.projectiles, addr, value);
     }
+
+    /// Field `field` of slot `slot` (0-31), wherever the game's layout puts it.
+    #[must_use]
+    pub fn get(&self, slot: usize, field: super::slots::Field) -> u8 {
+        super::slots::get(self.slots, &self.effects.projectiles, slot, field)
+    }
+
+    /// Writes field `field` of slot `slot` (0-31).
+    pub fn set(&mut self, slot: usize, field: super::slots::Field, value: u8) {
+        super::slots::set(
+            self.slots,
+            &mut self.effects.projectiles,
+            slot,
+            field,
+            value,
+        );
+    }
 }
 
 #[cfg(test)]
