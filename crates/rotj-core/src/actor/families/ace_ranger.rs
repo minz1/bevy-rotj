@@ -29,6 +29,12 @@ const DRAW_BANK: u8 = 9;
 const SPAWN_SOUND: u8 = 0x28;
 /// The `$AFD6` amount the boss drains from `$B2` on contact.
 const CONTACT: u16 = 0x00E0;
+/// `counter` bit 6: the tail adds the second draw, bit 0 picking its frame.
+const DRAWS_SECOND: u8 = 0x40;
+/// `counter` bit 7: the tail adds the third draw.
+const DRAWS_THIRD: u8 = 0x80;
+/// `subtype` bit 7 once a jump has landed, until the phase advances.
+const LANDED: u8 = 0x80;
 
 phases! {
     /// The boss's phase (`$7DD0`), which picks its handler (`$910D`).
@@ -46,7 +52,8 @@ phases! {
     }
 }
 
-/// Type `$38` keeps its whole state in [`Body`].
+/// Type `$38` keeps its whole state in [`Body`]: `counter` the tail's extra draws and
+/// `subtype` the jump's landing.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
@@ -128,7 +135,7 @@ fn spawning(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             }
         }
         if body.timer.is_multiple_of(4) {
-            body.counter = 0x80;
+            body.counter = DRAWS_THIRD;
         }
         body.sprite = 4;
     } else {
@@ -142,7 +149,7 @@ fn spawning(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 
 /// `$8E09`: hover for `$40` frames, then spawn three `$3C` parts and leave.
 fn hovering(body: &mut Body, cx: &mut Cx<'_>) {
-    body.counter = 0x40 | ((body.timer & 0x04) >> 2);
+    body.counter = DRAWS_SECOND | ((body.timer & 0x04) >> 2);
     body.sprite = 0x0A;
     body.timer = body.timer.wrapping_add(1);
     if body.timer >= 0x40 {
@@ -162,7 +169,7 @@ fn lingering(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if body.timer >= 0x50 {
         advance(body, cx.prg);
     } else if body.timer >= 0x20 && body.timer.is_multiple_of(4) {
-        body.counter = 0x80;
+        body.counter = DRAWS_THIRD;
     }
 }
 
@@ -172,7 +179,7 @@ fn jumping(body: &mut Body, work: &mut Work, grounded: bool, cx: &mut Cx<'_>) {
     if body.timer & 0x80 != 0 {
         if grounded {
             body.timer = 0;
-            body.subtype = 0x80;
+            body.subtype = LANDED;
             body.sprite = 6;
         } else {
             body.sprite = 7;
@@ -180,7 +187,7 @@ fn jumping(body: &mut Body, work: &mut Work, grounded: bool, cx: &mut Cx<'_>) {
         return;
     }
     body.sprite = 6;
-    if body.subtype & 0x80 != 0 {
+    if body.subtype & LANDED != 0 {
         body.timer = body.timer.wrapping_add(1);
         if body.timer >= 0x10 {
             advance(body, cx.prg);
@@ -211,12 +218,12 @@ fn finish(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     work.pointer = engine::rom_word(cx.prg, 11, METASPRITES + 2 * u16::from(body.sprite));
     work.tile = 0;
     engine::draw(work, DRAW_BANK, cx);
-    if body.counter & 0x40 != 0 {
+    if body.counter & DRAWS_SECOND != 0 {
         let y = (body.counter << 1) & 0x03;
         work.pointer = engine::rom_word(cx.prg, 11, SECOND_DRAW + u16::from(y));
         engine::draw(work, DRAW_BANK, cx);
     }
-    if body.counter & 0x80 != 0 {
+    if body.counter & DRAWS_THIRD != 0 {
         third_draw(body, work, cx);
     }
     work.hitbox = 0;

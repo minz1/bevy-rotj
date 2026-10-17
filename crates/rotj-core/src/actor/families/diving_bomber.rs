@@ -14,6 +14,9 @@ const DROP_SOUND: u8 = 0x22;
 const DRAW_BANK: u8 = 1;
 const SOURCE_BANK: u8 = 11;
 const BLAST_DROP: u8 = 0x2B;
+/// `subtype` bit 7: the blast flash draws; the bomb's drop sets it, `counter` reaching `$86`
+/// clears it.
+const BLASTING: u8 = 0x80;
 
 phases! {
     /// The bomber's phase (`$7DD0`): the game stores its doubled index into `$8514`.
@@ -27,7 +30,7 @@ phases! {
     }
 }
 
-/// Type `$2A` keeps its whole state in [`Body`].
+/// Type `$2A` keeps its whole state in [`Body`]; `subtype` says whether the blast flash draws.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
@@ -126,7 +129,7 @@ fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             cx.effects.sound[0] = DROP_SOUND;
             spawn_bomb(body, work, cx);
             body.counter = 0x80;
-            body.subtype = 0x80;
+            body.subtype = BLASTING;
         } else {
             advance_blast(body);
         }
@@ -195,7 +198,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         let part = 2 * u16::from(body.sprite);
         work.pointer = engine::rom_word(cx.prg, SOURCE_BANK, PART_SPRITES + part);
         engine::draw(work, DRAW_BANK, cx);
-        if body.subtype & 0x80 != 0 {
+        if body.subtype & BLASTING != 0 {
             let frame = u16::from(body.counter & 0x0E);
             work.pointer = engine::rom_word(cx.prg, SOURCE_BANK, BLAST_SPRITES + frame);
             if let Some(low) = work.screen_y.checked_add(BLAST_DROP) {

@@ -16,6 +16,8 @@ const PART_TIMER: [u8; 4] = [0x90, 0xC0, 0x40, 0x70];
 const PART_COUNTER: [u8; 4] = [0xFF, 0xFF, 0x00, 0x00];
 const PART_PHASE: [u8; 4] = [0x00, 0x00, 0x80, 0x80];
 const PART_DY: i16 = -24;
+/// `anim` bit 7 once the sprite has been drawn.
+const DRAWN: u8 = 0x80;
 
 phases! {
     /// The sprite's phase (`$7DD0`), which picks its handler (`$8C74`).
@@ -31,7 +33,8 @@ phases! {
     }
 }
 
-/// Type `$72` keeps its whole state in [`Body`]; `$7E90` bit 7 is "has been drawn".
+/// Type `$72` keeps its whole state in [`Body`]; `anim` bit 7 is "has been drawn" and
+/// `subtype` counts the dives.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
@@ -56,7 +59,7 @@ impl State {
             *kind = 0;
             return;
         }
-        body.anim = 0x80;
+        body.anim = DRAWN;
         let index = 2 * u16::from((cx.world.frame & 0x08) >> 3);
         work.pointer = engine::rom_word(cx.prg, 0, SPRITES + index);
         engine::tile_bits(work, cx.prg);
@@ -74,7 +77,7 @@ fn drifting(body: &mut Body, work: &Work) {
         body.vx_drift = -0x40;
         body.timer = 0xFF;
     }
-    if body.anim & 0x80 != 0 {
+    if body.anim & DRAWN != 0 {
         if work.screen_x < 0xC0 {
             body.vx_drift = 0x0A;
             body.timer = 0;

@@ -41,7 +41,8 @@ phases! {
     }
 }
 
-/// Type `$7C` keeps every field in [`Body`].
+/// Type `$7C` keeps every field in [`Body`]; the pair `[subtype, behaviour]` is the y
+/// velocity it wakes with.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 

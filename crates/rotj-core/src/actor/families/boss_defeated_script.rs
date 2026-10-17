@@ -1,9 +1,9 @@
 //! Type `$50`, the boss-beaten stage script (bank 11 `$9C13`): each frame it
 //! forces the player's scripted state and clears the projectiles, and every
 //! fourth frame it spawns a `$52` at an offset around the slot in `$7DF0`
-//! (`$9C67`). After a 192-frame countdown it arms the stage end (`$BA` 3), or
-//! frees its own slot in the last area. It never loads the working set, draws or
-//! collides.
+//! (`$9C67`). Once `anim`, counting up from 1, reaches `$C0` (its 191st frame) it
+//! arms the stage end (`$BA` 3), or frees its own slot in the last area. It never
+//! loads the working set, draws or collides.
 
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::{Body, Field};
@@ -19,8 +19,9 @@ const X_HI: u16 = 0x9CEA;
 const Y_LO: u16 = 0x9CF0;
 const Y_HI: u16 = 0x9CF6;
 
-/// Type `$50` keeps no state of its own: the countdown is in [`Body::anim`], the
-/// spawn offset in [`Body::counter`] and the source slot in [`Body::timer`].
+/// Type `$50` keeps no state of its own: [`Body::anim`] counts its frames up from 1
+/// (`$B1C4`), trying a spawn when a multiple of 4 and sounding when a multiple of 32;
+/// [`Body::counter`] is the spawn offset's index (0-5) and [`Body::timer`] the source slot.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 

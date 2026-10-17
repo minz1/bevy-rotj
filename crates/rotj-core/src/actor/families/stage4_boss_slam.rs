@@ -1,6 +1,6 @@
 //! Type `$46` (bank 11 `$97FF`): the stage-4 boss's charged attack. The `$42`
 //! spawns it into slot 23 when its counter reaches `$C0` (`$957E`), with the
-//! parent's slot in `$7E90`. It falls under its own gravity (`$7D90:$7DB0`) to
+//! parent's slot in `$7E90`. It falls under its own gravity (`$7DB0:$7D90`) to
 //! row `$0B` (`$7DF0` clear), plays a three-frame landing (`$7DF0` = `$80`),
 //! then flashes the screen white for 12 frames (`$7DF0` = `$C0`, the `$04A0`
 //! palette through `$C33C`). On the last frame it restores the palette
@@ -39,7 +39,8 @@ const LANDING_START: u8 = 0;
 const FLASH_START: u8 = 0;
 /// The frame counter the fall animation rewinds to once it passes its last frame.
 const FALL_LOOP: u8 = 0x18;
-/// Type `$46` keeps its whole state in [`Body`].
+/// Type `$46` keeps its parent's slot in `anim`, its fall speed in the pair `[subtype,
+/// behaviour]` and its frame counter in `phase`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
@@ -121,8 +122,9 @@ fn flash(kind: &mut u8, body: &mut Body, cx: &mut Cx<'_>) {
         engine::hurt_player(cx.effects);
     }
     *kind = 0;
+    let parent = usize::from(body.anim);
     cx.set(
-        usize::from(body.anim),
+        parent,
         Field::Phase,
         super::stage4_boss::Phase::Waiting.byte(),
     );

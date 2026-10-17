@@ -19,7 +19,10 @@ const SHIFT_X: u16 = 0xFFD8;
 
 /// `$7DD0` bit 7: the offset runs back up toward zero; clear, it runs down.
 const RISING: u8 = 0x80;
-/// Type `$74` keeps its direction, offset and hold flag in [`Body`] (`$7DD0`, `$7DF0:$7E10`, `$7E90`).
+/// `anim` bit 7 once the offset has crossed zero: the part holds.
+const HOLDING: u8 = 0x80;
+
+/// Type `$74` keeps its direction, offset and hold flag in [`Body`] (`$7DD0`, `$7E10:$7DF0`, `$7E90`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
@@ -27,7 +30,7 @@ impl State {
     /// One frame of the handler (`$8C9C`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
-        if body.anim & 0x80 != 0 {
+        if body.anim & HOLDING != 0 {
             work.vy = 0;
         } else {
             let falling = body.phase & RISING == 0;
@@ -46,7 +49,7 @@ impl State {
             if (body.counter & 0x80 != 0) != falling {
                 body.timer = 0;
                 body.counter = 0;
-                body.anim = 0x80;
+                body.anim = HOLDING;
             }
         }
         work.x = work.x.wrapping_add(SHIFT_X);

@@ -3,7 +3,7 @@
 //!
 //! The handler dispatches on neither `$7DD0` nor `$7D50`: its states are the
 //! loaded/flash path (`engine::dying` with hit bit 7 clear), the dying path
-//! (hit bit 7 set, which clears the parent's phase and timer and returns), the
+//! (hit bit 7 set, which clears the parent's phase and counter and returns), the
 //! `$7E10` counter wrap and the contact hit, both of which run the `$9BCB`
 //! kill. It reads the boss's hit points `$A9:$AA` and, on touching the player,
 //! drains `$0158` from the boss's displayed pool `$B2:$B3`.
@@ -32,7 +32,8 @@ const POOL_DRAIN: u16 = 0x0158;
 const KILL_DROP: u16 = 0x04C0;
 const KILL_SOUND: u8 = 0x22;
 
-/// Type `$4E` keeps its whole state in [`Body`].
+/// Type `$4E` keeps its parent's slot in `anim` and counts its frames up from 0 in
+/// `counter`, whose wrap back to 0 runs the kill.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 

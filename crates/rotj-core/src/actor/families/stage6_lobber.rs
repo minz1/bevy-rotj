@@ -54,7 +54,8 @@ phases! {
 }
 
 /// Type `$96` keeps its phase, animation counter and sprite frame in [`Body`]
-/// (`$7DD0`, `$7E90`, `$7C30`).
+/// (`$7DD0`, `$7E90`, `$7C30`), and its spawner's slot in `counter`: its death clears
+/// the spawner's phase (`$806F`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
@@ -63,8 +64,8 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         if engine::dying(kind, body, work, 0x80, cx) {
-            // `$806F`: the dying sprite clears its spawner's phase byte (`$7DD0,x`, x from `$7E10`).
-            cx.set(usize::from(body.counter), Field::Phase, 0);
+            let spawner = usize::from(body.counter);
+            cx.set(spawner, Field::Phase, 0);
             return;
         }
         work.attr |= body.flags;
