@@ -10,7 +10,7 @@ use super::world::{
     Effects, Motion, Projectile, Schedule, View, VramWrite, World, orientation, set_first_colours,
 };
 use crate::actors::spawn_schedule;
-use crate::collision::rows_from_rom;
+use crate::rooms::Room;
 
 /// The room change `$BA = 1` starts, one frame per [`RoomChange::step`] (`$B7EC`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -448,44 +448,39 @@ pub fn load(game: &mut Game, prg: &[u8]) {
     game.effects.projectiles = [Projectile::default(); 16];
     game.effects.pause_name = [0; 18];
     game.effects.pause_aux = 0;
-    let record = rom_word(
-        prg,
-        0,
-        rom_word(prg, 14, 0xC048 + u16::from(area)) + u16::from(room),
-    );
-    let byte = |i: u16| rom_byte(prg, 0, record + i);
-    let sets = rom_word(prg, 13, 0xB5F5 + u16::from(area));
-    let sprites = rom_byte(prg, 13, sets + u16::from(room >> 1));
+    let layout = Room::import(prg, area, room).expect("the room's layout");
     let kept: [u8; 3] = game.effects.palette[17..20].try_into().expect("3 bytes");
-    build_palette(prg, byte(0), sprites, &mut game.effects.palette);
+    build_palette(
+        prg,
+        layout.background_palette,
+        layout.sprite_palette,
+        &mut game.effects.palette,
+    );
     game.effects.palette[17..20].copy_from_slice(&kept);
     set_first_colours(&mut game.effects.palette, 0x0F);
-    for (i, bank) in game.oam.chr[..4].iter_mut().enumerate() {
-        *bank = byte(1 + u16::try_from(i).expect("< 4"));
-    }
-    game.world.orientation = byte(5);
+    game.oam.chr[..4].copy_from_slice(&layout.chr);
+    game.world.orientation = layout.orientation;
     animate_banks(game, prg);
-    game.schedule.rows = rows_from_rom(prg, area, room).expect("the room's page order");
+    game.schedule.rows = layout.pages.map(|page| page << 4);
     if orientation::horizontal_two_page(game.world.orientation) {
-        raise_attributes(&mut game.effects.level, &game.schedule.rows, byte(6));
+        raise_attributes(
+            &mut game.effects.level,
+            &game.schedule.rows,
+            layout.raised_page_count,
+        );
     }
-    let start = rom_word(
-        prg,
-        13,
-        rom_word(prg, 13, 0xB653 + u16::from(area)) + u16::from(room),
-    );
-    let start = |i: u16| rom_byte(prg, 13, start + i);
+    let start = layout.start;
     let player = &mut game.effects.player;
-    player.x = u16::from_be_bytes([start(0), start(1)]);
-    player.y = u16::from_be_bytes([start(2), start(3)]);
-    game.world.camera_x = u16::from_be_bytes([start(4), start(5)]);
-    game.world.camera_y = u16::from_be_bytes([start(6), start(7)]);
-    game.scroll.ring_y = u16::from_be_bytes([start(8), start(9)]);
-    game.effects.scroll_lock = start(10);
-    game.scroll.mode = start(11);
-    game.scroll.mirroring = start(12);
-    game.scroll.start = start(13);
-    player.facing = start(14);
+    player.x = start.player_x;
+    player.y = start.player_y;
+    game.world.camera_x = start.camera_x;
+    game.world.camera_y = start.camera_y;
+    game.scroll.ring_y = start.ring_y;
+    game.effects.scroll_lock = start.scroll_lock;
+    game.scroll.mode = start.scroll_mode;
+    game.scroll.mirroring = start.mirroring;
+    game.scroll.start = start.first_spawn_column;
+    player.facing = start.facing;
 
     game.scroll.gate = 0xFF;
     game.effects.vram.origin = 0x2000;

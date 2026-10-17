@@ -2225,8 +2225,39 @@ mod tests {
         );
     }
 
+    /// The oracle's settled gameplay state for every level, pinned to its
+    /// `stagearea-probe` capture by `digests.txt`: the frame-624 CHR set `$E0-$E7` (before
+    /// sprite animation swaps `$E5`) and the frame-744 palette `$3F00-$3F1F`, read with the
+    /// PPU's colour mirrors (`$3F10-$3F1C` read `$3F00-$3F0C`) the captured dump holds.
     #[test]
-    fn rows_from_rom_matches_every_room_load() {
+    fn every_level_settles_to_its_captured_chr_and_palette() {
+        let digest = |name: &str| {
+            crate::digest::table(include_str!("../../tests/data/digests.txt"), name)["-"]
+        };
+        for level in 0..13u8 {
+            let Some(mut scene) = Scene::level(level, 623) else {
+                return;
+            };
+            assert_eq!(
+                crate::digest::fnv1a(&scene.machine.bus.ram[0xE0..0xE8]),
+                digest(&format!("level-chr-{level}")),
+                "level {level}: the oracle's frame-624 CHR set differs from its capture"
+            );
+            scene.run(743 - 623, &[]);
+            let mut palette = scene.machine.bus.ppu.palette;
+            for i in 0..4 {
+                palette[0x10 + i * 4] = palette[i * 4];
+            }
+            assert_eq!(
+                crate::digest::fnv1a(&palette),
+                digest(&format!("level-palette-{level}")),
+                "level {level}: the oracle's frame-744 palette differs from its capture"
+            );
+        }
+    }
+
+    #[test]
+    fn room_pages_match_every_room_load() {
         let Some(mut scene) = Scene::tas(0) else {
             return;
         };
@@ -2235,8 +2266,14 @@ mod tests {
         assert!(loads.len() >= 4, "{} room loads", loads.len());
         for load in &loads {
             let (area, room) = (load.ram[0x400], load.ram[0x402]);
-            let rows = crate::collision::rows_from_rom(&prg, area, room).expect("rows");
-            assert_eq!(rows[..], load.ram[0x440..0x460], "area {area} room {room}");
+            let pages = crate::rooms::Room::import(&prg, area, room)
+                .expect("the room")
+                .pages;
+            assert_eq!(
+                pages.map(|page| page << 4)[..],
+                load.ram[0x440..0x460],
+                "area {area} room {room}"
+            );
         }
     }
 

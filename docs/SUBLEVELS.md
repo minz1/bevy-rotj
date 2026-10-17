@@ -275,7 +275,7 @@ platform shaft) at level x ~700: `$0402` stays 2, `$00BA` is never written, and
 the door/boss the room needs is not reached. Holding Up or B there does not
 clear it. So this capture reaches the game's own mid-level transition but
 **not** the end of 1-1 or the load of 1-2: no `STAGE 1-2` banner, no level-1
-palette (`palette_for_level(1)`), and no `map_from_rom(area 1)` were observed.
+palette (area 1's `rooms::Room`), and no `map_from_rom(area 1)` were observed.
 The full 1-1 -> 1-2 path remains unproven.
 
 **7d-i. What advances `$20` (found 2026-10-14 in the ROM).** The level-end payload

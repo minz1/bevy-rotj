@@ -220,24 +220,6 @@ pub const IN_ORDER: [u8; 32] = [
 ];
 
 /// An area's room's page -> map column table (`$0440-$045F`, bank 13 `$B4CB`): bank 14
-/// `$C024[area]` points at per-room pointers in bank 0, each to 32 page numbers.
-///
-/// `area` and `room` are the raw `$0400`/`$0402` values.
-#[must_use]
-pub fn rows_from_rom(prg: &[u8], area: u8, room: u8) -> Option<[u8; 32]> {
-    let word = |bank: usize, addr: u16| -> Option<u16> {
-        let at = bank * 0x2000 + usize::from(addr & 0x1FFF);
-        Some(u16::from_le_bytes([*prg.get(at)?, *prg.get(at + 1)?]))
-    };
-    let rooms = word(14, 0xC024 + u16::from(area))?;
-    let pages = word(0, rooms.checked_add(u16::from(room))?)?;
-    let mut rows = [0u8; 32];
-    for (i, row) in rows.iter_mut().enumerate() {
-        *row = prg.get(usize::from(pages & 0x1FFF) + i)? << 4;
-    }
-    Some(rows)
-}
-
 /// The map offset (`$6000 +`) the game's probes build from a point's 16 px column
 /// and row (`$C99D`'s `$2A/$2B`): page `(row & $10) | (column >> 4)` (swapped on
 /// vertical levels), `rows[page]` its base column.

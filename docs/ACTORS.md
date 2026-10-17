@@ -1421,7 +1421,7 @@ read the room's parameters (`$D992`).
 
 `$B40A` (`room::load`) clears `$7B00-$7FFF`, builds the palette (`$C367`),
 CHR banks, orientation `$DD`, the CHR animations, the page order `$0440`
-(`rows_from_rom`), the start record (`$B653`: player, camera, `$C8`, `$C2`,
+(`rooms::Room::pages`), the start record (`$B653`: player, camera, `$C8`, `$C2`,
 `$C3`, `$EC`, `$0403`, facing), zeroes the player's motion bytes and copies the
 area's schedule (`$D84D`, which also zeroes `$0467-$046B`).
 `room::tests`: `PageDraw::step` matches 60 `$B351` frames (TAS 614, 646, 1256,

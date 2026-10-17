@@ -864,7 +864,8 @@ artifact of the CHR banks in use, not a stage-local level number.
 
 A level's palette RAM (`$3F00-$3F1F`) and its gameplay CHR banks (FME-7 commands
 0-7, shadow `$88-$8F`/`$E0-$E7`) both come from one per-**(area, stage)** record.
-`crates/rotj-core/src/palettes.rs` decodes the chain; this section records the
+`rooms::Room::import` reads the chain's selectors and `actor::room::build_palette` resolves
+them (`palettes.rs` decoded it standalone until 1.1.2); this section records the
 addresses and the acceptance.
 
 ### 14a. The record
@@ -907,7 +908,7 @@ and decrements it by `$10` every 16 frames, calling `JSR $C30A` (`$952A`) with
 nibbles downward while the banner runs. At frame 624 of the probes the fade is
 still in progress for most levels; by frame 744 every level's PPU palette equals
 the base `$04E0`, and the fade at full brightness is the identity, so
-`palettes::palette_for_level` returns the base.
+`room::build_palette` builds the base.
 
 ### 14c. The CHR banks
 
@@ -921,7 +922,8 @@ captured set is the frame-624 one.
 
 ### 14d. Acceptance (measured)
 
-`crates/rotj-core/src/palettes.rs::tests::decoded_palette_and_chr_match_every_captured_level`
+`actor::oracle::tests::every_level_settles_to_its_captured_chr_and_palette` (the decoder
+comparison went with `palettes.rs`; the whole-game chain checks every room load)
 decodes all 13 levels and compares against the committed captures
 (`tools/emu/stagearea-probe/lvl-<n>/`). For **every** level 0-12:
 
@@ -964,7 +966,7 @@ from the decoders of §13-§14:
   area 1 vs `stage-1-2/reference/tile-tables-744.bin`). This decoder lived in the
   app until it moved to `rotj-core` next to `attributes_from_rom`.
 - **attributes** — `attributes_from_rom` (§13d).
-- **palette and CHR banks** — `palette_for_level`/`chr_banks_for_level` (§14),
+- **palette and CHR banks** — `rooms::Room` with `room::build_palette`/`room::animate_banks` (§14),
   fed the ROM's PRG (`assets/prg.bin`, written by `rotj prg`); the CHR itself
   is the existing `assets/graphics/chr/pattern-space.bin`.
 
@@ -1012,8 +1014,8 @@ Levels 3 and 9 never finish loading (their map's columns 16-159 are missing,
   fourth 1 KiB window) is not a level constant: the game cycles it through the
   slots of CHR 8 KiB bank 6 every frame (`tools/emu/drive` `$E3` =
   `$37`/`$36`/`$35`/`$30`/`$32`/`$34` at frames 600-1000; `lvl-8` `$63`->`$62`,
-  `lvl-0` `$37`->`$33`). `chr_banks_for_level` returns the ROM record's
-  *load-time* bank. The app models the animation (`Stage::advance_background`,
+  `lvl-0` `$37`->`$33`). `rooms::Room::chr` holds the ROM record's
+  *load-time* bank. The app models the animation (`frame::animate_chr`,
   §16), so a frame compared against a capture is advanced to that capture's own
   counters; the load-time `for_level(0)` differs from the frame-700 capture by
   3394 px, and from an otherwise-identical frame only in that window.
@@ -1065,7 +1067,7 @@ Two things the port does not model from ROM are supplied by each test from the
 capture it compares against, exactly as `scrolled_screenshots_match_the_emulator`
 does:
 
-- **the background CHR animation** — `Stage::advance_background` is driven to the
+- **the background CHR animation** — `frame::animate_chr` is driven to the
   capture's own `$043E` tick / `$043F` index (`stage::tests::advance_to`), so the
   rendered `$E3` bank is the one the emulator had (§16);
 - **the sprite CHR windows** (`$E4-$E7`, PPU `$1000-$1FFF`) — the port only models
@@ -1134,14 +1136,14 @@ resolved bank (`resolve_chr`) is that sequence's last byte.
   `route-dense` 910-934, scroll 54-246; 0 mismatching bytes).
 - **Stage 1-1 (`area 0`)** animates only slot 3: `$0401 = 8` (bit 3), so
   `$E0-$E2` (`$2C/$2D/$2E`) are static and `$E3` cycles period 2, count 8.
-  `rotj_core::palettes::background_animation_for_area(prg, 0)` decodes exactly
+  `room::animate_banks` for area 0 loads exactly
   that (unit test `decodes_the_background_chr_animations`).
 
 ### 16c. The port
 
-`rotj_core::palettes::background_animation_for_area` / `..._for_level` decode the
+`room::animate_banks` decodes the
 records. `crates/app/src/stage.rs` keeps the per-slot animation (tick, index) and
-`Stage::advance_background` applies the rule above, rewriting the slot's CHR
+`frame::animate_chr` applies the rule above, rewriting the slot's CHR
 window from `pattern_space`; the app advances it once per drawn frame
 (`draw_stage`). `Stage::background_state(slot)` exposes the game's `$0432/$0433`.
 
