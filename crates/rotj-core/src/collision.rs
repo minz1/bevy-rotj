@@ -74,13 +74,15 @@ pub enum Surface {
     Behind,
     /// Passable (classes 7-10).
     Open,
-    /// Blocks the wall and floor probes but not point tests, so shots pass (11, 13).
+    /// Blocks the wall and floor probes; the point test answers clear (classes 11, 13).
     SolidToBodies,
-    /// A block that starts to fall when landed on from above (class 12).
+    /// Clear to the wall probe; a block that starts to fall when landed on from above
+    /// (class 12).
     Crumbling,
     /// A platform landed on from above only (class 14).
     OneWay,
-    /// A platform landed on from above only, drawn in front of the actor (class 15).
+    /// A platform landed on from above only; the wall probe draws the actor behind the
+    /// scenery (class 15).
     OneWayBehind,
     /// Spikes: solid, and touching them hurts badly (class 16).
     Spikes,
