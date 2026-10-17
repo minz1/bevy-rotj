@@ -217,7 +217,7 @@ fn crumble(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
     let free = cx.slots.second.iter_mut().find(|second| second.kind == 0);
     if let Some(second) = free.filter(|_| cx.effects.player.moved & 0x80 == 0) {
         second.kind = 0x06;
-        second.brain = super::families::Brain::new_second(0x06);
+        second.brain = super::families::SecondBrain::new(0x06);
         let body = &mut second.body;
         body.x = word(hi(probe.x) & 0xFE, 0xF0);
         body.anim = 0xF0;

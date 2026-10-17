@@ -151,9 +151,9 @@ use crate::actor::engine::Work;
 use crate::actor::slots::{Second, Slot};
 use crate::actor::world::Cx;
 
-/// Declares every handler family once: `Brain` (one variant per family, its kinds in
-/// its doc), `Brain::new` and `Brain::new_second` (kind to family), and the main slots'
-/// dispatch `step`.
+/// Declares every handler family once: `Brain` and `SecondBrain` (one variant per
+/// family, its kinds in its doc), `Brain::new` and `SecondBrain::new` (kind to family),
+/// and the main slots' dispatch `step`.
 macro_rules! families {
     (
         main {
@@ -174,8 +174,16 @@ macro_rules! families {
                 $(#[$main_meta])*
                 $main($main_module::State),
             )+
+        }
+
+        /// A second-class handler family's own state (slots 24-31).
+        #[derive(Debug, Clone, Default, PartialEq, Eq)]
+        pub enum SecondBrain {
+            /// A type the port does not run yet.
+            #[default]
+            Unported,
             $(
-                #[doc = concat!("Second-class kind `", stringify!($($second_kind)|+), "`.")]
+                #[doc = concat!("Kind `", stringify!($($second_kind)|+), "`.")]
                 $(#[$second_meta])*
                 $second($second_module::State),
             )+
@@ -192,13 +200,16 @@ macro_rules! families {
                 }
             }
 
+        }
+
+        impl SecondBrain {
             /// The state a second-class actor of `kind` starts in (the `$CEC3` table).
             #[must_use]
             #[deny(unreachable_patterns)]
-            pub fn new_second(kind: u8) -> Brain {
+            pub fn new(kind: u8) -> SecondBrain {
                 match kind {
-                    $($($second_kind)|+ => Brain::$second($second_module::State),)+
-                    _ => Brain::Unported,
+                    $($($second_kind)|+ => SecondBrain::$second($second_module::State),)+
+                    _ => SecondBrain::Unported,
                 }
             }
         }
@@ -210,7 +221,6 @@ macro_rules! families {
                 Brain::Unported => {
                     crate::actor::engine::unported(&mut slot.kind, &slot.body, work, cx);
                 }
-                $(Brain::$second(_))|+ => panic!("a second-class family in a main slot"),
                 $(Brain::$main(state) => state.step(&mut slot.kind, &mut slot.body, work, cx),)+
             }
         }
@@ -334,15 +344,23 @@ families! {
 /// Runs one second-class slot's handler (the `$CE7F` dispatch).
 pub(crate) fn step_second(index: usize, second: &mut Second, work: &mut Work, cx: &mut Cx<'_>) {
     match &mut second.brain {
-        Brain::VerticalShuttlePlatform(state) => state.step(index, &mut second.body, cx),
-        Brain::SidewaysPlatform(state) => state.step(index, &mut second.body, cx),
-        Brain::SinkingPlatform(state) => state.step(index, &mut second.body, work, cx),
-        Brain::PathPlatform(state) => state.step(index, &mut second.kind, &mut second.body, cx),
-        Brain::CameraFloor(state) => state.step(&mut second.body, cx),
-        Brain::CrumblingBlock(state) => state.step(&mut second.kind, &mut second.body, work, cx),
-        Brain::FallingFloorPiece(state) => state.step(&mut second.kind, &mut second.body, work, cx),
-        Brain::FallingPlatform(state) => state.step(index, &mut second.kind, &mut second.body, cx),
-        _ => {}
+        SecondBrain::VerticalShuttlePlatform(state) => state.step(index, &mut second.body, cx),
+        SecondBrain::SidewaysPlatform(state) => state.step(index, &mut second.body, cx),
+        SecondBrain::SinkingPlatform(state) => state.step(index, &mut second.body, work, cx),
+        SecondBrain::PathPlatform(state) => {
+            state.step(index, &mut second.kind, &mut second.body, cx);
+        }
+        SecondBrain::CameraFloor(state) => state.step(&mut second.body, cx),
+        SecondBrain::CrumblingBlock(state) => {
+            state.step(&mut second.kind, &mut second.body, work, cx);
+        }
+        SecondBrain::FallingFloorPiece(state) => {
+            state.step(&mut second.kind, &mut second.body, work, cx);
+        }
+        SecondBrain::FallingPlatform(state) => {
+            state.step(index, &mut second.kind, &mut second.body, cx);
+        }
+        SecondBrain::Unported => {}
     }
 }
 

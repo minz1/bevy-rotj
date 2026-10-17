@@ -1,6 +1,6 @@
 //! Actor slots: the 24 main slots the actor loop runs, and the 8 second-class slots.
 
-use crate::actor::families::Brain;
+use crate::actor::families::{Brain, SecondBrain};
 use crate::actor::world::{PROJECTILE_ARRAYS, Projectile};
 use crate::actors::SpawnRecord;
 
@@ -352,7 +352,7 @@ pub struct Second {
     /// Its 32-wide arrays.
     pub body: Body,
     /// Its family's state.
-    pub brain: Brain,
+    pub brain: SecondBrain,
 }
 
 /// Every actor slot.
@@ -368,7 +368,7 @@ pub struct Slots {
 
 #[cfg(test)]
 mod layout {
-    use super::{Body, NARROW, Second, Slot, Slots, WIDE};
+    use super::{Body, NARROW, Second, SecondBrain, Slot, Slots, WIDE};
 
     pub(crate) fn at(addr: u16, slot: usize) -> usize {
         usize::from(addr - 0x6000) + slot
@@ -410,7 +410,7 @@ mod layout {
                 *second = Second {
                     kind,
                     body: Body::lift(wram, 24 + i),
-                    brain: crate::actor::families::Brain::new_second(kind),
+                    brain: SecondBrain::new(kind),
                 };
             }
             slots

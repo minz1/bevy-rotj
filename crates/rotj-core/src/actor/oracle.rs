@@ -9,7 +9,7 @@ use rotj_oracle::{
 };
 
 use super::engine::Work;
-use super::families::Brain;
+use super::families::{Brain, SecondBrain};
 use super::oam::OamBuilder;
 use super::slots::{Slot, Slots};
 use super::step_actors;
@@ -2097,7 +2097,7 @@ pub(crate) fn assert_second_phases(mut scene: Scene, frames: u64, kinds: &[u8]) 
                 coverage.frames += 1;
                 coverage.occupied += usize::from(!owned.is_empty());
                 for slot in &owned {
-                    assert_ne!(slot.brain, Brain::Unported, "frame {}", begin.frame);
+                    assert_ne!(slot.brain, SecondBrain::Unported, "frame {}", begin.frame);
                     *coverage.phases.entry(slot.body.phase).or_default() += 1;
                 }
                 super::step_second(&prg, &mut state);

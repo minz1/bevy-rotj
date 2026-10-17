@@ -1,6 +1,6 @@
 //! Spawning from the schedule: column spawns (bank 2 `$87C5`) and room starts (`$D714`).
 
-use super::families::Brain;
+use super::families::{Brain, SecondBrain};
 use super::slots::{Slots, Spawner};
 use super::world::{Schedule, View, World};
 use crate::actors::{
@@ -184,7 +184,7 @@ fn place(slots: &mut Slots, free: Free, record: &SpawnRecord, cell: u8, by: Spaw
                 slots.set_byte(at(0x7F00), 0);
             }
             slots.set_byte(at(0x7CE0), cell);
-            slots.second[i].brain = Brain::new_second(kind);
+            slots.second[i].brain = SecondBrain::new(kind);
         }
     }
 }

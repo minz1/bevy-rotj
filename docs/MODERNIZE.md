@@ -45,8 +45,8 @@ riskiest, so they belong to the pilot the PLAN schedules after 1.0.1.
 - **`Brain::Unported` / `engine::unported` (families.rs:115–118, 433, 449,
   478–479; engine.rs:1010)** — dead as a *handler* (the arm at 478 never runs), but
   the variant is also the `#[default]` brain of an empty slot and the `_` result of
-  `new_second` (kind 0 and unknown second-class kinds; `step_second` ignores it with
-  `_ => {}`). So a blanket `panic!` in `new`/`new_second` is wrong: replace it with an
+  `SecondBrain::new` (`SecondBrain::Unported` for kind 0 and unknown second-class kinds;
+  `step_second` ignores it). So a blanket `panic!` in either `new` is wrong: replace it with an
   explicit `Empty` (or `Option<Brain>`) and panic only for a non-zero unknown main kind. **Lead** on that split. All 100 handler types are
   ported (`docs/STATUS.md` 1.0.0 row), and the chain's tape replays with an
   empty `injected` list (`actor.rs:536`, `the_tape_replays_the_chain_without_the_rom`),
@@ -232,10 +232,11 @@ New candidates, each to be classified (state, flags, table index) before it chan
   `collision::Surface` (`docs/specs/2026-10-17-rooms-design.md`,
   `-screens-design.md`, `-surfaces-design.md`); scripts as data: `actor::script`'s runner
   under the ending and the cutscene (`docs/specs/2026-10-17-scripts-as-data-design.md`).
-- The families are declared once (`families!`: `Brain`, `new`, `new_second` and the
-  dispatch from one table in kind order; `docs/specs/2026-10-17-families-declared-once-design.md`).
-  Next for them: the second-class families as their own enum, so `step_second` is
-  exhaustive and the main dispatch loses its panic arm.
+- The families are declared once (`families!`: `Brain`, `SecondBrain`, both `new`s and the
+  dispatch from one table in kind order; `docs/specs/2026-10-17-families-declared-once-design.md`),
+  the second-class families in their own `SecondBrain`, so `step_second` is exhaustive
+  and the main dispatch has no panic arm
+  (`docs/specs/2026-10-17-second-class-brains-design.md`).
 
 ## Leads (could not verify)
 

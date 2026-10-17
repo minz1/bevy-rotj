@@ -191,7 +191,7 @@ impl Game {
         self.oam.marking = oam::Mark::Scene;
         step_second(prg, self);
         let unported = |second: &slots::Second| {
-            second.kind != 0 && matches!(second.brain, families::Brain::Unported)
+            second.kind != 0 && matches!(second.brain, families::SecondBrain::Unported)
         };
         if self.slots.second.iter().any(unported) {
             outside(Outside::SecondClass, self);
