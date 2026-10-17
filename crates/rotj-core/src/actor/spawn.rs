@@ -1,39 +1,38 @@
 //! Spawning from the schedule: column spawns (bank 2 `$87C5`) and room starts (`$D714`).
 
 use super::families::Brain;
-use super::slots::{Placed, Slots, Spawner};
+use super::slots::{Slots, Spawner};
 use super::world::{Schedule, View, World};
-use crate::actors::{ActorError, ActorSpawn, actor_spawn, spawn_record_pointer, spawn_schedule};
+use crate::actors::{
+    CELL_FLAGS, CELL_LOCK, CELL_PENDING, CELL_RECORD, SpawnRecord, spawn_record,
+    spawn_record_pointer,
+};
 
-const IDS: u8 = 64;
+const IDS: u8 = CELL_RECORD + 1;
 
-/// A level room's spawn data as the ROM defines it.
+/// A level room's spawn records.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpawnTable {
-    /// The initial schedule (copied to `$7410` at level load).
-    pub schedule: [u8; 256],
     /// Records by id; `None` where the id's pointer leaves the bank.
-    pub records: Vec<Option<ActorSpawn>>,
+    pub records: Vec<Option<SpawnRecord>>,
 }
 
 impl SpawnTable {
-    /// Decodes the schedule of `area` and the records of `area`/`room` (`$0400`, `$0402`).
-    pub fn from_rom(prg: &[u8], area: u8, room: u8) -> Result<SpawnTable, ActorError> {
-        let schedule = spawn_schedule(prg, area)?
-            .try_into()
-            .expect("the schedule is 256 bytes");
+    /// The records of `area`/`room` (`$0400`, `$0402`), imported from the ROM.
+    #[must_use]
+    pub fn import(prg: &[u8], area: u8, room: u8) -> SpawnTable {
         let records = (0..IDS)
             .map(|id| {
                 spawn_record_pointer(prg, area, room, id)
-                    .and_then(|addr| actor_spawn(prg, addr))
+                    .and_then(|addr| spawn_record(prg, addr))
                     .ok()
             })
             .collect();
-        Ok(SpawnTable { schedule, records })
+        SpawnTable { records }
     }
 
-    fn record(&self, cell_value: u8) -> ActorSpawn {
-        let id = cell_value & (IDS - 1);
+    fn record(&self, cell_value: u8) -> SpawnRecord {
+        let id = cell_value & CELL_RECORD;
         self.records
             .get(usize::from(id))
             .copied()
@@ -68,7 +67,7 @@ pub fn scroll_lock(schedule: &Schedule, world: &World, mask: u8, locks: u8) -> u
 #[must_use]
 pub fn lock_at(schedule: &Schedule, cell: u8, mask: u8, keep: u8, locks: u8) -> u8 {
     let value = schedule.cells[usize::from(cell)];
-    if value & 0xC0 == 0x40 {
+    if value & CELL_FLAGS == CELL_LOCK {
         (locks & keep) | (value & mask)
     } else {
         locks
@@ -92,7 +91,7 @@ pub fn spawn_column(
 /// Spawns `cell` when it is pending (`$87FC-$88FE`).
 pub fn spawn_at(slots: &mut Slots, schedule: &mut Schedule, table: &SpawnTable, cell: u8) {
     let value = schedule.cells[usize::from(cell)];
-    if value & 0x80 == 0 {
+    if value & CELL_PENDING == 0 {
         return;
     }
     let record = table.record(value);
@@ -104,21 +103,21 @@ pub fn spawn_at(slots: &mut Slots, schedule: &mut Schedule, table: &SpawnTable, 
         return;
     };
     place(slots, free, &record, cell, Spawner::Column);
-    schedule.cells[usize::from(cell)] &= 0x3F;
+    schedule.cells[usize::from(cell)] &= CELL_RECORD;
 }
 
 /// Spawns every pending cell of the 16 from `start` (`$D74B-$D75E`).
 pub fn spawn_row(slots: &mut Slots, schedule: &mut Schedule, table: &SpawnTable, start: u8) {
     for cell in (0..16).map(|i| start.wrapping_add(i)) {
         let value = schedule.cells[usize::from(cell)];
-        if value & 0x80 == 0 {
+        if value & CELL_PENDING == 0 {
             continue;
         }
         let record = table.record(value);
         let free = free_slot(slots, &record)
             .unwrap_or_else(|| panic!("room spawn of cell {cell:02X} found no free slot"));
         place(slots, free, &record, cell, Spawner::Room);
-        schedule.cells[usize::from(cell)] &= 0x3F;
+        schedule.cells[usize::from(cell)] &= CELL_RECORD;
     }
 }
 
@@ -129,23 +128,23 @@ enum Free {
 }
 
 /// The first free slot of the record's class (`$8992`, `$D830`).
-fn free_slot(slots: &Slots, record: &ActorSpawn) -> Option<Free> {
-    if record.slot_bank() == 0 {
-        slots.main[..16]
-            .iter()
-            .position(|s| s.kind == 0)
-            .map(Free::Main)
-    } else {
+fn free_slot(slots: &Slots, record: &SpawnRecord) -> Option<Free> {
+    if record.second_class {
         slots
             .second
             .iter()
             .position(|s| s.kind == 0)
             .map(Free::Second)
+    } else {
+        slots.main[..16]
+            .iter()
+            .position(|s| s.kind == 0)
+            .map(Free::Main)
     }
 }
 
-fn place(slots: &mut Slots, free: Free, record: &ActorSpawn, cell: u8, by: Spawner) {
-    let kind = record.slot_type();
+fn place(slots: &mut Slots, free: Free, record: &SpawnRecord, cell: u8, by: Spawner) {
+    let kind = record.kind;
     match free {
         Free::Main(i) => {
             let slot = &mut slots.main[i];
@@ -155,27 +154,28 @@ fn place(slots: &mut Slots, free: Free, record: &ActorSpawn, cell: u8, by: Spawn
         }
         Free::Second(i) => {
             let at = |array: u16| array + 24 + u16::try_from(i).expect("< 8");
-            let r = record.raw;
+            let [x_high, x_low] = record.x.to_be_bytes();
+            let [y_high, y_low] = record.y.to_be_bytes();
+            let [health_high, health_low] = record.health.to_be_bytes();
             for (array, value) in [
-                (0x7B00, r[0]),
-                (0x7B20, r[1]),
-                (0x7B40, r[2]),
-                (0x7B60, r[3]),
-                (0x7C00, r[4] & 0xE3),
-                (0x7C90, (r[4] >> 2) & 7),
+                (0x7B00, x_high),
+                (0x7B20, x_low),
+                (0x7B40, y_high),
+                (0x7B60, y_low),
+                (0x7C00, record.flags),
+                (0x7C90, record.chr_slot),
                 (0x7CC0, kind),
-                (0x7D50, r[6]),
-                (0x7D90, r[7]),
-                (0x7DB0, r[8]),
+                (0x7D50, record.state),
+                (0x7D90, record.behaviour),
+                (0x7DB0, record.subtype),
                 (0x7D70, 0),
                 (0x7DD0, 0),
                 (0x7DF0, 0),
                 (0x7E10, 0),
                 (0x7E90, 0),
-                (0x7C30, 0),
-                (0x7BD8, r[9]),
-                (0x7BE0, r[10]),
-                (0x7C30, r[11]),
+                (0x7BD8, health_high),
+                (0x7BE0, health_low),
+                (0x7C30, record.contact),
                 (0x7EF8, 0),
             ] {
                 slots.set_byte(at(array), value);
@@ -184,13 +184,7 @@ fn place(slots: &mut Slots, free: Free, record: &ActorSpawn, cell: u8, by: Spawn
                 slots.set_byte(at(0x7F00), 0);
             }
             slots.set_byte(at(0x7CE0), cell);
-            let second = &mut slots.second[i];
-            second.placed = Some(Placed {
-                cell,
-                record: *record,
-                by,
-            });
-            second.brain = Brain::new_second(kind);
+            slots.second[i].brain = Brain::new_second(kind);
         }
     }
 }
@@ -207,17 +201,14 @@ mod tests {
     const COLUMN_RETURNS: [u16; 2] = [0x8668, 0x86AB];
     const ROOM: (u16, u16) = (0xD714, 0xD75E);
 
-    fn green() -> ActorSpawn {
-        ActorSpawn {
-            addr: 0xACB8,
-            raw: [
-                0x1D, 0xFF, 0x05, 0xFF, 0x01, 0x05, 0x20, 0x00, 0x05, 0x00, 0xFF, 0x88,
-            ],
-        }
+    fn green() -> SpawnRecord {
+        SpawnRecord::from([
+            0x1D, 0xFF, 0x05, 0xFF, 0x01, 0x05, 0x20, 0x00, 0x05, 0x00, 0xFF, 0x88,
+        ])
     }
 
     fn table(prg: &[u8], ram: &[u8; 2048]) -> SpawnTable {
-        SpawnTable::from_rom(prg, ram[0x400], ram[0x402]).expect("spawn table")
+        SpawnTable::import(prg, ram[0x400], ram[0x402])
     }
 
     /// Diffs every column-spawn call in `events`; returns (calls, main spawns, second-class spawns).
@@ -298,7 +289,10 @@ mod tests {
         );
         let mut state = State::lift(begin);
         let table = table(&prg, &begin.ram);
-        assert_eq!(table.schedule[..], begin.wram[0x1410..0x1510]);
+        assert_eq!(
+            crate::actors::spawn_schedule(&prg, begin.ram[0x400]).expect("the schedule")[..],
+            begin.wram[0x1410..0x1510]
+        );
         spawn_row(
             &mut state.slots,
             &mut state.schedule,
@@ -323,9 +317,8 @@ mod tests {
             cells: [0; 256],
             rows: [0; 32],
         };
-        schedule.cells[0x03] = 0x80;
+        schedule.cells[0x03] = CELL_PENDING;
         let table = SpawnTable {
-            schedule: schedule.cells,
             records: vec![Some(green())],
         };
         (slots, schedule, table, World::at(0x0300))

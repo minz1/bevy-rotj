@@ -11,6 +11,7 @@ use crate::actor::engine::{self, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::actors::CELL_PENDING;
 
 /// The three x high bytes `$7E10` selects (`$84BF`).
 const X_POSITIONS: u16 = 0x84BF;
@@ -24,8 +25,6 @@ const TURN: u8 = 3;
 const DROP_PERIOD: u8 = 0x18;
 /// The high byte of |dx| at or past which the slot is freed (`$8472`).
 const FAR_HIGH_BYTE: u8 = 0x18;
-/// The re-arm ORed into the schedule cell on despawn (`$8476`).
-const REARM: u8 = 0x80;
 
 /// Type `$A4` keeps all its state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -37,7 +36,7 @@ impl State {
         engine::load(body, work);
         let dx = engine::player_dx(work, &cx.effects.player).unsigned_abs();
         if dx.to_be_bytes()[0] >= FAR_HIGH_BYTE {
-            engine::despawn(kind, body, REARM, cx.schedule);
+            engine::despawn(kind, body, CELL_PENDING, cx.schedule);
             return;
         }
         body.anim = body.anim.wrapping_sub(1);

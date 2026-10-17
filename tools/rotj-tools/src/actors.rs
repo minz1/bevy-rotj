@@ -60,23 +60,22 @@ pub fn dump(rom_path: &Path, stage: u8, sublevel: u8, area: u8) -> Result<()> {
         actors::SPAWN_TABLE,
         actors::SPAWN_SCHEDULE
     );
-    let spawns = actors::pending_spawns(&prg, area, stage)?;
-    if spawns.is_empty() {
-        let _ = writeln!(out, "   (no slot pending)");
-    }
-    for pending in &spawns {
-        let spawn = pending.spawn;
+    let mut pending = 0;
+    for (cell, &value) in actors::spawn_schedule(&prg, area)?.iter().enumerate() {
+        if value & actors::CELL_PENDING == 0 {
+            continue;
+        }
+        pending += 1;
+        let id = value & actors::CELL_RECORD;
+        let addr = actors::spawn_record_pointer(&prg, area, stage, id)?;
+        let record = actors::spawn_record(&prg, addr)?;
         let _ = writeln!(
             out,
-            "   slot {:2} id {:2} -> record ${:04X}  state ${:02X} behaviour ${:02X} type ${:02X}  {}",
-            pending.slot,
-            pending.id,
-            spawn.addr,
-            spawn.state(),
-            spawn.behaviour(),
-            spawn.kind(),
-            hex(&spawn.raw)
+            "   cell ${cell:02X} id {id:2} -> record ${addr:04X}  {record:?}"
         );
+    }
+    if pending == 0 {
+        let _ = writeln!(out, "   (no cell pending)");
     }
 
     let _ = writeln!(

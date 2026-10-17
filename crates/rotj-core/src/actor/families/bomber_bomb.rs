@@ -75,17 +75,16 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
-    use crate::actors::ActorSpawn;
+    use crate::actors::SpawnRecord;
 
     /// A `$2C` written the way `$2A`'s `$84BD` does: byte 5 `$16` -> kind `$2C`.
-    fn bomb(x: u16, y: u16) -> ActorSpawn {
-        let [xh, xl] = x.to_be_bytes();
-        let [yh, yl] = y.to_be_bytes();
-        ActorSpawn {
-            addr: 0,
-            raw: [
-                xh, xl, yh, yl, 0x00, 0x16, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00,
-            ],
+    fn bomb(x: u16, y: u16) -> SpawnRecord {
+        SpawnRecord {
+            x,
+            y,
+            kind: 0x2C,
+            state: 0x40,
+            ..SpawnRecord::default()
         }
     }
 

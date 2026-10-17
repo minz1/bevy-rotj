@@ -4,6 +4,7 @@
 use super::Game;
 use super::engine::rom_byte;
 use super::spawn::{SpawnTable, lock_at, spawn_at};
+use crate::actors::CELL_PENDING;
 
 /// Scroll state outside the camera position.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -194,11 +195,10 @@ fn accumulate(step: &mut u8, speed: i16) -> bool {
 }
 
 fn edge_spawn(game: &mut Game, prg: &[u8], cell: u8) {
-    if game.schedule.cells[usize::from(cell)] & 0x80 == 0 {
+    if game.schedule.cells[usize::from(cell)] & CELL_PENDING == 0 {
         return;
     }
-    let table = SpawnTable::from_rom(prg, game.world.area, game.world.room)
-        .expect("the room's spawn table decodes");
+    let table = SpawnTable::import(prg, game.world.area, game.world.room);
     spawn_at(&mut game.slots, &mut game.schedule, &table, cell);
 }
 

@@ -3,7 +3,7 @@
 use super::oam::{DrawCall, Metasprite};
 use super::slots::Body;
 use super::world::{Cx, Effects, Level, Motion, Player, Schedule, Weapon, World, pose};
-use crate::actors::bank_slice;
+use crate::actors::{CELL_PENDING, bank_slice};
 
 /// The zero-page working set `$90-$A6`, carried from slot to slot as the game's is.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1018,7 +1018,7 @@ pub fn collect(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
 pub fn unported(kind: &mut u8, body: &Body, work: &mut Work, cx: &mut Cx<'_>) {
     load(body, work);
     if on_screen(work, cx.world) == Visibility::Far {
-        despawn(kind, body, 0x80, cx.schedule);
+        despawn(kind, body, CELL_PENDING, cx.schedule);
     }
 }
 
@@ -1696,7 +1696,7 @@ mod tests {
             unported(&mut slot_kind, &body, &mut work, &mut cx);
             assert_eq!(slot_kind, kind, "x {x}");
         }
-        assert_eq!(schedule.cells[5], 0x80);
+        assert_eq!(schedule.cells[5], CELL_PENDING);
     }
 
     #[test]

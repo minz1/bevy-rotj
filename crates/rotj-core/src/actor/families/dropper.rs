@@ -10,6 +10,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::actors::CELL_PENDING;
 
 const CHILD: u8 = 0x30;
 const BANK: u8 = 11;
@@ -198,7 +199,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             if body.phase != 0 {
                 free_child(body, cx);
             }
-            engine::despawn(kind, body, 0x80, cx.schedule);
+            engine::despawn(kind, body, CELL_PENDING, cx.schedule);
             return;
         }
     }

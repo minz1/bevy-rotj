@@ -5,6 +5,7 @@
 use crate::actor::engine::{self, TileBlock, Visibility, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::actors::CELL_PENDING;
 
 /// Both kinds keep no state outside [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -17,7 +18,7 @@ impl State {
         engine::load(body, work);
         match engine::on_screen(work, cx.world) {
             Visibility::Far => {
-                engine::despawn(kind, body, 0x80, cx.schedule);
+                engine::despawn(kind, body, CELL_PENDING, cx.schedule);
                 return;
             }
             Visibility::Near if work.anchor == 0 => {}

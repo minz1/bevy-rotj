@@ -4,8 +4,7 @@
 use crate::actor::engine::{self, Proximity, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
-
-const REARM: u8 = 0xC0;
+use crate::actors::{CELL_LOCK, CELL_PENDING};
 
 /// Type `$1A` keeps no state of its own; its `$7D50` is the transition parameter.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -27,7 +26,7 @@ impl State {
                 cx.effects.transition = 1;
                 cx.effects.transition_arg = body.state;
             }
-            Proximity::Far => engine::despawn(kind, body, REARM, cx.schedule),
+            Proximity::Far => engine::despawn(kind, body, CELL_PENDING | CELL_LOCK, cx.schedule),
             Proximity::Clear => {}
         }
     }

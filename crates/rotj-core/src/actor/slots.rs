@@ -2,7 +2,7 @@
 
 use crate::actor::families::Brain;
 use crate::actor::world::{PROJECTILE_ARRAYS, Projectile};
-use crate::actors::ActorSpawn;
+use crate::actors::SpawnRecord;
 
 /// The per-slot arrays the spawners and the engine share (`docs/ACTORS.md` §9).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -299,15 +299,14 @@ impl Body {
 
 impl Body {
     /// Writes a spawn record as the spawners do for slots 0-15; other fields keep residue.
-    pub fn spawn(&mut self, record: &ActorSpawn, cell: u8) {
-        let r = record.raw;
-        self.x = u16::from_be_bytes([r[0], r[1]]);
-        self.y = u16::from_be_bytes([r[2], r[3]]);
-        self.flags = r[4] & 0xE3;
-        self.chr_slot = (r[4] >> 2) & 7;
-        self.state = r[6];
-        self.behaviour = r[7];
-        self.subtype = r[8];
+    pub fn spawn(&mut self, record: &SpawnRecord, cell: u8) {
+        self.x = record.x;
+        self.y = record.y;
+        self.flags = record.flags;
+        self.chr_slot = record.chr_slot;
+        self.state = record.state;
+        self.behaviour = record.behaviour;
+        self.subtype = record.subtype;
         self.hit = 0;
         self.phase = 0;
         self.timer = 0;
@@ -319,8 +318,8 @@ impl Body {
         self.vy = 6;
         self.age = 0;
         self.ref_vx = 0;
-        self.health = u16::from_be_bytes([r[9], r[10]]);
-        self.contact = r[11];
+        self.health = record.health;
+        self.contact = record.contact;
         self.cell = cell;
     }
 }
@@ -345,24 +344,11 @@ pub enum Spawner {
     Room,
 }
 
-/// A spawn the port made into a second-class slot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Placed {
-    /// Schedule cell.
-    pub cell: u8,
-    /// The record written.
-    pub record: ActorSpawn,
-    /// The routine that wrote it.
-    pub by: Spawner,
-}
-
 /// A second-class slot (24-31), run by `$CE7F` over the 32-wide arrays.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Second {
     /// Occupant type (`$7CD8`), 0 when free.
     pub kind: u8,
-    /// The record the port spawned into it, for reference.
-    pub placed: Option<Placed>,
     /// Its 32-wide arrays.
     pub body: Body,
     /// Its family's state.
@@ -423,7 +409,6 @@ mod layout {
                 let kind = wram[at(0x7CC0, 24 + i)];
                 *second = Second {
                     kind,
-                    placed: None,
                     body: Body::lift(wram, 24 + i),
                     brain: crate::actor::families::Brain::new_second(kind),
                 };

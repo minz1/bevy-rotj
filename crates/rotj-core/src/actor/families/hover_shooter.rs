@@ -5,13 +5,12 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::actors::CELL_PENDING;
 
 /// The frame-indexed metasprite pointer table (bank 8 `$94A0`), word-indexed by `$7E10`.
 const METASPRITES: u16 = 0x94A0;
 /// The companion slot type the `$9457` routine rears.
 const CHILD: u8 = 0x20;
-/// What `$9451` re-arms the freed schedule cell with.
-const REARM: u8 = 0x80;
 /// `$937F`'s gate: the sprite only rolls on frames where `$F1 & 3` is clear.
 const FRAME_MASK: u8 = 0x03;
 
@@ -33,7 +32,7 @@ impl State {
             phase1(body, work, cx);
         }
         if engine::on_screen(work, cx.world) != Visibility::On {
-            engine::despawn(kind, body, REARM, cx.schedule);
+            engine::despawn(kind, body, CELL_PENDING, cx.schedule);
             return;
         }
         work.pointer = engine::rom_word(cx.prg, 8, METASPRITES + 2 * u16::from(body.counter));

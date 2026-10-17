@@ -3,6 +3,7 @@
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::actors::CELL_PENDING;
 
 /// The type the handler hands to a free child slot (`$84E2`).
 const CHILD: u8 = 0xA2;
@@ -22,7 +23,7 @@ impl State {
         engine::load(body, work);
         let dx = engine::player_dx(work, &cx.effects.player).unsigned_abs();
         if dx >= FAR {
-            engine::despawn(kind, body, 0x80, cx.schedule);
+            engine::despawn(kind, body, CELL_PENDING, cx.schedule);
             return;
         }
         body.anim = body.anim.wrapping_sub(1);

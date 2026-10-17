@@ -45,7 +45,7 @@
 //! The 12 bytes are written in order to `$7B00`, `$7B20`, `$7B40`, `$7B60`,
 //! `$7C00`/`$7C90`, `$7CC0` (bit 7 selects the `$7CC0` slot bank), `$7D50`
 //! (**state**), `$7D90` (**behaviour**), `$7DB0` (**type**), then three more
-//! (`$7EF0`/`$7BD8`, `$7BE0`, `$7EE0`/`$7C30`). See [`ActorSpawn`].
+//! (`$7EF0`/`$7BD8`, `$7BE0`, `$7EE0`/`$7C30`). See [`SpawnRecord`].
 //!
 //! # What is *not* established
 //!
@@ -147,14 +147,17 @@ pub const SPAWN_RECORD_BYTES: usize = 12;
 /// Bytes of a spawn-schedule block.
 pub const SPAWN_SCHEDULE_BYTES: usize = 256;
 
-/// Schedule flag (bit 7 of a schedule byte): the slot is pending a spawn.
-pub const SPAWN_PENDING: u8 = 0x80;
+/// A schedule cell's bit 7: its record is pending a spawn.
+pub const CELL_PENDING: u8 = 0x80;
 
-/// Record byte 7 -> RAM `$7D90`, the behaviour index.
-pub const SPAWN_BEHAVIOUR_INDEX: usize = 7;
+/// A schedule cell's two flag bits.
+pub const CELL_FLAGS: u8 = 0xC0;
 
-/// Record byte 8 -> RAM `$7DB0`, the type index.
-pub const SPAWN_TYPE_INDEX: usize = 8;
+/// A schedule cell whose flags are this is a scroll lock (`$87D2`).
+pub const CELL_LOCK: u8 = 0x40;
+
+/// A schedule cell's record id; masking with it clears both flags.
+pub const CELL_RECORD: u8 = 0x3F;
 
 /// FME-7 PRG bank holding the `$7D90` behaviour tables.
 pub const BEHAVIOUR_BANK: u8 = 0x00;
@@ -200,21 +203,21 @@ pub const SLOT_WINDOW_LEN: usize = 0x130;
 
 /// CPU `$7CC0`: the per-slot occupied byte (the array base, [`SLOT_WINDOW`]).
 /// Non-zero marks a live slot and holds the object type
-/// ([`ActorSpawn::slot_type`]); the spawner searches it with `LDA $7CC0,x; BEQ`
+/// ([`SpawnRecord::kind`]); the spawner searches it with `LDA $7CC0,x; BEQ`
 /// (bank 3 `$D840`) and bank 13 `$AB42` clears it to free a slot.
 pub const SLOT_OCCUPIED: u16 = SLOT_WINDOW;
 
 /// CPU `$7CE0`: the spawn-schedule slot the object came from (bank 14 `$D820`).
 pub const SLOT_SCHEDULE: u16 = 0x7CE0;
 
-/// CPU `$7D50`: the per-slot state byte ([`ActorSpawn::state`], record byte 6).
+/// CPU `$7D50`: the per-slot state byte ([`SpawnRecord::state`], record byte 6).
 pub const SLOT_STATE: u16 = 0x7D50;
 
 /// CPU `$7D90`: the per-slot behaviour index (record byte 7).
 pub const SLOT_BEHAVIOUR: u16 = 0x7D90;
 
-/// CPU `$7DB0`: the per-slot type index (record byte 8).
-pub const SLOT_KIND: u16 = 0x7DB0;
+/// CPU `$7DB0`: the per-slot subtype (record byte 8).
+pub const SLOT_SUBTYPE: u16 = 0x7DB0;
 
 /// CPU `$7DD0`: the per-slot behaviour phase / child counter (bank 0 `$8A9B`
 /// indexes a handler table with it; bank 0 `$8704` increments it and frees the
@@ -252,8 +255,8 @@ pub struct LiveSlot {
     pub state: u8,
     /// `$7D90`: the behaviour index.
     pub behaviour: u8,
-    /// `$7DB0`: the type index.
-    pub kind: u8,
+    /// `$7DB0`: the subtype.
+    pub subtype: u8,
     /// `$7DD0`: the behaviour phase / child counter.
     pub phase: u8,
 }
@@ -290,7 +293,7 @@ pub fn live_slots(wram: &[u8]) -> Vec<LiveSlot> {
             schedule: field(SLOT_SCHEDULE, slot),
             state: field(SLOT_STATE, slot),
             behaviour: field(SLOT_BEHAVIOUR, slot),
-            kind: field(SLOT_KIND, slot),
+            subtype: field(SLOT_SUBTYPE, slot),
             phase: field(SLOT_PHASE, slot),
         });
     }
@@ -429,55 +432,58 @@ pub fn screen_record_at(
     screen_record(prg, addr)
 }
 
-/// One bank-3 actor spawn record.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ActorSpawn {
-    /// CPU address the record was read from.
-    pub addr: u16,
-    /// The raw 12 record bytes.
-    pub raw: [u8; SPAWN_RECORD_BYTES],
+/// One bank-3 actor spawn record: what the spawners write into a free slot.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SpawnRecord {
+    /// Level x (`$7B00`/`$7B20`), bytes 0-1.
+    pub x: u16,
+    /// Level y (`$7B40`/`$7B60`), bytes 2-3.
+    pub y: u16,
+    /// Byte 4 without the CHR slot (`$7C00`).
+    pub flags: u8,
+    /// Byte 4's bits 2-4 (`$7C90`).
+    pub chr_slot: u8,
+    /// Byte 5's bit 7: the actor takes a second-class slot (24-31).
+    pub second_class: bool,
+    /// The occupant type (`$7CC0`): byte 5's low seven bits, shifted left.
+    pub kind: u8,
+    /// Byte 6 (`$7D50`).
+    pub state: u8,
+    /// Byte 7 (`$7D90`), a [`BEHAVIOUR_HI`] velocity selector, not a handler index.
+    pub behaviour: u8,
+    /// Byte 8 (`$7DB0`).
+    pub subtype: u8,
+    /// Bytes 9-10: hit points in slots 0-15 (`$7EF0`/`$7BE0`); a second-class slot
+    /// writes them to `$7BD8`/`$7BE0` instead.
+    pub health: u16,
+    /// Byte 11: contact damage in slots 0-15 (`$7EE0`); `$7C30` in a second-class slot.
+    pub contact: u8,
 }
 
-impl ActorSpawn {
-    /// Record byte 6 -> RAM `$7D50`, the slot's state index.
-    #[must_use]
-    pub const fn state(&self) -> u8 {
-        self.raw[6]
-    }
-
-    /// Record byte 7 -> RAM `$7D90`, the behaviour index (a [`BEHAVIOUR_HI`]
-    /// velocity selector, not a handler index).
-    #[must_use]
-    pub const fn behaviour(&self) -> u8 {
-        self.raw[SPAWN_BEHAVIOUR_INDEX]
-    }
-
-    /// Record byte 8 -> RAM `$7DB0`, the type index.
-    #[must_use]
-    pub const fn kind(&self) -> u8 {
-        self.raw[SPAWN_TYPE_INDEX]
-    }
-
-    /// Record byte 5: bit 7 selects the second slot bank (`$7CC0` at `$18+`).
-    #[must_use]
-    pub const fn slot_bank(&self) -> u8 {
-        self.raw[5] >> 7
-    }
-
-    /// Record byte 5 low bits, shifted left as the ROM does for `$7CC0`.
-    #[must_use]
-    pub const fn slot_type(&self) -> u8 {
-        (self.raw[5] & 0x7F) << 1
+impl From<[u8; SPAWN_RECORD_BYTES]> for SpawnRecord {
+    fn from(bytes: [u8; SPAWN_RECORD_BYTES]) -> SpawnRecord {
+        SpawnRecord {
+            x: u16::from_be_bytes([bytes[0], bytes[1]]),
+            y: u16::from_be_bytes([bytes[2], bytes[3]]),
+            flags: bytes[4] & 0xE3,
+            chr_slot: (bytes[4] >> 2) & 7,
+            second_class: bytes[5] & 0x80 != 0,
+            kind: (bytes[5] & 0x7F) << 1,
+            state: bytes[6],
+            behaviour: bytes[7],
+            subtype: bytes[8],
+            health: u16::from_be_bytes([bytes[9], bytes[10]]),
+            contact: bytes[11],
+        }
     }
 }
 
-/// Read the actor spawn record at CPU `addr` inside `SPAWN_BANK`.
-pub fn actor_spawn(prg: &[u8], addr: u16) -> Result<ActorSpawn, ActorError> {
+/// Read the spawn record at CPU `addr` inside `SPAWN_BANK`.
+pub fn spawn_record(prg: &[u8], addr: u16) -> Result<SpawnRecord, ActorError> {
     let bytes = bytes_at(prg, SPAWN_BANK, SPAWN_WINDOW, addr, SPAWN_RECORD_BYTES)?;
-    Ok(ActorSpawn {
-        addr,
-        raw: bytes.try_into().expect("length checked above"),
-    })
+    Ok(SpawnRecord::from(
+        <[u8; SPAWN_RECORD_BYTES]>::try_from(bytes).expect("length checked above"),
+    ))
 }
 
 /// Follow [`SPAWN_TABLE`] for `area`/`stage` (RAM `$0400`/`$0402` byte offsets)
@@ -502,42 +508,6 @@ pub fn spawn_schedule(prg: &[u8], area: u8) -> Result<Vec<u8>, ActorError> {
         SPAWN_SCHEDULE + u16::from(area),
     )?;
     Ok(bytes_at(prg, SPAWN_BANK, SPAWN_WINDOW, addr, SPAWN_SCHEDULE_BYTES)?.to_vec())
-}
-
-/// One slot the schedule marks pending, with the record it selects.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PendingSpawn {
-    /// Slot index (RAM `$7410` index, 0-31 as the scanner walks it).
-    pub slot: usize,
-    /// Spawn id (schedule byte bits 0-5).
-    pub id: u8,
-    /// The record the id resolves to.
-    pub spawn: ActorSpawn,
-}
-
-/// All spawns `area`/`stage` schedules: schedule bytes with bit 7 set, resolved
-/// through the id -> record table.
-///
-/// The scanner walks slots 0-15 (first branch) or 24-31 (second branch, taken
-/// when the record's byte 5 has bit 7 set), so schedule bytes 16-23 are never
-/// read as slot ids and are skipped.
-pub fn pending_spawns(prg: &[u8], area: u8, stage: u8) -> Result<Vec<PendingSpawn>, ActorError> {
-    let schedule = spawn_schedule(prg, area)?;
-    let mut out = Vec::new();
-    for slot in (0..16).chain(24..32) {
-        let byte = schedule[slot];
-        if byte & SPAWN_PENDING == 0 {
-            continue;
-        }
-        let id = byte & 0x3F;
-        let addr = spawn_record_pointer(prg, area, stage, id)?;
-        out.push(PendingSpawn {
-            slot,
-            id,
-            spawn: actor_spawn(prg, addr)?,
-        });
-    }
-    Ok(out)
 }
 
 /// The `$7D90` behaviour table as `(high, low)` velocity pairs.
@@ -702,27 +672,42 @@ mod tests {
     }
 
     #[test]
-    fn actor_spawn_exposes_state_behaviour_and_type() {
+    fn spawn_record_fields() {
         let prg = synthetic_prg();
-        let spawn = actor_spawn(&prg, 0xA110).unwrap();
-        assert_eq!(spawn.state(), 0x00);
-        assert_eq!(spawn.behaviour(), 0x0C);
-        assert_eq!(spawn.kind(), 0x68);
-        assert_eq!(spawn.slot_bank(), 1);
-        assert_eq!(spawn.slot_type(), 0x4A);
+        assert_eq!(
+            spawn_record(&prg, 0xA110).unwrap(),
+            SpawnRecord {
+                x: 0x1020,
+                y: 0x3040,
+                flags: 0,
+                chr_slot: 0,
+                second_class: true,
+                kind: 0x4A,
+                state: 0x00,
+                behaviour: 0x0C,
+                subtype: 0x68,
+                health: 0x0005,
+                contact: 0x40,
+            }
+        );
+        let split = |byte4, byte5| {
+            let record = SpawnRecord::from([0, 0, 0, 0, byte4, byte5, 0, 0, 0, 0, 0, 0]);
+            (
+                record.flags,
+                record.chr_slot,
+                record.second_class,
+                record.kind,
+            )
+        };
+        assert_eq!(split(0xE3, 0x80), (0xE3, 0, true, 0));
+        assert_eq!(split(0x1C, 0x7F), (0, 7, false, 0xFE));
     }
 
     #[test]
-    fn pending_spawns_resolve_through_the_id_table() {
+    fn spawn_ids_resolve_through_the_id_table() {
         let prg = synthetic_prg();
-        let spawns = pending_spawns(&prg, 0, 0).unwrap();
-        assert_eq!(spawns.len(), 2);
-        assert_eq!(spawns[0].slot, 1);
-        assert_eq!(spawns[0].id, 3);
-        assert_eq!(spawns[0].spawn.addr, 0xA110);
-        assert_eq!(spawns[1].slot, 4);
-        assert_eq!(spawns[1].id, 0);
-        assert_eq!(spawns[1].spawn.addr, 0xA100);
+        assert_eq!(spawn_record_pointer(&prg, 0, 0, 3).unwrap(), 0xA110);
+        assert_eq!(spawn_record_pointer(&prg, 0, 0, 0).unwrap(), 0xA100);
         // Area 1 stage 0 resolves a different id table.
         assert_eq!(spawn_record_pointer(&prg, 2, 0, 0).unwrap(), 0xA120);
     }
@@ -773,7 +758,7 @@ mod tests {
         assert_eq!(slot.schedule, 0x0E);
         assert_eq!(slot.state, 0x81);
         assert_eq!(slot.behaviour, 0x0C);
-        assert_eq!(slot.kind, 0x68);
+        assert_eq!(slot.subtype, 0x68);
         assert_eq!(slot.phase, 0x00);
         assert!(slot.is_active());
         assert!(!slot.is_done());
@@ -823,14 +808,14 @@ mod tests {
         assert_eq!(orange.occupied, 0x22);
         assert_eq!(orange.schedule, 0x18);
         assert_eq!(
-            (orange.state, orange.behaviour, orange.kind),
+            (orange.state, orange.behaviour, orange.subtype),
             (0x84, 0x00, 0x00)
         );
         let green = by_slot(3);
         assert_eq!(green.occupied, 0x0A);
         assert_eq!(green.schedule, 0x1D);
         assert_eq!(
-            (green.state, green.behaviour, green.kind),
+            (green.state, green.behaviour, green.subtype),
             (0x20, 0x00, 0x05)
         );
 
@@ -864,20 +849,19 @@ mod tests {
                 0xACB8,
             ),
         ];
-        for (raw, addr) in records {
-            let spawn = ActorSpawn { addr, raw };
+        for (bytes, addr) in records {
+            let record = SpawnRecord::from(bytes);
             let slot = *slots
                 .iter()
-                .find(|s| s.occupied == spawn.slot_type())
+                .find(|s| s.occupied == record.kind)
                 .unwrap_or_else(|| panic!("a live slot for record ${addr:04X}"));
-            assert_eq!(spawn.slot_bank(), 0);
-            assert_eq!(slot.state, spawn.state(), "record ${addr:04X} state");
+            assert!(!record.second_class);
+            assert_eq!(slot.state, record.state, "record ${addr:04X} state");
             assert_eq!(
-                slot.behaviour,
-                spawn.behaviour(),
+                slot.behaviour, record.behaviour,
                 "record ${addr:04X} behaviour"
             );
-            assert_eq!(slot.kind, spawn.kind(), "record ${addr:04X} kind");
+            assert_eq!(slot.subtype, record.subtype, "record ${addr:04X} subtype");
         }
     }
 
@@ -886,15 +870,15 @@ mod tests {
     /// the capture's slot 2 matches record `$AC94` on both.
     #[test]
     fn occupied_byte_matches_the_record_and_schedule() {
-        let mut raw = [0u8; SPAWN_RECORD_BYTES];
-        raw[5] = 0x03;
-        let spawn = ActorSpawn { addr: 0xAC94, raw };
+        let mut bytes = [0u8; SPAWN_RECORD_BYTES];
+        bytes[5] = 0x03;
+        let record = SpawnRecord::from(bytes);
         let Some(wram) = captured_slots() else {
             return;
         };
         let slot = live_slots(&wram)[0];
-        assert_eq!(spawn.slot_type(), slot.occupied);
-        assert_eq!(spawn.slot_bank(), 0);
+        assert_eq!(record.kind, slot.occupied);
+        assert!(!record.second_class);
         assert_eq!(slot.schedule, 0x0E);
     }
 

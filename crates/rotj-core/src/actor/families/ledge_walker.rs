@@ -4,6 +4,7 @@ use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::actors::CELL_PENDING;
 
 /// Metasprite pointers indexed by `$7C30` (bank 0 `$9750`, byte-indexed).
 const METASPRITES: u16 = 0x9750;
@@ -120,7 +121,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         }
         Visibility::Near => {}
         Visibility::Far => {
-            engine::despawn(kind, body, 0x80, cx.schedule);
+            engine::despawn(kind, body, CELL_PENDING, cx.schedule);
             return;
         }
     }

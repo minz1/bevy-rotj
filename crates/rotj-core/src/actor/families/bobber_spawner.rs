@@ -70,7 +70,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
-    use crate::actors::ActorSpawn;
+    use crate::actors::SpawnRecord;
 
     /// The stage-3 spawner from its first TAS frame. It lives 80 frames and drops
     /// one `$66` per 16, but the FME-7 IRQ (armed in area 8 from ~9046) splits the
@@ -144,12 +144,9 @@ mod tests {
 
     /// The area-8 `$68` record (`docs/ACTORS.md` §7b: `$A000[area]` -> per-stage
     /// table -> `id*2`), whose byte 8 selects the `$66` child.
-    fn place_record() -> ActorSpawn {
-        ActorSpawn {
-            addr: 0xB288,
-            raw: [
-                0x1E, 0x00, 0x08, 0x00, 0x18, 0x34, 0x00, 0x80, 0x66, 0x00, 0x02, 0x00,
-            ],
-        }
+    fn place_record() -> SpawnRecord {
+        SpawnRecord::from([
+            0x1E, 0x00, 0x08, 0x00, 0x18, 0x34, 0x00, 0x80, 0x66, 0x00, 0x02, 0x00,
+        ])
     }
 }

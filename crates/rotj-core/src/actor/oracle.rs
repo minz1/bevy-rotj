@@ -15,7 +15,7 @@ use super::slots::{Slot, Slots};
 use super::step_actors;
 use super::tape::{Event, MEMORY, Tape, Writes, loop_hash, script_hash};
 use super::world::{Cx, Effects, Ppu, Schedule, World};
-use crate::actors::{ActorSpawn, actor_spawn, spawn_record_pointer};
+use crate::actors::{CELL_PENDING, CELL_RECORD, SpawnRecord, spawn_record, spawn_record_pointer};
 use crate::render::Line;
 
 /// The ported paths that ran in any test so far, by their 6502 address.
@@ -338,24 +338,24 @@ impl Scene {
             }
         }
         for cell in &mut wram[0x1410..0x1510] {
-            if *cell & 0x80 == 0 {
+            if *cell & CELL_PENDING == 0 {
                 continue;
             }
-            let owned = spawn_record_pointer(&prg, area, room, *cell & 0x3F)
-                .and_then(|addr| actor_spawn(&prg, addr))
-                .is_ok_and(|record| kinds.contains(&record.slot_type()));
+            let owned = spawn_record_pointer(&prg, area, room, *cell & CELL_RECORD)
+                .and_then(|addr| spawn_record(&prg, addr))
+                .is_ok_and(|record| kinds.contains(&record.kind));
             if !owned {
-                *cell &= 0x3F;
+                *cell &= CELL_RECORD;
             }
         }
     }
 
     /// Spawns `record` into main slot `slot` (0-15) the way the spawners write it.
-    pub(crate) fn place(&mut self, slot: usize, record: &ActorSpawn, cell: u8) {
+    pub(crate) fn place(&mut self, slot: usize, record: &SpawnRecord, cell: u8) {
         let wram = &mut self.machine.bus.wram;
         let mut slots = Slots::lift(wram);
         let target = &mut slots.main[slot];
-        target.kind = record.slot_type();
+        target.kind = record.kind;
         target.body.spawn(record, cell);
         target.brain = Brain::new(target.kind);
         slots.project(wram);
@@ -2214,12 +2214,9 @@ mod tests {
             scene.machine.bus.ram[0x460..0x464],
             [0x05, 0x67, 0x0B, 0xFF]
         );
-        let record = ActorSpawn {
-            addr: 0xACB8,
-            raw: [
-                0x1D, 0xFF, 0x05, 0xFF, 0x01, 0x05, 0x20, 0x00, 0x05, 0x00, 0xFF, 0x88,
-            ],
-        };
+        let record = SpawnRecord::from([
+            0x1D, 0xFF, 0x05, 0xFF, 0x01, 0x05, 0x20, 0x00, 0x05, 0x00, 0xFF, 0x88,
+        ]);
         scene.place(5, &record, 0x1D);
         let placed = &Slots::lift(&scene.machine.bus.wram).main[5];
         assert_eq!(

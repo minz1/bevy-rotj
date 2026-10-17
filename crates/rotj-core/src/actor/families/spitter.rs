@@ -10,6 +10,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::actors::CELL_PENDING;
 
 /// The metasprite pointers, indexed by `$7C30` (bank 0 `$9893`).
 const METASPRITES: u16 = 0x9893;
@@ -44,7 +45,7 @@ impl State {
             spit(body, cx);
         }
         if engine::on_screen(work, cx.world) != Visibility::On {
-            engine::despawn(kind, body, 0x80, cx.schedule);
+            engine::despawn(kind, body, CELL_PENDING, cx.schedule);
             return;
         }
         work.pointer = engine::rom_word(cx.prg, 0, METASPRITES + u16::from(body.sprite));

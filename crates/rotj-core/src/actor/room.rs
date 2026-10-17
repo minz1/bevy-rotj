@@ -689,10 +689,9 @@ fn wram_7000(game: &Game) -> [u8; 0x1000] {
 /// nametables tall from `$0440[(camera x page & 15) << 4]`, as the game indexes it.
 ///
 /// # Panics
-/// If the room's spawn table fails to decode, or that index runs past the page order.
+/// If that index runs past the page order, or the schedule names a record the room lacks.
 pub fn spawn_first_row(game: &mut Game, prg: &[u8]) {
-    let table = SpawnTable::from_rom(prg, game.world.area, game.world.room)
-        .expect("the room's spawn table decodes");
+    let table = SpawnTable::import(prg, game.world.area, game.world.room);
     let start = if game.world.orientation & 0xC0 == 0x80 {
         let page = game.world.camera_x.to_be_bytes()[0] & 0x0F;
         *game

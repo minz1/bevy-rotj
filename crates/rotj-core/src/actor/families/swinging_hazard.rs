@@ -9,6 +9,7 @@
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::actors::CELL_PENDING;
 
 const POINTERS: u16 = 0x83C2;
 const X_OFFSETS: u16 = 0x83CA;
@@ -50,7 +51,7 @@ impl State {
                 }
                 Visibility::Near => {}
                 Visibility::Far => {
-                    engine::despawn(kind, body, 0x80, cx.schedule);
+                    engine::despawn(kind, body, CELL_PENDING, cx.schedule);
                     return;
                 }
             }

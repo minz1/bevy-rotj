@@ -5,6 +5,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::actors::CELL_PENDING;
 
 /// The walk velocity pair (`$9C2D` low, `$9C2F` high), indexed by `$99` bit 6.
 const WALK_LO: u16 = 0x9C2D;
@@ -187,7 +188,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             return;
         }
         Visibility::Far => {
-            engine::despawn(kind, body, 0x80, cx.schedule);
+            engine::despawn(kind, body, CELL_PENDING, cx.schedule);
             return;
         }
     }

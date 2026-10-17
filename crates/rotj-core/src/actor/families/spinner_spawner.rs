@@ -10,6 +10,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::actors::CELL_PENDING;
 
 /// `$7E90 & $3F`: the 64-frame spawn period (`$92A1`).
 const SPAWN_MASK: u8 = 0x3F;
@@ -42,7 +43,7 @@ impl State {
                 body.anim = body.anim.wrapping_add(1);
             }
             Visibility::Near => body.anim = body.anim.wrapping_add(1),
-            Visibility::Far => engine::despawn(kind, body, 0x80, cx.schedule),
+            Visibility::Far => engine::despawn(kind, body, CELL_PENDING, cx.schedule),
         }
     }
 }

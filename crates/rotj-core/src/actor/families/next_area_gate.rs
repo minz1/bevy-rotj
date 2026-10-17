@@ -10,6 +10,7 @@
 use crate::actor::engine::{self, Proximity, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion, Weapon};
+use crate::actors::{CELL_LOCK, CELL_PENDING};
 
 /// The transition selector it arms (`$89CF`).
 const TRANSITION: u8 = 3;
@@ -17,8 +18,6 @@ const TRANSITION: u8 = 3;
 const MUSIC: u8 = 0xFC;
 /// The countdown's first value (`$898F`).
 const COUNTDOWN: u8 = 0xC0;
-/// The re-arm bits the despawn ORs into its schedule cell (`$89FC`).
-const REARM: u8 = 0xC0;
 
 /// Type `$32` keeps its whole state in [`Body`] (`$7D90`, `$7DF0`, `$7DD0`,
 /// `$7D50`, `$7EF0`/`$7BE0`).
@@ -66,7 +65,7 @@ impl State {
             match engine::player_proximity(work, cx) {
                 Proximity::Clear => return,
                 Proximity::Far => {
-                    engine::despawn(kind, body, REARM, cx.schedule);
+                    engine::despawn(kind, body, CELL_PENDING | CELL_LOCK, cx.schedule);
                     return;
                 }
                 Proximity::Touching => cx.effects.music = MUSIC,

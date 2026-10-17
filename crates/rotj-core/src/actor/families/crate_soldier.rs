@@ -5,6 +5,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::actors::CELL_PENDING;
 
 /// Metasprites indexed by `$7C30` (bank 8 `$9813`, byte-indexed).
 const METASPRITES: u16 = 0x9813;
@@ -162,7 +163,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, probe: &mut Probe, cx: 
             return;
         }
         Visibility::Far => {
-            engine::despawn(kind, body, 0x80, cx.schedule);
+            engine::despawn(kind, body, CELL_PENDING, cx.schedule);
             return;
         }
     }

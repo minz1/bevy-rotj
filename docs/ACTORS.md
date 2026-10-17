@@ -286,7 +286,7 @@ counter. This subsection corrects §2's `$7BD0` and `$7DD0` rows.
 search (`$D830`) walks `X=0..15` (`Y=#\$0F`) when record byte 5 has bit 7 clear,
 and `X=$18..$1F` (`Y=#\$07`) when it is set, indexing `$7CC0,x` each time. So 0-15
 is the first bank, 24-31 the second, and 16-23 are never scanned. The
-spawn-record field `slot_bank`/`slot_type` already encode this choice.
+spawn record's `second_class` and `kind` already encode this choice.
 
 **`$7CC0` is the "occupied" byte, not `$7BD0`.** `$D840` frees a slot with
 `LDA $7CC0,x; BEQ` and the spawner writes the object's type there
