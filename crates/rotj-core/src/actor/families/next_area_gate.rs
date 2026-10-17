@@ -9,7 +9,7 @@
 
 use crate::actor::engine::{self, Proximity, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::{Cx, Motion, Weapon};
+use crate::actor::world::{Cx, Motion, Weapon, orientation};
 use crate::actors::{CELL_LOCK, CELL_PENDING};
 
 /// The transition selector it arms (`$89CF`).
@@ -46,7 +46,7 @@ impl State {
                 }
             } else {
                 // $8975: wait for the camera page to reach `$7EF0`.
-                let camera = if cx.world.orientation & 0x40 != 0 {
+                let camera = if cx.world.orientation & orientation::VERTICAL != 0 {
                     cx.world.camera_y
                 } else {
                     cx.world.camera_x

@@ -7,7 +7,7 @@
 
 use super::collision::{self, Probe};
 use super::engine::{self, Work, adc_overflows, rom_byte, rom_word, sub_overflows16};
-use super::world::{Cx, Motion, Player, Projectile, Weapon, pose, set_first_colours};
+use super::world::{Cx, Motion, Player, Projectile, Weapon, orientation, pose, set_first_colours};
 use crate::actor::button;
 use crate::actors::STATE_UNTARGETED;
 
@@ -482,7 +482,7 @@ impl Port<'_, '_> {
 
     /// `$C93B`'s probe, which leaves `BIT $DD`'s overflow flag (the vertical-room bit).
     fn solid_at(&mut self, flags: u8) -> u8 {
-        self.work.cpu_overflow = self.cx.world.orientation & 0x40 != 0;
+        self.work.cpu_overflow = self.cx.world.orientation & orientation::VERTICAL != 0;
         collision::solid(&mut self.probe, flags, self.cx)
     }
 

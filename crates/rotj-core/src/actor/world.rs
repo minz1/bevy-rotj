@@ -152,6 +152,26 @@ pub fn set_first_colours(palette: &mut [u8; 32], colour: u8) {
     }
 }
 
+/// The room's orientation byte (`$DD`, room record byte 5).
+pub mod orientation {
+    /// The room is two pages wide or tall.
+    pub const TWO_PAGES: u8 = 0x80;
+    /// The room scrolls vertically.
+    pub const VERTICAL: u8 = 0x40;
+
+    /// Two pages across, scrolling sideways (`$DD` bits 7-6 = `10`).
+    #[must_use]
+    pub const fn horizontal_two_page(orientation: u8) -> bool {
+        orientation & (TWO_PAGES | VERTICAL) == TWO_PAGES
+    }
+
+    /// Two pages tall, scrolling vertically (`$DD` bits 7-6 = `11`).
+    #[must_use]
+    pub const fn vertical_two_page(orientation: u8) -> bool {
+        orientation & (TWO_PAGES | VERTICAL) == TWO_PAGES | VERTICAL
+    }
+}
+
 /// The bits of the player's pose (`$047F`).
 pub mod pose {
     /// A turn is pending.

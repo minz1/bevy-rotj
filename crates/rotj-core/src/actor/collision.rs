@@ -1,7 +1,7 @@
 //! Level collision (bank 14 `$C93B`, `$C99D`, `$CAFE`, `$CD5F` and their bank-13 wrappers).
 
 use super::engine::{Work, rom_byte, rom_word};
-use super::world::Cx;
+use super::world::{Cx, orientation};
 
 /// A collision probe: point `$20-$23`, flags `$24`, landing bytes `$27/$28`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -36,7 +36,7 @@ fn adc(a: u8, b: u8, carry: bool) -> (u8, bool) {
 /// The collision class of the metatile under the probe (`2 * class`, as `$7340` holds it).
 fn class_at(probe: Probe, cx: &Cx<'_>) -> u8 {
     let level = &cx.effects.level;
-    let vertical = cx.world.orientation & 0x40 != 0;
+    let vertical = cx.world.orientation & orientation::VERTICAL != 0;
     let id = level.metatile(hi(probe.x), hi(probe.y), &cx.schedule.rows, vertical);
     level
         .class(id)

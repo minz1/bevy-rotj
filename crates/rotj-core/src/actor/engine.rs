@@ -2,7 +2,9 @@
 
 use super::oam::{DrawCall, Metasprite};
 use super::slots::Body;
-use super::world::{Cx, Effects, Level, Motion, Player, Schedule, Weapon, World, pose};
+use super::world::{
+    Cx, Effects, Level, Motion, Player, Schedule, Weapon, World, orientation, pose,
+};
 use crate::actors::{CELL_PENDING, STATE_DROPS_PICKUP, bank_slice};
 
 /// The zero-page working set `$90-$A6`, carried from slot to slot as the game's is.
@@ -103,18 +105,21 @@ pub fn integrate(body: &Body, work: &mut Work) {
 /// Projects the working position onto the screen (`$A852`).
 pub fn on_screen(work: &mut Work, world: &World) -> Visibility {
     work.anchor = 0;
-    let full = world.orientation & 0xC0;
+    let (horizontal, vertical) = (
+        orientation::horizontal_two_page(world.orientation),
+        orientation::vertical_two_page(world.orientation),
+    );
     let camera_x = i32::from(world.camera_x.wrapping_add(8) & 0xFFF0);
     let dx = i32::from(work.x) - camera_x;
     if dx < 0 {
-        return if full == 0xC0 {
+        return if vertical {
             Visibility::Near
         } else {
             left_or_above(dx)
         };
     }
     if dx >= world.view.width {
-        return if full == 0xC0 {
+        return if vertical {
             Visibility::Near
         } else {
             right_or_below(dx, world.view.width + MARGIN)
@@ -123,14 +128,14 @@ pub fn on_screen(work: &mut Work, world: &World) -> Visibility {
     work.screen_x = low_byte(dx >> 4);
     let dy = i32::from(work.y) - i32::from(world.camera_y.wrapping_add(8));
     if dy < 0 {
-        return if full == 0x80 {
+        return if horizontal {
             Visibility::Near
         } else {
             left_or_above(dy)
         };
     }
     if dy >= world.view.height + BOTTOM_BAND {
-        return if full == 0x80 {
+        return if horizontal {
             Visibility::Near
         } else {
             right_or_below(dy, FAR_BELOW)
@@ -205,7 +210,7 @@ pub fn face(dx: i16) -> u8 {
 pub fn map_page(work: &Work, cx: &Cx<'_>) -> (u8, u8) {
     let [x_hi, _] = work.x.to_be_bytes();
     let [y_hi, _] = work.y.to_be_bytes();
-    let (outer, inner) = if cx.world.orientation & 0x40 == 0 {
+    let (outer, inner) = if cx.world.orientation & orientation::VERTICAL == 0 {
         (x_hi, y_hi)
     } else {
         (y_hi, x_hi)
@@ -218,7 +223,7 @@ pub fn map_page(work: &Work, cx: &Cx<'_>) -> (u8, u8) {
 /// first eight page bases (`$AEC6`, `row` in `$30`)?
 #[must_use]
 pub fn is_page_row(row: u8, cx: &Cx<'_>) -> bool {
-    cx.world.orientation & 0xC0 == 0x80 && cx.schedule.rows[..8].contains(&row)
+    orientation::horizontal_two_page(cx.world.orientation) && cx.schedule.rows[..8].contains(&row)
 }
 
 /// A block of nametable tiles to queue at a map cell, with its metatiles' attribute fields.
@@ -275,13 +280,13 @@ pub fn queue_block(block: &TileBlock<'_>, cx: &mut Cx<'_>) {
         addr = addr.wrapping_add(0x20);
         let [hi, lo] = addr.to_be_bytes();
         if hi & 0x23 == 0x23 && lo >= 0xC0 {
-            if world.orientation & 0x40 != 0 {
+            if world.orientation & orientation::VERTICAL != 0 {
                 addr = u16::from_be_bytes([hi & 0x24, lo.wrapping_add(0x40)]);
                 if let Some(attributes) = attributes.as_mut() {
                     attributes.rows = attributes.rows.wrapping_add(1);
                 }
             } else {
-                let hi = if world.orientation & 0x80 != 0 {
+                let hi = if world.orientation & orientation::TWO_PAGES != 0 {
                     0x28
                 } else {
                     hi
@@ -320,7 +325,7 @@ fn place(block: &TileBlock<'_>, world: &World, origin: u16) -> Option<(u16, u8, 
     let camera_x = world.camera_x & 0xFF80;
     let camera_y = world.camera_y & 0xFF80;
     let width = block.width;
-    Some(if world.orientation & 0x40 != 0 {
+    Some(if world.orientation & orientation::VERTICAL != 0 {
         let delta = u16::from_be_bytes([block.row, 0]).wrapping_sub(camera_y);
         let (addr, first) = if delta & 0x8000 != 0 {
             let first = low_byte(i32::from(delta.wrapping_neg() >> 7));
@@ -341,11 +346,11 @@ fn place(block: &TileBlock<'_>, world: &World, origin: u16) -> Option<(u16, u8, 
             addr = u16::from_be_bytes([hi.wrapping_add(u8::from(carry)) & 0x23, lo]);
         }
         let far_page = block.column & 0x10 != 0;
-        if world.orientation & 0x80 != 0 && far_page {
+        if world.orientation & orientation::TWO_PAGES != 0 && far_page {
             addr |= 0x0400;
         }
         addr = addr.wrapping_add(u16::from(block.column & 0x0F) << 1);
-        if world.orientation & 0xC0 == 0xC0 && far_page {
+        if orientation::vertical_two_page(world.orientation) && far_page {
             addr |= 0x0400;
         }
         (addr, first, 0, width)
@@ -378,7 +383,7 @@ fn place(block: &TileBlock<'_>, world: &World, origin: u16) -> Option<(u16, u8, 
         let mut addr = (u16::from(block.row & 0x0F) << 6)
             + (u16::from(column & 0x0F) << 1)
             + u16::from(left & 1);
-        if world.orientation & 0x80 == 0 {
+        if world.orientation & orientation::TWO_PAGES == 0 {
             addr += 0x2000;
         } else if block.row & 0x10 != 0 {
             addr += 0x2400;
@@ -398,7 +403,7 @@ impl Attributes {
         }
         let column = if lo & 3 == 3 { lo.wrapping_add(1) } else { lo };
         let quad = (quad & 0x38) | ((column >> 2) & 7);
-        let low_table = if orientation & 0xC0 == 0x80 {
+        let low_table = if orientation::horizontal_two_page(orientation) {
             hi & 0x0C != 0
         } else {
             hi & 0x0C == 0

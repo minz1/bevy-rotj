@@ -7,7 +7,7 @@ use super::slots::Slots;
 use super::spawn::{SpawnTable, spawn_row};
 use super::stage::Fade;
 use super::world::{
-    Effects, Motion, Projectile, Schedule, View, VramWrite, World, set_first_colours,
+    Effects, Motion, Projectile, Schedule, View, VramWrite, World, orientation, set_first_colours,
 };
 use crate::actors::spawn_schedule;
 use crate::collision::rows_from_rom;
@@ -226,7 +226,7 @@ impl RoomChange {
     /// into `$2400`, from map row 1 when the room is tall.
     fn second_page(&self, game: &mut Game, column: u8) -> Phase {
         game.scroll.ppu_ctrl &= 0xFC;
-        let row = if game.world.orientation & 0x40 == 0 {
+        let row = if game.world.orientation & orientation::VERTICAL == 0 {
             0x61
         } else {
             0x60
@@ -248,7 +248,7 @@ impl RoomChange {
         let [cy, fy] = game.world.camera_y.to_be_bytes();
         let [cx, fx] = game.world.camera_x.to_be_bytes();
         if (cy & 0x0F) | fy == 0 && (cx & 0x0F) | fx == 0 {
-            if game.world.orientation & 0x40 != 0 {
+            if game.world.orientation & orientation::VERTICAL != 0 {
                 game.scroll.mirroring = 0;
                 self.phase = Phase::Turn;
                 return true;
@@ -320,19 +320,19 @@ impl RoomChange {
 /// room two nametables across (`$DD` bit 7) the page beside it first (`$BA0B-$BA51`).
 fn page_draws(game: &Game, last: Then) -> (PageDraw, Then) {
     let orientation = game.world.orientation;
-    let camera = if orientation & 0x40 != 0 {
+    let camera = if orientation & orientation::VERTICAL != 0 {
         game.world.camera_y
     } else {
         game.world.camera_x
     };
     let page = usize::from(camera >> 12);
     let (first, second) = (game.schedule.rows[page], game.schedule.rows[page + 16]);
-    let (first, second) = if orientation & 0xC0 == 0x80 {
+    let (first, second) = if orientation::horizontal_two_page(orientation) {
         (second, first)
     } else {
         (first, second)
     };
-    let then = if orientation & 0x80 == 0 {
+    let then = if orientation & orientation::TWO_PAGES == 0 {
         last
     } else {
         Then::SecondPage(second)
@@ -466,7 +466,7 @@ pub fn load(game: &mut Game, prg: &[u8]) {
     game.world.orientation = byte(5);
     animate_banks(game, prg);
     game.schedule.rows = rows_from_rom(prg, area, room).expect("the room's page order");
-    if game.world.orientation & 0xC0 == 0x80 {
+    if orientation::horizontal_two_page(game.world.orientation) {
         raise_attributes(&mut game.effects.level, &game.schedule.rows, byte(6));
     }
     let start = rom_word(
@@ -692,7 +692,7 @@ fn wram_7000(game: &Game) -> [u8; 0x1000] {
 /// If that index runs past the page order, or the schedule names a record the room lacks.
 pub fn spawn_first_row(game: &mut Game, prg: &[u8]) {
     let table = SpawnTable::import(prg, game.world.area, game.world.room);
-    let start = if game.world.orientation & 0xC0 == 0x80 {
+    let start = if orientation::horizontal_two_page(game.world.orientation) {
         let page = game.world.camera_x.to_be_bytes()[0] & 0x0F;
         *game
             .schedule
@@ -713,10 +713,10 @@ pub fn spawn_first_row(game: &mut Game, prg: &[u8]) {
 pub fn first_page(game: &mut Game) -> Vec<VramWrite> {
     let orientation = game.world.orientation;
     assert!(
-        orientation & 0x80 == 0,
+        orientation & orientation::TWO_PAGES == 0,
         "a two-page room start ($B2A6) is not ported"
     );
-    let camera = if orientation & 0x40 != 0 {
+    let camera = if orientation & orientation::VERTICAL != 0 {
         game.world.camera_y
     } else {
         game.world.camera_x

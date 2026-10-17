@@ -4,6 +4,7 @@
 use super::Game;
 use super::engine::rom_byte;
 use super::spawn::{SpawnTable, lock_at, spawn_at};
+use super::world::orientation;
 use crate::actors::CELL_PENDING;
 
 /// Scroll state outside the camera position.
@@ -79,8 +80,8 @@ fn auto(mode: u8, gate: u8, backward: u8) -> i16 {
 
 /// Moves the camera, streams the entering column or row and spawns at the edge (`$8528`).
 pub fn step(game: &mut Game, prg: &[u8]) {
-    let across = game.world.orientation & 0x80 != 0;
-    if game.world.orientation & 0x40 == 0 {
+    let across = game.world.orientation & orientation::TWO_PAGES != 0;
+    if game.world.orientation & orientation::VERTICAL == 0 {
         horizontal(game, prg);
         if across {
             across_y(game);
@@ -338,7 +339,7 @@ fn move_y(game: &mut Game) {
 }
 
 fn stream_column(game: &mut Game, right: bool) {
-    if game.world.orientation & 0x80 != 0 {
+    if game.world.orientation & orientation::TWO_PAGES != 0 {
         stream_column_across(game, right);
         return;
     }
@@ -484,7 +485,7 @@ fn stream_row(game: &mut Game, down: bool) {
         camera
     };
     let page = usize::from(row >> 4);
-    let tables: &[usize] = if game.world.orientation & 0x80 == 0 {
+    let tables: &[usize] = if game.world.orientation & orientation::TWO_PAGES == 0 {
         &[0]
     } else {
         &[0, 1]
