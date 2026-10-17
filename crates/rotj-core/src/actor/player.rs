@@ -661,8 +661,7 @@ impl Port<'_, '_> {
         self.drain_power_up();
     }
 
-    /// `$9535`: the power-up's meter drain (its end restores the stored weapon and `attack`, sets
-    /// `hurt` to `INVULNERABLE` with `hurt_timer` `$40`, clears the projectiles), then the flash and muzzle overlays.
+    /// `$9535`: the power-up's meter drain and its end, then the flash and muzzle overlays.
     fn drain_power_up(&mut self) {
         self.bit(self.player.power_up);
         if self.player.power_up & power_up::ON != 0 {
