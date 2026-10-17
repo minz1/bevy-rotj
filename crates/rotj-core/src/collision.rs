@@ -273,43 +273,46 @@ impl Level {
     }
 
     /// Area `area`'s terrain as the loader `$89FE` leaves it over `image`, the
-    /// `$7000-$7FFF` it finds: what the stream does not reach stays in the map's
-    /// columns past it, the tile tables past the area's ids and [`Level::unread`].
+    /// `$7000-$7FFF` it finds: imported from the ROM, then built over the image.
     #[must_use]
-    pub fn loaded(prg: &[u8], chr: &[u8], area: usize, mut image: [u8; 0x1000]) -> Option<Level> {
-        let rows = crate::levelmap::map_over(prg, chr, area, &mut image)?;
+    pub fn loaded(prg: &[u8], chr: &[u8], area: usize, image: [u8; 0x1000]) -> Option<Level> {
+        Some(Level::from_terrain(
+            &crate::terrain::Terrain::import(prg, chr, area)?,
+            image,
+        ))
+    }
+
+    /// A terrain built over `image`, the `$7000-$7FFF` the loader finds: the stream written
+    /// over it, the whole of it transposed into the map, the tile tables past the area's
+    /// metatiles, the attributes of ids past the known palette classes and
+    /// [`Level::unread`] from what the stream does not reach.
+    #[must_use]
+    pub fn from_terrain(terrain: &crate::terrain::Terrain, mut image: [u8; 0x1000]) -> Level {
+        image[..terrain.stream.len()].copy_from_slice(&terrain.stream);
+        let rows = crate::levelmap::transpose(&image);
         let mut map = [0u8; 4096];
         for (row, bytes) in rows.iter().enumerate() {
             map[row * 256..(row + 1) * 256].copy_from_slice(bytes);
         }
-        let mut classes = class_table(prg, area)?;
-        for class in &mut classes {
-            *class <<= 1;
-        }
-        let tables = crate::levelmap::auto_tile_tables(prg, chr, area)?;
-        let ids = crate::levelmap::metatile_count(prg, chr, area)?;
+        let classes = terrain.classes.map(|class| class << 1);
         let corners = std::array::from_fn(|id| {
-            std::array::from_fn(|table| {
-                if id < ids {
-                    tables[table][id]
-                } else {
-                    map[streamed_cell(table * CLASS_COUNT + id)]
-                }
+            terrain.corners.get(id).copied().unwrap_or_else(|| {
+                std::array::from_fn(|table| map[streamed_cell(table * CLASS_COUNT + id)])
             })
         });
-        let pages = crate::levelmap::attributes_of(prg, chr, area, &rows, &image)?;
+        let pages =
+            crate::levelmap::attributes_from_classes(&terrain.palette_classes, &rows, &image);
         let mut attributes = [0; 1024];
         for (bytes, page) in attributes.as_chunks_mut::<64>().0.iter_mut().zip(&pages) {
             *bytes = *page;
         }
-        let unread = Level::pack_unread(&image);
-        Some(Level {
+        Level {
             map,
             corners,
             classes,
             attributes,
-            unread,
-        })
+            unread: Level::pack_unread(&image),
+        }
     }
 
     /// Gathers the bytes [`UNREAD`] covers from a `$7000-$7FFF` image.
@@ -416,6 +419,79 @@ impl Level {
 mod tests {
     use super::*;
     use crate::digest::{fnv1a, table};
+
+    /// The decoder `Level::loaded` had before the terrain import: the reference.
+    fn loaded_from_rom(
+        prg: &[u8],
+        chr: &[u8],
+        area: usize,
+        mut image: [u8; 0x1000],
+    ) -> Option<Level> {
+        let rows = crate::levelmap::map_over(prg, chr, area, &mut image)?;
+        let mut map = [0u8; 4096];
+        for (row, bytes) in rows.iter().enumerate() {
+            map[row * 256..(row + 1) * 256].copy_from_slice(bytes);
+        }
+        let mut classes = class_table(prg, area)?;
+        for class in &mut classes {
+            *class <<= 1;
+        }
+        let tables = crate::levelmap::auto_tile_tables(prg, chr, area)?;
+        let ids = crate::levelmap::metatile_count(prg, chr, area)?;
+        let corners = std::array::from_fn(|id| {
+            std::array::from_fn(|table| {
+                if id < ids {
+                    tables[table][id]
+                } else {
+                    map[streamed_cell(table * CLASS_COUNT + id)]
+                }
+            })
+        });
+        let pages = crate::levelmap::attributes_of(prg, chr, area, &rows, &image)?;
+        let mut attributes = [0; 1024];
+        for (bytes, page) in attributes.as_chunks_mut::<64>().0.iter_mut().zip(&pages) {
+            *bytes = *page;
+        }
+        let unread = Level::pack_unread(&image);
+        Some(Level {
+            map,
+            corners,
+            classes,
+            attributes,
+            unread,
+        })
+    }
+
+    /// Each area's terrain built over three images is what the old decoder left: the boot
+    /// payload, the cutscene payload and a synthetic image that differs at every byte.
+    #[test]
+    fn terrain_builds_what_the_rom_decoder_left() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let synthetic: [u8; 0x1000] =
+            std::array::from_fn(|i| u8::try_from((i * 37 + i / 256) % 251).expect("byte"));
+        let images = [
+            crate::levelmap::boot_image(&rom.chr).expect("the boot payload"),
+            crate::levelmap::payload_image(&rom.chr).expect("the cutscene payload"),
+            synthetic,
+        ];
+        let mut areas = 0;
+        for area in 0..32 {
+            let Some(terrain) = crate::terrain::Terrain::import(&rom.prg, &rom.chr, area) else {
+                continue;
+            };
+            areas += 1;
+            for (which, &image) in images.iter().enumerate() {
+                assert_eq!(
+                    Some(Level::from_terrain(&terrain, image)),
+                    loaded_from_rom(&rom.prg, &rom.chr, area, image),
+                    "area {area}, image {which}"
+                );
+            }
+        }
+        assert_eq!(areas, 18, "every area imports");
+    }
 
     /// Area 17 (the last boss) defines only 102 ids; its blob then runs into code.
     const AREA_17_IDS: usize = 102;

@@ -15,6 +15,7 @@ pub mod ppulist;
 pub mod render;
 pub mod stage;
 pub mod sublevels;
+pub mod terrain;
 
 pub use chr::{TILE_SHEET_H, TILE_SHEET_W, TILES_PER_BANK};
 pub use ines::{GRAY_PREVIEW_PALETTE, InesHeader, InesRom};

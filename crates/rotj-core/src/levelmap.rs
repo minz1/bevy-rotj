@@ -249,6 +249,16 @@ pub fn map_reach(prg: &[u8], chr: &[u8], area: usize) -> Option<usize> {
     Some(decompress(&stream[6..], count, &mut [0; 0x1000]).min(0x1000))
 }
 
+/// The bytes area `area`'s map stream writes over `$7000`, in that order ([`map_reach`] of
+/// them).
+#[must_use]
+pub fn streamed_map(prg: &[u8], chr: &[u8], area: usize) -> Option<Vec<u8>> {
+    let (stream, count) = map_stream(prg, chr, area)?;
+    let mut image = [0; 0x1000];
+    let reach = decompress(&stream[6..], count, &mut image).min(0x1000);
+    Some(image[..reach].to_vec())
+}
+
 /// Area `area`'s compressed map in the CHR and its byte count.
 fn map_stream<'a>(prg: &[u8], chr: &'a [u8], area: usize) -> Option<(&'a [u8], usize)> {
     let bank = area_bank(prg, area)?;
@@ -312,13 +322,24 @@ pub fn attributes_of(
     image: &[u8; 0x1000],
 ) -> Option<[[u8; ATTRIBUTE_BYTES]; ATTRIBUTE_PAGES]> {
     let (classes, known) = classes_from_chr(prg, chr, area)?;
+    Some(attributes_from_classes(&classes[..known], map, image))
+}
+
+/// The attribute pages for a map from its metatiles' palette classes (`palette_classes`,
+/// by id) and the `$7000-$7FFF` image: ids past them read their class, unmasked, from
+/// whatever `$7B00` holds, as the auto-tiler's pass `$8E57` does.
+#[must_use]
+pub fn attributes_from_classes(
+    palette_classes: &[u8],
+    map: &[[u8; MAP_COLUMNS]; ROM_MAP_ROWS],
+    image: &[u8; 0x1000],
+) -> [[u8; ATTRIBUTE_BYTES]; ATTRIBUTE_PAGES] {
     let class = |id: u8| {
         let id = usize::from(id);
-        if id < known {
-            classes[id]
-        } else {
-            image[0xB00 + id]
-        }
+        palette_classes
+            .get(id)
+            .copied()
+            .unwrap_or(image[0xB00 + id])
     };
     let mut pages = [[0u8; ATTRIBUTE_BYTES]; ATTRIBUTE_PAGES];
     for (page, table) in pages.iter_mut().enumerate() {
@@ -333,7 +354,7 @@ pub fn attributes_of(
             }
         }
     }
-    Some(pages)
+    pages
 }
 
 /// The on-screen attribute table (`$23C0-$23FF`) at a scrolled camera.
@@ -456,8 +477,10 @@ fn auto_tile_corners(handler: usize, bytes: &[u8]) -> Option<[u8; 4]> {
 
 /// The per-metatile 2-bit palette class table (`$7B00`) for one area, decoded
 /// from the CHR area definition. See [`attributes_from_rom`] for the layout.
-/// The packed 2-bit classes by id, and how many ids the packing covers (four a byte).
-fn classes_from_chr(prg: &[u8], chr: &[u8], area: usize) -> Option<([u8; 256], usize)> {
+/// The packed 2-bit palette classes by id, and how many ids the packing covers (four a
+/// byte).
+#[must_use]
+pub fn classes_from_chr(prg: &[u8], chr: &[u8], area: usize) -> Option<([u8; 256], usize)> {
     let start = class_start(prg, area)?;
     let definition = chr.get(start..)?;
     let count = usize::from(*definition.get(2)?);
@@ -567,7 +590,8 @@ fn write(m6: &mut [u8; 0x1000], dest: &mut usize, m7: &mut [u8; 0x1000], out: &m
 }
 
 /// Step 4 of the loader: `out[k*256+p*16+j] = in[p*256+k*16+j]`.
-fn transpose(m7: &[u8; 0x1000]) -> [[u8; MAP_COLUMNS]; ROM_MAP_ROWS] {
+#[must_use]
+pub fn transpose(m7: &[u8; 0x1000]) -> [[u8; MAP_COLUMNS]; ROM_MAP_ROWS] {
     let mut out = [[0u8; MAP_COLUMNS]; ROM_MAP_ROWS];
     for (k, row) in out.iter_mut().enumerate() {
         for p in 0..16 {
