@@ -9,7 +9,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
-use crate::actors::CELL_PENDING;
+use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
 
 const BANK: u8 = 0;
 /// The 16-bit metasprite pointers, indexed by `$7C30` (`0`/`2`/`4`).
@@ -129,7 +129,7 @@ fn spawn_marker(body: &mut Body, x: u16, cx: &mut Cx<'_>) {
     let Some(index) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0) else {
         return;
     };
-    body.state = 0x40;
+    body.state = STATE_UNTARGETED;
     let child = &mut cx.slots.main[index];
     child.kind = MARKER;
     child.brain = Brain::new(MARKER);

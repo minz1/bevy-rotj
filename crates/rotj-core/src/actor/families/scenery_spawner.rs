@@ -4,6 +4,7 @@ use crate::actor::engine::{self, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::actors::STATE_UNTARGETED;
 
 /// The 16-bit spawn countdown targets: low byte (bank 8 `$8D3E`), high byte (`$8D4E`).
 const TARGET_LOW: u16 = 0x8D3E;
@@ -47,7 +48,7 @@ impl State {
             body.timer = 0;
             body.counter = 0;
         }
-        body.state |= 0x40;
+        body.state |= STATE_UNTARGETED;
     }
 }
 
@@ -85,7 +86,7 @@ fn spawn(slot: usize, phase: u8, cx: &mut Cx<'_>) {
     child.body.phase = 0;
     child.body.timer = 0;
     child.body.counter = 0;
-    child.body.state = 0x40;
+    child.body.state = STATE_UNTARGETED;
     child.kind = CHILD;
     child.brain = Brain::new(CHILD);
 }

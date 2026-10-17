@@ -4,6 +4,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::actors::STATE_UNTARGETED;
 
 const BODY_SPRITES: u16 = 0x8506;
 const PART_SPRITES: u16 = 0x850A;
@@ -162,7 +163,7 @@ fn spawn_bomb(parent: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     child.body.x = work.x;
     child.body.y = work.y.wrapping_add(0x02B0);
     child.body.vy = 0x40;
-    child.body.state = 0x40;
+    child.body.state = STATE_UNTARGETED;
     child.body.phase = 0;
     parent.vx = 0;
     child.body.chr_slot = parent.chr_slot;

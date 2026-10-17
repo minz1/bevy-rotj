@@ -3,7 +3,7 @@
 use super::oam::{DrawCall, Metasprite};
 use super::slots::Body;
 use super::world::{Cx, Effects, Level, Motion, Player, Schedule, Weapon, World, pose};
-use crate::actors::{CELL_PENDING, bank_slice};
+use crate::actors::{CELL_PENDING, STATE_DROPS_PICKUP, bank_slice};
 
 /// The zero-page working set `$90-$A6`, carried from slot to slot as the game's is.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -950,7 +950,7 @@ pub fn dying(
     if body.dying_timer < limit {
         return true;
     }
-    if body.state & 0x80 == 0 {
+    if body.state & STATE_DROPS_PICKUP == 0 {
         *kind = 0;
         return true;
     }
@@ -985,11 +985,11 @@ pub fn collect(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
         return;
     }
     let player_flags = effects.player.flags[0];
-    match body.state & 0x7F {
+    match body.state & !STATE_DROPS_PICKUP {
         0..=3 => {
             if player_flags & 0x80 == 0 {
-                effects.weapon =
-                    Weapon::from_byte((body.state & 0x7F) + 1).expect("a pickup gives weapons 1-4");
+                effects.weapon = Weapon::from_byte((body.state & !STATE_DROPS_PICKUP) + 1)
+                    .expect("a pickup gives weapons 1-4");
             }
             effects.attack = 0x80;
             for projectile in &mut effects.projectiles {

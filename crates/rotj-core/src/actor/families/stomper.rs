@@ -9,21 +9,21 @@ use crate::actor::world::Cx;
 const OVERLAYS: u16 = 0x8A64;
 /// The impact metasprites (bank 8 `$8A76`, by `$F1 & 6`).
 const IMPACTS: u16 = 0x8A76;
-/// The counter phase 1 starts on (bank 8 `$8A6E`, by `$7DF0`).
+/// The counter the impact starts on (bank 8 `$8A6E`, by `$7DF0`).
 const TIMERS: u16 = 0x8A6E;
-/// Phase 2's animation index (bank 8 `$8A7E`, by `$7DF0`).
+/// The stomping's animation index (bank 8 `$8A7E`, by `$7DF0`).
 const ANIMS: u16 = 0x8A7E;
-/// Phase 2's screen-x offset (bank 8 `$8A86`, by `$7E90`).
+/// The stomping's screen-x offset (bank 8 `$8A86`, by `$7E90`).
 const XOFF: u16 = 0x8A86;
-/// Phase 2's frame-pointer table (bank 8 `$8A89`, by `$7E90`).
+/// The stomping's frame-pointer table (bank 8 `$8A89`, by `$7E90`).
 const FRAMES: u16 = 0x8A89;
-/// Phase 2's touch-enable table (bank 8 `$8AB8`, by `$7E90`).
+/// The stomping's touch-enable table (bank 8 `$8AB8`, by `$7E90`).
 const TOUCHES: u16 = 0x8AB8;
-/// Phase 2's step limit (bank 8 `$8AAD`, by `$7E90`).
+/// The stomping's step limit (bank 8 `$8AAD`, by `$7E90`).
 const LIMIT: u16 = 0x8AAD;
-/// Phase 2's stomp counter (bank 8 `$8AB1`, by `$7E90`).
+/// The stomping's stomp counter (bank 8 `$8AB1`, by `$7E90`).
 const STOMP: u16 = 0x8AB1;
-/// Phase 2's stomp x shift (bank 8 `$8AB4`, by `$7E90`).
+/// The stomping's stomp x shift (bank 8 `$8AB4`, by `$7E90`).
 const SHIFT: u16 = 0x8AB4;
 /// The hit-flash metasprite (bank 8 `$8ACD`).
 const FLASH: u16 = 0x8ACD;
@@ -31,6 +31,34 @@ const FLASH: u16 = 0x8ACD;
 const RUBBLE: u16 = 0x8AE9;
 /// The pointer to the 6x6 tiles a death queues (bank 8 `$8AF4`).
 const RUBBLE_TILES: u16 = 0x8AF4;
+
+/// The stomper's phase (`$7DD0`), which picks its handler (`$8A68`).
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    /// Hovering until the player comes close.
+    Hovering = 0,
+    /// The landing impact.
+    Impact = 1,
+    /// Stepping across the floor, stomping.
+    Stomping = 2,
+}
+
+impl Phase {
+    const ALL: [Phase; 3] = [Phase::Hovering, Phase::Impact, Phase::Stomping];
+
+    /// The byte `$7DD0` holds.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    /// The phase a `$7DD0` byte holds, if it is one.
+    #[must_use]
+    pub fn from_byte(byte: u8) -> Option<Phase> {
+        Phase::ALL.into_iter().find(|phase| phase.byte() == byte)
+    }
+}
 
 /// Type `$0C` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -61,11 +89,11 @@ impl State {
                 body.hit = 0;
             }
         }
-        match body.phase {
-            0 => phase0(kind, body, work, visibility, cx),
-            1 => phase1(kind, body, work, visibility, cx),
-            2 => phase2(kind, body, work, visibility, cx),
-            phase => panic!("type $0C phase {phase} is past the $8A68 table"),
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Hovering) => hover(kind, body, work, visibility, cx),
+            Some(Phase::Impact) => impact(kind, body, work, visibility, cx),
+            Some(Phase::Stomping) => stomping(kind, body, work, visibility, cx),
+            None => panic!("type $0C phase {} is past the $8A68 table", body.phase),
         }
     }
 }
@@ -98,14 +126,8 @@ fn explode(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     engine::queue_block(&block, cx);
 }
 
-/// Phase 0 (`$87BA`): hover, then wake to phase 1 when the player comes close.
-fn phase0(
-    kind: &mut u8,
-    body: &mut Body,
-    work: &mut Work,
-    visibility: Visibility,
-    cx: &mut Cx<'_>,
-) {
+/// Hover (`$87BA`), then wake to the impact when the player comes close.
+fn hover(kind: &mut u8, body: &mut Body, work: &mut Work, visibility: Visibility, cx: &mut Cx<'_>) {
     if visibility == Visibility::On {
         body.contact = 0x80;
         work.hitbox = 0;
@@ -124,15 +146,15 @@ fn phase0(
         let dx = engine::player_dx(work, &cx.effects.player);
         let [hi, lo] = dx.unsigned_abs().to_be_bytes();
         if hi & 0xF0 == 0 && hi & 0x0F < 5 && (hi & 0x0F < 4 || lo < 0x80) {
-            body.phase = 1;
+            body.phase = Phase::Impact.byte();
             body.counter = engine::rom_byte(cx.prg, 8, TIMERS + u16::from(body.timer));
         }
     }
     overlay(work, 0, cx);
 }
 
-/// Phase 1 (`$880F`): the impact, then hand over to phase 2 when its counter runs out.
-fn phase1(
+/// The impact (`$880F`), then the stomping when its counter runs out.
+fn impact(
     kind: &mut u8,
     body: &mut Body,
     work: &mut Work,
@@ -166,14 +188,14 @@ fn phase1(
     body.counter = body.counter.wrapping_sub(1);
     if body.counter == 0 {
         cx.effects.sound[0] = 0x35;
-        body.phase = 2;
+        body.phase = Phase::Stomping.byte();
         body.counter = 0;
         body.anim = engine::rom_byte(cx.prg, 8, ANIMS + u16::from(body.timer));
     }
 }
 
-/// Phase 2 (`$88A4`): the stepping attack; the stomp shifts x and bursts parts.
-fn phase2(
+/// The stepping attack (`$88A4`); each stomp shifts x and bursts parts.
+fn stomping(
     kind: &mut u8,
     body: &mut Body,
     work: &mut Work,
@@ -225,12 +247,12 @@ fn phase2(
     }
     if body.timer == 5 {
         body.timer = 6;
-        body.phase = 1;
+        body.phase = Phase::Impact.byte();
         body.counter = 8;
         return;
     }
     body.anim = 0x80;
-    body.phase = 0;
+    body.phase = Phase::Hovering.byte();
     body.counter = 0x20;
     body.timer = body.timer.wrapping_add(1);
     if body.timer >= 8 {
@@ -286,6 +308,14 @@ mod tests {
     /// step counter to 6 and back to phase 1 with a short counter. The poke is
     /// applied at `$D450`, so both sides see it and the branch's phase/counter
     /// writes are still diffed.
+    #[test]
+    fn phase_bytes() {
+        let bytes: Vec<u8> = (0..=255)
+            .filter(|&byte| super::Phase::from_byte(byte).is_some())
+            .collect();
+        assert_eq!(bytes, [0, 1, 2]);
+    }
+
     #[test]
     fn matches_the_oracle_at_step_five() {
         let Some(mut scene) = alive(1306) else {

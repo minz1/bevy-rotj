@@ -10,7 +10,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
-use crate::actors::CELL_PENDING;
+use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
 
 const CHILD: u8 = 0x30;
 const BANK: u8 = 11;
@@ -21,6 +21,34 @@ const THROW_RIGHT: u16 = 0x8872;
 const HITBOX: u8 = 0x0B;
 const DAMAGE: u8 = 2;
 
+/// The dropper's phase (`$7DD0`): the game stores its doubled index into `$8860`.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    /// Counting down before it lowers a child.
+    Waiting = 0,
+    /// Lowering the child, then throwing it once it lands.
+    Lowering = 2,
+    /// Waiting out the throw.
+    Recovering = 4,
+}
+
+impl Phase {
+    const ALL: [Phase; 3] = [Phase::Waiting, Phase::Lowering, Phase::Recovering];
+
+    /// The byte `$7DD0` holds.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    /// The phase a `$7DD0` byte holds, if it is one.
+    #[must_use]
+    pub fn from_byte(byte: u8) -> Option<Phase> {
+        Phase::ALL.into_iter().find(|phase| phase.byte() == byte)
+    }
+}
+
 /// Type `$2E` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -30,17 +58,18 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         if engine::dying(kind, body, work, 0x80, cx) {
+            // The game tests 1, a phase this dropper never holds (it steps 0, 2, 4).
             if body.phase == 1 {
                 free_child(body, cx);
             }
             return;
         }
         work.attr |= body.flags;
-        match body.phase {
-            0 => phase0(body, work, cx),
-            2 => phase2(body, work, cx),
-            4 => phase4(body),
-            phase => panic!("type $2E phase {phase} is past the $8860 table"),
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Waiting) => waiting(body, work, cx),
+            Some(Phase::Lowering) => lowering(body, work, cx),
+            Some(Phase::Recovering) => recovering(body),
+            None => panic!("type $2E phase {} is past the $8860 table", body.phase),
         }
         tail(kind, body, work, cx);
     }
@@ -52,8 +81,8 @@ fn free_child(body: &Body, cx: &mut Cx<'_>) {
     }
 }
 
-/// Phase 0 (`$85DA`): count down, then face the player and spawn the child.
-fn phase0(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+/// Waiting (`$85DA`): count down, then face the player and spawn the child.
+fn waiting(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     body.timer = body.timer.wrapping_sub(1);
     if body.timer & 0x80 == 0 {
         body.sprite = 0;
@@ -62,7 +91,7 @@ fn phase0(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     let dx = engine::player_dx(work, &cx.effects.player);
     work.attr = (work.attr & 0x03) | engine::face(dx);
     if spawn_child(body, work, cx) {
-        body.phase = 2;
+        body.phase = Phase::Lowering.byte();
         body.timer = 0;
         body.counter = 0;
     } else {
@@ -85,14 +114,14 @@ fn spawn_child(body: &mut Body, work: &Work, cx: &mut Cx<'_>) -> bool {
     child.chr_slot = body.chr_slot;
     child.vy = 0x40;
     child.contact = 0x40;
-    child.state = 0x40;
+    child.state = STATE_UNTARGETED;
     child.flags = (work.attr & 0x40) | 0x02;
     child.phase = 0;
     true
 }
 
-/// Phase 2 (`$8616`): lower the child, then wait for it to land, then throw it.
-fn phase2(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+/// Lowering (`$8616`): lower the child, then wait for it to land, then throw it.
+fn lowering(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if body.timer == 0 {
         let (sprite, landed) = lower_child(body, work, cx);
         draw_child(body, work, sprite, cx);
@@ -110,7 +139,7 @@ fn phase2(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         draw_child(body, work, 0, cx);
         body.sprite = 1;
     } else if body.counter >= 0xAF {
-        body.phase = 4;
+        body.phase = Phase::Recovering.byte();
         body.timer = 0x40;
         throw_child(body, work, cx);
     } else {
@@ -180,12 +209,12 @@ fn throw_child(body: &Body, work: &mut Work, cx: &mut Cx<'_>) {
     child.vx = i16::from_be_bytes([hi, lo]);
 }
 
-/// Phase 4 (`$8678`): wait out the throw.
-fn phase4(body: &mut Body) {
+/// Recovering (`$8678`): wait out the throw.
+fn recovering(body: &mut Body) {
     body.sprite = 3;
     body.timer = body.timer.wrapping_sub(1);
     if body.timer & 0x80 != 0 {
-        body.phase = 0;
+        body.phase = Phase::Waiting.byte();
         body.timer = 0x40;
     }
 }
@@ -196,7 +225,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         Visibility::On => {}
         Visibility::Near => return,
         Visibility::Far => {
-            if body.phase != 0 {
+            if body.phase != Phase::Waiting.byte() {
                 free_child(body, cx);
             }
             engine::despawn(kind, body, CELL_PENDING, cx.schedule);
@@ -257,6 +286,14 @@ mod tests {
             }
         }
         panic!("no $2E reached phase {wanted}");
+    }
+
+    #[test]
+    fn phase_bytes() {
+        let bytes: Vec<u8> = (0..=255)
+            .filter(|&byte| super::Phase::from_byte(byte).is_some())
+            .collect();
+        assert_eq!(bytes, [0, 2, 4]);
     }
 
     #[test]

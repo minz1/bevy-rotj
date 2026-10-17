@@ -12,6 +12,7 @@ use crate::actor::engine::Work;
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion};
+use crate::actors::STATE_UNTARGETED;
 
 /// The player's row that wakes the handler (`$0462` must reach `$0C`).
 const ROW: u8 = 0x0C;
@@ -52,7 +53,7 @@ fn spawn_marker(body: &mut Body, x: u16, cx: &mut Cx<'_>) {
     let Some(index) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0) else {
         return;
     };
-    body.state = 0x40;
+    body.state = STATE_UNTARGETED;
     let child = &mut cx.slots.main[index];
     child.kind = MARKER;
     child.brain = Brain::new(MARKER);

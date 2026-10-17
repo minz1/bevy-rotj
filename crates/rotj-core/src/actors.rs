@@ -224,15 +224,14 @@ pub const SLOT_SUBTYPE: u16 = 0x7DB0;
 /// slot at 5).
 pub const SLOT_PHASE: u16 = 0x7DD0;
 
-/// `$7D50` bit 7: the state counter keeps this bit set (`$80-$84`). Bank 13
-/// `$A5C3` reads it as "still alive" (bit clear frees the slot); bank 8 `$9342`
-/// branches on it (`BPL`).
-pub const STATE_ACTIVE: u8 = 0x80;
+/// `$7D50` bit 7: the actor leaves a pickup when it dies, the low seven bits its
+/// weapon (bank 13 `$A5C3`, `engine::dying`: bit clear frees the slot instead).
+pub const STATE_DROPS_PICKUP: u8 = 0x80;
 
-/// `$7D50` bit 6: the slot has finished and must not be chosen as a target.
-/// Bank 8 `$8D33` sets it (`ORA #$40`); the target finders test it with
-/// `LDA $7D50,y; ASL; BMI` (bank 5 `$8417`/`$8430`, bank 4 `$9F2C`/`$9F54`).
-pub const STATE_DONE: u8 = 0x40;
+/// `$7D50` bit 6: the actor is never chosen as a target. Bank 8 `$8D33` sets it
+/// (`ORA #$40`); the target finders test it with `LDA $7D50,y; ASL; BMI` (bank 5
+/// `$8417`/`$8430`, bank 4 `$9F2C`/`$9F54`).
+pub const STATE_UNTARGETED: u8 = 0x40;
 
 /// The `$ABA8` byte offset the state dispatch computes (`LDA $7D50,x; ASL`,
 /// bank 13 `$AB48`). `ASL` drops bit 7, so `$80-$84` index the same entries as
@@ -262,16 +261,16 @@ pub struct LiveSlot {
 }
 
 impl LiveSlot {
-    /// Whether the state's [`STATE_ACTIVE`] bit is set.
+    /// Whether the state's [`STATE_DROPS_PICKUP`] bit is set.
     #[must_use]
-    pub const fn is_active(&self) -> bool {
-        self.state & STATE_ACTIVE != 0
+    pub const fn drops_pickup(&self) -> bool {
+        self.state & STATE_DROPS_PICKUP != 0
     }
 
-    /// Whether the state's [`STATE_DONE`] bit is set (not a valid target).
+    /// Whether the state's [`STATE_UNTARGETED`] bit is set.
     #[must_use]
-    pub const fn is_done(&self) -> bool {
-        self.state & STATE_DONE != 0
+    pub const fn untargeted(&self) -> bool {
+        self.state & STATE_UNTARGETED != 0
     }
 }
 
@@ -760,8 +759,8 @@ mod tests {
         assert_eq!(slot.behaviour, 0x0C);
         assert_eq!(slot.subtype, 0x68);
         assert_eq!(slot.phase, 0x00);
-        assert!(slot.is_active());
-        assert!(!slot.is_done());
+        assert!(slot.drops_pickup());
+        assert!(!slot.untargeted());
     }
 
     /// The scripted stage-1-1 route's WRAM slice `$7CC0-$7DEF`: the oracle

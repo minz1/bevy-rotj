@@ -9,6 +9,7 @@ use super::collision::{self, Probe};
 use super::engine::{self, Work, adc_overflows, rom_byte, rom_word, sub_overflows16};
 use super::world::{Cx, Motion, Player, Projectile, Weapon, pose, set_first_colours};
 use crate::actor::button;
+use crate::actors::STATE_UNTARGETED;
 
 /// Test-only branch coverage; the test asserts and reports which paths ran.
 #[cfg(test)]
@@ -1203,7 +1204,10 @@ impl Port<'_, '_> {
         let mut slot = start & 0x0F;
         for _ in 0..16 {
             let actor = &self.cx.slots.main[usize::from(slot)];
-            if actor.kind != 0 && actor.body.contact & 0x20 == 0 && actor.body.state & 0x40 == 0 {
+            if actor.kind != 0
+                && actor.body.contact & 0x20 == 0
+                && actor.body.state & STATE_UNTARGETED == 0
+            {
                 return slot;
             }
             slot = if direction & 0x80 != 0 {

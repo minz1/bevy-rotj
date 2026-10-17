@@ -66,10 +66,12 @@ A1's and A2's pattern (`Motion`, `Weapon`), from a read-only survey of `actor/fa
   the `if`-chain families (`spitter`, `proximity_bomb`, `falling_enemy_spawner`: their
   `else` accepts any non-zero value, so `from_byte` would add a panic), the bit-7 users,
   the counters.
-- **`state`'s shared bits are named** once, `pub mod state` beside `Body` in `slots.rs`:
-  `state::DROPS_PICKUP = $80` (used in `engine::dying`) and `state::UNTARGETED = $40` (used
-  at the three targeting reads and where families set it). The spawn record's `state`
-  (B1b) uses the same names.
+- **`state`'s shared bits are named** once. `actors.rs` already named them, from an older
+  reading (`STATE_ACTIVE`, "still alive", for bit 7; `STATE_DONE` for bit 6); they become
+  `STATE_DROPS_PICKUP = $80` (used in `engine::dying`, whose low seven bits are then
+  `state & !STATE_DROPS_PICKUP`) and `STATE_UNTARGETED = $40` (the three targeting reads and
+  every family that sets it), beside the spawn schedule's `CELL_*`, rather than a second
+  definition in `slots.rs` (implementation note, 2026-10-17).
 - **Tests.** The oracle phase-coverage helpers keep counting bytes. Each converted family
   gets `phase_bytes_round_trip`: over all 256 bytes, `from_byte` is `Some` exactly at each
   variant's byte and `byte()` returns it. About 500 lines of `byte`/`from_byte`/test

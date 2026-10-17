@@ -11,6 +11,36 @@ const HOVER: i16 = -6;
 const DROP: u16 = 0x04C0;
 const FLOOR_ROW: u8 = 0x0C;
 
+/// The diver's phase (`$7DD0`), which picks its handler (`$875B`).
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    /// Hovering until its timer runs out and the player comes close.
+    Hovering = 0,
+    /// Diving to the floor.
+    Diving = 1,
+    /// Landed, hovering in place for `$20` frames.
+    Landed = 2,
+    /// Rising back to its row.
+    Rising = 3,
+}
+
+impl Phase {
+    const ALL: [Phase; 4] = [Phase::Hovering, Phase::Diving, Phase::Landed, Phase::Rising];
+
+    /// The byte `$7DD0` holds.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    /// The phase a `$7DD0` byte holds, if it is one.
+    #[must_use]
+    pub fn from_byte(byte: u8) -> Option<Phase> {
+        Phase::ALL.into_iter().find(|phase| phase.byte() == byte)
+    }
+}
+
 /// Type `$0A` keeps its phase, timer and animation counter in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -20,12 +50,12 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         engine::integrate(body, work);
-        match body.phase {
-            0 => {
+        match Phase::from_byte(body.phase) {
+            Some(Phase::Hovering) => {
                 work.vy = HOVER;
                 if body.timer == 0 {
                     if engine::player_dx(work, &cx.effects.player).unsigned_abs() < WAKE_DISTANCE {
-                        body.phase = 1;
+                        body.phase = Phase::Diving.byte();
                         body.counter = 0;
                         body.anim = 0;
                     }
@@ -33,7 +63,7 @@ impl State {
                     body.timer -= 1;
                 }
             }
-            1 => {
+            Some(Phase::Diving) => {
                 if work.y.to_be_bytes()[0] >= FLOOR_ROW {
                     work.y = u16::from_be_bytes([FLOOR_ROW - 1, 0xFF]);
                     cx.effects.sound[0] = 0x34;
@@ -41,7 +71,7 @@ impl State {
                     work.y = work.y.wrapping_add(DROP);
                     engine::spawn_parts(2, work, cx);
                     work.y = work.y.wrapping_sub(DROP);
-                    body.phase = 2;
+                    body.phase = Phase::Landed.byte();
                     body.timer = 0x20;
                 } else {
                     let swing = u16::from_be_bytes([body.anim, body.counter]);
@@ -49,17 +79,17 @@ impl State {
                         swing.wrapping_add(work.vy.cast_unsigned()).to_be_bytes();
                 }
             }
-            2 => {
+            Some(Phase::Landed) => {
                 work.vy = HOVER;
                 body.timer = body.timer.wrapping_sub(1);
                 if body.timer & 0x80 != 0 {
-                    body.phase = 3;
+                    body.phase = Phase::Rising.byte();
                     work.vy = 0;
                 }
             }
-            3 => {
+            Some(Phase::Rising) => {
                 if work.y.to_be_bytes()[0] == body.subtype {
-                    body.phase = 0;
+                    body.phase = Phase::Hovering.byte();
                     body.anim = 0;
                     work.vy = 0;
                     body.timer = 0x10;
@@ -72,11 +102,11 @@ impl State {
                     body.anim = if anim & 0x80 == 0 { anim } else { 0 };
                 }
             }
-            phase => panic!("type $0A phase {phase} is past the $875B table"),
+            None => panic!("type $0A phase {} is past the $875B table", body.phase),
         }
         if engine::on_screen(work, cx.world) == Visibility::On {
             let mut frame = (body.anim & 0x0F).min(LAST_FRAME);
-            if body.phase == 3 {
+            if body.phase == Phase::Rising.byte() {
                 frame += 1;
             }
             work.pointer = engine::rom_word(cx.prg, 8, METASPRITES + 2 * u16::from(frame));
@@ -96,6 +126,14 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
+
+    #[test]
+    fn phase_bytes() {
+        let bytes: Vec<u8> = (0..=255)
+            .filter(|&byte| super::Phase::from_byte(byte).is_some())
+            .collect();
+        assert_eq!(bytes, [0, 1, 2, 3]);
+    }
 
     #[test]
     fn matches_the_oracle() {

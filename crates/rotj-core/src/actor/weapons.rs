@@ -12,6 +12,7 @@ use super::scroll::Scroll;
 use super::slots;
 use super::world::{Cx, Motion, Projectile, Weapon, set_first_colours};
 use crate::actor::button;
+use crate::actors::STATE_UNTARGETED;
 
 /// A charged attack's first stage, every weapon's: the `kind` the player's charge writes.
 pub const CHARGE_START: u8 = 0x80;
@@ -349,7 +350,7 @@ fn homing_steer(slot: usize, cx: &mut Cx<'_>) -> u16 {
     if target & 0x80 != 0 || actor(cx, target, 0x7CC0) == 0 {
         target = homing_retarget(slot, cx);
     }
-    if target & 0x80 == 0 && actor(cx, target, 0x7D50) & 0x40 != 0 {
+    if target & 0x80 == 0 && actor(cx, target, 0x7D50) & STATE_UNTARGETED != 0 {
         target = homing_retarget(slot, cx);
     }
     if target & 0x80 != 0 {
@@ -410,7 +411,9 @@ fn steer_axis(velocity: i16, down: bool) -> i16 {
 fn homing_retarget(slot: usize, cx: &mut Cx<'_>) -> u8 {
     let hittable = |&target: &usize| {
         let actor = &cx.slots.main[target];
-        actor.kind != 0 && actor.body.contact & 0x20 == 0 && actor.body.state & 0x40 == 0
+        actor.kind != 0
+            && actor.body.contact & 0x20 == 0
+            && actor.body.state & STATE_UNTARGETED == 0
     };
     let found = if slot & 1 == 0 {
         (0..16).find(hittable)

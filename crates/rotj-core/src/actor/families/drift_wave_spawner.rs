@@ -3,6 +3,7 @@
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::actors::STATE_UNTARGETED;
 
 /// The type the handler hands to the highest free main slot.
 const CHILD: u8 = 0xC4;
@@ -57,7 +58,7 @@ impl State {
                     child.body.vx = 0;
                     child.body.contact = 0x88;
                     child.body.health = 0x8888;
-                    child.body.state = 0x40;
+                    child.body.state = STATE_UNTARGETED;
                     child.body.flags = 1;
                     child.body.chr_slot = 6;
                     child.body.x = x;

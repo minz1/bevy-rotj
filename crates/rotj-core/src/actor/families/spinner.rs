@@ -13,6 +13,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::actors::STATE_UNTARGETED;
 
 /// `$7DD0` phase jump table (`$9243`): 7 entries, phases 0-6.
 /// `$9251`: the metasprite pointer, overlapping words indexed by `$7C30`.
@@ -54,7 +55,7 @@ impl State {
             6 => {
                 // `$91E5`: spawn the `$7A` child, free the slot, no store.
                 if spawn_child(body, cx) {
-                    body.state = 0x40;
+                    body.state = STATE_UNTARGETED;
                 }
                 *kind = 0;
                 return;
