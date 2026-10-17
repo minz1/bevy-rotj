@@ -1,13 +1,9 @@
 //! The game's own per-metatile collision classes — its "solid tile" rule.
 //!
-//! Every solidity test the player's movement makes is a far call into bank 14.
-//! `$C99D` (body/wall: bank 4 `$80F8`, `$812B`, `$8184`, `$8198`, `$81B7`,
-//! `$8226`, `$823A`) and `$C93B` (head and ground: bank 4 `$847F`, `$8521`,
-//! `$8533`, `$8547` and state handlers) both compute the map address `$6000 +
-//! row*256 + col` from the probe position, read the metatile id, look it up in a
-//! 208-byte class table at WRAM `$7340`, and dispatch through a per-class
-//! handler table: `$CADC` for the body probe, `$C97D` for the head/ground probe.
-//! `$CAFE` (`$CD2E`) is the third, the step probe.
+//! Every probe the game makes reads the metatile id under a point, looks it up in a
+//! 208-byte class table at WRAM `$7340` and dispatches on the class through one of three
+//! bank-14 handler tables; [`Surface`] names what each class does to them
+//! (`actor::collision` runs the probes).
 //!
 //! The class table is not in the map: bank 02 `$89C1` fills `$7340-$740F` at
 //! sublevel load by run-length decoding a per-area blob. Its source pointer is a
@@ -24,12 +20,6 @@
 //!       LDA ($30),y : STA $33 : INY        ; run length
 //! $89E9 LDA $32 : ASL : STA $7340,x : INX  ; repeat $33 times, stop at $D0
 //! ```
-//!
-//! Is this the rule? `docs/LEVELDATA.md` §11 recorded a derived flood-fill
-//! because the map's metatile ids near the actor repeat, but the game's answer
-//! is per metatile *id* through this table: area 0 marks the ground body (ids
-//! `$92-$95`) as "blocks the floor probe", the sky/backdrop band (ids `$00-$63`,
-//! `$C8-$CF`) as clear, and the structural tiles (ids `$64-$91`) as walls.
 
 /// The loader fills `$D0` = 208 entries; ids `>= 208` are outside the level.
 pub const CLASS_COUNT: usize = 208;
@@ -49,20 +39,6 @@ const CLASS_RLE_BASE: usize = 0x02A5;
 /// Bytes of the class blobs (`$02A5-$0322`).
 const CLASS_RLE_BYTES: usize = 126;
 
-/// Bank 14 `$CADC`: the body-probe handler per class, 16-bit little-endian.
-/// The classes whose pointer reaches the position revert (`$C9E2`/`$CA1D`) are
-/// the ones that push the actor out of the tile.
-const BODY_HANDLER_ADDR: usize = 0xCADC;
-
-/// Bank 14 `$C97D`: the head/ground-probe `(sign, result)` pair per class. A
-/// negative sign (`$C974`) answers the probe with `$80` when `$24` bit 2 is set,
-/// `$00` otherwise; otherwise the result byte is returned. Class 16's pair runs
-/// past the table into `$C99D` code (`$85` = `STA $24`).
-const HEAD_TABLE_ADDR: usize = 0xC97D;
-
-/// The highest class the two handler tables define; ids past it are clamped.
-const CLASS_MAX: usize = 16;
-
 /// One PRG ROM byte, addressed inside an 8 KiB window mapped from `bank`.
 fn byte(prg: &[u8], bank: usize, addr: usize) -> Option<u8> {
     prg.get(bank.checked_mul(0x2000)? + (addr & 0x1FFF))
@@ -77,65 +53,63 @@ fn word(prg: &[u8], bank: usize, addr: usize) -> Option<u16> {
     ]))
 }
 
-/// How a metatile answers the two probes the player's movement makes.
+/// What a metatile's collision class does to the game's three probes: the wall probe
+/// (`$C99D`, handlers at `$CADC`), the floor probe (`$CAFE`, `$CD2E`) and the point test
+/// (`$C93B`, the pairs at `$C97D`). One variant per distinct set of handlers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Collision {
-    /// The body probe (`$C99D`, table `$CADC`) pushes the actor back out.
-    pub wall: bool,
-    /// The head/ground probe (`$C93B`, table `$C97D`) answers negative.
-    pub block: bool,
-    /// The body handler writes the damage flags (`$9F` bit 7, `$99` bit 5,
-    /// `$A7`), which the port does not model.
-    pub hazard: bool,
-}
-
-/// The three kinds the class table expresses, from [`Collision`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind {
-    /// Blocks both probes: the structural tiles.
+pub enum Surface {
+    /// Blocks everything (class 0).
     Solid,
-    /// Blocks only one probe: the ground body blocks the floor probe, classes
-    /// 11/13 block only the body probe, classes 12/14/15/16 are conditional.
+    /// Solid; landing on it carries the actor right (class 1).
+    BeltRight,
+    /// Solid; landing on it carries the actor left (class 2).
+    BeltLeft,
+    /// Passable; touching it hurts and draws the actor behind the scenery (class 3).
+    HazardBehind,
+    /// Solid; touching it hurts (class 4).
+    SolidHazard,
+    /// Solid; the floor keeps little of the actor's sideways speed (class 5).
+    Slippery,
+    /// Passable; the actor draws behind the scenery (class 6).
+    Behind,
+    /// Passable (classes 7-10).
+    Open,
+    /// Blocks the wall and floor probes but not point tests, so shots pass (11, 13).
+    SolidToBodies,
+    /// A block that starts to fall when landed on from above (class 12).
+    Crumbling,
+    /// A platform landed on from above only (class 14).
     OneWay,
-    /// Blocks neither.
-    Empty,
+    /// A platform landed on from above only, drawn in front of the actor (class 15).
+    OneWayBehind,
+    /// Spikes: solid, and touching them hurts badly (class 16).
+    Spikes,
 }
 
-impl Collision {
-    /// The kind the task's categories name.
+impl Surface {
+    /// The surface of a class byte as `$7340` stores it (`2 * class`), or `None` for an
+    /// odd byte or one past class 16 (a schedule cell read for an id from `$D0`).
     #[must_use]
-    pub const fn kind(self) -> Kind {
-        match (self.wall, self.block) {
-            (true, true) => Kind::Solid,
-            (false, false) => Kind::Empty,
-            _ => Kind::OneWay,
+    pub const fn from_stored(stored: u8) -> Option<Surface> {
+        if stored & 1 != 0 {
+            return None;
         }
-    }
-}
-
-/// A class' answer, from the two handler tables above.
-///
-/// `wall` is true when the class' `$CADC` handler is one that reverts the
-/// position; `block` is true when its `$C97D` pair takes the `$C974` arm (sign
-/// bit 7) — the conditional one-way; `hazard` when the `$CADC` handler writes
-/// the damage flags. Both tables are read from the ROM at bank 14.
-///
-/// # Panics
-/// Never: `class` is clamped to the table, and a ROM too short reads as zero.
-#[must_use]
-pub fn collision_of(prg: &[u8], class: u8) -> Collision {
-    let class = usize::from(class).min(CLASS_MAX);
-    let handler = word(prg, 14, BODY_HANDLER_ADDR + class * 2).unwrap_or(0);
-    let wall = matches!(handler, 0xC9DA | 0xCA2C | 0xCA3D | 0xCA66 | 0xCA86 | 0xCAA9);
-    let hazard = matches!(handler, 0xCA4E | 0xCA66 | 0xCA97 | 0xCAA9);
-    // `$C97D,Y` (sign) selects the `$C974` conditional arm; `$C97E,Y` (result)
-    // is returned otherwise. Either is negative for a blocked answer.
-    let block = byte(prg, 14, HEAD_TABLE_ADDR + class * 2).is_some_and(|sign| sign & 0x80 != 0)
-        || byte(prg, 14, HEAD_TABLE_ADDR + class * 2 + 1).is_some_and(|result| result & 0x80 != 0);
-    Collision {
-        wall,
-        block,
-        hazard,
+        Some(match stored >> 1 {
+            0 => Surface::Solid,
+            1 => Surface::BeltRight,
+            2 => Surface::BeltLeft,
+            3 => Surface::HazardBehind,
+            4 => Surface::SolidHazard,
+            5 => Surface::Slippery,
+            6 => Surface::Behind,
+            7..=10 => Surface::Open,
+            11 | 13 => Surface::SolidToBodies,
+            12 => Surface::Crumbling,
+            14 => Surface::OneWay,
+            15 => Surface::OneWayBehind,
+            16 => Surface::Spikes,
+            _ => return None,
+        })
     }
 }
 
@@ -176,15 +150,6 @@ pub fn class_table(prg: &[u8], area: usize) -> Option<[u8; CLASS_COUNT]> {
     Some(table)
 }
 
-/// The class table for a level index (`$20`), through [`LEVEL_AREA_TABLE`].
-///
-/// [`LEVEL_AREA_TABLE`]: crate::levelmap::LEVEL_AREA_TABLE
-#[must_use]
-pub fn class_table_for_level(prg: &[u8], level: usize) -> Option<[u8; CLASS_COUNT]> {
-    let raw = *crate::levelmap::LEVEL_AREA_TABLE.get(level)?;
-    class_table(prg, usize::from(raw) / 2)
-}
-
 /// The level's terrain as WRAM holds it: the map (`$6000-$6FFF`), each metatile's
 /// tiles (`$7000`), the class table (`$7340`, stored as `2 * class`) and the attribute
 /// pages (`$7600`). The one owner: the probes read it and the actors that rebuild the
@@ -212,12 +177,6 @@ const UNREAD_BYTES: usize = 0x20 + 0x50 + 0x100;
 fn streamed_cell(at: usize) -> usize {
     ((at >> 4) & 0x0F) * 256 + (at >> 8) * 16 + (at & 0x0F)
 }
-
-/// The page -> map column table (`$0440`) when pages are laid out in order.
-pub const IN_ORDER: [u8; 32] = [
-    0x00, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80, 0x90, 0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-];
 
 /// The map offset (`$6000 +`) the game's probes build from a point's 16 px column
 /// and row (`$C99D`'s `$2A/$2B`): page `(row & $10) | (column >> 4)` (swapped on
@@ -368,43 +327,6 @@ impl Level {
     pub fn class(&self, id: u8) -> Option<u8> {
         self.classes.get(usize::from(id)).copied()
     }
-
-    /// How the game's probes answer at level pixel (`x`, `y`), pages in order.
-    ///
-    /// Outside the level the sides and the bottom are walls and above it is clear;
-    /// ids past the class table answer clear (the game reads unrelated data there).
-    #[must_use]
-    pub fn collision_at(&self, prg: &[u8], x: i32, y: i32) -> Collision {
-        use crate::levelmap::{LEVEL_WIDTH_PIXELS, MAP_ROWS, METATILE_PIXELS};
-
-        const WALL: Collision = Collision {
-            wall: true,
-            block: true,
-            hazard: false,
-        };
-        const CLEAR: Collision = Collision {
-            wall: false,
-            block: false,
-            hazard: false,
-        };
-        if x < 0 || x >= i32::try_from(LEVEL_WIDTH_PIXELS).expect("fits") {
-            return WALL;
-        }
-        let tile = i32::try_from(METATILE_PIXELS).expect("16");
-        let row = y.div_euclid(tile);
-        if row >= i32::try_from(MAP_ROWS).expect("small") {
-            return WALL;
-        }
-        if row < 0 {
-            return CLEAR;
-        }
-        let column = u8::try_from(x.div_euclid(tile)).expect("a column");
-        let row = u8::try_from(row).expect("a row");
-        match self.class(self.metatile(column, row, &IN_ORDER, false)) {
-            Some(stored) => collision_of(prg, stored / 2),
-            None => CLEAR,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -528,39 +450,49 @@ mod tests {
         }
     }
 
-    /// The split the game's two probes express for stage 1-1's own classes.
+    /// Each class's surface stands for the handlers the ROM's three tables give it: the
+    /// wall handler (`$CADC`), the floor handler (`$CD2E`) and the point test's pair
+    /// (`$C97D`: `None` for the conditional sign, else its fixed answer).
     #[test]
-    fn the_responses_split_solid_empty_and_one_way() {
+    fn surfaces_match_the_handler_tables() {
         let Some(rom) = rotj_rom::for_test() else {
             return;
         };
         let prg = &rom.prg;
-        assert_eq!(
-            collision_of(prg, 0),
-            Collision {
-                wall: true,
-                block: true,
-                hazard: false
-            }
+        let handlers = |surface| match surface {
+            Surface::Solid => (0xC9DA, 0xCB39, Some(0x80)),
+            Surface::BeltRight => (0xCA2C, 0xCB80, Some(0x80)),
+            Surface::BeltLeft => (0xCA3D, 0xCBB8, Some(0x80)),
+            Surface::HazardBehind => (0xCA4E, 0xCBF0, Some(0)),
+            Surface::SolidHazard => (0xCA66, 0xCC08, Some(0x80)),
+            Surface::Slippery => (0xCA86, 0xCC1A, Some(0x80)),
+            Surface::Behind => (0xCA97, 0xCC61, Some(0)),
+            Surface::Open => (0xCAA0, 0xCC6A, Some(0)),
+            Surface::SolidToBodies => (0xC9DA, 0xCB39, Some(0)),
+            Surface::Crumbling => (0xCAA3, 0xCC6D, None),
+            Surface::OneWay => (0xCAA6, 0xCCFC, None),
+            Surface::OneWayBehind => (0xCA97, 0xCCFC, None),
+            Surface::Spikes => (0xCAA9, 0xCD09, None),
+        };
+        for class in 0..=16u8 {
+            let at = usize::from(class * 2);
+            let surface = Surface::from_stored(class * 2).expect("a class");
+            let point = if byte(prg, 14, 0xC97D + at).expect("the sign") & 0x80 == 0 {
+                byte(prg, 14, 0xC97E + at)
+            } else {
+                None
+            };
+            let rom = (
+                word(prg, 14, 0xCADC + at).expect("the wall handler"),
+                word(prg, 14, 0xCD2E + at).expect("the floor handler"),
+                point,
+            );
+            assert_eq!(rom, handlers(surface), "class {class}");
+        }
+        assert!(
+            (0..=u8::MAX)
+                .filter(|&stored| stored & 1 != 0 || stored > 32)
+                .all(|stored| Surface::from_stored(stored).is_none())
         );
-        assert_eq!(
-            collision_of(prg, 14),
-            Collision {
-                wall: false,
-                block: true,
-                hazard: false
-            }
-        );
-        assert_eq!(
-            collision_of(prg, 10),
-            Collision {
-                wall: false,
-                block: false,
-                hazard: false
-            }
-        );
-        assert_eq!(collision_of(prg, 0).kind(), Kind::Solid);
-        assert_eq!(collision_of(prg, 14).kind(), Kind::OneWay);
-        assert_eq!(collision_of(prg, 10).kind(), Kind::Empty);
     }
 }

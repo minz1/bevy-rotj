@@ -2,6 +2,7 @@
 
 use super::engine::{Work, rom_byte, rom_word};
 use super::world::{Cx, orientation};
+use crate::collision::Surface;
 
 /// A collision probe: point `$20-$23`, flags `$24`, landing bytes `$27/$28`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -43,49 +44,64 @@ fn class_at(probe: Probe, cx: &Cx<'_>) -> u8 {
         .unwrap_or_else(|| cx.schedule.cells[usize::from(id - 0xD0)])
 }
 
-/// The class's handler in the bank-14 table at `table`.
-fn handler(cx: &Cx<'_>, table: u16, class: u8) -> u16 {
-    rom_word(cx.prg, 14, table + u16::from(class))
-}
-
 /// Is the probe's metatile solid for these flags (`$C93B`)?
 pub fn solid(probe: &mut Probe, flags: u8, cx: &Cx<'_>) -> u8 {
     probe.flags = flags;
-    let class = u16::from(class_at(*probe, cx));
-    if rom_byte(cx.prg, 14, 0xC97D + class) & 0x80 == 0 {
-        rom_byte(cx.prg, 14, 0xC97E + class)
-    } else if flags & 0x04 == 0 {
-        0
-    } else {
-        0x80
+    let stored = class_at(*probe, cx);
+    let by_flags = if flags & 0x04 == 0 { 0 } else { 0x80 };
+    match Surface::from_stored(stored) {
+        Some(
+            Surface::Solid
+            | Surface::BeltRight
+            | Surface::BeltLeft
+            | Surface::SolidHazard
+            | Surface::Slippery,
+        ) => 0x80,
+        Some(Surface::HazardBehind | Surface::Behind | Surface::Open | Surface::SolidToBodies) => 0,
+        Some(Surface::Crumbling | Surface::OneWay | Surface::OneWayBehind | Surface::Spikes) => {
+            by_flags
+        }
+        None => {
+            let stored = u16::from(stored);
+            if rom_byte(cx.prg, 14, 0xC97D + stored) & 0x80 == 0 {
+                rom_byte(cx.prg, 14, 0xC97E + stored)
+            } else {
+                by_flags
+            }
+        }
     }
 }
 
 /// Checks a wall at the probe and pushes the working position out of it (`$C99D`).
 pub fn wall(work: &mut Work, probe: &mut Probe, flags: u8, cx: &mut Cx<'_>) -> u8 {
     probe.flags = flags;
-    let class = class_at(*probe, cx);
-    match handler(cx, 0xCADC, class) {
-        0xC9DA | 0xCA2C | 0xCA3D | 0xCA86 => push(work, *probe),
-        0xCA4E => {
+    let stored = class_at(*probe, cx);
+    let surface = Surface::from_stored(stored)
+        .unwrap_or_else(|| panic!("wall class byte {stored:02X} is not ported"));
+    match surface {
+        Surface::Solid
+        | Surface::BeltRight
+        | Surface::BeltLeft
+        | Surface::Slippery
+        | Surface::SolidToBodies => push(work, *probe),
+        Surface::HazardBehind => {
             damage(work, 2, cx);
             work.attr |= 0x20;
             0x80
         }
-        0xCA66 => {
+        Surface::SolidHazard => {
             damage(work, 2, cx);
             push(work, *probe)
         }
-        0xCA97 => {
+        Surface::Behind | Surface::OneWayBehind => {
             work.attr |= 0x20;
             0x80
         }
-        0xCAA0 | 0xCAA3 | 0xCAA6 => 0x80,
-        0xCAA9 => {
+        Surface::Open | Surface::Crumbling | Surface::OneWay => 0x80,
+        Surface::Spikes => {
             spikes(work, cx);
             push(work, *probe)
         }
-        other => panic!("wall class {class:02X} handler ${other:04X} is not ported"),
     }
 }
 
@@ -147,21 +163,23 @@ fn stop(work: &mut Work) -> u8 {
 
 /// Checks the floor at the probe and lands the working position on it (`$CAFE`).
 pub fn floor(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
-    let class = class_at(*probe, cx);
-    match handler(cx, 0xCD2E, class) {
-        0xCB39 => land(work, probe, [0x00, 0x00]),
-        0xCB80 => land(work, probe, [0x10, 0x00]),
-        0xCBB8 => land(work, probe, [0xF0, 0xFF]),
-        0xCBF0 => {
+    let stored = class_at(*probe, cx);
+    let surface = Surface::from_stored(stored)
+        .unwrap_or_else(|| panic!("floor class byte {stored:02X} is not ported"));
+    match surface {
+        Surface::Solid | Surface::SolidToBodies => land(work, probe, [0x00, 0x00]),
+        Surface::BeltRight => land(work, probe, [0x10, 0x00]),
+        Surface::BeltLeft => land(work, probe, [0xF0, 0xFF]),
+        Surface::HazardBehind => {
             damage(work, 2, cx);
             work.attr |= 0x20;
             0x80
         }
-        0xCC08 => {
+        Surface::SolidHazard => {
             damage(work, 2, cx);
             land(work, probe, [0x00, 0x00])
         }
-        0xCC1A => {
+        Surface::Slippery => {
             work.ax = if work.age.trailing_zeros() >= 5 {
                 (work.ax.wrapping_sub(work.ref_vx) >> 2).wrapping_neg()
             } else {
@@ -169,24 +187,23 @@ pub fn floor(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
             };
             settle(work, probe, [0x00, 0x00])
         }
-        0xCC61 => {
+        Surface::Behind => {
             work.attr |= 0x20;
             0x80
         }
-        0xCC6A => 0x80,
-        0xCC6D => crumble(work, probe, cx),
-        0xCD09 => {
+        Surface::Open => 0x80,
+        Surface::Crumbling => crumble(work, probe, cx),
+        Surface::Spikes => {
             spikes(work, cx);
             land(work, probe, [0x00, 0x00])
         }
-        0xCCFC => {
+        Surface::OneWay | Surface::OneWayBehind => {
             if lo(probe.y) >= lo(work.vy.cast_unsigned()) {
                 0x80
             } else {
                 land(work, probe, [0x00, 0x00])
             }
         }
-        other => panic!("floor class {class:02X} handler ${other:04X} is not ported"),
     }
 }
 

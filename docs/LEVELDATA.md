@@ -362,20 +362,33 @@ $CA1D: LDA $A1 / STA $A3 / LDA $A0 / STA $A2 / STA $9B,$9C   ; revert + stop
 `$7340` is filled at sublevel load by bank 02 `$89C1`: a 16-bit pointer at bank
 14 `$C000 + area*2` (bank 0 mapped to `$A000` by `$C229`), read as run-length
 `(class, run)` pairs and stored as `2*class` (`$89E9 STA $7340,x`, 208 entries).
-`crates/rotj-core/src/collision.rs` decodes it (`class_table`) and the two
-handler tables into a `Collision { wall, block, hazard }` per class
-(`collision_of`); `collision_at` is the whole map lookup, and `crates/app` uses
-it for the player's floor/ceiling/wall probes.
+`crates/rotj-core/src/collision.rs` decodes it (`class_table`), and
+`collision::Surface` names what each class does to the three probes
+(`actor::collision`): the wall probe `$C99D` (handlers at `$CADC`), the floor probe
+`$CAFE` (`$CD2E`) and the point test `$C93B` (the `(sign, result)` pairs at
+`$C97D`; a negative sign answers `$80` when `$24` bit 2 is set, else 0).
 
-The classes, in the game's own words:
+The classes, in the game's own words (checked against the ROM by
+`surfaces_match_the_handler_tables`):
 
-| class | `$CADC` (body) | `$C97D` (head/ground) | kind |
-| --- | --- | --- | --- |
-| 0,1,2,4,5,16 | reverts the position — **wall** | negative — **blocks** | solid |
-| 11,13 | reverts | `$00` | wall only |
-| 12,14,15 | `$CAA0`/`$CAA3`/`$CAA6` (nothing) | `$C974`: negative only when `$24` bit 2, so **floor only** | one-way (the ground body is class 14) |
-| 3,6 | hazard flags only | `$00` | hazard/empty |
-| 7,8,9,10 | nothing | `$00` | empty (the sky/backdrop is class 10) |
+| class | wall | floor | point test | `Surface` |
+| --- | --- | --- | --- | --- |
+| 0 | `$C9DA` push | `$CB39` land | `$80` | `Solid` |
+| 1 | `$CA2C` push | `$CB80` land, landing `+$10` | `$80` | `BeltRight` |
+| 2 | `$CA3D` push | `$CBB8` land, landing `-$10` | `$80` | `BeltLeft` |
+| 3 | `$CA4E` damage 2, behind | `$CBF0` the same | 0 | `HazardBehind` |
+| 4 | `$CA66` damage 2, push | `$CC08` damage 2, land | `$80` | `SolidHazard` |
+| 5 | `$CA86` push | `$CC1A` friction, settle | `$80` | `Slippery` |
+| 6 | `$CA97` behind | `$CC61` behind | 0 | `Behind` |
+| 7-10 | `$CAA0` clear | `$CC6A` clear | 0 | `Open` (the sky/backdrop is class 10) |
+| 11, 13 | `$C9DA` push | `$CB39` land | 0 | `SolidToBodies` |
+| 12 | `$CAA3` clear | `$CC6D` crumble | by `$24` bit 2 | `Crumbling` |
+| 14 | `$CAA6` clear | `$CCFC` one-way | by `$24` bit 2 | `OneWay` (the ground body) |
+| 15 | `$CA97` behind | `$CCFC` one-way | by `$24` bit 2 | `OneWayBehind` |
+| 16 | `$CAA9` spikes, push | `$CD09` spikes, land | by `$24` bit 2 | `Spikes` |
+
+"Behind" sets the OAM priority bit (`attr |= $20`): the actor draws behind the
+background. The ROM's 18 areas use classes 0-6, 10, 12 and 14-16.
 
 **What the old derived rule got wrong.** `docs/LEVELDATA.md` previously
 described a flood-fill from the ground band over non-empty *tiles*
@@ -389,10 +402,9 @@ also marked the full-width backdrop band at y 72-94 solid (it is metatile class
 
 **Evidence.**
 
-- `tools/rotj-oracle/tests/solids.rs`: replaying the stage-1 route, every one of
-  the 1722 `$C99D` probes (179 distinct map cells) dispatches to a `$CADC`
-  handler whose push answer equals `collision_of(class_table[id]).wall` — 0
-  divergences; the live `$7340` halves equal the ROM decode.
+- The probes' oracle tests (`actor::collision`: `wall_matches_c99d`,
+  `floor_matches_cafe`, `solid_matches_c93b`, `spikes_match_caa9`) and the whole-game
+  lockstep, which compares `$7340` every frame.
 - Replaying `INPUT=physics` through the oracle, the actor's body probe (`$8184`,
   x + 10 px) first reads metatile `$76` (class 0) at probe x 192 on the frame he
   pins (733), and the port's rule reports the same wall; the metatile before it
