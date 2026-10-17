@@ -6,13 +6,6 @@ use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 use crate::actors::STATE_UNTARGETED;
 
-/// The 16-bit spawn countdown targets: low byte (bank 8 `$8D3E`), high byte (`$8D4E`).
-const TARGET_LOW: u16 = 0x8D3E;
-const TARGET_HIGH: u16 = 0x8D4E;
-/// The per-phase x high-byte add selector (bank 8 `$8D5E`).
-const PHASE_HIGH: u16 = 0x8D5E;
-/// The x low-byte offset at the camera's `$90` page (bank 8 `$8D6E`).
-const X_OFFSET: u16 = 0x8D6E;
 /// The type `$14` child written at `$8D19`.
 const CHILD: u8 = 0x14;
 
@@ -20,6 +13,30 @@ const CHILD: u8 = 0x14;
 const PHASE_COUNT: u8 = 0x10;
 /// The phase `$7DD0` wraps back to.
 const FIRST_PHASE: u8 = 0;
+/// The spawner's tables (bank 8), by its `phase` (0-15, wrapped at `$10`).
+pub struct Tables {
+    /// The countdown target's low byte, by `phase` (`$8D3E`).
+    pub target_low: [u8; 16],
+    /// The countdown target's high byte, by `phase` (`$8D4E`).
+    pub target_high: [u8; 16],
+    /// The child's x high-byte add selector, by `phase`; only bit 7 is used (`$8D5E`).
+    pub high_selectors: [u8; 16],
+    /// The child's x low-byte offset, by whether the camera is on page `$90` (`$8D6E`).
+    pub x_offsets: [u8; 2],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            target_low: engine::rom_bytes(prg, 8, 0x8D3E),
+            target_high: engine::rom_bytes(prg, 8, 0x8D4E),
+            high_selectors: engine::rom_bytes(prg, 8, 0x8D5E),
+            x_offsets: engine::rom_bytes(prg, 8, 0x8D6E),
+        }
+    }
+}
+
 /// Type `$12` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -27,9 +44,9 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$8C56`; phases 0-`$0F`, wrapping at `$10`).
     pub fn step(&mut self, _kind: &mut u8, body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
-        let phase = u16::from(body.phase);
-        let low = engine::rom_byte(cx.prg, 8, TARGET_LOW + phase);
-        let high = engine::rom_byte(cx.prg, 8, TARGET_HIGH + phase);
+        let tables = &cx.prg.families.scenery_spawner;
+        let phase = usize::from(body.phase);
+        let (low, high) = (tables.target_low[phase], tables.target_high[phase]);
         if body.timer != low || body.counter != high {
             let (timer, carry) = body.timer.overflowing_add(1);
             body.timer = timer;
@@ -55,7 +72,7 @@ impl State {
 
 /// Writes the `$14` child at `camera - $D7` px into `slot` (`$8C94`-`$8D19`).
 fn spawn(slot: usize, phase: u8, cx: &mut Cx<'_>) {
-    let prg = cx.prg;
+    let tables = &cx.prg.families.scenery_spawner;
     let distance = cx.world.spawn_distance;
     let [cam_hi, _] = cx.world.camera_x.to_be_bytes();
     let index = if distance & 0x80 == 0 {
@@ -69,9 +86,9 @@ fn spawn(slot: usize, phase: u8, cx: &mut Cx<'_>) {
         cx.world.camera_x.wrapping_add(u16::from(index) << 4)
     };
     let [hi, lo] = x.to_be_bytes();
-    let offset = engine::rom_byte(prg, 8, X_OFFSET + u16::from(cam_hi == 0x90));
+    let offset = tables.x_offsets[usize::from(cam_hi == 0x90)];
     let (lo, carry) = lo.overflowing_add(offset);
-    let table = engine::rom_byte(prg, 8, PHASE_HIGH + u16::from(phase));
+    let table = tables.high_selectors[usize::from(phase)];
     let hi = hi
         .wrapping_add(if table & 0x80 != 0 { 0x08 } else { 0x0A })
         .wrapping_add(u8::from(carry));

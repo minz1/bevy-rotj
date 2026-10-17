@@ -10,14 +10,32 @@ use crate::actor::world::Cx;
 
 const HOME_BANK: u8 = 11;
 const DRAW_BANK: u8 = 9;
-/// X velocity per frame by the spawn counter: low (`$97DF`) and high (`$97E7`).
-const X_ACCEL_LOW: u16 = 0x97DF;
-const X_ACCEL_HIGH: u16 = 0x97E7;
-/// Y velocity per frame by the spawn counter (`$97EF`), with a fixed `-1` high byte.
-const Y_ACCEL_LOW: u16 = 0x97EF;
 /// Four metasprites by `$7E90 & $FE` (`$97F7`).
 const METASPRITES: u16 = 0x97F7;
 const LIFE: u8 = 0x08;
+
+/// Type `$44`'s per-shot acceleration tables (bank 11), by the spawn table `counter` (0-7).
+pub struct Tables {
+    /// The x velocity per frame, low/high (`$97DF`/`$97E7`).
+    pub x_accels: [u16; 8],
+    /// The y velocity per frame, low byte (`$97EF`); the high byte is `$FF`.
+    pub y_accels: [u16; 8],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let (x_low, x_high): ([u8; 8], [u8; 8]) = (
+            engine::rom_bytes(prg, HOME_BANK, 0x97DF),
+            engine::rom_bytes(prg, HOME_BANK, 0x97E7),
+        );
+        let y_low: [u8; 8] = engine::rom_bytes(prg, HOME_BANK, 0x97EF);
+        Tables {
+            x_accels: std::array::from_fn(|i| u16::from_be_bytes([x_high[i], x_low[i]])),
+            y_accels: std::array::from_fn(|i| u16::from_be_bytes([0xFF, y_low[i]])),
+        }
+    }
+}
 
 /// Type `$44` keeps its x velocity in the pair `[subtype, behaviour]`, its y velocity in
 /// `[timer, phase]`, its table in `counter`, its age in `anim` and its parent's slot in
@@ -29,13 +47,13 @@ impl State {
     /// One frame of the handler (`$9739`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
-        let index = u16::from(body.counter);
-        let accel = |table: u16| engine::rom_byte(cx.prg, HOME_BANK, table + index);
-        let x_accel = u16::from_be_bytes([accel(X_ACCEL_HIGH), accel(X_ACCEL_LOW)]);
-        let x_velocity = u16::from_be_bytes([body.subtype, body.behaviour]).wrapping_add(x_accel);
+        let tables = &cx.prg.families.stage4_boss_shot;
+        let index = usize::from(body.counter);
+        let x_velocity =
+            u16::from_be_bytes([body.subtype, body.behaviour]).wrapping_add(tables.x_accels[index]);
         [body.subtype, body.behaviour] = x_velocity.to_be_bytes();
-        let y_velocity = u16::from_be_bytes([body.timer, body.phase])
-            .wrapping_add(u16::from_be_bytes([0xFF, accel(Y_ACCEL_LOW)]));
+        let y_velocity =
+            u16::from_be_bytes([body.timer, body.phase]).wrapping_add(tables.y_accels[index]);
         [body.timer, body.phase] = y_velocity.to_be_bytes();
 
         work.x = work.x.wrapping_add(x_velocity);

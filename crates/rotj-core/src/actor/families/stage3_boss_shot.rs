@@ -13,11 +13,6 @@ use crate::actor::world::Cx;
 
 const HOME_BANK: u8 = 0;
 const DRAW_BANK: u8 = 9;
-/// The step per direction: x low (`$9E59`), x high (`$9E63`), y low (`$9E6D`), y high (`$9E77`).
-const STEP_X_LOW: u16 = 0x9E59;
-const STEP_X_HIGH: u16 = 0x9E63;
-const STEP_Y_LOW: u16 = 0x9E6D;
-const STEP_Y_HIGH: u16 = 0x9E77;
 /// One metasprite per direction mod 5 (`$9E81`).
 const METASPRITES: u16 = 0x9E81;
 const DIRECTIONS: u8 = 5;
@@ -33,6 +28,28 @@ const HITBOX: u8 = 1;
 const CONTACT: u16 = 0x03E0;
 const CONTACT_MODE: u8 = 0x80;
 
+/// The shot's tables (bank 0).
+pub struct Tables {
+    /// The x step, by `phase` (`$9E59`/`$9E63`).
+    pub step_x: [u16; 10],
+    /// The y step, by `phase` (`$9E6D`/`$9E77`).
+    pub step_y: [u16; 10],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let x_low: [u8; 10] = engine::rom_bytes(prg, HOME_BANK, 0x9E59);
+        let x_high: [u8; 10] = engine::rom_bytes(prg, HOME_BANK, 0x9E63);
+        let y_low: [u8; 10] = engine::rom_bytes(prg, HOME_BANK, 0x9E6D);
+        let y_high: [u8; 10] = engine::rom_bytes(prg, HOME_BANK, 0x9E77);
+        Tables {
+            step_x: std::array::from_fn(|i| u16::from_le_bytes([x_low[i], x_high[i]])),
+            step_y: std::array::from_fn(|i| u16::from_le_bytes([y_low[i], y_high[i]])),
+        }
+    }
+}
+
 /// Type `$90` keeps its direction (`phase`) in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -42,20 +59,12 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         work.attr = body.flags;
-        let direction = u16::from(body.phase);
-        let byte = |table: u16| engine::rom_byte(cx.prg, HOME_BANK, table + direction);
-        let [x_high, x_low] = work.x.to_be_bytes();
-        let (x_low, carry) = x_low.overflowing_add(byte(STEP_X_LOW));
-        let x_high = x_high
-            .wrapping_add(byte(STEP_X_HIGH))
-            .wrapping_add(u8::from(carry));
-        let [y_high, y_low] = work.y.to_be_bytes();
-        let (y_low, carry) = y_low.overflowing_add(byte(STEP_Y_LOW));
-        let y_high = y_high
-            .wrapping_add(byte(STEP_Y_HIGH))
-            .wrapping_add(u8::from(carry));
-        work.x = u16::from_be_bytes([x_high, x_low]);
-        work.y = u16::from_be_bytes([y_high, y_low]);
+        work.x = work
+            .x
+            .wrapping_add(cx.prg.families.stage3_boss_shot.step_x[usize::from(body.phase)]);
+        work.y = work
+            .y
+            .wrapping_add(cx.prg.families.stage3_boss_shot.step_y[usize::from(body.phase)]);
         let mut probe = Probe {
             x: work.x,
             y: work.y,

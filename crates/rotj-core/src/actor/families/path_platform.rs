@@ -1,12 +1,50 @@
 //! Second-class type `$0A`, the platform that follows a path once stood on (bank 8 `$90C7`).
 
-use crate::actor::engine::{rom_byte, rom_word};
+use crate::actor::engine::{self, rom_byte, rom_word};
 use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
 /// The path's corner index, which the game keeps in health's low byte.
 const CORNER: Field = Field::HealthLow;
 const STEP: u16 = 0x20;
+
+/// Second-class type `$0A`'s tables (bank 8).
+pub struct Tables {
+    /// The path's length in steps, by `state & $7F` (`$92A7`).
+    pub lengths: [u8; 128],
+    /// A jump's direction, by `next & $7F` (`$92C3`).
+    pub turn_directions: [u8; 128],
+    /// A jump's `(x, y)`, by `next & $7F` (`$92C4`).
+    pub jump_positions: [(u16, u16); 128],
+    /// The `(hit, behaviour, subtype, phase)` a turn sets, by direction (any byte) (`$92AF`).
+    pub carries: [(u8, u8, u8, u8); 256],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let jumps: [u8; 512] = engine::rom_bytes(prg, 8, 0x92C4);
+        let carries: [u8; 1024] = engine::rom_bytes(prg, 8, 0x92AF);
+        Tables {
+            lengths: engine::rom_bytes(prg, 8, 0x92A7),
+            turn_directions: engine::rom_bytes(prg, 8, 0x92C3),
+            jump_positions: std::array::from_fn(|i| {
+                (
+                    u16::from_be_bytes([jumps[4 * i], jumps[4 * i + 1]]),
+                    u16::from_be_bytes([jumps[4 * i + 2], jumps[4 * i + 3]]),
+                )
+            }),
+            carries: std::array::from_fn(|i| {
+                (
+                    carries[4 * i],
+                    carries[4 * i + 1],
+                    carries[4 * i + 2],
+                    carries[4 * i + 3],
+                )
+            }),
+        }
+    }
+}
 
 /// The path is chosen by `state` and walked by `health`'s low byte (`$7BF8,x`); the
 /// carry the player rides with is `subtype:phase` across and `hit:behaviour` down.
@@ -71,8 +109,9 @@ impl State {
 /// The next corner (`$920E`): the step wraps at the path's length `$92A7`; its turn
 /// is a direction, `$FF` (the platform is freed), or a jump to a fixed position.
 fn turn(index: usize, kind: &mut u8, body: &mut Body, turns: u16, cx: &mut Cx<'_>) {
+    let tables = &cx.prg.families.path_platform;
     let mut step = body.get(CORNER).wrapping_add(1);
-    if step == rom_byte(cx.prg, 8, 0x92A7 + u16::from(body.state & 0x7F)) {
+    if step == tables.lengths[usize::from(body.state & 0x7F)] {
         step = 0;
     }
     body.set(CORNER, step);
@@ -83,17 +122,12 @@ fn turn(index: usize, kind: &mut u8, body: &mut Body, turns: u16, cx: &mut Cx<'_
         *kind = 0;
         return;
     } else {
-        let jump = u16::from(next & 0x7F);
-        let at = 0x92C4 + 4 * jump;
-        let byte = |i: u16| rom_byte(cx.prg, 8, at + i);
-        body.x = u16::from_be_bytes([byte(0), byte(1)]);
-        body.y = u16::from_be_bytes([byte(2), byte(3)]);
-        rom_byte(cx.prg, 8, 0x92C3 + jump)
+        let jump = usize::from(next & 0x7F);
+        (body.x, body.y) = tables.jump_positions[jump];
+        tables.turn_directions[jump]
     };
     cx.slots.set_platform_parameter(index, direction);
-    let at = 0x92AF + 4 * u16::from(direction);
-    let byte = |i: u16| rom_byte(cx.prg, 8, at + i);
-    (body.hit, body.behaviour, body.subtype, body.phase) = (byte(0), byte(1), byte(2), byte(3));
+    (body.hit, body.behaviour, body.subtype, body.phase) = tables.carries[usize::from(direction)];
 }
 
 #[cfg(test)]

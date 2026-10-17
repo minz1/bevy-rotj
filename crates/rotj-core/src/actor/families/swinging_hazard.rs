@@ -12,8 +12,6 @@ use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
 
 const POINTERS: u16 = 0x83C2;
-const X_OFFSETS: u16 = 0x83CA;
-const Y_OFFSETS: u16 = 0x844A;
 const DRAW_BANK: u8 = 9;
 const ATTR: u8 = 3;
 const HITBOX: u8 = 5;
@@ -21,6 +19,24 @@ const DAMAGE: u8 = 2;
 const PIECES: u8 = 3;
 const COUNTDOWN_STEP: u8 = 4;
 const COUNTDOWN_RESTART: u8 = 0x7C;
+
+/// Type `$5E`'s tables (bank 0).
+pub struct Tables {
+    /// The piece x offset, by `piece | phase` (`$83CA`).
+    pub x_offsets: [u8; 128],
+    /// The piece y offset, by `piece | phase` (`$844A`).
+    pub y_offsets: [u8; 128],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            x_offsets: engine::rom_bytes(prg, 0, 0x83CA),
+            y_offsets: engine::rom_bytes(prg, 0, 0x844A),
+        }
+    }
+}
 
 /// Type `$5E` keeps its countdown in [`Body`] (`$7DD0`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -38,9 +54,9 @@ impl State {
         work.tile = 0;
         work.attr = ATTR;
         for piece in (0..PIECES).rev() {
-            let index = u16::from(piece | body.phase);
-            let x_offset = u16::from(engine::rom_byte(cx.prg, 0, X_OFFSETS + index));
-            let y_offset = u16::from(engine::rom_byte(cx.prg, 0, Y_OFFSETS + index));
+            let index = usize::from(piece | body.phase);
+            let x_offset = u16::from(cx.prg.families.swinging_hazard.x_offsets[index]);
+            let y_offset = u16::from(cx.prg.families.swinging_hazard.y_offsets[index]);
             work.x = body.x.wrapping_add(x_offset << 4);
             work.y = body.y.wrapping_add(y_offset << 4);
             match engine::on_screen(work, cx.world) {

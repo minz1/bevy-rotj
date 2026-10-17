@@ -33,12 +33,11 @@ phases! {
     }
 }
 
-/// The stomper's tables (bank 8): by the stomp number `timer` (0-7), or by the stomping's
-/// `anim` (0-2, taken from `anims`).
+/// The stomper's tables (bank 8).
 pub struct Tables {
-    /// The landing's counter, by `timer` (`$8A6E`).
+    /// The landing's counter, by the stomp number `timer` (0-7) (`$8A6E`).
     pub landing_counters: [u8; 8],
-    /// The stomping's `anim`, by `timer` (`$8A7E`).
+    /// The stomping's `anim` (0-2), by `timer` (`$8A7E`).
     pub anims: [u8; 8],
     /// How far left of its x the stomping is drawn, by `anim` (`$8A86`).
     pub draw_offsets: [u8; 3],

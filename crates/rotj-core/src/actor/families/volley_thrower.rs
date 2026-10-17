@@ -47,6 +47,34 @@ const FACING_LEFT: u8 = 0x40;
 const LOWER_LIMIT: u8 = 4;
 const UPPER_LIMIT: u8 = 5;
 
+/// The thrower's tables (bank 11): the path's drift and the volley's start steps.
+pub struct Tables {
+    /// The drift added to x, by `2 * return-leg + facing-left` (0-3) (`$9A19`, `$9A1D`).
+    pub drift_x: [u16; 4],
+    /// The drift added to y, by the same entry (`$9A21`, `$9A25`).
+    pub drift_y: [u16; 4],
+    /// Whether a volley starts at this step, facing left, by `phase >> 4` (0-15) (`$9A29`).
+    pub throw_after_left: [u8; 16],
+    /// Whether a volley starts at this step, facing right, by `phase >> 4` (0-15) (`$9A39`).
+    pub throw_after_right: [u8; 16],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let x_low: [u8; 4] = engine::rom_bytes(prg, HOME_BANK, DRIFT_X_LOW);
+        let x_high: [u8; 4] = engine::rom_bytes(prg, HOME_BANK, DRIFT_X_HIGH);
+        let y_low: [u8; 4] = engine::rom_bytes(prg, HOME_BANK, DRIFT_Y_LOW);
+        let y_high: [u8; 4] = engine::rom_bytes(prg, HOME_BANK, DRIFT_Y_HIGH);
+        Tables {
+            drift_x: std::array::from_fn(|i| u16::from_be_bytes([x_high[i], x_low[i]])),
+            drift_y: std::array::from_fn(|i| u16::from_be_bytes([y_high[i], y_low[i]])),
+            throw_after_left: engine::rom_bytes(prg, HOME_BANK, THROW_AFTER_LEFT),
+            throw_after_right: engine::rom_bytes(prg, HOME_BANK, THROW_AFTER_RIGHT),
+        }
+    }
+}
+
 /// Type `$48` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -76,12 +104,10 @@ fn facing_left(work: &Work) -> bool {
 /// Drifts along the current half of the path and swaps halves at the y limits;
 /// every 16th step may begin a volley (`$9915`-`$9975`).
 fn wander(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
+    let tables = &cx.prg.families.volley_thrower;
     let on_return_leg = body.subtype & 0x80 != 0;
-    drift(
-        2 * u8::from(on_return_leg) + u8::from(facing_left(work)),
-        work,
-        cx,
-    );
+    let entry = usize::from(2 * u8::from(on_return_leg) + u8::from(facing_left(work)));
+    drift(entry, work, tables);
     let [y_high, y_low] = work.y.to_be_bytes();
     if !on_return_leg {
         if y_low & 0x80 == 0 && y_high < LOWER_LIMIT {
@@ -93,11 +119,11 @@ fn wander(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
     body.phase = body.phase.wrapping_add(1);
     if body.phase.is_multiple_of(0x10) {
         let table = if facing_left(work) {
-            THROW_AFTER_LEFT
+            &tables.throw_after_left
         } else {
-            THROW_AFTER_RIGHT
+            &tables.throw_after_right
         };
-        if engine::rom_byte(cx.prg, HOME_BANK, table + u16::from(body.phase >> 4)) != 0 {
+        if table[usize::from(body.phase >> 4)] != 0 {
             body.timer = THROWING;
             body.counter = 0;
         }
@@ -105,15 +131,9 @@ fn wander(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
 }
 
 /// Adds a drift entry to the working position (`$9992`): a 16-bit add per axis.
-fn drift(entry: u8, work: &mut Work, cx: &Cx<'_>) {
-    let entry = u16::from(entry);
-    let read = |table: u16| engine::rom_byte(cx.prg, HOME_BANK, table + entry);
-    work.x = work
-        .x
-        .wrapping_add(u16::from_be_bytes([read(DRIFT_X_HIGH), read(DRIFT_X_LOW)]));
-    work.y = work
-        .y
-        .wrapping_add(u16::from_be_bytes([read(DRIFT_Y_HIGH), read(DRIFT_Y_LOW)]));
+fn drift(entry: usize, work: &mut Work, tables: &Tables) {
+    work.x = work.x.wrapping_add(tables.drift_x[entry]);
+    work.y = work.y.wrapping_add(tables.drift_y[entry]);
 }
 
 /// The volley (`$99B1`): on even frames the counter runs, spawning a child every

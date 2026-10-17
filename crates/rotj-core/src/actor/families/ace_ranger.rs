@@ -10,19 +10,12 @@ use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion};
 
-/// The phase -> next-phase table (`$911F`), indexed by the `$7E90` counter.
-const NEXT_PHASE: u16 = 0x911F;
 /// Metasprite pointers (`$90E7`), indexed by `$7C30`.
 const METASPRITES: u16 = 0x90E7;
-/// The CHR bank written to the `$E7` shadow (`$9129`), by `$7C30`.
-const CHR_SHADOW: u16 = 0x9129;
 /// Metasprite pointers for the `$7E10` bit-6 second draw (`$9136`).
 const SECOND_DRAW: u16 = 0x9136;
 /// Metasprite pointers for the `$7E10` bit-7 third draw (`$913A`), by phase.
 const THIRD_DRAW: u16 = 0x913A;
-/// `$3C` part x/y high bytes (`$913E`/`$9141`), indexed by the spawn count.
-const SPAWN_X: u16 = 0x913E;
-const SPAWN_Y: u16 = 0x9141;
 /// `$C229` maps bank 9 into `$A000` for the draws, where the metasprites live.
 const DRAW_BANK: u8 = 9;
 /// The `$42` request when a part spawns.
@@ -49,6 +42,30 @@ phases! {
         Lingering = 3,
         /// Winding up, jumping and landing.
         Jumping = 4,
+    }
+}
+
+/// Type `$38`'s tables (bank 11).
+pub struct Tables {
+    /// The phase the next frame runs, by the phase counter `anim` (0-9) (`$911F`).
+    pub next_phases: [u8; 10],
+    /// The `$E7` CHR bank, by the draw frame `sprite` (0-`$0A`) (`$9129`).
+    pub chr_by_sprite: [u8; 11],
+    /// A `$3C` part's x high byte, by the spawn count (0-2) (`$913E`).
+    pub spawn_x: [u8; 3],
+    /// A `$3C` part's y high byte, by the spawn count (0-2) (`$9141`).
+    pub spawn_y: [u8; 3],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            next_phases: engine::rom_bytes(prg, 11, 0x911F),
+            chr_by_sprite: engine::rom_bytes(prg, 11, 0x9129),
+            spawn_x: engine::rom_bytes(prg, 11, 0x913E),
+            spawn_y: engine::rom_bytes(prg, 11, 0x9141),
+        }
     }
 }
 
@@ -99,10 +116,10 @@ impl State {
 }
 
 /// `$9067`: count `$7E90` on and take the next phase, clearing the timer.
-fn advance(body: &mut Body, prg: &[u8]) {
+fn advance(body: &mut Body, cx: &Cx<'_>) {
     let anim = body.anim.wrapping_add(1);
     body.anim = if anim >= 0x0A { 0 } else { anim };
-    body.phase = engine::rom_byte(prg, 11, NEXT_PHASE + u16::from(body.anim));
+    body.phase = cx.prg.families.ace_ranger.next_phases[usize::from(body.anim)];
     body.timer = 0;
     body.subtype = 0;
 }
@@ -117,7 +134,7 @@ fn face(work: &mut Work, cx: &Cx<'_>) {
 fn standing(body: &mut Body, cx: &mut Cx<'_>) {
     body.sprite = 4;
     if cx.effects.player.motion != Motion::BossEntry {
-        advance(body, cx.prg);
+        advance(body, cx);
     }
 }
 
@@ -142,7 +159,7 @@ fn spawning(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         body.sprite = if body.timer & 0x08 != 0 { 5 } else { 4 };
         body.timer = body.timer.wrapping_add(1);
         if body.timer >= 0xA0 {
-            advance(body, cx.prg);
+            advance(body, cx);
         }
     }
 }
@@ -153,7 +170,7 @@ fn hovering(body: &mut Body, cx: &mut Cx<'_>) {
     body.sprite = 0x0A;
     body.timer = body.timer.wrapping_add(1);
     if body.timer >= 0x40 {
-        advance(body, cx.prg);
+        advance(body, cx);
         spawn_3c(cx);
     }
 }
@@ -167,7 +184,7 @@ fn lingering(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     }
     body.timer = body.timer.wrapping_add(1);
     if body.timer >= 0x50 {
-        advance(body, cx.prg);
+        advance(body, cx);
     } else if body.timer >= 0x20 && body.timer.is_multiple_of(4) {
         body.counter = DRAWS_THIRD;
     }
@@ -190,7 +207,7 @@ fn jumping(body: &mut Body, work: &mut Work, grounded: bool, cx: &mut Cx<'_>) {
     if body.subtype & LANDED != 0 {
         body.timer = body.timer.wrapping_add(1);
         if body.timer >= 0x10 {
-            advance(body, cx.prg);
+            advance(body, cx);
         }
         return;
     }
@@ -212,7 +229,7 @@ fn finish(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::end_frame(body, work);
         return;
     }
-    let chr7 = engine::rom_byte(cx.prg, 11, CHR_SHADOW + u16::from(body.sprite));
+    let chr7 = cx.prg.families.ace_ranger.chr_by_sprite[usize::from(body.sprite)];
     cx.oam.chr[6] = 0xB8;
     cx.oam.chr[7] = chr7;
     work.pointer = engine::rom_word(cx.prg, 11, METASPRITES + 2 * u16::from(body.sprite));
@@ -311,8 +328,8 @@ fn spawn_3c(cx: &mut Cx<'_>) {
         let Some(slot) = (0..16).rev().find(|&i| cx.slots.main[i].kind == 0) else {
             return;
         };
-        let x = engine::rom_byte(cx.prg, 11, SPAWN_X + u16::from(count));
-        let y = engine::rom_byte(cx.prg, 11, SPAWN_Y + u16::from(count));
+        let x = cx.prg.families.ace_ranger.spawn_x[usize::from(count)];
+        let y = cx.prg.families.ace_ranger.spawn_y[usize::from(count)];
         let part = &mut cx.slots.main[slot];
         part.kind = 0x3C;
         part.body.x = u16::from_be_bytes([x, 0]);

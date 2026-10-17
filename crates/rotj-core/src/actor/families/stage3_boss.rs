@@ -13,14 +13,8 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion};
 
-/// The opening turn's `$7C30` values (`$9D7D`), indexed by `($7DF0 & $0C) >> 2`.
-const TURN_FRAMES: u16 = 0x9D7D;
-/// The firing wind-up's `$7C30` values (`$9D80`), indexed by `($7DF0 & $1C) >> 2`.
-const COUNTER_FRAMES: u16 = 0x9D80;
 /// Metasprite pointers (`$9D85`), indexed by `$7C30`.
 const METASPRITES: u16 = 0x9D85;
-/// The `$E7` CHR shadow (`$9DA1`), indexed by `$7C30`; `$E6` is the fixed `$C3`.
-const CHR_HIGH: u16 = 0x9DA1;
 const CHR_LOW: u8 = 0xC3;
 /// The `$7E10` bit-6 second draw (`$9DA7`), indexed by the counter's low bit.
 const SECOND_DRAW: u16 = 0x9DA7;
@@ -32,6 +26,27 @@ const DRAW_BANK: u8 = 9;
 const SHOT_KIND: u8 = 0x90;
 /// The `$AFD6` amount the tail drains on contact.
 const CONTACT: u16 = 0x00E0;
+
+/// The boss's tables (bank 0).
+pub struct Tables {
+    /// The opening turn's `sprite`, by `(timer & $0C) >> 2` (`$9D7D`).
+    pub turn_frames: [u8; 4],
+    /// The firing wind-up's `sprite`, by `(timer & $1C) >> 2` (`$9D80`).
+    pub counter_frames: [u8; 8],
+    /// The `$E7` CHR shadow, by `sprite`, any byte (`$9DA1`).
+    pub chr_high: [u8; 256],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            turn_frames: engine::rom_bytes(prg, 0, 0x9D7D),
+            counter_frames: engine::rom_bytes(prg, 0, 0x9D80),
+            chr_high: engine::rom_bytes(prg, 0, 0x9DA1),
+        }
+    }
+}
 
 phases! {
     /// The boss's phase (`$7DD0`), which picks its handler (`$9D91`). In every phase
@@ -143,7 +158,7 @@ fn opening(body: &mut Body, cx: &Cx<'_>) {
     }
     body.counter = 0;
     let idx = (body.timer & 0x0C) >> 2;
-    body.sprite = engine::rom_byte(cx.prg, 0, TURN_FRAMES + u16::from(idx));
+    body.sprite = cx.prg.families.stage3_boss.turn_frames[usize::from(idx)];
     if body.sprite == 0 {
         body.counter = 0x40;
     }
@@ -230,7 +245,7 @@ fn firing(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     body.counter = 0;
     if body.timer & 0x80 == 0 {
         let idx = (body.timer & 0x1C) >> 2;
-        body.sprite = engine::rom_byte(cx.prg, 0, COUNTER_FRAMES + u16::from(idx));
+        body.sprite = cx.prg.families.stage3_boss.counter_frames[usize::from(idx)];
         if body.sprite == 0 {
             body.counter = 0x40;
         }
@@ -339,7 +354,7 @@ fn tail(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if engine::on_screen(work, cx.world) == Visibility::On {
         let index = body.sprite;
         cx.oam.chr[6] = CHR_LOW;
-        cx.oam.chr[7] = engine::rom_byte(cx.prg, 0, CHR_HIGH + u16::from(index));
+        cx.oam.chr[7] = cx.prg.families.stage3_boss.chr_high[usize::from(index)];
         work.pointer = engine::rom_word(cx.prg, 0, METASPRITES + 2 * u16::from(index));
         work.tile = 0;
         engine::draw(work, DRAW_BANK, cx);

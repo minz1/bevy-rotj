@@ -11,10 +11,30 @@ use crate::actor::world::Cx;
 
 const WAYPOINTS: u16 = 0x81DF;
 const SEQUENCES: u16 = 0x81ED;
-const VELOCITIES: u16 = 0x81FB;
 const METASPRITE: u16 = 0x81CB;
 const SPAWN_SOUND: u8 = 0x2B;
 const CHILD: u8 = 0x24;
+
+/// Type `$28`'s tables (bank 11), by `subtype & $3F` (the 6502's 8-bit `subtype << 2`).
+pub struct Tables {
+    /// The `(vx, vy)` a sequence entry names, by `subtype & $3F` (`$81FB`).
+    pub velocities: [(i16, i16); 64],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let bytes: [u8; 256] = engine::rom_bytes(prg, 11, 0x81FB);
+        Tables {
+            velocities: std::array::from_fn(|i| {
+                (
+                    i16::from_be_bytes([bytes[4 * i + 1], bytes[4 * i]]),
+                    i16::from_be_bytes([bytes[4 * i + 3], bytes[4 * i + 2]]),
+                )
+            }),
+        }
+    }
+}
 
 /// Type `$28` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -92,10 +112,8 @@ fn advance(body: &mut Body, cx: &Cx<'_>) {
         SEQUENCES + u16::from(body.behaviour.wrapping_shl(1)),
     );
     body.subtype = engine::rom_byte(cx.prg, 11, table + u16::from(body.timer));
-    let at = VELOCITIES + u16::from(body.subtype.wrapping_shl(2));
-    let byte = |offset| engine::rom_byte(cx.prg, 11, at + offset);
-    body.vx = i16::from_be_bytes([byte(1), byte(0)]);
-    body.vy = i16::from_be_bytes([byte(3), byte(2)]);
+    (body.vx, body.vy) =
+        cx.prg.families.waypoint_platform.velocities[usize::from(body.subtype & 0x3F)];
 }
 
 /// `$815B`: a `$24` to the right, then one to the left, in the highest free child slots.

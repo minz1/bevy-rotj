@@ -7,10 +7,23 @@ use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion};
 
-/// `$58`'s per-player-motion y offsets (bank 11 `$9E6F`).
-const MOTION: u16 = 0x9E6F;
-/// The two 4-byte palettes `$5A` alternates into `$04E4` (bank 11 `$9EBA`).
-const PALETTES: u16 = 0x9EBA;
+/// Types `$58`/`$5A`'s tables (bank 11).
+pub struct Tables {
+    /// `$58`'s probe y offset, by the player's motion (0-11, the death `7` aside) (`$9E6F`).
+    pub motion_y_offsets: [u8; 12],
+    /// `$5A`'s alternating palette, by `counter + i` (0-3 or 4-7) (`$9EBA`).
+    pub flash_palettes: [u8; 8],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            motion_y_offsets: engine::rom_bytes(prg, 11, 0x9E6F),
+            flash_palettes: engine::rom_bytes(prg, 11, 0x9EBA),
+        }
+    }
+}
 
 /// Both kinds keep no state outside [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -39,11 +52,7 @@ fn probe(work: &mut Work, cx: &mut Cx<'_>) {
     let [y_hi, y_lo] = player.y.to_be_bytes();
     let (y_lo, borrow) = y_lo.overflowing_sub(0xC0);
     let y_hi = y_hi
-        .wrapping_sub(engine::rom_byte(
-            cx.prg,
-            11,
-            MOTION + u16::from(motion.byte()),
-        ))
+        .wrapping_sub(cx.prg.families.spike_probe.motion_y_offsets[usize::from(motion.byte())])
         .wrapping_sub(u8::from(borrow));
     let index = cx.effects.scroll_y.wrapping_add(0x60);
     let mut probe = Probe {
@@ -82,8 +91,8 @@ fn flash(body: &mut Body, cx: &mut Cx<'_>) {
 fn swap(body: &mut Body, cx: &mut Cx<'_>) {
     body.counter ^= 0x04;
     for i in 0..4u16 {
-        let value = engine::rom_byte(cx.prg, 11, PALETTES + u16::from(body.counter) + i);
-        cx.effects.palette[4 + usize::from(i)] = value;
+        let index = usize::from(body.counter) + usize::from(i);
+        cx.effects.palette[4 + usize::from(i)] = cx.prg.families.spike_probe.flash_palettes[index];
     }
     cx.effects.palette_dirty = 0x80;
 }

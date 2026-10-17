@@ -20,14 +20,29 @@ const DRAW_BANK: u8 = 9;
 const HITBOX: u8 = 0x0C;
 /// Contact damage (`$87E3`).
 const DAMAGE: u8 = 4;
-/// The knock-back velocity tables `$87F5`/`$87F7` (`$7E70`/`$7E80`).
-const KNOCKBACK: u16 = 0x87F5;
 /// The `$7E50:$7E60` drift the knock-back writes (`$87C5`).
 const DRIFT: i16 = 0x48;
 /// The `|dx|` high byte that arms the knock-back (`$87A9`).
 const TRIGGER_HI: u8 = 0x02;
 /// `$7DF0` once the knock-back has fired (`$87AD`).
 const TRIGGERED: u8 = 0x80;
+
+/// Type `$6A`'s tables (bank 0).
+pub struct Tables {
+    /// The knock-back vy, by `behaviour`, any byte (`$87F5`/`$87F7`).
+    pub knockback: [i16; 256],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let high: [u8; 256] = engine::rom_bytes(prg, 0, 0x87F5);
+        let low: [u8; 256] = engine::rom_bytes(prg, 0, 0x87F7);
+        Tables {
+            knockback: std::array::from_fn(|i| i16::from_be_bytes([high[i], low[i]])),
+        }
+    }
+}
 
 /// Type `$6A` keeps its whole state in [`Body`]. `$7DD0` is only an "it was on
 /// screen" flag (`$80`), read back by the shared off-screen tail at `$8908`.
@@ -59,10 +74,7 @@ impl State {
             if dx < 0 && dx.unsigned_abs() >> 8 == u16::from(TRIGGER_HI) {
                 body.timer = TRIGGERED;
                 body.vx_drift = DRIFT;
-                body.vy = i16::from_be_bytes([
-                    engine::rom_byte(cx.prg, 0, KNOCKBACK + u16::from(body.behaviour)),
-                    engine::rom_byte(cx.prg, 0, KNOCKBACK + 2 + u16::from(body.behaviour)),
-                ]);
+                body.vy = cx.prg.families.lunging_enemy.knockback[usize::from(body.behaviour)];
             }
         }
         body.phase = engine::DRAWN;

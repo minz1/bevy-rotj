@@ -14,8 +14,6 @@ use crate::actors::CELL_PENDING;
 
 /// The metasprite pointers, indexed by `$7C30` (bank 0 `$9893`).
 const METASPRITES: u16 = 0x9893;
-/// The child's phase by the low two bits of the RNG (bank 0 `$989F`).
-const CHILD_PHASES: u16 = 0x989F;
 const SPRITE_BANK: u8 = 9;
 const CHILD: u8 = 0x8C;
 const HITBOX: u8 = 0x0B;
@@ -30,6 +28,21 @@ const FACING_LEFT: u8 = 0x40;
 const WAITING: u8 = 0;
 /// The phase (`$7DD0`) in which it spits a child.
 const SPITTING: u8 = 1;
+
+/// Type `$8A`'s tables (bank 0).
+pub struct Tables {
+    /// The child's starting phase, by `rng & 3` (`$989F`).
+    pub child_phases: [u8; 4],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            child_phases: engine::rom_bytes(prg, 0, 0x989F),
+        }
+    }
+}
 
 /// Type `$8A` keeps its phase, rest timer and spit counter in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -107,7 +120,7 @@ fn spawn_child(body: &mut Body, slot: usize, cx: &mut Cx<'_>) {
         x_hi.wrapping_sub(1)
     };
     let rng = cx.world.rng[0];
-    let child_phase = engine::rom_byte(cx.prg, 0, CHILD_PHASES + u16::from(rng & 3));
+    let child_phase = cx.prg.families.spitter.child_phases[usize::from(rng & 3)];
     let child = &mut cx.slots.main[slot];
     child.kind = CHILD;
     child.body.flags = body.flags;

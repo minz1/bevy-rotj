@@ -17,10 +17,10 @@ use crate::actor::world::{Cx, Motion, set_first_colours};
 const BODY_DRAW: u16 = 0x910E;
 /// The `$E2 == $68` draw's pointers (`$911E`), by `$7C30`.
 const SHAPE_DRAW: u16 = 0x911E;
-/// The five-piece draw's pointers (`$912F`) and screen positions (`$9139`/`$913A`).
+/// The five-piece draw's pointers (`$912F`).
 const PIECES: u16 = 0x912F;
+/// The five-piece draw's screen positions (`$9139`), x and y interleaved through `$9142`.
 const PIECE_X: u16 = 0x9139;
-const PIECE_Y: u16 = 0x913A;
 /// `$8DB8`'s `$7C30` values (`$9126`), by `$F1` bits 3-4.
 const TURN_FRAMES: u16 = 0x9126;
 /// Phase 3's `$E2` values (`$912A`), by `$7E90 >> 3`; `$912D` is its `$7E90 >= $40` arm.
@@ -66,6 +66,50 @@ phases! {
         /// `$3F`.
         Summoning = 6,
     }
+}
+
+/// The boss's constant tables (bank 12).
+pub struct Tables {
+    /// The `$E2` ramp, by `anim >> 3` or `3 + (anim - $40) >> 3`, 0-26 over all `anim` (`$912A`).
+    pub chr_ramp: [u8; 27],
+    /// `$7C30`, by `$F1` bits 3-4 (0-3) (`$9126`).
+    pub turn_frames: [u8; 4],
+    /// The five-piece draw's screen x, by the piece 0-4 (`$9139`).
+    pub piece_x: [u8; 5],
+    /// The five-piece draw's screen y, by the piece 0-4 (`$913A`).
+    pub piece_y: [u8; 5],
+    /// The `$BE` children's x, by the spawn count 0-3 (`$9147` high, `$9143` low).
+    pub be_x: [u16; 4],
+    /// The `$BE` children's y, by the spawn count 0-3 (`$914F` high, `$914B` low).
+    pub be_y: [u16; 4],
+    /// The `$52` parts' x offset, by `counter` 0-5 (`$90EE` high, `$90E8` low).
+    pub spot_x: [u16; 6],
+    /// The `$52` parts' y offset, by `counter` 0-5 (`$90FA` high, `$90F4` low).
+    pub spot_y: [u16; 6],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let positions: [u8; 10] = engine::rom_bytes(prg, 12, PIECE_X);
+        Tables {
+            chr_ramp: engine::rom_bytes(prg, 12, CHR_RAMP),
+            turn_frames: engine::rom_bytes(prg, 12, TURN_FRAMES),
+            piece_x: std::array::from_fn(|i| positions[2 * i]),
+            piece_y: std::array::from_fn(|i| positions[2 * i + 1]),
+            be_x: split_words(prg, BE_X_HI, BE_X_LO),
+            be_y: split_words(prg, BE_Y_HI, BE_Y_LO),
+            spot_x: split_words(prg, SPOT_X_HI, SPOT_X_LO),
+            spot_y: split_words(prg, SPOT_Y_HI, SPOT_Y_LO),
+        }
+    }
+}
+
+/// The words with their high bytes at `hi` and low bytes at `lo`.
+fn split_words<const N: usize>(prg: &[u8], hi: u16, lo: u16) -> [u16; N] {
+    let hi: [u8; N] = engine::rom_bytes(prg, 12, hi);
+    let lo: [u8; N] = engine::rom_bytes(prg, 12, lo);
+    std::array::from_fn(|i| u16::from_be_bytes([hi[i], lo[i]]))
 }
 
 /// Type `$B4` keeps its whole state in [`Body`]; `scratch` bit 7 is summoning's toggle.
@@ -136,13 +180,14 @@ fn holding(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 fn dropping(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     cx.oam.chr[7] = 0xD1;
     let anim = body.anim;
+    let ramp = &cx.prg.families.final_boss.chr_ramp;
     if anim < 0x18 {
-        let chr = engine::rom_byte(cx.prg, 12, CHR_RAMP + u16::from(anim >> 3));
+        let chr = ramp[usize::from(anim >> 3)];
         if chr != 0 {
             cx.oam.chr[2] = chr;
         }
     } else if anim >= 0x40 {
-        cx.oam.chr[2] = engine::rom_byte(cx.prg, 12, CHR_RAMP + 3 + u16::from((anim - 0x40) >> 3));
+        cx.oam.chr[2] = ramp[3 + usize::from((anim - 0x40) >> 3)];
     }
     body.anim = body.anim.wrapping_add(1);
     if body.anim >= 0x10 && body.anim.is_multiple_of(0x10) {
@@ -220,11 +265,7 @@ fn count_up(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
 
 /// `$8DB8`: pick `$7C30`, then leave for shedding above the hit-point gate or draw on.
 fn gate(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-    body.sprite = engine::rom_byte(
-        cx.prg,
-        12,
-        TURN_FRAMES + u16::from((cx.world.frame >> 3) & 0x03),
-    );
+    body.sprite = cx.prg.families.final_boss.turn_frames[usize::from((cx.world.frame >> 3) & 0x03)];
     if cx.effects.boss_hp > PHASE_GATE {
         tail(body, work, cx);
         return;
@@ -251,11 +292,12 @@ fn tail(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if cx.oam.chr[2] == 0x68 {
         shape_draw(body, work, cx);
         if cx.world.frame & 0x08 == 0 {
+            let tables = &cx.prg.families.final_boss;
             for index in (0..=4u8).rev() {
                 let y = u16::from(index) * 2;
                 work.pointer = engine::rom_word(cx.prg, 12, PIECES + y);
-                work.screen_x = engine::rom_byte(cx.prg, 12, PIECE_X + y);
-                work.screen_y = engine::rom_byte(cx.prg, 12, PIECE_Y + y);
+                work.screen_x = tables.piece_x[usize::from(index)];
+                work.screen_y = tables.piece_y[usize::from(index)];
                 engine::draw(work, DRAW_BANK, cx);
             }
         }
@@ -331,16 +373,13 @@ fn spawn_bc(cx: &mut Cx<'_>) {
 
 /// `$8F89`: up to four type `$BE` children at the `$9143` offsets.
 fn spawn_be(body: &Body, cx: &mut Cx<'_>) {
+    let tables = &cx.prg.families.final_boss;
     for count in 0..4u8 {
         let Some(slot) = engine::free_child_slot(cx.slots) else {
             return;
         };
-        let n = u16::from(count);
-        let rom = |table: u16| engine::rom_byte(cx.prg, 12, table + n);
-        let (x, y) = (
-            u16::from_be_bytes([rom(BE_X_HI), rom(BE_X_LO)]),
-            u16::from_be_bytes([rom(BE_Y_HI), rom(BE_Y_LO)]),
-        );
+        let n = usize::from(count);
+        let (x, y) = (tables.be_x[n], tables.be_y[n]);
         let (subtype, phase) = if body.timer & 0x80 == 0 {
             (if count < 2 { 0xF0 } else { 0xD8 }, 0xFF)
         } else {
@@ -385,26 +424,19 @@ fn spawn_c0(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
 /// `$907A`: a type `$52` part at a `$7E10`-indexed offset, once every fourth count.
 fn spawn_52(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     cx.effects.sound[0] = 0x23;
-    let n = u16::from(body.counter);
-    let [x_hi, x_lo] = work.x.to_be_bytes();
-    let (x_lo, carry) = x_lo.overflowing_add(engine::rom_byte(cx.prg, 12, SPOT_X_LO + n));
-    let x_hi = x_hi
-        .wrapping_add(engine::rom_byte(cx.prg, 12, SPOT_X_HI + n))
-        .wrapping_add(u8::from(carry));
-    let [y_hi, y_lo] = work.y.to_be_bytes();
-    let (y_lo, carry) = y_lo.overflowing_add(engine::rom_byte(cx.prg, 12, SPOT_Y_LO + n));
-    let y_hi = y_hi
-        .wrapping_add(engine::rom_byte(cx.prg, 12, SPOT_Y_HI + n))
-        .wrapping_add(u8::from(carry));
-    if x_hi & 0xF0 == 0
-        && y_hi & 0xF0 == 0
+    let n = usize::from(body.counter);
+    let tables = &cx.prg.families.final_boss;
+    let x = work.x.wrapping_add(tables.spot_x[n]);
+    let y = work.y.wrapping_add(tables.spot_y[n]);
+    if x & 0xF000 == 0
+        && y & 0xF000 == 0
         && let Some(slot) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0)
     {
         let part = &mut cx.slots.main[slot];
         part.kind = 0x52;
         part.body.chr_slot = 0x06;
-        part.body.x = u16::from_be_bytes([x_hi, x_lo]);
-        part.body.y = u16::from_be_bytes([y_hi, y_lo]);
+        part.body.x = x;
+        part.body.y = y;
         part.body.anim = 0;
     }
     body.counter = body.counter.wrapping_add(1);

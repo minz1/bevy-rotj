@@ -12,12 +12,6 @@ use crate::actor::slots::Body;
 use crate::actor::slots::hit;
 use crate::actor::world::Cx;
 
-/// The `$3A` per-`$7DD0` move offsets: x low/high (`$91C8`/`$91CC`), y low/high
-/// (`$91D0`/`$91D4`).
-const MOVE_X_LO: u16 = 0x91C8;
-const MOVE_X_HI: u16 = 0x91CC;
-const MOVE_Y_LO: u16 = 0x91D0;
-const MOVE_Y_HI: u16 = 0x91D4;
 /// The `$3A` metasprite pointers (`$91D8`), indexed by `$7C30`.
 const PART_SPRITE: u16 = 0x91D8;
 /// The `$3C` metasprite pointers (`$92B5`), indexed by `$F1` bit 1.
@@ -32,6 +26,32 @@ const DETONATE_SOUND: u8 = 0x22;
 const DETONATE_DROP: u16 = 0x04C0;
 /// `$826F` maps bank 9 into `$A000` for the draws (`$C247`).
 const DRAW_BANK: u8 = 9;
+
+/// The `$3A` part's tables (bank 11), by its drift index `phase` (0-3).
+pub struct Tables {
+    /// The per-frame x offset, low/high (`$91C8`/`$91CC`).
+    pub move_x: [u16; 4],
+    /// The per-frame y offset, low/high (`$91D0`/`$91D4`).
+    pub move_y: [u16; 4],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let (x_lo, x_hi): ([u8; 4], [u8; 4]) = (
+            engine::rom_bytes(prg, 11, 0x91C8),
+            engine::rom_bytes(prg, 11, 0x91CC),
+        );
+        let (y_lo, y_hi): ([u8; 4], [u8; 4]) = (
+            engine::rom_bytes(prg, 11, 0x91D0),
+            engine::rom_bytes(prg, 11, 0x91D4),
+        );
+        Tables {
+            move_x: std::array::from_fn(|i| u16::from_be_bytes([x_hi[i], x_lo[i]])),
+            move_y: std::array::from_fn(|i| u16::from_be_bytes([y_hi[i], y_lo[i]])),
+        }
+    }
+}
 
 /// `$3A` keeps its drift's table index in `phase` and its metasprite in `sprite`; the `$3C`
 /// shell counts its frames in the pair `[counter, timer]`, zeroed at spawn, and detonates
@@ -77,21 +97,10 @@ fn part(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 /// `$914F`: add the per-`$7DD0` x/y offset to the working position. The game
 /// stores the moved position back, so the part travels by the offset each frame.
 fn drift(work: &mut Work, phase: u8, cx: &Cx<'_>) {
-    let by = |table: u16| engine::rom_byte(cx.prg, 11, table + u16::from(phase));
-    let [x_hi, x_lo] = work.x.to_be_bytes();
-    let (x_lo, carry) = x_lo.overflowing_add(by(MOVE_X_LO));
-    work.x = u16::from_be_bytes([
-        x_hi.wrapping_add(by(MOVE_X_HI))
-            .wrapping_add(u8::from(carry)),
-        x_lo,
-    ]);
-    let [y_hi, y_lo] = work.y.to_be_bytes();
-    let (y_lo, carry) = y_lo.overflowing_add(by(MOVE_Y_LO));
-    work.y = u16::from_be_bytes([
-        y_hi.wrapping_add(by(MOVE_Y_HI))
-            .wrapping_add(u8::from(carry)),
-        y_lo,
-    ]);
+    let tables = &cx.prg.families.ace_ranger_shot;
+    let index = usize::from(phase);
+    work.x = work.x.wrapping_add(tables.move_x[index]);
+    work.y = work.y.wrapping_add(tables.move_y[index]);
 }
 
 /// `$91DC`: home on the player, draw from bank 9, and drain him and the boss on

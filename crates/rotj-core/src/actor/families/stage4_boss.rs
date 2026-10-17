@@ -18,17 +18,12 @@ use crate::actor::world::{Cx, Motion};
 const KIND: u8 = 0x42;
 const HOME_BANK: u8 = 11;
 const DRAW_BANK: u8 = 9;
-/// Timer values by animation step (`$9703`), 16 entries.
-const TIMER_BY_STEP: u16 = 0x9703;
 /// The body metasprite (`$96F9`), then one per `$7DF0` value (`$9713`).
 const BODY_SPRITE: u16 = 0x96F9;
 const BODY_SPRITE_BY_TIMER: u16 = 0x9713;
 /// The bar's frame (`$96FB`) and its cells by fill (`$9727`).
 const BAR_FRAME: u16 = 0x96FB;
 const BAR_CELLS: u16 = 0x9727;
-/// Position of a shot by `rng & 7`: x low (`$9717`) and x high (`$971F`).
-const SHOT_X_LOW: u16 = 0x9717;
-const SHOT_X_HIGH: u16 = 0x971F;
 const SHOT_KIND: u8 = 0x44;
 const CHILD_KIND: u8 = 0x46;
 const CHILD_SLOT: usize = 23;
@@ -52,6 +47,28 @@ phases! {
         Drifting = 1,
         /// The counter reached `$C0`: only draws.
         Charged = 2,
+    }
+}
+
+/// Type `$42`'s tables (bank 11).
+pub struct Tables {
+    /// The timer for this animation step, by the step `(anim & $7F) >> 3` (0-15) (`$9703`).
+    pub step_timers: [u8; 16],
+    /// A `$44` shot's x, low/high by `rng & 7` (`$9717`/`$971F`).
+    pub shot_x: [u16; 8],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let (shot_low, shot_high): ([u8; 8], [u8; 8]) = (
+            engine::rom_bytes(prg, HOME_BANK, 0x9717),
+            engine::rom_bytes(prg, HOME_BANK, 0x971F),
+        );
+        Tables {
+            step_timers: engine::rom_bytes(prg, HOME_BANK, 0x9703),
+            shot_x: std::array::from_fn(|i| u16::from_be_bytes([shot_high[i], shot_low[i]])),
+        }
     }
 }
 
@@ -109,8 +126,8 @@ fn own_slot(cx: &Cx<'_>) -> u8 {
 /// `$94D0`: step the animation and take this step's timer.
 fn wait(body: &mut Body, cx: &mut Cx<'_>) {
     body.anim = body.anim.wrapping_add(1);
-    let step = u16::from((body.anim & 0x7F) >> 3);
-    body.timer = engine::rom_byte(cx.prg, HOME_BANK, TIMER_BY_STEP + step);
+    let step = usize::from((body.anim & 0x7F) >> 3);
+    body.timer = cx.prg.families.stage4_boss.step_timers[step];
 }
 
 /// `$94F9`/`$94FD`: the drift is spent, back to waiting.
@@ -194,9 +211,8 @@ fn spawn_shot(cx: &mut Cx<'_>) {
     let Some(index) = engine::free_child_slot(cx.slots) else {
         return;
     };
-    let place = u16::from(cx.world.rng[0] & 0x07);
-    let x_low = engine::rom_byte(cx.prg, HOME_BANK, SHOT_X_LOW + place);
-    let x_high = engine::rom_byte(cx.prg, HOME_BANK, SHOT_X_HIGH + place);
+    let place = cx.world.rng[0] & 0x07;
+    let x = cx.prg.families.stage4_boss.shot_x[usize::from(place)];
     let own = own_slot(cx);
     let child = &mut cx.slots.main[index];
     child.kind = SHOT_KIND;
@@ -204,8 +220,8 @@ fn spawn_shot(cx: &mut Cx<'_>) {
     part.y = 0x0080;
     (part.anim, part.behaviour, part.subtype) = (0, 0, 0);
     (part.phase, part.timer) = (0, 0);
-    part.counter = u8::try_from(place).expect("< 8");
-    part.x = u16::from_be_bytes([x_high, x_low]);
+    part.counter = place;
+    part.x = x;
     part.sprite = own;
     child.brain = Brain::new(SHOT_KIND);
 }

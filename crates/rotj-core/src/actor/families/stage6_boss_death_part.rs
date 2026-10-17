@@ -4,8 +4,6 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
-/// The waiting phase's sprite selector, indexed by `$7E90 >> 3` (`$893F`).
-const SELECTOR: u16 = 0x893F;
 /// The first draw's metasprite pointers, indexed by `$7C30` (`$8944`, bank 9).
 const FIRST: u16 = 0x8944;
 /// The second draw's pointers, indexed by `$7E10` (`$894E`, bank 9).
@@ -14,6 +12,21 @@ const SECOND: u16 = 0x894E;
 const DRAW_BANK: u8 = 9;
 /// The waiting phase ends when `$7E90` reaches this (`$889D`).
 const WAIT_FRAMES: u8 = 0x28;
+
+/// Type `$AA`'s tables (bank 12).
+pub struct Tables {
+    /// The waiting phase's `sprite`, by `anim >> 3` (`0`-`4`) (`$893F`).
+    pub selector: [u8; 5],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            selector: engine::rom_bytes(prg, 12, 0x893F),
+        }
+    }
+}
 
 phases! {
     /// The part's phase (`$7DD0`), which picks its handler (`$893B`).
@@ -36,7 +49,8 @@ impl State {
         engine::load(body, work);
         match Phase::from_byte(body.phase) {
             Some(Phase::Waiting) => {
-                body.sprite = engine::rom_byte(cx.prg, 12, SELECTOR + u16::from(body.anim >> 3));
+                body.sprite =
+                    cx.prg.families.stage6_boss_death_part.selector[usize::from(body.anim >> 3)];
                 body.counter = 0;
                 body.anim = body.anim.wrapping_add(1);
                 if body.anim >= WAIT_FRAMES {

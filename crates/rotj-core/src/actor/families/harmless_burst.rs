@@ -9,11 +9,25 @@ use crate::actor::world::Cx;
 const PARTS: u16 = 0x85CD;
 /// The metasprite pointer of the even and odd frame (`$85BB`).
 const SPRITES: u16 = 0x85BB;
-/// The attribute base of the even and odd frame (`$85B8`).
-const ATTRS: u16 = 0x85B8;
 /// The pair's lifetime counter, the high byte of `ref_vx` (`$7ED0`).
 const LIFETIME: Field = Field::RefVxHigh;
 const GRAVITY: u8 = 0x0C;
+
+/// The burst's tables (bank 8).
+pub struct Tables {
+    /// The attribute base of the even and odd frame, by `frame_odd`; entries two bytes apart (`$85B8`).
+    pub attrs: [u8; 2],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let bytes: [u8; 3] = engine::rom_bytes(prg, 8, 0x85B8);
+        Tables {
+            attrs: [bytes[0], bytes[2]],
+        }
+    }
+}
 
 /// Type `$08` has no handler phase: its `$7DD0` byte is part 0's x velocity, and a
 /// part's y byte lands in `scratch` (`$7D30`).
@@ -28,7 +42,7 @@ impl State {
         let odd = cx.world.frame_odd;
         let index = 2 * u16::from(odd);
         work.pointer = engine::rom_word(cx.prg, 8, SPRITES + index);
-        work.attr = engine::rom_byte(cx.prg, 8, ATTRS + index) | body.flags;
+        work.attr = cx.prg.families.harmless_burst.attrs[usize::from(odd)] | body.flags;
         work.tile = 0;
         // The 6502 walks the four records as `$12` = 3, 2, 1, 0 and moves the part
         // whose `$12 ^ $F1` is odd, so a frame touches two of the four.

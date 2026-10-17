@@ -8,10 +8,6 @@ use crate::actors::CELL_PENDING;
 
 /// Metasprite pointers indexed by `$7C30` (bank 0 `$9750`, byte-indexed).
 const METASPRITES: u16 = 0x9750;
-/// The walk velocity low bytes (`$975E`), indexed by the facing bit.
-const WALK_LO: u16 = 0x975E;
-/// The walk velocity high bytes (`$9760`).
-const WALK_HI: u16 = 0x9760;
 /// The bank `$84CA` maps at `$A000` for the draw.
 const DRAW_BANK: u8 = 9;
 /// Metasprite index while turning round.
@@ -25,6 +21,23 @@ const LEDGE_REACH: u16 = 0x40;
 const GROUND: u8 = 0x40;
 const WALL: u8 = 0x80;
 const AIRBORNE_FLOOR: u8 = 0x20;
+
+/// Type `$88`'s tables (bank 0).
+pub struct Tables {
+    /// The walk vx, by facing (0 right, 1 left) (`$975E`/`$9760`).
+    pub walk_velocity: [i16; 2],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let low: [u8; 2] = engine::rom_bytes(prg, 0, 0x975E);
+        let high: [u8; 2] = engine::rom_bytes(prg, 0, 0x9760);
+        Tables {
+            walk_velocity: std::array::from_fn(|i| i16::from_be_bytes([high[i], low[i]])),
+        }
+    }
+}
 
 phases! {
     /// The walker's phase (`$7DD0`): the game stores its doubled index into `$975A`.
@@ -95,11 +108,8 @@ fn walking(body: &mut Body, work: &mut Work, flags: u8, probe: &mut Probe, cx: &
         body.vx = 0;
         work.ax = 0;
     } else {
-        let facing = u16::from(facing_left);
-        body.ref_vx = i16::from_be_bytes([
-            engine::rom_byte(cx.prg, 0, WALK_HI + facing),
-            engine::rom_byte(cx.prg, 0, WALK_LO + facing),
-        ]);
+        let facing = usize::from(facing_left);
+        body.ref_vx = cx.prg.families.ledge_walker.walk_velocity[facing];
         body.anim = body.anim.wrapping_add(1);
         body.sprite = (body.anim & 0x18) >> 2;
     }

@@ -14,12 +14,25 @@ use crate::actor::world::Cx;
 const METASPRITE_PTR: u16 = 0x8663;
 /// The bank `$84CA` maps at `$A000` for the draw.
 const DRAW_BANK: u8 = 9;
-/// The y offset table the timer indexes (`$83CC`).
-const OFFSETS: u16 = 0x83CC;
 /// The hit box the contact uses.
 const HITBOX: u8 = 0x0C;
 /// Contact damage.
 const DAMAGE: u8 = 4;
+
+/// The bobber's tables (bank 0).
+pub struct Tables {
+    /// The y offset the bob adds, by `timer` (always below `$80` after its wrap) (`$83CC`).
+    pub offsets: [u8; 128],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            offsets: engine::rom_bytes(prg, 0, 0x83CC),
+        }
+    }
+}
 
 /// Type `$64` keeps its whole state in [`Body`] (`$7DD0`, `$7DF0`, `$7E70:$7E80`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -47,11 +60,9 @@ impl State {
         }
         body.phase = engine::DRAWN;
         work.pointer = engine::rom_word(cx.prg, 0, METASPRITE_PTR);
-        work.screen_y = work.screen_y.wrapping_add(engine::rom_byte(
-            cx.prg,
-            0,
-            OFFSETS + u16::from(body.timer),
-        ));
+        work.screen_y = work
+            .screen_y
+            .wrapping_add(cx.prg.families.table_bobber.offsets[usize::from(body.timer)]);
         engine::tile_bits(work, cx.prg);
         engine::draw(work, DRAW_BANK, cx);
         work.hitbox = HITBOX;

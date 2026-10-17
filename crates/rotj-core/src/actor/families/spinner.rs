@@ -17,14 +17,6 @@ use crate::actors::STATE_UNTARGETED;
 
 /// `$9251`: the metasprite pointer, overlapping words indexed by `$7C30`.
 const METASPRITES: u16 = 0x9251;
-/// `$9257`: the idling vy low every `$7E90` 8-15 (index `$7E90 - 8`).
-const IDLING_VY: u16 = 0x9257;
-/// `$925F`/`$926B`: the swinging vy low/high with `$7D90` bit 7 clear (index `$7E90`).
-const SWINGING_VY: (u16, u16) = (0x925F, 0x926B);
-/// `$9277`/`$927F`: the swinging vy low/high with `$7D90` bit 7 set.
-const SWINGING_VY_SET: (u16, u16) = (0x9277, 0x927F);
-/// `$9287`/`$928F`: the falling grounded vy low/high (index `$F1 & 7`).
-const FALLING_VY: (u16, u16) = (0x9287, 0x928F);
 /// `$84CA` maps bank 9 at `$A000` for the draw.
 const DRAW_BANK: u8 = 9;
 /// The hit box and damage of the tail's `$AEE3` touch.
@@ -32,6 +24,40 @@ const HITBOX: u8 = 3;
 const DAMAGE: u8 = 2;
 /// The type `$8D84` spawns, at the parent's x with `$7B40:$7B60` = `$0C00`.
 const CHILD: u8 = 0x7A;
+
+/// The spinner's tables (bank 0).
+pub struct Tables {
+    /// The idle bob's vy low, by `anim - 8` (`$9257`).
+    pub idling_vy: [u8; 8],
+    /// The swinging vy, by `anim` (`$925F`/`$926B`).
+    pub swinging_vy: [i16; 12],
+    /// The swinging vy with `$7D90` bit 7 set, by `anim` (`$9277`/`$927F`).
+    pub swinging_vy_set: [i16; 8],
+    /// The falling vy, by `frame & 7` (`$9287`/`$928F`).
+    pub falling_vy: [i16; 8],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let swinging_low: [u8; 12] = engine::rom_bytes(prg, 0, 0x925F);
+        let swinging_high: [u8; 12] = engine::rom_bytes(prg, 0, 0x926B);
+        let set_low: [u8; 8] = engine::rom_bytes(prg, 0, 0x9277);
+        let set_high: [u8; 8] = engine::rom_bytes(prg, 0, 0x927F);
+        let falling_low: [u8; 8] = engine::rom_bytes(prg, 0, 0x9287);
+        let falling_high: [u8; 8] = engine::rom_bytes(prg, 0, 0x928F);
+        Tables {
+            idling_vy: engine::rom_bytes(prg, 0, 0x9257),
+            swinging_vy: std::array::from_fn(|i| {
+                i16::from_be_bytes([swinging_high[i], swinging_low[i]])
+            }),
+            swinging_vy_set: std::array::from_fn(|i| i16::from_be_bytes([set_high[i], set_low[i]])),
+            falling_vy: std::array::from_fn(|i| {
+                i16::from_be_bytes([falling_high[i], falling_low[i]])
+            }),
+        }
+    }
+}
 
 phases! {
     /// The spinner's phase (`$7DD0`), which picks its handler (`$9243`).
@@ -92,7 +118,7 @@ fn idling(body: &mut Body, cx: &Cx<'_>) {
     if timer < 0x08 {
         body.vy = 0;
     } else if timer < 0x10 {
-        let low = engine::rom_byte(cx.prg, 0, IDLING_VY + u16::from(timer.wrapping_sub(0x08)));
+        let low = cx.prg.families.spinner.idling_vy[usize::from(timer.wrapping_sub(0x08))];
         body.vy = i16::from_be_bytes([0, low]);
     } else {
         body.phase = Phase::Rising.byte();
@@ -124,25 +150,23 @@ fn rising(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 fn swinging(body: &mut Body, cx: &Cx<'_>) {
     body.anim = body.anim.wrapping_add(1);
     let time = body.anim;
-    let (low_table, high_table) = if body.behaviour & 0x80 == 0 {
+    let vy_table: &[i16] = if body.behaviour & 0x80 == 0 {
         if time >= 0x0C {
             body.vy = 0;
             body.phase = Phase::Rising.byte();
             body.anim = 0x80;
             return;
         }
-        SWINGING_VY
+        &cx.prg.families.spinner.swinging_vy
     } else {
         if time >= 0x08 {
             body.vy = 0;
             body.phase = Phase::Falling.byte();
             return;
         }
-        SWINGING_VY_SET
+        &cx.prg.families.spinner.swinging_vy_set
     };
-    let low = engine::rom_byte(cx.prg, 0, low_table + u16::from(time));
-    let high = engine::rom_byte(cx.prg, 0, high_table + u16::from(time));
-    body.vy = i16::from_be_bytes([high, low]);
+    body.vy = vy_table[usize::from(time)];
 }
 
 /// `$911F`: probe a step down for ground; land there or come down with a drift.
@@ -152,10 +176,7 @@ fn falling(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     let below = collision::below(work, &mut probe, cx);
     work.y = work.y.wrapping_sub(0x40);
     if below & 0x80 != 0 {
-        let index = u16::from(cx.world.frame & 0x07);
-        let low = engine::rom_byte(cx.prg, 0, FALLING_VY.0 + index);
-        let high = engine::rom_byte(cx.prg, 0, FALLING_VY.1 + index);
-        body.vy = i16::from_be_bytes([high, low]);
+        body.vy = cx.prg.families.spinner.falling_vy[usize::from(cx.world.frame & 0x07)];
         body.vx_drift = if body.behaviour & 0x01 == 0 {
             i16::from_be_bytes([0xFF, 0xF0])
         } else {

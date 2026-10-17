@@ -34,6 +34,27 @@ const HITBOX: u8 = 0x0C;
 /// The damage a touch deals (`A` before `$A9C4`).
 const DAMAGE: u8 = 2;
 
+/// The projectile's tables (bank 12), by `subtype` (0-3).
+pub struct Tables {
+    /// The velocity added each frame, (vx, vy), by `subtype` (`$990B`, 4-byte records).
+    pub drifts: [(i16, i16); 4],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let bytes: [u8; 16] = engine::rom_bytes(prg, HOME_BANK, DRIFT);
+        Tables {
+            drifts: std::array::from_fn(|i| {
+                (
+                    i16::from_le_bytes([bytes[4 * i], bytes[4 * i + 1]]),
+                    i16::from_le_bytes([bytes[4 * i + 2], bytes[4 * i + 3]]),
+                )
+            }),
+        }
+    }
+}
+
 /// Type `$C4` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -44,22 +65,15 @@ impl State {
         engine::load(body, work);
         work.attr = body.flags;
         engine::integrate(body, work);
-        let at = DRIFT + 4 * u16::from(body.subtype);
-        let prg = cx.prg;
-        let delta = |offset: u16| {
-            i16::from_le_bytes([
-                engine::rom_byte(prg, HOME_BANK, at + offset),
-                engine::rom_byte(prg, HOME_BANK, at + offset + 1),
-            ])
-        };
-        body.vx_drift = body.vx_drift.wrapping_add(delta(0));
-        body.vy = body.vy.wrapping_add(delta(2));
+        let (vx, vy) = cx.prg.families.drift_shot.drifts[usize::from(body.subtype)];
+        body.vx_drift = body.vx_drift.wrapping_add(vx);
+        body.vy = body.vy.wrapping_add(vy);
         if engine::on_screen(work, cx.world) != Visibility::On {
             *kind = 0;
             return;
         }
         let frame = u16::from((cx.world.frame >> 1) & 0x02);
-        work.pointer = engine::rom_word(prg, HOME_BANK, SHEET + frame);
+        work.pointer = engine::rom_word(cx.prg, HOME_BANK, SHEET + frame);
         work.chr_slot = CHR_SLOT;
         work.tile = TILE;
         engine::draw(work, HOME_BANK, cx);
@@ -74,6 +88,29 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
+
+    /// Every `$C4` and the `$C2` spawner that hands on its subtype has one the drift table covers.
+    #[test]
+    fn every_subtype_is_in_the_tables() {
+        let Some(prg) = crate::prg::for_test() else {
+            return;
+        };
+        let size = prg.families.drift_shot.drifts.len();
+        let mut checked = 0;
+        for (area, room) in crate::rooms::listed_rooms(prg) {
+            let table = crate::actor::spawn::SpawnTable::import(prg, area, room);
+            for record in table.records.iter().flatten() {
+                if record.kind == 0xC4 || record.kind == 0xC2 {
+                    assert!(
+                        usize::from(record.subtype) < size,
+                        "area {area} room {room}"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 0, "no $C4 or $C2 record");
+    }
 
     /// The area-20 `$C2` controller spawns one `$C4` at a time (`$97F0`); the
     /// spawner is unported, so isolating the kind leaves the actors alive at the

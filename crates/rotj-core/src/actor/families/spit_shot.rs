@@ -10,8 +10,6 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
-/// The per-subtype x offset (`$FFxx`), bank 0 `$9932`.
-const OFFSETS: u16 = 0x9932;
 /// The two metasprites, picked by `$F1` bit 2 (bank 0 `$9936`).
 const METASPRITES: u16 = 0x9936;
 /// The bank `$84CA` maps at `$A000` for the draw.
@@ -24,6 +22,21 @@ const FLOOR: i16 = -64;
 const STRAIGHT: u8 = 1;
 /// Contact damage (`$9919`).
 const DAMAGE: u8 = 2;
+
+/// Type `$8C`'s tables (bank 0).
+pub struct Tables {
+    /// The x offset, by `subtype`, any byte (`$9932`).
+    pub offsets: [u8; 256],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            offsets: engine::rom_bytes(prg, 0, 0x9932),
+        }
+    }
+}
 
 /// Type `$8C` keeps everything in [`Body`]: `$7DA0` behaviour, `$7DC0` subtype
 /// and `$7DF0:$7DD0` the y velocity.
@@ -47,7 +60,7 @@ impl State {
             }
             [body.phase, body.timer] = vy.to_le_bytes();
         }
-        let offset = engine::rom_byte(cx.prg, 0, OFFSETS + u16::from(subtype));
+        let offset = cx.prg.families.spit_shot.offsets[usize::from(subtype)];
         let [x_hi, x_lo] = work.x.to_be_bytes();
         let (x_lo, carry) = x_lo.overflowing_add(offset);
         work.x = u16::from_be_bytes([x_hi.wrapping_add(0xFF).wrapping_add(u8::from(carry)), x_lo]);

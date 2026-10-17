@@ -29,6 +29,23 @@ const FLOOR: u8 = 0x0B;
 const DEAD: u8 = 0x0A;
 const DYING: u8 = 0x80;
 
+/// The part's tables (bank 11), by `phase` (0 or 1).
+pub struct Tables {
+    /// The x offset added each frame, by `phase` (`$9AD0`, `$9AD2`).
+    pub x_offset: [i16; 2],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let low: [u8; 2] = engine::rom_bytes(prg, BANK, X_OFFSET);
+        let high: [u8; 2] = engine::rom_bytes(prg, BANK, X_OFFSET_HIGH);
+        Tables {
+            x_offset: std::array::from_fn(|i| i16::from_be_bytes([high[i], low[i]])),
+        }
+    }
+}
+
 /// Type `$4A` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -47,10 +64,7 @@ impl State {
             paint(body, work, cx, frame);
         } else {
             work.attr = body.flags;
-            let offset = i16::from_be_bytes([
-                engine::rom_byte(cx.prg, BANK, X_OFFSET_HIGH + u16::from(body.phase)),
-                engine::rom_byte(cx.prg, BANK, X_OFFSET + u16::from(body.phase)),
-            ]);
+            let offset = cx.prg.families.volley_shot.x_offset[usize::from(body.phase)];
             work.x = work.x.wrapping_add_signed(offset);
             work.y = work.y.wrapping_add(0x0010);
             if work.y.to_be_bytes()[0] >= FLOOR {

@@ -16,10 +16,26 @@ const CHILD: u8 = 0x30;
 const BANK: u8 = 11;
 const BODY_SPRITES: u16 = 0x8852;
 const CHILD_SPRITES: u16 = 0x885A;
-const THROW_LEFT: u16 = 0x886A;
-const THROW_RIGHT: u16 = 0x8872;
 const HITBOX: u8 = 0x0B;
 const DAMAGE: u8 = 2;
+
+/// The dropper's tables (bank 11).
+pub struct Tables {
+    /// The throw's low velocity byte when `dx < 0`, by reach 0-7 (`$886A`).
+    pub throw_left: [u8; 8],
+    /// The throw's low velocity byte when `dx >= 0`, by reach 0-7 (`$8872`).
+    pub throw_right: [u8; 8],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            throw_left: engine::rom_bytes(prg, BANK, 0x886A),
+            throw_right: engine::rom_bytes(prg, BANK, 0x8872),
+        }
+    }
+}
 
 phases! {
     /// The dropper's phase (`$7DD0`): the game stores its doubled index into `$8860`.
@@ -175,12 +191,12 @@ fn draw_child(body: &Body, work: &mut Work, sprite: u8, cx: &mut Cx<'_>) {
 fn throw_child(body: &Body, work: &mut Work, cx: &mut Cx<'_>) {
     let dx = engine::player_dx(work, &cx.effects.player);
     let reach = u16::from(dx.unsigned_abs().to_be_bytes()[0].min(7));
-    let (hi, table) = if dx < 0 {
-        (0x00, THROW_LEFT)
+    let tables = &cx.prg.families.dropper;
+    let (hi, lo) = if dx < 0 {
+        (0x00, tables.throw_left[usize::from(reach)])
     } else {
-        (0xFF, THROW_RIGHT)
+        (0xFF, tables.throw_right[usize::from(reach)])
     };
-    let lo = engine::rom_byte(cx.prg, BANK, table + reach);
     let child = &mut cx.slots.main[child_slot(body)].body;
     dropper_payload::arm(
         child,

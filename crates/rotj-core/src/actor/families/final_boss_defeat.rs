@@ -24,6 +24,21 @@ phases! {
     }
 }
 
+/// The fall's constant table (bank 12).
+pub struct Tables {
+    /// The `$E7` CHR bank, by `sprite` 0-3, which every phase sets before the read (`$94B8`).
+    pub banks: [u8; 4],
+}
+
+impl Tables {
+    /// Reads the table from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            banks: engine::rom_bytes(prg, 12, BANKS),
+        }
+    }
+}
+
 /// Type `$B8` keeps its whole state in [`Body`]: the screen position in
 /// `behaviour`/`subtype`, the frame in `sprite`, its timer in `anim`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -70,7 +85,7 @@ impl State {
         work.screen_x = body.behaviour;
         work.screen_y = body.subtype;
         let frame = u16::from(body.sprite);
-        cx.oam.chr[7] = engine::rom_byte(cx.prg, 12, BANKS + frame);
+        cx.oam.chr[7] = cx.prg.families.final_boss_defeat.banks[usize::from(body.sprite)];
         work.pointer = engine::rom_word(cx.prg, 12, FRAMES + 2 * frame);
         engine::draw(work, DRAW_BANK, cx);
     }

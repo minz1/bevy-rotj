@@ -5,15 +5,37 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
-const STEP_X_LO: u16 = 0x9894;
-const STEP_X_HI: u16 = 0x989E;
-const STEP_Y_LO: u16 = 0x98A8;
-const STEP_Y_HI: u16 = 0x98B2;
 const METASPRITES: u16 = 0x98BC;
 /// The `$8FC4` wrapper maps bank 1 at `$A000`, where its `$B...` entries live.
 const DRAW_BANK: u8 = 1;
 /// The `$8000`-window entries (`$98CA`, `$98D0`) stay in the handler's own bank.
 const HOME_BANK: u8 = 8;
+
+/// The shot's tables (bank 8), by its direction `phase` (0-9: every spawner's value).
+pub struct Tables {
+    /// The x step, by direction (`$9894` low, `$989E` high).
+    pub step_x: [u16; 10],
+    /// The y step, by direction (`$98A8` low, `$98B2` high).
+    pub step_y: [u16; 10],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let (x_lo, x_hi): ([u8; 10], [u8; 10]) = (
+            engine::rom_bytes(prg, 8, 0x9894),
+            engine::rom_bytes(prg, 8, 0x989E),
+        );
+        let (y_lo, y_hi): ([u8; 10], [u8; 10]) = (
+            engine::rom_bytes(prg, 8, 0x98A8),
+            engine::rom_bytes(prg, 8, 0x98B2),
+        );
+        Tables {
+            step_x: std::array::from_fn(|i| u16::from_be_bytes([x_hi[i], x_lo[i]])),
+            step_y: std::array::from_fn(|i| u16::from_be_bytes([y_hi[i], y_lo[i]])),
+        }
+    }
+}
 
 /// Type `$24` keeps its direction (`phase`) and metasprite (`sprite`) in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -24,18 +46,10 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         work.attr = body.flags;
-        let direction = u16::from(body.phase);
-        let byte = |table: u16| engine::rom_byte(cx.prg, 8, table + direction);
-        let (x_lo, carry) = work.x.to_be_bytes()[1].overflowing_add(byte(STEP_X_LO));
-        let x_hi = work.x.to_be_bytes()[0]
-            .wrapping_add(byte(STEP_X_HI))
-            .wrapping_add(u8::from(carry));
-        let (y_lo, carry) = work.y.to_be_bytes()[1].overflowing_add(byte(STEP_Y_LO));
-        let y_hi = work.y.to_be_bytes()[0]
-            .wrapping_add(byte(STEP_Y_HI))
-            .wrapping_add(u8::from(carry));
-        work.x = u16::from_be_bytes([x_hi, x_lo]);
-        work.y = u16::from_be_bytes([y_hi, y_lo]);
+        let tables = &cx.prg.families.enemy_shot;
+        let direction = usize::from(body.phase);
+        work.x = work.x.wrapping_add(tables.step_x[direction]);
+        work.y = work.y.wrapping_add(tables.step_y[direction]);
         let mut probe = Probe {
             x: work.x,
             y: work.y,

@@ -13,8 +13,6 @@ use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
 
-/// The three x high bytes `$7E10` selects (`$84BF`).
-const X_POSITIONS: u16 = 0x84BF;
 /// The dropped child's type (`$84E0`).
 const CHILD: u8 = 0xA2;
 /// The `$7E10` value a turn-around resets to (`$84B4`).
@@ -25,6 +23,21 @@ const TURN: u8 = 3;
 const DROP_PERIOD: u8 = 0x18;
 /// The high byte of |dx| at or past which the slot is freed (`$8472`).
 const FAR_HIGH_BYTE: u8 = 0x18;
+
+/// Type `$A4`'s tables (bank 12), by the `$7E10` position index `counter` (`0`-`2`).
+pub struct Tables {
+    /// The drop's x high byte, by `counter` (`$84BF`).
+    pub x_highs: [u8; 3],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            x_highs: engine::rom_bytes(prg, 12, 0x84BF),
+        }
+    }
+}
 
 /// Type `$A4` keeps all its state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -44,7 +57,7 @@ impl State {
             return;
         }
         body.x = u16::from_be_bytes([
-            engine::rom_byte(cx.prg, 12, X_POSITIONS + u16::from(body.counter)),
+            cx.prg.families.hazard_dropper.x_highs[usize::from(body.counter)],
             0,
         ]);
         spawn_child(body, cx);

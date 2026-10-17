@@ -18,6 +18,23 @@ const HITBOX: u8 = 0;
 const DAMAGE: u8 = 2;
 const LIFETIME: u8 = 0x18;
 
+/// The shot's tables (bank 11), by `phase` (0 or 1).
+pub struct Tables {
+    /// The x offset added each frame, by `phase` (`$9470`, `$9472`).
+    pub side_offset: [u16; 2],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let low: [u8; 2] = engine::rom_bytes(prg, HOME_BANK, OFFSET_LOW);
+        let high: [u8; 2] = engine::rom_bytes(prg, HOME_BANK, OFFSET_HIGH);
+        Tables {
+            side_offset: std::array::from_fn(|i| u16::from_be_bytes([high[i], low[i]])),
+        }
+    }
+}
+
 /// Type `$40` keeps its animation timer in [`Body`] (`$7DF0`) and its side in `$7DD0`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -27,11 +44,7 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         work.attr = body.flags;
-        let side = u16::from(body.phase);
-        let offset = u16::from_be_bytes([
-            engine::rom_byte(cx.prg, HOME_BANK, OFFSET_HIGH + side),
-            engine::rom_byte(cx.prg, HOME_BANK, OFFSET_LOW + side),
-        ]);
+        let offset = cx.prg.families.hop_thrower_shot.side_offset[usize::from(body.phase)];
         work.x = work.x.wrapping_add(offset);
         let frame = u16::from((body.timer & 0x18) >> 2);
         work.pointer = engine::rom_word(cx.prg, HOME_BANK, METASPRITES + frame);

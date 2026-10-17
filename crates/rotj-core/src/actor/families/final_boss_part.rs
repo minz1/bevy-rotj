@@ -50,6 +50,38 @@ phases! {
     }
 }
 
+/// The part's constant tables (bank 12).
+pub struct Tables {
+    /// The screen x offsets, by `subtype` 0-3, from the spawn records (`$9340`).
+    pub x_offsets: [u8; 4],
+    /// The screen y offsets, by `subtype` 0-3, from the spawn records (`$9344`).
+    pub y_offsets: [u8; 4],
+    /// The death tiles' first nametable address, high byte first, by `subtype` 0-3 (`$9380`).
+    pub death_dests: [u16; 4],
+    /// The child's subtype and timer, by `child_index / 2`, 0-27 (`$938C`).
+    pub spawn_types: [(u8, u8); 28],
+    /// The child's phase and counter, by `child_index / 2`, 0-27 (`$93C4`).
+    pub spawn_states: [(u8, u8); 28],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let dests: [u8; 8] = engine::rom_bytes(prg, 12, DEATH_DESTS);
+        let types: [u8; 56] = engine::rom_bytes(prg, 12, SPAWN_TYPES);
+        let states: [u8; 56] = engine::rom_bytes(prg, 12, SPAWN_STATES);
+        Tables {
+            x_offsets: engine::rom_bytes(prg, 12, X_OFFSETS),
+            y_offsets: engine::rom_bytes(prg, 12, Y_OFFSETS),
+            death_dests: std::array::from_fn(|i| {
+                u16::from_be_bytes([dests[2 * i], dests[2 * i + 1]])
+            }),
+            spawn_types: std::array::from_fn(|i| (types[2 * i], types[2 * i + 1])),
+            spawn_states: std::array::from_fn(|i| (states[2 * i], states[2 * i + 1])),
+        }
+    }
+}
+
 /// Type `$B6` keeps its whole state in [`Body`] (`$7DD0` phase, `$7E90` counter,
 /// `$7E10` latch, `$7C30` sprite frame).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -113,9 +145,10 @@ impl State {
         work.tile = 0;
         work.attr = 0;
         work.pointer = engine::rom_word(cx.prg, 12, METASPRITES + 2 * u16::from(body.sprite));
-        let facing = u16::from(body.subtype);
-        work.screen_x = engine::rom_byte(cx.prg, 12, X_OFFSETS + facing);
-        work.screen_y = engine::rom_byte(cx.prg, 12, Y_OFFSETS + facing);
+        let tables = &cx.prg.families.final_boss_part;
+        let facing = usize::from(body.subtype);
+        work.screen_x = tables.x_offsets[facing];
+        work.screen_y = tables.y_offsets[facing];
         if body.sprite >= 8 {
             work.screen_y = work.screen_y.wrapping_sub(8);
         }
@@ -131,11 +164,7 @@ fn queue_death_tiles(body: &mut Body, cx: &mut Cx<'_>) {
     let prg = cx.prg;
     let facing = 2 * u16::from(body.subtype);
     let source = engine::rom_word(prg, 12, DEATH_SOURCES + facing);
-    // The destination table holds (high, low) pairs; rows step the low byte `$20` on.
-    let mut addr = u16::from_be_bytes([
-        engine::rom_byte(prg, 12, DEATH_DESTS + facing),
-        engine::rom_byte(prg, 12, DEATH_DESTS + facing + 1),
-    ]);
+    let mut addr = prg.families.final_boss_part.death_dests[usize::from(body.subtype)];
     for row in 0..4u16 {
         let tiles: [u8; 4] = std::array::from_fn(|i| {
             engine::rom_byte(prg, 12, source + 4 * row + u16::try_from(i).expect("small"))
@@ -154,9 +183,10 @@ fn spawn_child(body: &Body, work: &Work, cx: &mut Cx<'_>) {
         return;
     };
     let index = child_index(body, cx);
-    let rom = |table: u16| engine::rom_byte(cx.prg, 12, table);
-    let (subtype, timer) = (rom(SPAWN_TYPES + index), rom(SPAWN_TYPES + index + 1));
-    let (phase, counter) = (rom(SPAWN_STATES + index), rom(SPAWN_STATES + index + 1));
+    let tables = &cx.prg.families.final_boss_part;
+    let pair = usize::from(index >> 1);
+    let (subtype, timer) = tables.spawn_types[pair];
+    let (phase, counter) = tables.spawn_states[pair];
     let child = &mut cx.slots.main[slot];
     child.kind = CHILD;
     let part = &mut child.body;
@@ -187,6 +217,33 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
+    use crate::actor::spawn::SpawnTable;
+
+    /// Every `$B6` record's `subtype` indexes the subtype tables, and no `$68` spawns a `$B6`.
+    #[test]
+    fn every_subtype_is_in_the_tables() {
+        let Some(prg) = crate::prg::for_test() else {
+            return;
+        };
+        let bound = prg.families.final_boss_part.x_offsets.len();
+        let mut checked = 0;
+        for (area, room) in crate::rooms::listed_rooms(prg) {
+            for record in SpawnTable::import(prg, area, room).records.iter().flatten() {
+                assert!(
+                    record.kind != 0x68 || record.subtype != 0xB6,
+                    "area {area} room {room}"
+                );
+                if record.kind == 0xB6 {
+                    assert!(
+                        usize::from(record.subtype) < bound,
+                        "area {area} room {room}"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 0, "no $B6 record");
+    }
 
     /// Frees every `$BA` child slot each loop, so the unported child never runs.
     fn without_children(frame: u64) -> Option<Scene> {

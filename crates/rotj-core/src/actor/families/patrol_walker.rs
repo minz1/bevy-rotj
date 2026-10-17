@@ -7,11 +7,6 @@ use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
 
-/// The walk velocity pair (`$9C2D` low, `$9C2F` high), indexed by `$99` bit 6.
-const WALK_LO: u16 = 0x9C2D;
-const WALK_HI: u16 = 0x9C2F;
-/// The `$7C30` metasprite of `$7DF0 >> 2` while attacking (`$9C31`).
-const ANIM: u16 = 0x9C31;
 /// Metasprite pointers indexed by `$7C30` (`$9C17`, drawn from bank 1).
 const METASPRITES: u16 = 0x9C17;
 /// The muzzle-flash metasprite (`$9C35`, bank 1).
@@ -28,6 +23,26 @@ phases! {
         Charging = 2,
         /// Biting twice, spawning a `$24` child on each bite's 8th frame.
         Biting = 4,
+    }
+}
+
+/// The walker's tables (bank 8).
+pub struct Tables {
+    /// The walk velocity, by the facing bit of `$99` (`$9C2D` low, `$9C2F` high).
+    pub walk_speeds: [i16; 2],
+    /// The bite's sprite, by `timer >> 2` (0-3) (`$9C31`).
+    pub bite_sprites: [u8; 4],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let lo: [u8; 2] = engine::rom_bytes(prg, 8, 0x9C2D);
+        let hi: [u8; 2] = engine::rom_bytes(prg, 8, 0x9C2F);
+        Tables {
+            walk_speeds: std::array::from_fn(|i| i16::from_be_bytes([hi[i], lo[i]])),
+            bite_sprites: engine::rom_bytes(prg, 8, 0x9C31),
+        }
     }
 }
 
@@ -81,12 +96,8 @@ fn drift(probe: Probe) -> i16 {
 }
 
 /// The `$9C2D` walk velocity for the facing bit of `$99`.
-fn walk(attr: u8, prg: &[u8]) -> i16 {
-    let index = u16::from(attr & 0x40 != 0);
-    i16::from_be_bytes([
-        engine::rom_byte(prg, 8, WALK_HI + index),
-        engine::rom_byte(prg, 8, WALK_LO + index),
-    ])
+fn walk(attr: u8, tables: &Tables) -> i16 {
+    tables.walk_speeds[usize::from(attr & 0x40 != 0)]
 }
 
 /// Sets the facing bit of `$99` from the actor-minus-player x difference (`$9972`).
@@ -116,7 +127,7 @@ fn walking(body: &mut Body, work: &mut Work, probe: &mut Probe, flags: u8, cx: &
     }
     face(work, dx);
     if flags & 0x80 == 0 && collision::below(work, probe, cx) & 0x80 != 0 {
-        body.ref_vx = walk(work.attr, cx.prg);
+        body.ref_vx = walk(work.attr, &cx.prg.families.patrol_walker);
         if cx.world.frame.is_multiple_of(8) {
             body.sprite = body.sprite.wrapping_add(1);
         }
@@ -126,7 +137,7 @@ fn walking(body: &mut Body, work: &mut Work, probe: &mut Probe, flags: u8, cx: &
         return;
     }
     body.timer = 1;
-    body.vx = walk(work.attr, cx.prg);
+    body.vx = walk(work.attr, &cx.prg.families.patrol_walker);
     body.ref_vx = 0;
     work.ax = 0;
     work.vy = -0x60;
@@ -184,7 +195,7 @@ fn biting(body: &mut Body, cx: &mut Cx<'_>) {
         return;
     }
     let quarter = body.timer >> 2;
-    body.sprite = engine::rom_byte(cx.prg, 8, ANIM + u16::from(quarter));
+    body.sprite = cx.prg.families.patrol_walker.bite_sprites[usize::from(quarter)];
     if quarter == 2 {
         body.counter = 0x80;
     }

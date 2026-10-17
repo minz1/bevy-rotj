@@ -7,14 +7,34 @@ use crate::actors::STATE_UNTARGETED;
 
 /// The type the handler hands to the highest free main slot.
 const CHILD: u8 = 0xC4;
-/// CPU `$9883`: per-subtype player x high byte the waiting phase's wait ends at.
-const WAIT_TABLE: u16 = 0x9883;
-/// CPU `$9887`: per-subtype `vx_drift`/`vy` pairs the child is thrown with.
-const VELOCITY_TABLE: u16 = 0x9887;
 /// Frames between two spawns (`$7E10` reload at `$9868`).
 const SPAWN_DELAY: u8 = 0x08;
 /// Spawns before the handler frees its own slot (`$7DF0` checked at `$9873`).
 const SPAWN_LIMIT: u8 = 0x10;
+
+/// Type `$C2`'s tables (bank 12), by its spawn record's `subtype` (`0`-`3`).
+pub struct Tables {
+    /// The player x page the wait ends at, by `subtype` (`$9883`).
+    pub wait_x_pages: [u8; 4],
+    /// The child's thrown `(vx_drift, vy)`, by `subtype` (`$9887`).
+    pub velocities: [(i16, i16); 4],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let bytes: [u8; 16] = engine::rom_bytes(prg, 12, 0x9887);
+        Tables {
+            wait_x_pages: engine::rom_bytes(prg, 12, 0x9883),
+            velocities: std::array::from_fn(|i| {
+                (
+                    i16::from_be_bytes([bytes[4 * i + 1], bytes[4 * i]]),
+                    i16::from_be_bytes([bytes[4 * i + 3], bytes[4 * i + 2]]),
+                )
+            }),
+        }
+    }
+}
 
 phases! {
     /// The spawner's phase (`$7DD0`): the game stores its doubled index into `$987F`.
@@ -35,7 +55,8 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
         match Phase::from_byte(body.phase) {
             Some(Phase::Waiting) => {
-                let wait = engine::rom_byte(cx.prg, 12, WAIT_TABLE + u16::from(body.subtype));
+                let wait =
+                    cx.prg.families.drift_wave_spawner.wait_x_pages[usize::from(body.subtype)];
                 if wait == cx.effects.player.x.to_be_bytes()[0] {
                     body.phase = Phase::Spawning.byte();
                 }
@@ -47,15 +68,8 @@ impl State {
                 }
                 if let Some(index) = (0..16).rev().find(|&y| cx.slots.main[y].kind == 0) {
                     let (x, y, subtype) = (body.x, body.y, body.subtype);
-                    let at = u16::from(subtype) * 4;
-                    let drift = u16::from_be_bytes([
-                        engine::rom_byte(cx.prg, 12, VELOCITY_TABLE + 1 + at),
-                        engine::rom_byte(cx.prg, 12, VELOCITY_TABLE + at),
-                    ]);
-                    let velocity = u16::from_be_bytes([
-                        engine::rom_byte(cx.prg, 12, VELOCITY_TABLE + 3 + at),
-                        engine::rom_byte(cx.prg, 12, VELOCITY_TABLE + 2 + at),
-                    ]);
+                    let (drift, velocity) =
+                        cx.prg.families.drift_wave_spawner.velocities[usize::from(subtype)];
                     let child = &mut cx.slots.main[index];
                     child.kind = CHILD;
                     child.body.hit = 0;
@@ -74,8 +88,8 @@ impl State {
                     child.body.x = x;
                     child.body.y = y;
                     child.body.subtype = subtype;
-                    child.body.vx_drift = drift.cast_signed();
-                    child.body.vy = velocity.cast_signed();
+                    child.body.vx_drift = drift;
+                    child.body.vy = velocity;
                 }
                 body.counter = SPAWN_DELAY;
                 body.timer = body.timer.wrapping_add(1);
@@ -93,6 +107,33 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
+    use crate::actor::spawn::SpawnTable;
+
+    /// Every `$C2` spawn record's `subtype` indexes the tables (`$9883`, `$9887`).
+    #[test]
+    fn every_spawned_subtype_is_in_the_tables() {
+        let Some(prg) = crate::prg::for_test() else {
+            return;
+        };
+        let tables = &prg.families.drift_wave_spawner;
+        let mut checked = 0;
+        for (area, room) in crate::rooms::listed_rooms(prg) {
+            for record in SpawnTable::import(prg, area, room).records.iter().flatten() {
+                if record.kind == 0xC2 {
+                    assert!(
+                        usize::from(record.subtype) < tables.wait_x_pages.len(),
+                        "area {area} room {room}"
+                    );
+                    assert!(
+                        usize::from(record.subtype) < tables.velocities.len(),
+                        "area {area} room {room}"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 0, "no $C2 records were checked");
+    }
 
     /// Area 20:00. The runtime spawner hands the `$C2` controller its
     /// highest-free slots; the `$C4` children it spawns (slots 13-15) are

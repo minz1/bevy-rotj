@@ -12,8 +12,6 @@ use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion};
 
-/// The `$94BA` table, indexed by the parent's `$7D90` high nibble.
-const MAP_TABLE: u16 = 0x94BA;
 /// The map page the helper clears two cells of (`$6C00`).
 const MAP_PAGE: u16 = 0x6C00;
 /// The phase a successful first helper call leaves.
@@ -32,6 +30,21 @@ const CHILD_VARIANT: u8 = 6;
 const EFFECT_KIND: u8 = 0x0E;
 /// The helper's `$0181` gate: it only runs once the queue is at least this full.
 const QUEUE_READY: u8 = 0x70;
+
+/// Type `$84`'s tables (bank 0).
+pub struct Tables {
+    /// The map offset, by `behaviour >> 4` (`$94BA`).
+    pub map_table: [u8; 16],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            map_table: engine::rom_bytes(prg, 0, 0x94BA),
+        }
+    }
+}
 
 /// Type `$84` keeps its whole state in [`Body`] (`$7D90` behaviour, `$7DB0`
 /// subtype, `$7DD0` phase, `$7DF0` timer, `$7E10` counter).
@@ -99,8 +112,8 @@ fn helper(body: &mut Body, cx: &mut Cx<'_>) -> u8 {
         .push(0x2300 | u16::from(timer | 0x20), 0, &[0; 4]);
 
     let behaviour = body.behaviour;
-    let offset =
-        engine::rom_byte(cx.prg, 0, MAP_TABLE + u16::from(behaviour >> 4)) | (behaviour & 0x0E);
+    let offset = cx.prg.families.collapsing_floor_controller.map_table[usize::from(behaviour >> 4)]
+        | (behaviour & 0x0E);
     let at = usize::from((MAP_PAGE | u16::from(offset)) - 0x6000);
     cx.effects.level.map[at] = 0;
     cx.effects.level.map[at + 1] = 0;

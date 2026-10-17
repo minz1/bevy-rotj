@@ -13,11 +13,32 @@ const CHILD: u8 = 0x52;
 const COUNTDOWN: u8 = 0xC0;
 const FINAL_AREA: u8 = 0x22;
 const SPAWN_SOUND: u8 = 0x23;
-/// The `$52` spawn deltas (`$9CE4`/`$9CEA` x, `$9CF0`/`$9CF6` y), by `$7E10`.
-const X_LO: u16 = 0x9CE4;
-const X_HI: u16 = 0x9CEA;
-const Y_LO: u16 = 0x9CF0;
-const Y_HI: u16 = 0x9CF6;
+
+/// Type `$50`'s `$52` spawn offsets (bank 11), by the offset index `counter` (0-5).
+pub struct Tables {
+    /// The x offset, low/high (`$9CE4`/`$9CEA`).
+    pub child_x_offsets: [u16; 6],
+    /// The y offset, low/high (`$9CF0`/`$9CF6`).
+    pub child_y_offsets: [u16; 6],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let (x_lo, x_hi): ([u8; 6], [u8; 6]) = (
+            engine::rom_bytes(prg, 11, 0x9CE4),
+            engine::rom_bytes(prg, 11, 0x9CEA),
+        );
+        let (y_lo, y_hi): ([u8; 6], [u8; 6]) = (
+            engine::rom_bytes(prg, 11, 0x9CF0),
+            engine::rom_bytes(prg, 11, 0x9CF6),
+        );
+        Tables {
+            child_x_offsets: std::array::from_fn(|i| u16::from_be_bytes([x_hi[i], x_lo[i]])),
+            child_y_offsets: std::array::from_fn(|i| u16::from_be_bytes([y_hi[i], y_lo[i]])),
+        }
+    }
+}
 
 /// Type `$50` keeps no state of its own: [`Body::anim`] counts its frames up from 1
 /// (`$B1C4`), trying a spawn when a multiple of 4 and sounding when a multiple of 32;
@@ -76,10 +97,11 @@ fn spawn_52(body: &mut Body, cx: &mut Cx<'_>) {
 /// The free slot and position the child takes, or `None` when the offset leaves
 /// the map (`$9C8A`/`$9C9F`) or no slot is free (`$9CAD`).
 fn child_slot(body: &Body, cx: &Cx<'_>) -> Option<(usize, u16, u16)> {
-    let index = u16::from(body.counter);
+    let tables = &cx.prg.families.boss_defeated_script;
+    let index = usize::from(body.counter);
     let (source_x, source_y) = position(cx, usize::from(body.timer));
-    let x = source_x.wrapping_add(delta(cx.prg, X_LO, X_HI, index));
-    let y = source_y.wrapping_add(delta(cx.prg, Y_LO, Y_HI, index));
+    let x = source_x.wrapping_add(tables.child_x_offsets[index]);
+    let y = source_y.wrapping_add(tables.child_y_offsets[index]);
     if x.to_be_bytes()[0] & 0xF0 != 0 || y.to_be_bytes()[0] & 0xF0 != 0 {
         return None;
     }
@@ -94,12 +116,6 @@ fn position(cx: &Cx<'_>, slot: usize) -> (u16, u16) {
         word(Field::XHigh, Field::XLow),
         word(Field::YHigh, Field::YLow),
     )
-}
-
-/// One `$9CE4`-style delta, low byte at `lo`, high byte at `hi`.
-fn delta(prg: &[u8], lo: u16, hi: u16, index: u16) -> u16 {
-    (u16::from(engine::rom_byte(prg, 11, hi + index)) << 8)
-        | u16::from(engine::rom_byte(prg, 11, lo + index))
 }
 
 #[cfg(test)]

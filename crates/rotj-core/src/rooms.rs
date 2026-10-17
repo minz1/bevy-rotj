@@ -175,52 +175,61 @@ impl Room {
     }
 }
 
+/// Every room the per-area tables list, as `(area, room)`: the tables (bank 14 from `$DA18`)
+/// are contiguous, so each area's rooms run to the next table, the last to the first record.
+#[cfg(test)]
+pub(crate) fn listed_rooms(prg: &[u8]) -> Vec<(u8, u8)> {
+    let word = |addr: u16| {
+        let bytes = bank_slice(prg, 14, addr & 0x1FFF).expect("bank 14");
+        u16::from_le_bytes([bytes[0], bytes[1]])
+    };
+    let areas = (word(0xDA18) - 0xDA18) / 2;
+    let tables: Vec<u16> = (0..areas).map(|area| word(0xDA18 + 2 * area)).collect();
+    let first_record = tables
+        .iter()
+        .map(|&table| word(table))
+        .min()
+        .expect("a table");
+    let mut rooms = Vec::new();
+    for (area, &table) in (0u8..).step_by(2).zip(&tables) {
+        let end = tables
+            .iter()
+            .copied()
+            .filter(|&other| other > table)
+            .min()
+            .unwrap_or(first_record);
+        let count = usize::from((end - table) / 2);
+        rooms.extend((0u8..).step_by(2).take(count).map(|room| (area, room)));
+    }
+    rooms
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     /// Every room the screen tables list imports: their flag bytes are 0 or `$80` and their
-    /// arrivals one of the three. The per-area tables (bank 14 from `$DA18`) are contiguous,
-    /// so each area's room count runs to the next table, the last to the first record.
+    /// arrivals one of the three.
     #[test]
     fn every_listed_room_imports() {
         let Some(rom) = rotj_rom::for_test() else {
             return;
         };
         let prg = &rom.prg;
-        let word = |addr: u16| {
-            let bytes = bank_slice(prg, 14, addr & 0x1FFF).expect("bank 14");
-            u16::from_le_bytes([bytes[0], bytes[1]])
-        };
-        let areas = (word(0xDA18) - 0xDA18) / 2;
-        let tables: Vec<u16> = (0..areas).map(|area| word(0xDA18 + 2 * area)).collect();
-        let first_record = tables
-            .iter()
-            .map(|&table| word(table))
-            .min()
-            .expect("a table");
-        let (mut rooms, mut empty) = (0, 0);
-        for (area, &table) in (0u8..).step_by(2).zip(&tables) {
-            let end = tables
-                .iter()
-                .copied()
-                .filter(|&other| other > table)
-                .min()
-                .unwrap_or(first_record);
-            for room in (0u8..).step_by(2).take(usize::from((end - table) / 2)) {
-                let layout = Room::import(prg, area, room)
-                    .unwrap_or_else(|| panic!("area {area} room {room}"));
-                if layout.raster.is_none() {
-                    assert_eq!(layout.arrival, Arrival::Unchanged);
-                    assert_eq!(
-                        (layout.fixed_rows, layout.fixed_quads),
-                        ([false; 16], [false; 8])
-                    );
-                    empty += 1;
-                }
-                rooms += 1;
+        let rooms = listed_rooms(prg);
+        let mut empty = 0;
+        for &(area, room) in &rooms {
+            let layout =
+                Room::import(prg, area, room).unwrap_or_else(|| panic!("area {area} room {room}"));
+            if layout.raster.is_none() {
+                assert_eq!(layout.arrival, Arrival::Unchanged);
+                assert_eq!(
+                    (layout.fixed_rows, layout.fixed_quads),
+                    ([false; 16], [false; 8])
+                );
+                empty += 1;
             }
         }
-        assert_eq!((rooms, empty), (36, 22));
+        assert_eq!((rooms.len(), empty), (36, 22));
     }
 }

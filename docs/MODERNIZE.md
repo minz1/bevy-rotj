@@ -212,6 +212,16 @@ New candidates, each to be classified (state, flags, table index) before it chan
   path to `Cx` takes `&Prg`; the hitboxes are `engine::Hitboxes` (the survey's 12 reads plus
   `touch`'s `$AF2A`/`$AF31`, which it missed). Next: the family constants, then the player
   and weapons, each as fields on `Prg`.
+  Slice 2 (1.1.9, `docs/specs/2026-10-17-family-tables-design.md`): 29 families' constant
+  tables are `<family>::Tables` on `prg.families`; bank 14's `$C5F2/$C6F2` was `x << 4` and
+  is a shift. **A lead:** `path_platform`'s tables are sized by their masks (`carries` 256
+  records, `jump_positions` 128) because the directions and jumps come from ROM path data
+  read through a pointer; a test walking every path's turn bytes would shrink them (the
+  directions look like 0-4), and the step's hard-coded `carry` array looks like the same data
+  as `$92AF`'s first four records. **Cleanup for slice 3:** about 18 imports hand-roll
+  `from_fn(|i| u16::from_be_bytes([hi[i], lo[i]]))` over two `rom_bytes` columns
+  (`final_boss::split_words` is one local copy); one `engine` helper for split hi/lo words (and
+  one for 4-byte pair records) would make each a line.
 - **The overflow flag carried between routines**: `Work::cpu_overflow` mirrors the 6502's V
   for one reader, `$9790` (weapon 5's charge waits while V is set), which sees whatever
   the last V-setting routine left (`bit`'s 52 callers in `player.rs`, the OAM draw, the

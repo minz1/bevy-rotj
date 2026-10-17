@@ -7,12 +7,26 @@ use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion, stage_script};
 
-const WALK_FRAMES: u16 = 0x9DF5;
 const NO_CLAMP: u8 = 0xFF;
 const STEP: u16 = 0x20;
 const DRIFT: u16 = 0x0A;
 const Y_MAX: u8 = 0x0C;
 const Y_MIN: u8 = 0x04;
+
+/// Type `$54`'s tables (bank 11).
+pub struct Tables {
+    /// The player's walk frame, by `(frame >> 1) & 3` (`$9DF5`).
+    pub walk_frames: [u8; 4],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            walk_frames: engine::rom_bytes(prg, 11, 0x9DF5),
+        }
+    }
+}
 
 /// Type `$54` keeps no state of its own.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -61,8 +75,8 @@ impl State {
                 }
             }
         }
-        let index = u16::from((cx.world.frame & 0x06) >> 1);
-        player.anim = engine::rom_byte(cx.prg, 11, WALK_FRAMES + index);
+        let index = usize::from((cx.world.frame & 0x06) >> 1);
+        player.anim = cx.prg.families.flight_steer.walk_frames[index];
     }
 }
 

@@ -14,11 +14,6 @@ use crate::actor::world::{Cx, Motion};
 const METASPRITES: u16 = 0x87C1;
 /// Second-draw metasprite pointers (`$87E0`), by `$7C30 * 2` (`0` when bit 7 set).
 const SECOND_METASPRITES: u16 = 0x87E0;
-/// The animating phase's table (`$87CB`), by `$7DB0 >> 3`.
-const ANIMATION: u16 = 0x87CB;
-/// The `$A8` parts' phases (`$87E8`) and timers (`$87EA`), by the spawn index.
-const CHILD_PHASE: u16 = 0x87E8;
-const CHILD_TIMER: u16 = 0x87EA;
 /// `$C229` maps bank 9 into `$A000` for the draws.
 const DRAW_BANK: u8 = 9;
 /// The CHR shadows the tail sets before the draws (`$E6`/`$E7`).
@@ -28,6 +23,27 @@ const CHR_7: u8 = 0xC7;
 const CONTACT: u16 = 0x0190;
 /// The `$42` request when an `$A8` part spawns (`$8748`).
 const SPAWN_SOUND: u8 = 0x2B;
+
+/// Type `$A6`'s tables (bank 12).
+pub struct Tables {
+    /// The animating phase's `sprite`, by `subtype >> 3` (`0`-`20`) (`$87CB`).
+    pub animation: [u8; 21],
+    /// The `$A8` part's phase, by its spawn index (`0` or `1`) (`$87E8`).
+    pub child_phases: [u8; 2],
+    /// The `$A8` part's timer, by its spawn index (`0` or `1`) (`$87EA`).
+    pub child_timers: [u8; 2],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        Tables {
+            animation: engine::rom_bytes(prg, 12, 0x87CB),
+            child_phases: engine::rom_bytes(prg, 12, 0x87E8),
+            child_timers: engine::rom_bytes(prg, 12, 0x87EA),
+        }
+    }
+}
 
 phases! {
     /// The boss's phase (`$7DD0`), which picks its handler (`$87C5`).
@@ -179,7 +195,7 @@ fn steer_end(body: &mut Body, work: &mut Work) {
 
 /// `$869E`: run the `$87CB` animation until `$7DB0` reaches `$A8`, then re-dive.
 fn animating(body: &mut Body, cx: &mut Cx<'_>) {
-    body.sprite = engine::rom_byte(cx.prg, 12, ANIMATION + u16::from(body.subtype >> 3));
+    body.sprite = cx.prg.families.stage6_boss.animation[usize::from(body.subtype >> 3)];
     body.subtype = body.subtype.wrapping_add(1);
     if body.subtype >= 0xA8 {
         let lo = if body.anim & 0x80 == 0 { 0x10 } else { 0xF0 };
@@ -199,8 +215,11 @@ fn spawn_a8(work: &Work, cx: &mut Cx<'_>) -> u8 {
         };
         spawn_index = part;
         cx.effects.sound[0] = SPAWN_SOUND;
-        let phase = engine::rom_byte(cx.prg, 12, CHILD_PHASE + u16::from(part));
-        let timer = engine::rom_byte(cx.prg, 12, CHILD_TIMER + u16::from(part));
+        let tables = &cx.prg.families.stage6_boss;
+        let (phase, timer) = (
+            tables.child_phases[usize::from(part)],
+            tables.child_timers[usize::from(part)],
+        );
         let child = &mut cx.slots.main[slot];
         let part_body = &mut child.body;
         (part_body.phase, part_body.timer) = (phase, timer);

@@ -11,9 +11,6 @@ use crate::actors::CELL_PENDING;
 const METASPRITES: u16 = 0x9813;
 /// The muzzle-flash metasprite (bank 8 `$981D`).
 const SHOT: u16 = 0x981D;
-/// The left/right vx pair (bank 8 `$981F` low, `$9821` high).
-const TURN_LO: u16 = 0x981F;
-const TURN_HI: u16 = 0x9821;
 /// The child spawned at `$97FF`.
 const CHILD: u8 = 0x24;
 
@@ -28,6 +25,23 @@ phases! {
         Firing = 2,
         /// The recoil jump, until it lands.
         Recoiling = 3,
+    }
+}
+
+/// The soldier's tables (bank 8).
+pub struct Tables {
+    /// The recoil jump's x velocity, by its facing bit (`$981F` low, `$9821` high).
+    pub turn_speeds: [i16; 2],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let lo: [u8; 2] = engine::rom_bytes(prg, 8, 0x981F);
+        let hi: [u8; 2] = engine::rom_bytes(prg, 8, 0x9821);
+        Tables {
+            turn_speeds: std::array::from_fn(|i| i16::from_be_bytes([hi[i], lo[i]])),
+        }
     }
 }
 
@@ -98,9 +112,7 @@ fn idling(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
         } else {
             u8::from(work.attr & 0x40 == 0)
         };
-        let hi = engine::rom_byte(cx.prg, 8, TURN_HI + u16::from(turn));
-        let lo = engine::rom_byte(cx.prg, 8, TURN_LO + u16::from(turn));
-        body.vx = i16::from_be_bytes([hi, lo]);
+        body.vx = cx.prg.families.crate_soldier.turn_speeds[usize::from(turn)];
         work.vy = -0x60;
         body.phase = Phase::Recoiling.byte();
     }

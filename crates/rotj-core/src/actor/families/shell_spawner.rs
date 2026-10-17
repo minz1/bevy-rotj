@@ -21,6 +21,26 @@ const CHILD_Y: u16 = 0x0A80;
 const CHILD_CONTACT: u8 = 0x10;
 const CHILD_HEALTH: u16 = 3;
 
+/// The spawner's tables (bank 11), by the side `timer` toggles (0 or 1).
+pub struct Tables {
+    /// The released child's x high byte, by `timer` (`$9B5C`).
+    pub side_x_high: [u8; 2],
+    /// The child's x velocity, by `timer` (`$9B5E`, `$9B60`).
+    pub side_vx: [i16; 2],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let vx_low: [u8; 2] = engine::rom_bytes(prg, BANK, SIDE_VX_LOW);
+        let vx_high: [u8; 2] = engine::rom_bytes(prg, BANK, SIDE_VX_HIGH);
+        Tables {
+            side_x_high: engine::rom_bytes(prg, BANK, SIDE_X_HIGH),
+            side_vx: std::array::from_fn(|i| i16::from_be_bytes([vx_high[i], vx_low[i]])),
+        }
+    }
+}
+
 /// Type `$4C` keeps its whole state in [`Body`] (`$7DD0`, `$7DF0`, `$7E10`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -42,15 +62,13 @@ impl State {
         let parent = own_slot(cx);
         body.phase = FIRED;
         body.timer ^= 1;
-        let side = u16::from(body.timer);
-        let x_high = engine::rom_byte(cx.prg, BANK, SIDE_X_HIGH + side);
-        let vx_low = engine::rom_byte(cx.prg, BANK, SIDE_VX_LOW + side);
-        let vx_high = engine::rom_byte(cx.prg, BANK, SIDE_VX_HIGH + side);
+        let tables = &cx.prg.families.shell_spawner;
+        let side = usize::from(body.timer);
         let slot = &mut cx.slots.main[child];
         slot.kind = CHILD;
         slot.brain = Brain::new(CHILD);
         let spawned = &mut slot.body;
-        spawned.x = u16::from_be_bytes([x_high, CHILD_X_LOW]);
+        spawned.x = u16::from_be_bytes([tables.side_x_high[side], CHILD_X_LOW]);
         spawned.y = CHILD_Y;
         spawned.vy = 0;
         spawned.health = CHILD_HEALTH;
@@ -58,7 +76,7 @@ impl State {
         spawned.hit = 0;
         spawned.state = 0;
         spawned.contact = CHILD_CONTACT;
-        spawned.vx_drift = i16::from_be_bytes([vx_high, vx_low]);
+        spawned.vx_drift = tables.side_vx[side];
         spawned.anim = parent;
     }
 }

@@ -153,15 +153,126 @@ use crate::actor::world::Cx;
 
 /// The families' behaviour tables, imported from the PRG.
 pub struct Tables {
+    /// [`ace_ranger`]'s.
+    pub ace_ranger: ace_ranger::Tables,
+    /// [`ace_ranger_shot`]'s.
+    pub ace_ranger_shot: ace_ranger_shot::Tables,
+    /// [`boss_defeated_script`]'s.
+    pub boss_defeated_script: boss_defeated_script::Tables,
+    /// [`collapsing_floor_controller`]'s.
+    pub collapsing_floor_controller: collapsing_floor_controller::Tables,
+    /// [`crate_soldier`]'s.
+    pub crate_soldier: crate_soldier::Tables,
+    /// [`drift_shot`]'s.
+    pub drift_shot: drift_shot::Tables,
+    /// [`drift_wave_spawner`]'s.
+    pub drift_wave_spawner: drift_wave_spawner::Tables,
+    /// [`dropper`]'s.
+    pub dropper: dropper::Tables,
+    /// [`enemy_shot`]'s.
+    pub enemy_shot: enemy_shot::Tables,
+    /// [`final_boss`]'s.
+    pub final_boss: final_boss::Tables,
+    /// [`final_boss_defeat`]'s.
+    pub final_boss_defeat: final_boss_defeat::Tables,
+    /// [`final_boss_part`]'s.
+    pub final_boss_part: final_boss_part::Tables,
+    /// [`flight_steer`]'s.
+    pub flight_steer: flight_steer::Tables,
+    /// [`harmless_burst`]'s.
+    pub harmless_burst: harmless_burst::Tables,
+    /// [`hazard_dropper`]'s.
+    pub hazard_dropper: hazard_dropper::Tables,
+    /// [`hop_thrower_shot`]'s.
+    pub hop_thrower_shot: hop_thrower_shot::Tables,
+    /// [`ledge_walker`]'s.
+    pub ledge_walker: ledge_walker::Tables,
+    /// [`lunging_enemy`]'s.
+    pub lunging_enemy: lunging_enemy::Tables,
+    /// [`path_platform`]'s.
+    pub path_platform: path_platform::Tables,
+    /// [`patrol_walker`]'s.
+    pub patrol_walker: patrol_walker::Tables,
+    /// [`scenery_spawner`]'s.
+    pub scenery_spawner: scenery_spawner::Tables,
+    /// [`shell_spawner`]'s.
+    pub shell_spawner: shell_spawner::Tables,
+    /// [`spike_probe`]'s.
+    pub spike_probe: spike_probe::Tables,
+    /// [`spinner`]'s.
+    pub spinner: spinner::Tables,
+    /// [`spit_shot`]'s.
+    pub spit_shot: spit_shot::Tables,
+    /// [`spitter`]'s.
+    pub spitter: spitter::Tables,
+    /// [`stage3_boss`]'s.
+    pub stage3_boss: stage3_boss::Tables,
+    /// [`stage3_boss_shot`]'s.
+    pub stage3_boss_shot: stage3_boss_shot::Tables,
+    /// [`stage4_boss`]'s.
+    pub stage4_boss: stage4_boss::Tables,
+    /// [`stage4_boss_shot`]'s.
+    pub stage4_boss_shot: stage4_boss_shot::Tables,
+    /// [`stage6_boss`]'s.
+    pub stage6_boss: stage6_boss::Tables,
+    /// [`stage6_boss_death_part`]'s.
+    pub stage6_boss_death_part: stage6_boss_death_part::Tables,
     /// [`stomper`]'s.
     pub stomper: stomper::Tables,
+    /// [`swinging_hazard`]'s.
+    pub swinging_hazard: swinging_hazard::Tables,
+    /// [`table_bobber`]'s.
+    pub table_bobber: table_bobber::Tables,
+    /// [`volley_shot`]'s.
+    pub volley_shot: volley_shot::Tables,
+    /// [`volley_thrower`]'s.
+    pub volley_thrower: volley_thrower::Tables,
+    /// [`waypoint_platform`]'s.
+    pub waypoint_platform: waypoint_platform::Tables,
 }
 
 impl Tables {
     /// Reads every family's tables.
     pub(crate) fn import(prg: &[u8]) -> Tables {
         Tables {
+            ace_ranger: ace_ranger::Tables::import(prg),
+            ace_ranger_shot: ace_ranger_shot::Tables::import(prg),
+            boss_defeated_script: boss_defeated_script::Tables::import(prg),
+            collapsing_floor_controller: collapsing_floor_controller::Tables::import(prg),
+            crate_soldier: crate_soldier::Tables::import(prg),
+            drift_shot: drift_shot::Tables::import(prg),
+            drift_wave_spawner: drift_wave_spawner::Tables::import(prg),
+            dropper: dropper::Tables::import(prg),
+            enemy_shot: enemy_shot::Tables::import(prg),
+            final_boss: final_boss::Tables::import(prg),
+            final_boss_defeat: final_boss_defeat::Tables::import(prg),
+            final_boss_part: final_boss_part::Tables::import(prg),
+            flight_steer: flight_steer::Tables::import(prg),
+            harmless_burst: harmless_burst::Tables::import(prg),
+            hazard_dropper: hazard_dropper::Tables::import(prg),
+            hop_thrower_shot: hop_thrower_shot::Tables::import(prg),
+            ledge_walker: ledge_walker::Tables::import(prg),
+            lunging_enemy: lunging_enemy::Tables::import(prg),
+            path_platform: path_platform::Tables::import(prg),
+            patrol_walker: patrol_walker::Tables::import(prg),
+            scenery_spawner: scenery_spawner::Tables::import(prg),
+            shell_spawner: shell_spawner::Tables::import(prg),
+            spike_probe: spike_probe::Tables::import(prg),
+            spinner: spinner::Tables::import(prg),
+            spit_shot: spit_shot::Tables::import(prg),
+            spitter: spitter::Tables::import(prg),
+            stage3_boss: stage3_boss::Tables::import(prg),
+            stage3_boss_shot: stage3_boss_shot::Tables::import(prg),
+            stage4_boss: stage4_boss::Tables::import(prg),
+            stage4_boss_shot: stage4_boss_shot::Tables::import(prg),
+            stage6_boss: stage6_boss::Tables::import(prg),
+            stage6_boss_death_part: stage6_boss_death_part::Tables::import(prg),
             stomper: stomper::Tables::import(prg),
+            swinging_hazard: swinging_hazard::Tables::import(prg),
+            table_bobber: table_bobber::Tables::import(prg),
+            volley_shot: volley_shot::Tables::import(prg),
+            volley_thrower: volley_thrower::Tables::import(prg),
+            waypoint_platform: waypoint_platform::Tables::import(prg),
         }
     }
 }
