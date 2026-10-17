@@ -29,8 +29,6 @@ const TRIGGER_HI: u8 = 0x02;
 /// `$7DF0` once the knock-back has fired (`$87AD`).
 const TRIGGERED: u8 = 0x80;
 
-/// `$7DD0` bit 7: it has been drawn on screen, so leaving the screen frees it.
-const DRAWN: u8 = 0x80;
 /// Type `$6A` keeps its whole state in [`Body`]. `$7DD0` is only an "it was on
 /// screen" flag (`$80`), read back by the shared off-screen tail at `$8908`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -47,7 +45,7 @@ impl State {
         engine::integrate(body, work);
         if engine::on_screen(work, cx.world) != Visibility::On {
             // `$87F0` -> `$8908`: free a slot that has been drawn, else store.
-            if body.phase & DRAWN != 0 {
+            if body.phase & engine::DRAWN != 0 {
                 *kind = 0;
             } else {
                 engine::store(body, work);
@@ -67,7 +65,7 @@ impl State {
                 ]);
             }
         }
-        body.phase = DRAWN;
+        body.phase = engine::DRAWN;
         work.pointer = engine::rom_word(cx.prg, 0, METASPRITE_PTR);
         engine::tile_bits(work, cx.prg);
         engine::draw(work, DRAW_BANK, cx);

@@ -13,8 +13,6 @@ const DRIFT: i16 = -32;
 /// The kind the dying path turns it into (`$8951`); its handler is bank 0 `$89B1`.
 const CONTINUATION: u8 = 0x70;
 
-/// `$7DD0` bit 7: it has been drawn on screen, so leaving the screen frees it.
-const DRAWN: u8 = 0x80;
 /// Type `$6E` keeps its whole state in [`Body`]. `$7DD0` is only an "it was on
 /// screen" flag (`$80`), read back by the shared off-screen tail at `$8908`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -41,14 +39,14 @@ impl State {
         engine::integrate(body, work);
         if engine::on_screen(work, cx.world) != Visibility::On {
             // `$8908`: once it has been drawn, leaving the screen frees it.
-            if body.phase & DRAWN != 0 {
+            if body.phase & engine::DRAWN != 0 {
                 *kind = 0;
             } else {
                 engine::store(body, work);
             }
             return;
         }
-        body.phase = DRAWN;
+        body.phase = engine::DRAWN;
         let index = 2 * u16::from(cx.world.frame & 0x08 != 0);
         work.pointer = engine::rom_word(cx.prg, 0, METASPRITES + index);
         engine::tile_bits(work, cx.prg);

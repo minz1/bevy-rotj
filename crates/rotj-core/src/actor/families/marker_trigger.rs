@@ -1,5 +1,5 @@
 //! Type `$78`, a stage-8 controller (bank 0 `$8D4F`): while the player is above
-//! row `$0C` it idles at phase 0; once he reaches that row it spawns one `$7A`
+//! row `$0C` it idles ([`WAITING`]); once he reaches that row it spawns one `$7A`
 //! marker at his x and row `$0C` (the bank-0 helper `$8D84`, shared with `$7C`
 //! and `$7E`), latches its phase to `$80` so it spawns only once, and frees its
 //! slot when the player is in motion 7 (the level end).

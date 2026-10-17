@@ -21,8 +21,6 @@ const HITBOX: u8 = 0x0C;
 /// Contact damage.
 const DAMAGE: u8 = 4;
 
-/// `$7DD0` bit 7: it has been drawn on screen, so leaving the screen frees it.
-const DRAWN: u8 = 0x80;
 /// Type `$64` keeps its whole state in [`Body`] (`$7DD0`, `$7DF0`, `$7E70:$7E80`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -40,14 +38,14 @@ impl State {
         engine::integrate(body, work);
         if engine::on_screen(work, cx.world) != Visibility::On {
             // `$8660` -> `$8908`: free a slot that has been drawn, else just store.
-            if body.phase & DRAWN != 0 {
+            if body.phase & engine::DRAWN != 0 {
                 *kind = 0;
             } else {
                 engine::store(body, work);
             }
             return;
         }
-        body.phase = DRAWN;
+        body.phase = engine::DRAWN;
         work.pointer = engine::rom_word(cx.prg, 0, METASPRITE_PTR);
         work.screen_y = work.screen_y.wrapping_add(engine::rom_byte(
             cx.prg,

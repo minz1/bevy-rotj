@@ -18,13 +18,13 @@ use crate::actors::STATE_UNTARGETED;
 /// `$9251`: the metasprite pointer, overlapping words indexed by `$7C30`.
 const METASPRITES: u16 = 0x9251;
 /// `$9257`: the idling vy low every `$7E90` 8-15 (index `$7E90 - 8`).
-const PHASE0_VY: u16 = 0x9257;
+const IDLING_VY: u16 = 0x9257;
 /// `$925F`/`$926B`: the swinging vy low/high with `$7D90` bit 7 clear (index `$7E90`).
-const PHASE2_VY: (u16, u16) = (0x925F, 0x926B);
+const SWINGING_VY: (u16, u16) = (0x925F, 0x926B);
 /// `$9277`/`$927F`: the swinging vy low/high with `$7D90` bit 7 set.
-const PHASE2_VY_SET: (u16, u16) = (0x9277, 0x927F);
+const SWINGING_VY_SET: (u16, u16) = (0x9277, 0x927F);
 /// `$9287`/`$928F`: the falling grounded vy low/high (index `$F1 & 7`).
-const PHASE3_VY: (u16, u16) = (0x9287, 0x928F);
+const FALLING_VY: (u16, u16) = (0x9287, 0x928F);
 /// `$84CA` maps bank 9 at `$A000` for the draw.
 const DRAW_BANK: u8 = 9;
 /// The hit box and damage of the tail's `$AEE3` touch.
@@ -92,7 +92,7 @@ fn idling(body: &mut Body, cx: &Cx<'_>) {
     if timer < 0x08 {
         body.vy = 0;
     } else if timer < 0x10 {
-        let low = engine::rom_byte(cx.prg, 0, PHASE0_VY + u16::from(timer.wrapping_sub(0x08)));
+        let low = engine::rom_byte(cx.prg, 0, IDLING_VY + u16::from(timer.wrapping_sub(0x08)));
         body.vy = i16::from_be_bytes([0, low]);
     } else {
         body.phase = Phase::Rising.byte();
@@ -131,14 +131,14 @@ fn swinging(body: &mut Body, cx: &Cx<'_>) {
             body.anim = 0x80;
             return;
         }
-        PHASE2_VY
+        SWINGING_VY
     } else {
         if time >= 0x08 {
             body.vy = 0;
             body.phase = Phase::Falling.byte();
             return;
         }
-        PHASE2_VY_SET
+        SWINGING_VY_SET
     };
     let low = engine::rom_byte(cx.prg, 0, low_table + u16::from(time));
     let high = engine::rom_byte(cx.prg, 0, high_table + u16::from(time));
@@ -153,8 +153,8 @@ fn falling(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     work.y = work.y.wrapping_sub(0x40);
     if below & 0x80 != 0 {
         let index = u16::from(cx.world.frame & 0x07);
-        let low = engine::rom_byte(cx.prg, 0, PHASE3_VY.0 + index);
-        let high = engine::rom_byte(cx.prg, 0, PHASE3_VY.1 + index);
+        let low = engine::rom_byte(cx.prg, 0, FALLING_VY.0 + index);
+        let high = engine::rom_byte(cx.prg, 0, FALLING_VY.1 + index);
         body.vy = i16::from_be_bytes([high, low]);
         body.vx_drift = if body.behaviour & 0x01 == 0 {
             i16::from_be_bytes([0xFF, 0xF0])

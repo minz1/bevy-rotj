@@ -3,8 +3,8 @@
 //! counter selects, and frees its own slot at phase `$10` or once off screen.
 //!
 //! It is put in its slot by the shared bank-0 `$8D84` spawner (`STA $7CC0,y` at
-//! `$8DAC`), which its parents call: the `$7C` handler in phase 0 (mostly) and
-//! phase 3, and the `$7E` handler in phase 6. The `$78` handler also calls it but
+//! `$8DAC`), which its parents call: the `$7C` handler while waiting (mostly) and
+//! falling, and the `$7E` handler when spawning. The `$78` handler also calls it but
 //! never spawns in the TAS, so it is not a `$7A` parent there.
 //!
 //! It calls only routines already in `docs/ACTORS.md` §9c: `$A000` (`load`),

@@ -67,6 +67,10 @@ const MARGIN: i32 = 128 * 16;
 const BOTTOM_BAND: i32 = 80 * 16;
 const FAR_BELOW: i32 = 384 * 16;
 
+/// `$7DD0` bit 7 in the families that free themselves on leaving the screen once drawn:
+/// it has been drawn.
+pub const DRAWN: u8 = 0x80;
+
 /// A byte of PRG `bank` at a CPU address.
 pub(crate) fn rom_byte(prg: &[u8], bank: u8, addr: u16) -> u8 {
     bank_slice(prg, bank, addr & 0x1FFF).expect("address inside PRG")[0]

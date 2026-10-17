@@ -2,7 +2,7 @@
 //!
 //! Phases through the table at `$910D` (`$7DD0`, [`Phase`]); every phase ends in the
 //! shared draw/contact tail at `$8EDB`. It spawns type `$3A` parts into slots
-//! 16-23 (`$8FB9`) and, from phase 2, type `$3C` parts into slots 0-15 (`$909B`).
+//! 16-23 (`$8FB9`) and, from [`Phase::Hovering`] on, type `$3C` parts into slots 0-15 (`$909B`).
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};

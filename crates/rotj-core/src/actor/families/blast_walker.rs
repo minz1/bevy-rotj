@@ -54,7 +54,8 @@ impl State {
         }
         work.attr |= body.flags;
         engine::integrate(body, work);
-        let ended = match Phase::from_byte(body.phase) {
+        // The game's `ASL` table index drops bit 7.
+        let ended = match Phase::from_byte(body.phase & 0x7F) {
             Some(Phase::Waiting) => waiting(body, work, cx),
             Some(Phase::Dwelling) => {
                 dwelling(body, work);
