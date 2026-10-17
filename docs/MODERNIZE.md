@@ -187,14 +187,6 @@ oracle, the music driver and the 2A03 synth.
 New candidates, each to be classified (state, flags, table index) before it changes
 (`docs/specs/2026-10-16-modernisation-roadmap-design.md`):
 
-- **The pad's bits.** 56 tests of `pad & 0x..`, `pad_hi & 0x..`, `pressed & 0x..` across the
-  player, weapons, scripts and families read the game's `$F6` order as literals (A `$80`,
-  B `$40`, Select `$20`, Start `$10`, Up `$08`, Down `$04`, Left `$02`, Right `$01`). A
-  `Pad` newtype with named bits, shared with the app's `NesButtons::game_byte`, makes them
-  readable now and is the seam for input as actions (B4).
-- **The player's pose byte** (`$047F`): 82 reads and writes in `player.rs`, a flag set and a
-  saved motion in one byte (bit 7 turning, bit 6 the shot pose, bit 5 resume, bits 0-3 the
-  saved `Motion`). A `Pose` newtype with named bits and `saved_motion()`/`resume_with()`.
 - **The player's other flag bytes**: `stage_script` (`$0481`: bit 7 freezes him and clears
   the pads, bit 6 skips the projection), `effects.busy` (`$AF`), `effects.attack` (`$B8`),
   `flags[0..3]` (the contact gates): named bits.
@@ -203,13 +195,11 @@ New candidates, each to be classified (state, flags, table index) before it chan
 - **Runtime ROM tables** (about 390 `rom_byte`/`rom_word` reads in 90 files): velocities,
   hitboxes, metasprite pointers, per-motion offsets. Typed data the level importer
   produces (roadmap A3, B1), which new content and kaizo levels need.
-- **Family file names** (`families/k08.rs` .. `kc6.rs`, named by kind byte): the actor's
-  name, the kind byte a constant (roadmap step 6).
 - **Helper names in `player.rs`** still shaped by the probe they call: `solid_below`
   (probes two tiles off the player's y; check the axis before naming it), `stun`, `bit`
   (the 6502 `BIT` flag mirror kept for its N/V side effects: name what each caller tests).
 
-### Done in 1.1.x (2026-10-16)
+### Done in 1.1.x (2026-10-16, released as 1.1.1)
 
 - #9 the duplicate `integrate` (`k08`, `k92`) is `engine::move_by_velocity`.
 - #10 the 12 "every set's first colour" loops are `world::set_first_colours`. The three
@@ -224,6 +214,17 @@ New candidates, each to be classified (state, flags, table index) before it chan
   `harmless_burst.rs`, `Brain::K38` → `Brain::AceRanger`, ...), from two read-only surveys
   that checked the uncertain names against the handlers; the stage number is in a name only
   where it is certain. The main families are listed once (`with_main_families!`).
+- The player's motion byte is `world::Motion` and the selected weapon `world::Weapon`, each
+  handler named for its state (`docs/specs/2026-10-16-player-motion-design.md`,
+  `docs/specs/2026-10-16-weapons-design.md`); the projectile slots are `Projectile`.
+- The pad's bits are `actor::button` constants and the pose byte's bits `world::pose`
+  constants. Not newtypes: both bytes live in RAM and the game does arithmetic on them,
+  so a named mask reads the same and converts nothing.
+- Levels as assets, slice 1: an area's terrain is `terrain::Terrain`, imported from the ROM
+  and built into a `Level` over the WRAM it finds
+  (`docs/specs/2026-10-17-levels-as-assets-design.md`).
+- Levels as assets, slice 2: a room's spawn records are typed `SpawnRecord`s, the schedule
+  cell bits `CELL_*` (`docs/specs/2026-10-17-spawn-records-design.md`).
 - Next for the families: `Brain`'s declaration, `new` and `lift` still repeat the list; one
   declaration macro could generate them from it.
 
