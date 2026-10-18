@@ -7,11 +7,11 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::{Body, Field};
+use crate::actor::stage::{self, OnClear};
 use crate::actor::world::{Cx, Motion, attack, hurt, stage_script};
 
 const CHILD: u8 = 0x52;
 const COUNTDOWN: u8 = 0xC0;
-const FINAL_AREA: u8 = 0x22;
 const SPAWN_SOUND: u8 = 0x23;
 
 /// Type `$50`'s `$52` spawn offsets (bank 11), by the offset index `counter` (0-5).
@@ -56,7 +56,7 @@ impl State {
         if body.anim < COUNTDOWN {
             return;
         }
-        if cx.world.area == FINAL_AREA {
+        if stage::at(&cx.prg.stages, cx.world.area).on_clear == OnClear::Ending {
             *kind = 0;
         } else {
             cx.effects.player.energy = 0x0E;

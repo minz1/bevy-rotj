@@ -1965,7 +1965,8 @@ mod tests {
         let Some(rom) = rotj_rom::for_test() else {
             return;
         };
-        let mut game = super::room::start(&rom.prg, &rom.chr, 0);
+        let mut game =
+            super::room::start(crate::prg::for_test().expect("the test ROM"), &rom.chr, 0);
         game.effects.vram.direct.clear();
         game.effects.vram.push(0x3F00, 0, &[0x0F, 0x26]);
         game.effects.vram.push(0x3F00, 0, &[0x0F, 0x06]);
@@ -1981,7 +1982,8 @@ mod tests {
         let Some(rom) = rotj_rom::for_test() else {
             return;
         };
-        let mut game = super::room::start(&rom.prg, &rom.chr, 0);
+        let mut game =
+            super::room::start(crate::prg::for_test().expect("the test ROM"), &rom.chr, 0);
         game.nmi(0xC1);
         game.nmi(0xC3);
         assert_eq!(

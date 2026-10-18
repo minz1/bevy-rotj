@@ -150,7 +150,7 @@ mod tests {
     /// Stage 1-1's first loop frame and the lines it is drawn with, or `None` without the ROM.
     fn stage_1() -> Option<(Game, Vec<Line>)> {
         let rom = rotj_rom::for_test()?;
-        let game = super::super::room::start(&rom.prg, &rom.chr, 0);
+        let game = super::super::room::start(crate::prg::for_test()?, &rom.chr, 0);
         let lines = raster::lines(&raster::Registers::of(&game), &game);
         Some((game, lines))
     }

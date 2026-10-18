@@ -3,6 +3,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::{Body, Field};
+use crate::actor::stage;
 use crate::actor::world::Cx;
 
 /// Bank 8 `$9091`: the metasprite pointer for an area, and for area `$0A`.
@@ -27,7 +28,11 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$8FD9`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-        let entry = if cx.world.area == 0x0A { 2 } else { 0 };
+        let entry = if stage::at(&cx.prg.stages, cx.world.area).area == 0x0A {
+            2
+        } else {
+            0
+        };
         work.pointer = engine::rom_word(cx.prg, 8, METASPRITES + entry);
         work.tile = 0;
         work.attr = body.flags;

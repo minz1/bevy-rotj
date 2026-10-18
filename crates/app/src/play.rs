@@ -110,7 +110,7 @@ impl Play {
     #[cfg(test)]
     #[must_use]
     pub fn start(prg: Vec<u8>, chr: Vec<u8>, level: usize) -> Play {
-        let mut game = rotj_core::actor::room::start(&prg, &chr, level);
+        let mut game = rotj_core::actor::room::start(&Prg::new(prg.clone()), &chr, level);
         let mut ppu = Ppu::new();
         let page = std::mem::take(&mut game.effects.vram.direct);
         ppu.apply(&page, game.scroll.mirroring);

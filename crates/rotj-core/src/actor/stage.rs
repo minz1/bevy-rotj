@@ -11,6 +11,115 @@ use crate::actors::bank_slice;
 use crate::ppulist::WriteList;
 use crate::prg::Prg;
 
+/// The stages there are: `$0400 / 2` indexes their tables.
+const STAGES: u8 = 18;
+/// The stage whose boss's defeat arms the ending (`$9C13`'s `$0400` test).
+const FINAL_AREA: u8 = 0x22;
+
+/// What the engine reads by stage: the level packs' stage descriptor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stage {
+    /// The area its CHR and screen records come from.
+    pub area: u8,
+    /// The banner's and the pause screen's two digits (bank 2 `$93F0`, bank 8 `$9DD2`/`$9DE4`).
+    pub banner: [u8; 2],
+    /// The song it requests as it starts (bank 14 `$D980`).
+    pub music: Music,
+    /// The picture shown before its banner (bank 2 `$93C5`).
+    pub picture: Option<u8>,
+    /// The checkpoint's password, letters indexing `$9E47` at `letter - $41` (bank 8 `$9DF6`);
+    /// `Some` exactly on the checkpoints, where Continue restarts and the levels start.
+    pub password: Option<[u8; 4]>,
+    /// What clearing it does.
+    pub on_clear: OnClear,
+}
+
+/// The song a stage requests as it starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Music {
+    /// Request this song.
+    Song(u8),
+    /// Keep the song playing (the boss stages keep the intro's).
+    Keep,
+}
+
+/// What clearing a stage does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnClear {
+    /// The next stage loads.
+    NextStage,
+    /// The ending plays.
+    Ending,
+}
+
+impl Stage {
+    /// Stage `index`'s descriptor from the tables the game reads by `$0400 / 2`.
+    #[must_use]
+    pub fn from_rom(prg: &[u8], index: u8) -> Stage {
+        let area = index * 2;
+        let at = u16::from(index);
+        let digits = rom_byte(prg, 2, 0x93F0 + at);
+        let song = rom_byte(prg, 14, 0xD980 + at);
+        let picture = rom_byte(prg, 2, 0x93C5 + at);
+        let letters = rom_word(prg, 8, 0x9DF6 + 2 * at);
+        Stage {
+            area,
+            banner: [digits >> 4, digits & 0x0F],
+            music: if song & 0x80 == 0 {
+                Music::Song(song)
+            } else {
+                Music::Keep
+            },
+            picture: (picture & 0x80 == 0).then_some(picture),
+            password: (rom_byte(prg, 14, 0xD57D + at) == area)
+                .then(|| [0, 1, 2, 3].map(|i| rom_byte(prg, 8, letters + i))),
+            on_clear: if area == FINAL_AREA {
+                OnClear::Ending
+            } else {
+                OnClear::NextStage
+            },
+        }
+    }
+
+    /// Every stage's descriptor from the ROM.
+    #[must_use]
+    pub fn all_from_rom(prg: &[u8]) -> Vec<Stage> {
+        (0..STAGES)
+            .map(|index| Stage::from_rom(prg, index))
+            .collect()
+    }
+}
+
+/// The stage `$0400` = `area` plays.
+#[must_use]
+pub fn at(stages: &[Stage], area: u8) -> &Stage {
+    &stages[usize::from(area >> 1)]
+}
+
+/// The latest checkpoint at or before `area`'s stage, as an area: where Continue restarts
+/// and whose password the pause shows.
+///
+/// # Panics
+/// If no checkpoint precedes it.
+#[must_use]
+pub fn checkpoint(stages: &[Stage], area: u8) -> u8 {
+    let index = (0..=area >> 1)
+        .rev()
+        .find(|&index| stages[usize::from(index)].password.is_some())
+        .expect("the first stage is a checkpoint");
+    index * 2
+}
+
+/// The area level `level` starts at: the `level`-th checkpoint.
+#[must_use]
+pub fn level_area(stages: &[Stage], level: usize) -> Option<u8> {
+    (0..=u8::MAX)
+        .zip(stages)
+        .filter(|(_, stage)| stage.password.is_some())
+        .nth(level)
+        .map(|(index, _)| index * 2)
+}
+
 /// The stage-end script's state (`$0408-$040C`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct StageEnd {
@@ -509,7 +618,7 @@ impl NextArea {
     /// The area's indices, or a life taken (`$D527`), then the banner's dark screen;
     /// true when the frame ended, false when the last life went and the continue
     /// screen takes over.
-    fn banner(&mut self, game: &mut Game, prg: &[u8]) -> bool {
+    fn banner(&mut self, game: &mut Game, prg: &Prg) -> bool {
         if !self.life_lost {
             if !self.new_game {
                 game.world.area = game.world.area.wrapping_add(2);
@@ -524,8 +633,9 @@ impl NextArea {
             }
         }
         game.world.room = 0;
-        let scene = rom_byte(prg, 2, 0x93C5 + u16::from(game.world.area >> 1));
-        if scene & 0x80 == 0 && game.effects.cutscene_id != 0 {
+        if let Some(scene) = at(&prg.stages, game.world.area).picture
+            && game.effects.cutscene_id != 0
+        {
             game.effects.cutscene_id = 0;
             self.cutscene = Some(Cutscene::new(scene));
             self.step = Step::Cutscene;
@@ -547,13 +657,12 @@ impl NextArea {
 
     /// A frame of the continue screen; false when Start continued and the stage's first
     /// area loads in this frame (`$D53B`: two lives, `$0404` clear).
-    fn continue_screen(&mut self, game: &mut Game, prg: &[u8]) -> bool {
+    fn continue_screen(&mut self, game: &mut Game, prg: &Prg) -> bool {
         let screen = self.screen.as_mut().expect("the continue screen");
         match screen.step(game, prg) {
             Outcome::Running => true,
             Outcome::Continued => {
-                let area = u16::from(game.world.area >> 1);
-                game.world.area = rom_byte(prg, 14, 0xD57D + area);
+                game.world.area = checkpoint(&prg.stages, game.world.area);
                 game.effects.lives = 2;
                 game.effects.hud = 0;
                 self.step = Step::Banner;
@@ -579,7 +688,7 @@ fn hide_for_banner(game: &mut Game, prg: &[u8]) {
 
 /// The banner drawn with rendering off, its font banks and the NMI's scroll
 /// (`$92E1-$93A4`).
-fn show_banner(game: &mut Game, prg: &[u8]) {
+fn show_banner(game: &mut Game, prg: &Prg) {
     game.scroll.scroll_y = 0;
     game.scroll.scroll_x = 4;
     let banner = banner(prg, game.world.area);
@@ -834,7 +943,7 @@ impl BossIntro {
     /// every sprite parked, the palette's first colours black and the sprite set
     /// from `$BE4B`, the boss's hit points (`$BE4E[$040F]`), the tally's target
     /// `$1F40`, Batman in motion 9, the palette queued, the area's song and `$BA = 0`.
-    fn enter(&self, game: &mut Game, prg: &[u8]) {
+    fn enter(&self, game: &mut Game, prg: &Prg) {
         game.scroll.ppu_ctrl &= 0xFC;
         game.scroll.mirroring = self.mirroring;
         room::parameters(game, prg);
@@ -872,20 +981,19 @@ fn queue_whitened(game: &mut Game, cap: u8) {
     game.effects.vram.push(0x3F00, 0, &lit);
 }
 
-/// The area's song request (`$D973`: `$41 = $D980[$0400 / 2]` unless bit 7 is set).
-fn request_song(game: &mut Game, prg: &[u8]) {
-    let song = rom_byte(prg, 14, 0xD980 + u16::from(game.world.area >> 1));
-    if song & 0x80 == 0 {
+/// The stage's song request (`$D973`).
+fn request_song(game: &mut Game, prg: &Prg) {
+    if let Music::Song(song) = at(&prg.stages, game.world.area).music {
         game.effects.song = song;
     }
 }
 
 /// The banner's direct PPU writes (`$92E9-$938B`): the first nametable cleared, the
-/// "STAGE" text from `$93D7` and the stage's two digits (`$93F0`, glyphs `$9402`).
-fn banner(prg: &[u8], area: u8) -> Vec<VramWrite> {
+/// "STAGE" text from `$93D7` and the stage's two digits (glyphs `$9402`).
+fn banner(prg: &Prg, area: u8) -> Vec<VramWrite> {
     let mut writes = text(prg, 0x93D7);
-    let digits = rom_byte(prg, 2, 0x93F0 + u16::from(area >> 1));
-    for (digit, column) in [(digits >> 4, 0x21AF), (digits & 0x0F, 0x21B1)] {
+    let [tens, ones] = at(&prg.stages, area).banner;
+    for (digit, column) in [(tens, 0x21AF), (ones, 0x21B1)] {
         let glyph = rom_byte(prg, 2, 0x9402 + u16::from(digit));
         for (row, tile) in [(0, glyph), (0x20, glyph | 1)] {
             writes.push(VramWrite {
@@ -1217,6 +1325,71 @@ mod tests {
         }
         assert_eq!(game.world.area, 2);
         frames
+    }
+
+    #[test]
+    fn the_descriptors_answer_what_the_tables_did() {
+        let Some(prg) = crate::prg::for_test() else {
+            return;
+        };
+        let byte = |bank, addr| super::rom_byte(prg, bank, addr);
+        let stages = &prg.stages;
+        assert_eq!(stages.len(), 18);
+        for index in 0..18u8 {
+            let (at, area) = (u16::from(index), index * 2);
+            let stage = super::at(stages, area);
+            assert_eq!(stage.area, area);
+            let (digits, song, picture) = (
+                byte(2, 0x93F0 + at),
+                byte(14, 0xD980 + at),
+                byte(2, 0x93C5 + at),
+            );
+            assert!(
+                stage.banner == [digits >> 4, digits & 0x0F],
+                "stage {index}'s banner"
+            );
+            assert!(
+                stage.music
+                    == if song & 0x80 == 0 {
+                        super::Music::Song(song)
+                    } else {
+                        super::Music::Keep
+                    },
+                "stage {index}'s song"
+            );
+            assert!(
+                stage.picture == (picture & 0x80 == 0).then_some(picture),
+                "stage {index}'s picture"
+            );
+            assert!(
+                stage.banner == [byte(8, 0x9DD2 + at), byte(8, 0x9DE4 + at)],
+                "stage {index}'s pause digits"
+            );
+            let letters = super::rom_word(prg, 8, 0x9DF6 + 2 * at);
+            let shown = super::at(stages, super::checkpoint(stages, area)).password;
+            assert!(
+                shown == Some([0, 1, 2, 3].map(|i| byte(8, letters + i))),
+                "stage {index}'s pause letters"
+            );
+            assert!(
+                super::checkpoint(stages, area) == byte(14, 0xD57D + at),
+                "stage {index}'s continue"
+            );
+            assert_eq!(stage.on_clear == super::OnClear::Ending, index == 17);
+        }
+        for level in 0..13u8 {
+            let area = super::level_area(stages, usize::from(level));
+            assert!(
+                area == Some(byte(14, 0xD94E + u16::from(level))),
+                "level {level}"
+            );
+        }
+        assert_eq!(super::level_area(stages, 13), None);
+        let table = crate::levelmap::LEVEL_AREA_TABLE;
+        assert!(
+            (0..13).all(|level| super::level_area(stages, level) == Some(table[level])),
+            "LEVEL_AREA_TABLE follows the checkpoints"
+        );
     }
 
     #[test]

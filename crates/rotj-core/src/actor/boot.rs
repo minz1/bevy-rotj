@@ -466,7 +466,8 @@ impl Boot {
                     return false;
                 }
                 let level = self.forced.unwrap_or(self.level);
-                game.world.area = super::engine::rom_byte(prg, 14, 0xD94E + u16::from(level));
+                game.world.area = super::stage::level_area(&prg.stages, usize::from(level))
+                    .expect("a level the stages have");
                 blackout(game, prg);
                 self.step = Step::NewGameStart;
                 true
@@ -1225,6 +1226,31 @@ mod tests {
         }
         presses.push((at, START, 1));
         (presses, at)
+    }
+
+    #[test]
+    fn the_password_screen_holds_the_checkpoints_passwords_and_one_more() {
+        let (Some(rom), Some(prg)) = (rotj_rom::for_test(), crate::prg::for_test()) else {
+            return;
+        };
+        let passwords: Vec<[u8; 4]> = prg
+            .stages
+            .iter()
+            .filter_map(|stage| stage.password)
+            .map(|password| password.map(|letter| letter.wrapping_sub(b'A')))
+            .collect();
+        assert_eq!(passwords.len(), 13);
+        let place = |place: u8| {
+            [0, 1, 2, 3]
+                .map(|i| super::payload_byte(&rom.chr, super::PASSWORDS + u16::from(4 * place + i)))
+        };
+        for (at, password) in (0..13).zip(&passwords) {
+            assert!(place(at) == *password, "place {at}");
+        }
+        assert!(
+            !passwords.contains(&place(13)),
+            "the fourteenth password is one the pause never shows"
+        );
     }
 
     /// The password screen: three of the fourteen passwords (`$6E6C`) start their

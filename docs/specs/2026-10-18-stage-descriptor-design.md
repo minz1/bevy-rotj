@@ -3,7 +3,13 @@
 Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: an engine-side struct,
 not release 1's `levels::Stage`; the pause letters are the checkpoint's password; the password
 screen's own copy checked; the signature changes listed; `forced` bounded; `LEVEL_AREA_TABLE`'s
-fate; `hurtful_burst`'s reason). Release 2 of `docs/specs/2026-10-18-level-packs-design.md`, split: this
+fate; `hurtful_burst`'s reason).
+
+Implemented: the password screen holds the 13 checkpoints' passwords
+in order and a fourteenth of its own, one the pause never shows, which starts the last level too
+(the proof below said its 14th was the last checkpoint's; the test pins what the ROM holds).
+
+Release 2 of `docs/specs/2026-10-18-level-packs-design.md`, split: this
 is its engine side, which needs no new public name; the `pack.json` knobs wait for the owner's
 answers (STATUS "Owner decisions pending"). No behaviour change: the lockstep proves it, tapes
 unchanged.
@@ -46,7 +52,9 @@ it; level n is the n-th checkpoint.
   `on_clear`, `hurtful_burst` keys on the stage's `area` (its other metasprite follows the loaded
   CHR). `world.area` (`$0400`) stays as it is, the stage index times 2. Release 3 moves `stages`
   into `Levels`.
-- `Boot::forced` (the `$D3D8` level poke) is bounded to the levels there are.
+- `Boot::forced` (the `$D3D8` level poke) is bounded to the levels there are: past the last
+  checkpoint the level start stops with a message, where the ROM read past `$D94E` (the app's
+  `forced_level` keeps it below 13).
 - `LEVEL_AREA_TABLE` (a hand copy of `$D94E`, used by `room::start`, the tools and an oracle test)
   stays for the tools for now, with a test that it equals the checkpoint rule; the cleanup release
   deletes it.
@@ -57,7 +65,8 @@ it; level n is the n-th checkpoint.
 The Classic suites, a sweep and a 300-branch exploration unchanged; tapes byte-identical. Unit
 tests: each descriptor field equals the ROM read it replaces for all 18 areas; the continue and
 level rules derived from the checkpoints equal `$D57D` and `$D94E`; the password screen's 13 places
-equal the checkpoints' passwords in order, and its 14th is the last checkpoint's.
+equal the checkpoints' passwords in order (its letters are 0-25, the pause's ASCII), and its 14th
+is none of them.
 
 ## Cleanup after (its own release)
 

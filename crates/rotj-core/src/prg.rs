@@ -5,6 +5,7 @@ use std::ops::Deref;
 use crate::actor::engine::{self, Hitboxes};
 use crate::actor::families;
 use crate::actor::player;
+use crate::actor::stage::Stage;
 use crate::actor::weapons;
 use crate::ines::FME7_PRG_BANK_SIZE;
 
@@ -24,6 +25,8 @@ pub struct Prg {
     pub weapons: weapons::Tables,
     /// The HUD's digit glyph tiles (bank 14 `$D26A`).
     pub digit_tiles: [u8; 10],
+    /// Each stage's descriptor, by `$0400 / 2`.
+    pub stages: Vec<Stage>,
 }
 
 impl Prg {
@@ -39,6 +42,7 @@ impl Prg {
             player: player::Tables::import(&bytes),
             weapons: weapons::Tables::import(&bytes),
             digit_tiles: engine::rom_bytes(&bytes, 14, 0xD26A),
+            stages: Stage::all_from_rom(&bytes),
             bytes,
         }
     }

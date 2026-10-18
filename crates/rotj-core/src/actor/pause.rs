@@ -4,6 +4,7 @@
 use super::Game;
 use super::engine::{draw, draw_metasprite, rom_byte, rom_word};
 use super::oam::{Mark, Metasprite};
+use super::stage;
 use crate::actor::button::Buttons;
 use crate::actor::world::set_first_colours;
 use crate::prg::Prg;
@@ -132,23 +133,24 @@ fn draw_screen(game: &mut Game, prg: &Prg) {
         draw(work, 1, &mut cx);
     }
     work.screen_y = 0xBF;
-    let letters = rom_word(prg, 8, 0x9DF6 + u16::from(area));
+    let password = stage::at(&prg.stages, stage::checkpoint(&prg.stages, area))
+        .password
+        .expect("a checkpoint has a password");
     cx.effects.pause_aux = 0;
     let name = &mut cx.effects.pause_name;
     name[0] = 0x11;
-    for (i, piece) in (0..4u8).zip(name[1..17].as_chunks_mut::<4>().0) {
-        let letter = rom_byte(prg, 8, letters + u16::from(i));
+    for ((i, letter), piece) in (0..4u8)
+        .zip(password)
+        .zip(name[1..17].as_chunks_mut::<4>().0)
+    {
         let tile = rom_byte(prg, 8, 0x9E47 + u16::from(letter.wrapping_sub(0x41)));
         piece.copy_from_slice(&[tile, 0xF0u8.wrapping_add(9 * i), 0, 0xEF]);
     }
     work.pointer = NAME;
     let sprite = Metasprite::from_bytes(&cx.effects.pause_name).expect("the area's name");
     draw_metasprite(work, &sprite, &mut cx);
-    let digits = [
-        (0x94, 0x87, lives),
-        (0x8C, 0x6F, rom_byte(prg, 8, 0x9DD2 + u16::from(area >> 1))),
-        (0x9C, 0x6F, rom_byte(prg, 8, 0x9DE4 + u16::from(area >> 1))),
-    ];
+    let [tens, ones] = stage::at(&prg.stages, area).banner;
+    let digits = [(0x94, 0x87, lives), (0x8C, 0x6F, tens), (0x9C, 0x6F, ones)];
     for (x, y, digit) in digits {
         work.screen_x = x;
         work.screen_y = y;

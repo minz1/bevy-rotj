@@ -541,10 +541,10 @@ fn raise_attributes(level: &mut crate::collision::Level, rows: &[u8; 32], pages:
 /// in [`Vram::direct`](super::world::Vram::direct).
 ///
 /// # Panics
-/// If `level` is outside the ROM's level table or its data fails to decode.
+/// If `level` is past the stages' checkpoints or its data fails to decode.
 #[must_use]
-pub fn start(prg: &[u8], chr: &[u8], level: usize) -> Game {
-    let area = crate::levelmap::area_for_level(level).expect("a level 0-12");
+pub fn start(prg: &Prg, chr: &[u8], level: usize) -> Game {
+    let area = super::stage::level_area(&prg.stages, level).expect("a level the stages have");
     let mut game = Game {
         slots: Slots::default(),
         world: World {
@@ -558,7 +558,7 @@ pub fn start(prg: &[u8], chr: &[u8], level: usize) -> Game {
             rng: [0x49, 0x2F],
             frame_odd: false,
             frame: 0,
-            area: u8::try_from(area * 2).expect("an area index"),
+            area,
             room: 0,
             pad: Buttons::NONE,
             pressed: Buttons::NONE,
