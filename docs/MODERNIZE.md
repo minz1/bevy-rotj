@@ -294,7 +294,7 @@ of its own, proven by the lockstep, ranked by payoff over risk:
 5. **`Projectile` positions as `u16`** (done in 1.1.25) (`level_x_hi/lo`, about 101 uses) and the homing shot's
    last address-keyed slot reads (`weapons.rs` `actor(cx, target, 0x7CC0)`, `0x7D00 + reset`)
    through `cx.get(slot, Field::..)`.
-6. **`Projectile` state bits named and the shot flight once**: the flight preamble copied in
+6. **`Projectile` state bits named and the shot flight once** (done in 1.1.26): the flight preamble copied in
    `flying_shot`, `splitter`, `wave`, `three_way`; "count down, free on wrap" 8 times.
 7. **Ids named**: sound effects (46 raw writes), songs (about 35), spawned kinds by literal (16).
 8. **Byte-wise 16-bit arithmetic** in `player.rs` (37 carry pairs), `weapons.rs` (25),

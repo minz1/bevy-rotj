@@ -3,8 +3,8 @@
 Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: `PASSES_SHIELDS`, not
 `DEFLECTED`; every site listed; the docs of `flags` and `state`; explicit `Flight` variants and
 `fly` calling `advance`; `count_down`'s rule. The stand-in's reorder of the splitter's sound
-against the timer bit is avoided instead: each handler sets the bit itself, so no write moves). The
-survey loop's #6 (MODERNIZE "The survey loop, 2026-10-18"). No behaviour change: the weapons'
+against the timer bit is avoided instead: each handler sets the bit itself, so no write moves). Implemented in 1.1.26, with `INERT`/`UNSTOPPABLE` naming the two
+combinations from the implementation's review. The survey loop's #6 (MODERNIZE "The survey loop, 2026-10-18"). No behaviour change: the weapons'
 oracle tests (each weapon's flight compared with the ROM's RAM frame by frame, both wall touches and
 the falling free reached) and the lockstep prove it.
 
