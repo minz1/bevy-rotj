@@ -223,13 +223,21 @@ New candidates, each to be classified (state, flags, table index) before it chan
   never writes `part`, and the Super-to-stored weapon switches (`next_area_gate::transition`,
   `room.rs`, `player.rs`) don't free the slots, so a stale slot could reach `splitter_orbit`
   with any `part`. An oracle probe of whether the game ever does would settle the table's size.
-- **The overflow flag carried between routines**: `Work::cpu_overflow` mirrors the 6502's V
-  for one reader, `$9790` (weapon 5's charge waits while V is set), which sees whatever
-  the last V-setting routine left (`bit`'s 52 callers in `player.rs`, the OAM draw, the
-  projections). Naming it needs a trace of which setter is last before `$9790` on each
-  path; until then `bit` and the setters stay.
-- **Helper names in `player.rs`** still shaped by the probe they call: `stun`, `bit`
-  (the 6502 `BIT` flag mirror kept for its N/V side effects: name what each caller tests).
+- **The overflow flag carried between routines**: done in 1.1.16
+  (`docs/specs/2026-10-18-overflow-flow-design.md`): traced (in play the charge waits while B
+  is held, about 90% of reads), then threaded as data: `step_draw` returns the V `$84AB` leaves,
+  `draw_second` and `weapons::step` take it, `super_unleash` holds the named Classic rule;
+  `Work::cpu_overflow` is gone and `bit` is `set_overflow_from`.
+- **Helper names in `player.rs`** still shaped by the probe they call: `stun` (name what it is:
+  the stunned frame while knocked back).
+- **`Body`'s typed per-family state** (HANDOFF item 8): deferred, 2026-10-18
+  (`docs/specs/2026-10-18-family-fields-views-design.md`): every family's state lives in
+  `Body`'s bytes, 1.1.5's names are the readable form, and typed spawn properties go with the
+  level format's next version.
+- **`Work`'s per-call fields** (the trace's by-product): `pointer` is only the next draw's
+  argument, the weapons' `x`/`y` only `advance`'s output for the same handler, `probe_flags`
+  cleared on load per slot, `slot` the loop's index; `anchor`/`tile`/`chr_slot` really carry
+  between slots (`project_keep`'s `anchor = $40` is never reset). Candidates for locals.
 
 - Released as 1.1.3: the families declared once, `SecondBrain`, the frame's steps named
   (`docs/specs/2026-10-17-frame-steps-design.md`), and #13 in substance: the actors' fields
