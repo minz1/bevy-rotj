@@ -892,7 +892,11 @@ pub fn start_hurt(player: &mut Player) -> i16 {
     if player.motion == Motion::Falling {
         player.motion = Motion::Jumping;
     }
-    if player.facing & 0x40 == 0 { -0x20 } else { 0x20 }
+    if player.facing & 0x40 == 0 {
+        -0x20
+    } else {
+        0x20
+    }
 }
 
 /// Spawns type `$08`'s four parts around the working position (`$AC16`); the slot used.
