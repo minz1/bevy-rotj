@@ -451,7 +451,7 @@ impl Command {
     /// The command at `stream + offset`; `offset` steps past its opcode and fixed operands.
     fn decode(banks: &Banks, stream: u16, offset: &mut u16) -> Self {
         let mut next = || {
-            let value = banks.byte(stream + *offset);
+            let value = banks.byte(stream.wrapping_add(*offset));
             *offset += 1;
             value
         };
@@ -534,7 +534,7 @@ impl SfxCommand {
     /// The command at `stream + offset`; `offset` steps past its opcode and fixed operands.
     fn decode(banks: &Banks, stream: u16, offset: &mut u16) -> Self {
         let mut next = || {
-            let value = banks.byte(stream + *offset);
+            let value = banks.byte(stream.wrapping_add(*offset));
             *offset += 1;
             value
         };
@@ -1821,6 +1821,297 @@ mod tests {
         for frame in 20..40 {
             let still = music.tick().iter().any(|write| write.addr == noise::TIMER);
             assert!(!still, "the effect should have ended by frame {frame}");
+        }
+    }
+
+    /// A banks whose driver window holds `stream` from `$8000`, padded with zeros.
+    fn synthetic(stream: &[u8]) -> Banks {
+        let mut driver = stream.to_vec();
+        driver.resize(0x40, 0);
+        Banks {
+            driver,
+            songs: Vec::new(),
+            song_bank: 0,
+        }
+    }
+
+    fn music_channel() -> Channel {
+        Channel {
+            stream: DRIVER_BASE,
+            ..Channel::default()
+        }
+    }
+
+    fn name(command: Command) -> &'static str {
+        match command {
+            Command::Note(_) => "Note",
+            Command::InstrumentNote(_) => "InstrumentNote",
+            Command::PitchDelay(_) => "PitchDelay",
+            Command::PeriodLoOnly(_) => "PeriodLoOnly",
+            Command::Untie => "Untie",
+            Command::IdlePitch => "IdlePitch",
+            Command::PeriodMacro { .. } => "PeriodMacro",
+            Command::Retrigger => "Retrigger",
+            Command::Envelope(_) => "Envelope",
+            Command::PitchMacro(_) => "PitchMacro",
+            Command::FixedVolume(_) => "FixedVolume",
+            Command::Decay(_) => "Decay",
+            Command::ReleaseAt(_) => "ReleaseAt",
+            Command::ClearRelease => "ClearRelease",
+            Command::Stop => "Stop",
+            Command::Rest => "Rest",
+            Command::Hold => "Hold",
+            Command::ReleaseFrames(_) => "ReleaseFrames",
+            Command::FixedDuration(_) => "FixedDuration",
+            Command::ClearFixedDuration => "ClearFixedDuration",
+            Command::Tuning(_) => "Tuning",
+            Command::Transpose(_) => "Transpose",
+            Command::Return => "Return",
+            Command::Call(_) => "Call",
+            Command::Jump(_) => "Jump",
+            Command::Repeat { .. } => "Repeat",
+            Command::Unhandled => "Unhandled",
+        }
+    }
+
+    /// The variant and bytes consumed (opcode included) per opcode, from the pre-refactor driver.
+    fn music_table(op: u8) -> (&'static str, u16) {
+        match op {
+            0x00..=0x7F => ("Note", 1),
+            0x80..=0xDF => ("InstrumentNote", 1),
+            0xE0..=0xE2 => ("PitchDelay", 2),
+            0xE3 | 0xE4 => ("PeriodLoOnly", 1),
+            0xE5 => ("Untie", 1),
+            0xE6 => ("IdlePitch", 1),
+            0xE7 | 0xE8 => ("PeriodMacro", 4),
+            0xE9 => ("Retrigger", 1),
+            0xEA => ("Envelope", 3),
+            0xEB => ("PitchMacro", 2),
+            0xEC => ("FixedVolume", 2),
+            0xED => ("Decay", 2),
+            0xEE => ("ReleaseAt", 2),
+            0xEF => ("ClearRelease", 1),
+            0xF0 => ("Stop", 1),
+            0xF1 => ("Rest", 1),
+            0xF2 => ("Hold", 1),
+            0xF3..=0xF5 => ("ReleaseFrames", 2),
+            0xF6 => ("FixedDuration", 2),
+            0xF7 => ("ClearFixedDuration", 1),
+            0xF8 => ("Tuning", 2),
+            0xF9 => ("Transpose", 2),
+            0xFA => ("Return", 1),
+            0xFB => ("Call", 3),
+            0xFC => ("Jump", 3),
+            0xFD | 0xFE => ("Repeat", 4),
+            0xFF => ("Unhandled", 1),
+        }
+    }
+
+    #[test]
+    fn music_decode_table_covers_every_opcode() {
+        for op in 0..=0xFF {
+            let banks = synthetic(&[op, 0x11, 0x22, 0x33, 0x44]);
+            let mut offset = 0;
+            let command = Command::decode(&banks, DRIVER_BASE, &mut offset);
+            assert_eq!((name(command), offset), music_table(op), "opcode {op:#04X}");
+        }
+    }
+
+    fn sfx_name(command: SfxCommand) -> &'static str {
+        match command {
+            SfxCommand::Note(_) => "Note",
+            SfxCommand::Stop => "Stop",
+            SfxCommand::Silence => "Silence",
+            SfxCommand::Hold => "Hold",
+            SfxCommand::DmcRecords(_) => "DmcRecords",
+            SfxCommand::FixedDuration(_) => "FixedDuration",
+            SfxCommand::ClearFixedDuration => "ClearFixedDuration",
+            SfxCommand::Return => "Return",
+            SfxCommand::Call(_) => "Call",
+            SfxCommand::Jump(_) => "Jump",
+            SfxCommand::Repeat { .. } => "Repeat",
+            SfxCommand::Abort => "Abort",
+        }
+    }
+
+    fn sfx_table(op: u8) -> (&'static str, u16) {
+        match op {
+            0x00..=0x7F => ("Note", 1),
+            0xF0 => ("Stop", 1),
+            0xF1 => ("Silence", 1),
+            0xF2 => ("Hold", 1),
+            0xF3 => ("DmcRecords", 3),
+            0xF4..=0xF6 => ("FixedDuration", 2),
+            0xF7 => ("ClearFixedDuration", 1),
+            0xF8..=0xFA => ("Return", 1),
+            0xFB => ("Call", 3),
+            0xFC => ("Jump", 3),
+            0xFD | 0xFE => ("Repeat", 4),
+            0x80..=0xEF | 0xFF => ("Abort", 1),
+        }
+    }
+
+    #[test]
+    fn sfx_decode_table_covers_every_opcode() {
+        for op in 0..=0xFF {
+            let banks = synthetic(&[op, 0x11, 0x22, 0x33, 0x44]);
+            let mut offset = 0;
+            let command = SfxCommand::decode(&banks, DRIVER_BASE, &mut offset);
+            assert_eq!(
+                (sfx_name(command), offset),
+                sfx_table(op),
+                "opcode {op:#04X}"
+            );
+        }
+    }
+
+    #[test]
+    fn decode_near_the_end_of_the_address_space_wraps() {
+        let banks = synthetic(&[]);
+        let mut offset = 0;
+        let _ = Command::decode(&banks, 0xFFFF, &mut offset);
+        let mut offset = 0;
+        let _ = SfxCommand::decode(&banks, 0xFFFF, &mut offset);
+    }
+
+    #[test]
+    fn pitch_delay_commands_set_the_delay() {
+        for op in 0xE0..=0xE2 {
+            let banks = synthetic(&[op, 0x05]);
+            let mut channel = music_channel();
+            let mut frame = Frame {
+                flags: 0,
+                offset: 0,
+            };
+            assert!(channel.read_event(&banks, &mut frame) == Step::ReadEvent);
+            assert_eq!(
+                (channel.pitch_delay, frame.offset),
+                (5, 2),
+                "opcode {op:#04X}"
+            );
+        }
+    }
+
+    #[test]
+    fn period_lo_only_is_cleared_by_e3_and_set_by_e4() {
+        let mut channel = music_channel();
+        let mut frame = Frame {
+            flags: flag::PERIOD_LO_ONLY,
+            offset: 0,
+        };
+        assert!(channel.read_event(&synthetic(&[0xE3]), &mut frame) == Step::ReadEvent);
+        assert_eq!((frame.flags, frame.offset), (0, 1));
+        let mut frame = Frame {
+            flags: 0,
+            offset: 0,
+        };
+        assert!(channel.read_event(&synthetic(&[0xE4]), &mut frame) == Step::ReadEvent);
+        assert_eq!((frame.flags, frame.offset), (flag::PERIOD_LO_ONLY, 1));
+    }
+
+    #[test]
+    fn e8_clears_the_period_macro_and_loads_delay_and_table() {
+        let banks = synthetic(&[0xE8, 0x11, 0x22, 0x33]);
+        let mut channel = music_channel();
+        let mut frame = Frame {
+            flags: flag::PERIOD_MACRO | flag::TIE,
+            offset: 0,
+        };
+        assert!(channel.read_event(&banks, &mut frame) == Step::ReadEvent);
+        assert_eq!(frame.flags, flag::TIE);
+        assert_eq!(frame.offset, 4);
+        assert_eq!((channel.pitch_delay, channel.pitch_macro), (0x11, 0x3322));
+    }
+
+    #[test]
+    fn release_length_commands_set_it() {
+        for op in 0xF3..=0xF5 {
+            let banks = synthetic(&[op, 0x07]);
+            let mut channel = music_channel();
+            let mut frame = Frame {
+                flags: 0,
+                offset: 0,
+            };
+            assert!(channel.read_event(&banks, &mut frame) == Step::ReadEvent);
+            assert_eq!(
+                (channel.release_frames, frame.offset),
+                (7, 2),
+                "opcode {op:#04X}"
+            );
+        }
+    }
+
+    #[test]
+    fn f7_clears_the_fixed_duration() {
+        let mut channel = music_channel();
+        channel.fixed_duration = 9;
+        let mut frame = Frame {
+            flags: 0,
+            offset: 0,
+        };
+        assert!(channel.read_event(&synthetic(&[0xF7]), &mut frame) == Step::ReadEvent);
+        assert_eq!((channel.fixed_duration, frame.offset), (0, 1));
+    }
+
+    #[test]
+    fn ff_skips_its_byte_as_an_event_and_changes_nothing_mid_note() {
+        let banks = synthetic(&[0xFF]);
+        let mut channel = music_channel();
+        let mut frame = Frame {
+            flags: 0,
+            offset: 0,
+        };
+        assert!(channel.read_event(&banks, &mut frame) == Step::ReadEvent);
+        assert_eq!((channel.stream, frame.offset), (DRIVER_BASE, 1));
+        let mut frame = Frame {
+            flags: 0,
+            offset: 0,
+        };
+        assert!(channel.mid_note(&banks, &mut frame) == Step::Pitch);
+        assert_eq!(channel.stream, DRIVER_BASE);
+    }
+
+    #[test]
+    fn sfx_fixed_duration_commands_set_it() {
+        for op in 0xF4..=0xF6 {
+            let banks = synthetic(&[op, 0x09, 0xF0]);
+            let mut channel = SfxChannel {
+                stream: DRIVER_BASE,
+                ..SfxChannel::default()
+            };
+            assert!(matches!(channel.read_events(&banks), SfxEvent::Quiet));
+            assert_eq!(channel.fixed_duration, 9, "opcode {op:#04X}");
+        }
+    }
+
+    #[test]
+    fn sfx_return_opcodes_all_return_from_a_call() {
+        for op in 0xF8..=0xFA {
+            let mut bytes = vec![op];
+            bytes.resize(0x10, 0);
+            bytes.push(0xF0);
+            let banks = synthetic(&bytes);
+            let mut channel = SfxChannel {
+                stream: DRIVER_BASE,
+                loop_return: DRIVER_BASE + 0x10,
+                ..SfxChannel::default()
+            };
+            assert!(matches!(channel.read_events(&banks), SfxEvent::Quiet));
+            assert_eq!(channel.stream, DRIVER_BASE + 0x10, "opcode {op:#04X}");
+            assert!(!is_set(channel.loop_return), "opcode {op:#04X}");
+        }
+    }
+
+    #[test]
+    fn sfx_abort_opcodes_end_the_frame() {
+        for op in (0x80..=0xEF).chain([0xFF]) {
+            let banks = synthetic(&[op]);
+            let mut channel = SfxChannel {
+                stream: DRIVER_BASE,
+                ..SfxChannel::default()
+            };
+            assert!(matches!(channel.read_events(&banks), SfxEvent::Abort));
+            assert_eq!(channel.stream, DRIVER_BASE, "opcode {op:#04X}");
         }
     }
 }
