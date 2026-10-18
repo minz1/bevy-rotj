@@ -1,4 +1,4 @@
-# Status — where 1.1.16 stands
+# Status — where 1.1.17 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -40,6 +40,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.14 | **done, tag `1.1.14`** (2026-10-18): Phase C's C3, the `Modern` picture (`docs/specs/2026-10-18-modern-picture-design.md`), a new setting `picture: Classic | Modern` (default `Classic`, unchanged), groundwork for 1.2.0; the Classic suites, a random play sweep and a 300-branch exploration unchanged. In play, in rooms with no raster split (and in their pause, power-up and stage-end frames), Modern draws the level's background as four Bevy `TilemapChunk`s over the typed live map (one per background palette, the tileset the 256 tiles of the frame's banks in that palette's colours) and the game's sprites as Bevy sprites from the draw records, children of their drawers' mirror entities, layered by their priority bit and in draw order, with no per-line limit or flicker; every other frame (the script screens, the split rooms) shows the Classic picture. Modern renders into an image the screen quad shows, so scaling, overscan and the faithful UI are unchanged. Proven without a second rasteriser in every lockstep: on the 8,830 Modern frames of the whole chain, every TV-visible background cell from the live map equals the nametables' (left out: blank tiles' palettes and the 8 px edges a scroll streams into; one game difference allowed and counted: in a vertical room, a page's row 14 showing its row 15's palette, which the game streams into row 14's slot as its scroll locks at the page's end, 185 cells on the chain), and every loop frame's visible OAM entries are its records' sprites (equal below 64 placed without an endless metasprite; the builder's two cases counted: a clipped piece's half-written entry, 0 on the chain, and the one entry `finish` leaves unparked after exactly 63, 8). A headless render of stage 1-1 on this machine's software Vulkan matches the Classic picture pixel for pixel over the TV-visible area (`modern::tests::stage_1_renders_modern`) |
 | 1.1.15 | **done, tag `1.1.15`** (2026-10-18): the fifteenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). `Outside` removed (`docs/specs/2026-10-18-outside-removal-design.md`, the owner's approved release of its own): `Game::frame` no longer takes a callback to hand the oracle an unported second-class update (every type is ported since 1.0.0), and with it went the lockstep's re-lift, its on-demand peeks and `GameRun::relifted`; a test build asserts in the loop that no live second-class type is unported. **The tape format's change**: the `Relift` and `Outside` events and their wire tags (1, 4) are retired, not reused, so the other events keep their encoding; the 1.1.14 chain tape replays unmodified on the new code, and the tape the new lockstep records is byte-identical to it, so nothing was re-recorded in substance |
 | 1.1.16 | **done, tag `1.1.16`** (2026-10-18): the sixteenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). Weapon 5's charge and the 6502 overflow flag as data flow (`docs/specs/2026-10-18-overflow-flow-design.md`): a trace over a sweep, an exploration and a held-B probe found the charge waits, in play, on the flag Batman's frame leaves (B held about 90% of the time, invulnerable standing, a mid-jump turn or a crouch release), which a live second-class actor's draw usually clears; so `Work::cpu_overflow` is gone, `player::step_draw` returns the flag `$84AB` leaves, `draw_second` and `weapons::step` take it and thread it slot to slot, and `super_unleash` takes it with the Classic rule written on it; `bit` is `set_overflow_from`. New tests pin the threading (the charge waits on the incoming flag; a shot above that goes off the screen clears it; `draw_second` with no live actor passes it through) |
+| 1.1.17 | **done, tag `1.1.17`** (2026-10-18): the seventeenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The hurt written once (`docs/specs/2026-10-18-hurt-once-design.md`): the damage tile's response and `engine::hurt_player` share `engine::start_hurt` (the shot pose dropped, stunned and invulnerable for 32 frames, a fall turned into a jump; the knock-back speed away from where Batman faces), each keeping its own rule for where the speed goes; the stunned frame's handler is `stunned` |
 
 ## Verified working
 
@@ -94,7 +95,9 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    The level packs wait for the owner's answers on the schema ("Owner decisions pending").
    **1.1.15, `Outside` removed: tagged `1.1.15`** (2026-10-18). **1.1.16, the overflow flag as data
    flow: tagged `1.1.16`** (2026-10-18). `Body`'s typed per-family state is deferred
-   (`docs/specs/2026-10-18-family-fields-views-design.md`). Next: the leads, then the survey loop.
+   (`docs/specs/2026-10-18-family-fields-views-design.md`). **1.1.17, the hurt written once:
+   tagged `1.1.17`** (2026-10-18). Next: the survey loop (what is still NES-shaped, logged in
+   MODERNIZE and worked through).
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
@@ -119,13 +122,22 @@ from the game's own requests.
 
 ## Owner decisions pending
 
-- **Level packs, release 1** (`docs/specs/2026-10-18-level-packs-design.md`, "Release 1: what
-  the approved schema can't carry"): the original game can't round-trip through the approved
-  schema without carrying an area's physical page order, the spawn schedule's trigger and
-  scroll-lock cells, and the start's scroll mode, lock and facing; five questions there. The
-  level packs wait; the modernisation goes on with `Work`, `Body` and the survey.
+None open.
 
 ## Owner decisions made
+
+- **Level packs, release 1 (2026-10-18)**, answering the schema questions in
+  `docs/specs/2026-10-18-level-packs-design.md`: a stage carries its area's physical page map
+  (an ordered list of the area's pages, each a room region or empty); actors carry a `triggers`
+  list (schedule columns) and rooms a `scroll-lock` marker, the schedule's unread residue
+  dropped; `player-start` carries `facing`, `scroll_mode` and `scroll_lock`; the equivalence
+  proof covers what the game reads; one generated tileset per (area, CHR) variant (27); rooms
+  named by the stage's banner, `rooms/<stage>-<room>.tmj` (`rooms/3-2-1.tmj`); one class per
+  family, with a typed `variant` enum property (a per-family dropdown in Tiled and the editor)
+  where a family has more than one kind.
+- **The music driver may be modernised (2026-10-18)**: lifting MODERNIZE §2's rule; the song
+  bytecode as a command enum decoded once and the APU registers named, proven by the driver's
+  write log against the oracle as today.
 
 - **Phase C (2026-10-18)**, answering `docs/specs/2026-10-18-phase-c-mirror-design.md`: C3 (the
   `Modern` picture from entities) lands late in 1.1.x as groundwork; its background is a tilemap

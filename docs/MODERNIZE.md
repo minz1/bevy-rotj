@@ -187,8 +187,8 @@ New candidates, each to be classified (state, flags, table index) before it chan
   the pads unless bit 5 keeps them, bit 6 skips the projection), `effects.busy` (`$AF`),
   `effects.attack` (`$B8`), `power_up`/`sliding`/`hurt` (`$0472`/`$0473`/`$047A`): named
   bits in `actor/world.rs` (1.1.7).
-- **The hurt rule twice**: `player.rs`'s own hurt (the `Falling` → `Jumping` knockback and
-  the `on_foot` test) and `engine::hurt_player` repeat the same rule; one function.
+- **The hurt rule twice**: done in 1.1.17 (`docs/specs/2026-10-18-hurt-once-design.md`): the
+  hurt's start is `engine::start_hurt`, shared by the damage tile and `hurt_player`.
 - **Runtime ROM tables** (about 390 `rom_byte`/`rom_word` reads in 90 files): velocities,
   hitboxes, metasprite pointers, per-motion offsets. Typed data the level importer
   produces (roadmap A3, B1), which new content and kaizo levels need. Surveyed
@@ -228,8 +228,7 @@ New candidates, each to be classified (state, flags, table index) before it chan
   is held, about 90% of reads), then threaded as data: `step_draw` returns the V `$84AB` leaves,
   `draw_second` and `weapons::step` take it, `super_unleash` holds the named Classic rule;
   `Work::cpu_overflow` is gone and `bit` is `set_overflow_from`.
-- **Helper names in `player.rs`** still shaped by the probe they call: `stun` (name what it is:
-  the stunned frame while knocked back).
+- **Helper names in `player.rs`**: `stun` is `stunned` (1.1.17).
 - **`Body`'s typed per-family state** (HANDOFF item 8): deferred, 2026-10-18
   (`docs/specs/2026-10-18-family-fields-views-design.md`): every family's state lives in
   `Body`'s bytes, 1.1.5's names are the readable form, and typed spawn properties go with the
@@ -275,6 +274,70 @@ New candidates, each to be classified (state, flags, table index) before it chan
   exploration wrote an aliased byte through `cx`. Unreached by the game as shipped; new
   content that places actors differently (kaizo levels) could reach it, so the fix (write
   back only the fields the handler changed) belongs with that content's own tests.
+
+### The survey loop, 2026-10-18 (after HANDOFF's list)
+
+A read-only survey of `next` for what is still NES-shaped, beyond everything above; each a release
+of its own, proven by the lockstep, ranked by payoff over risk:
+
+1. **Sprite attribute bits named**: raw `0x40` flip-x, `0x80` flip-y, `0x20` behind and `0x03`
+   palette masks on `work.attr`, `Body.flags`, `Projectile.attr` and `Player.facing`, about 130
+   sites in 25 files (`facing ^= 0x40` 20 times in `player.rs`) -> an `oam::attr` module and
+   `turn_around`/`faces_left`; constant substitution. `facing` also holds palette bits: it is
+   really the player's attribute byte (a naming call).
+2. **Collision probe results typed**: bit 7 means "clear" for the hit probes (`wall`, `floor`,
+   `feet`, `head`, `ahead`, `column`, `corners`) and "solid" for `solid`/`below`, tested `& 0x80`
+   at 25 sites -> `solid() -> bool`, a `Blocked`/`Clear` result, named probe flags; `solid`'s
+   `None` arm returns a ROM byte (`$C97E`) whose bit 7 alone is read (pin it). The probe API new
+   surfaces and kaizo tiles go through.
+3. **The raster split typed**: `Scroll::room: [u8; 13]` (`$D0-$DC`), about 137 index sites ->
+   `RasterSplit { armed, delay: u16, kind, step, bands }`, the IRQ cycle tables staying Classic's
+   rule; header bytes first. Modern's next steps (the `$D3` 4 boss rooms, the band rooms) read it.
+4. **PPU registers and VRAM addresses named**: raw `ppu_ctrl`/`mask` writes (about 64), palette
+   pushes at `0x3F00` (12), nametable/attribute address arithmetic -> `ppu::ctrl`/`mask` consts,
+   `Vram::push_palette`, `tile_addr`/`attribute_addr`.
+5. **`Projectile` positions as `u16`** (`level_x_hi/lo`, about 101 uses) and the homing shot's
+   last address-keyed slot reads (`weapons.rs` `actor(cx, target, 0x7CC0)`, `0x7D00 + reset`)
+   through `cx.get(slot, Field::..)`.
+6. **`Projectile` state bits named and the shot flight once**: the flight preamble copied in
+   `flying_shot`, `splitter`, `wave`, `three_way`; "count down, free on wrap" 8 times.
+7. **Ids named**: sound effects (46 raw writes), songs (about 35), spawned kinds by literal (16).
+8. **Byte-wise 16-bit arithmetic** in `player.rs` (37 carry pairs), `weapons.rs` (25),
+   `engine.rs` (16), `collision.rs` (12) -> `u16` maths with an equivalence test per site, as
+   1.1.6 did for the families; one `hi`/`lo`/`word` helper instead of four.
+9. **The remaining flag bytes named**: `Body.contact`, `probe_flags`, `work.anchor`, `pose_step`,
+   `death_flags`, the `energy & 0x80` sign tests, `scroll.mode`.
+- **A lead (the attribute-bits review)**: `player.rs:461` tests `(toward ^ facing) & 0x80`,
+  where `toward` is `0x40` or `0` after its shift, so only `facing`'s bit 7 counts and the pressed
+  direction is ignored; check the ROM's rotate there (a fix would change behaviour, so an oracle
+  probe first).
+10. **The music driver's commands** as an enum and the APU registers named: waits on the owner,
+    since §2 keeps the driver NES-shaped.
+
+### The owner's review of the passed-on candidates (2026-10-18)
+
+To do, in the survey loop's order after #1-#3 above, level packs release 1 alongside:
+- **#3 `Brain::Unported`**: the empty slot as an explicit `Empty`/`Option<Brain>`.
+- **#8 the remaining script step machines** (the next-area load, the continue screen, the
+  room-change slide, the sound test) as data on the shared runner, proven by the script hashes.
+- **#14 `bevy_asset_loader`**: with level packs release 3 (the game loading through `Levels`).
+- **#5 the Modern picture's reach**: the `$D3` 4 boss rooms next, then the band rooms, each proven
+  by the background gate and the headless pixel comparison with Classic; Classic's own picture
+  stays the software `Frame`, the exact NES picture and the reference.
+- **`LevelMap` folded into `Map`**; **the test harness's chain counts as a named struct** (and
+  `TapePlayer::injected` gone); **Modern's tilemap computed only when `picture: Modern`**.
+- **Modern's per-frame sprite and atlas churn**: measure on the headless render; reuse only if
+  it costs.
+- **Leads to probe**: `player.rs:461`'s `facing` bit 7 (a fix waits for the owner);
+  `path_platform`'s and the splitter orbit's table sizes; later, the odd-energy HUD and the
+  no-free-slot `$AC16` path. The aliased-byte write-back fix comes with level packs.
+- **The music driver** (owner, 2026-10-18): its commands as an enum, the APU registers named.
+
+Kept as they are: #7 (`animate_chr` is game state the lockstep checks; Modern rebuilds its
+tilesets from the banks), #15 (`leafwing-input-manager` arrives with button remapping, whose
+settings are new public names for the owner), #16 (`bevy_kira_audio` is 1.2.0's Enhanced audio:
+swapping Classic's output changes nothing heard), `Body`'s typed views (made unnecessary: 1.1.5's
+names and the level format's typed properties), the oracle (already idiomatic; it is the 6502).
 
 ### Done in 1.1.x (2026-10-16, released as 1.1.1)
 

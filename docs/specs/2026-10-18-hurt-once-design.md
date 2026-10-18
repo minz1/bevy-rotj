@@ -1,7 +1,7 @@
 # The hurt, written once
 
 Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: four callers; plain
-speeds; the reason stated; the proof names the damage-tile test). HANDOFF item 9's leads ("the hurt rule's copies", "`stun`/`hurt`
+speeds; the reason stated; the proof names the damage-tile test). Implemented in 1.1.17. HANDOFF item 9's leads ("the hurt rule's copies", "`stun`/`hurt`
 names"); MODERNIZE "The hurt rule twice" and "Helper names in `player.rs`". No behaviour change.
 
 ## What is there
@@ -33,6 +33,6 @@ helper and its doc about equal what it removes).
 ## Proof
 
 `hurt_player_matches_b17f` (the shared start through `hurt_player`); the damage-tile branch
-(`PATHS` bit 9) is not in the stage 1-1 move test's coverage, so a counted run of the sweep shows
-the lockstep reaching it; the player's oracle tests, the Classic suites, a sweep and a
+(`PATHS` bit 9) is not in the stage 1-1 move test's coverage, so a counted run showed the
+lockstep reaching it (14 times over the chain and the six random-play stages); the player's oracle tests, the Classic suites, a sweep and a
 300-branch exploration unchanged; tapes byte-identical.

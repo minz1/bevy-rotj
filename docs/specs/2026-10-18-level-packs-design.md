@@ -194,3 +194,17 @@ waits for them (the schema is the owner's).
 5. Are per-CHR-variant tilesets (27 instead of 18) fine; is `<stage>-<n>` with stages named by
    their banner ("3-2", so `rooms/3-2-1.tmj`) the naming; and which class names should
    `spike_probe`'s two kinds and the four unported kinds get?
+
+### The owner's answers (2026-10-18)
+
+1. A stage carries its area's physical page map: an ordered list of the area's pages, each a
+   room region or empty, so the importer rebuilds the layout exactly.
+2. Actors carry a `triggers` list (schedule columns); rooms get a `scroll-lock` marker; the
+   schedule's residue the game never reads is dropped.
+3. `player-start` carries `facing`, `scroll_mode` and `scroll_lock`.
+4. The equivalence proof covers what the game reads.
+5. One generated tileset per (area, CHR) variant; rooms named by the stage's banner,
+   `rooms/<stage>-<room>.tmj`. One class per family; a family with more than one kind
+   (`spike_probe`, `ace_ranger_shot`, `breakable_block`, and the four number-only kinds under
+   family names) gets a typed `variant` enum property, a dropdown per family, beside the typed
+   per-family properties to come.
