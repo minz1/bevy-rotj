@@ -236,6 +236,28 @@ pub mod hurt {
     pub const INVULNERABLE: u8 = 0x40;
 }
 
+/// The bits of a projectile's flags (`$7F30`).
+pub mod shot_flags {
+    /// The shot is spent or harmless: the actor scan skips it.
+    pub const HARMLESS: u8 = 0x80;
+    /// The shot is not spent by a hit.
+    pub const PIERCING: u8 = 0x40;
+    /// The shot passes a shield instead of being deflected.
+    pub const PASSES_SHIELDS: u8 = 0x20;
+    /// Only drawn: harmless, never spent, past shields (a deflected or spent piece).
+    pub const INERT: u8 = HARMLESS | PIERCING | PASSES_SHIELDS;
+    /// Never spent by a hit and passes shields (a charged attack's piece).
+    pub const UNSTOPPABLE: u8 = PIERCING | PASSES_SHIELDS;
+}
+
+/// The bits of a projectile's state (`$7C80`).
+pub mod shot_state {
+    /// The shot is spent: its end animation plays.
+    pub const SPENT: u8 = 0x80;
+    /// The shot falls under gravity until its timer runs out.
+    pub const FALLING: u8 = 0x40;
+}
+
 /// The player as actors see him.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Player {
@@ -550,7 +572,7 @@ pub struct Projectile {
     pub screen_x: u8,
     /// Screen y (`$7B90`).
     pub screen_y: u8,
-    /// Flags (`$7F30`): bit 7 spent, bit 5 deflected.
+    /// Flags (`$7F30`), the bits of [`shot_flags`].
     pub flags: u8,
     /// Damage it deals (`$7F20`).
     pub damage: u8,
@@ -558,7 +580,7 @@ pub struct Projectile {
     pub vx: i16,
     /// Y velocity (`$7D20:$7EB0`).
     pub vy: i16,
-    /// A per-slot state byte (`$7C80`); bit 7 marks the shot spent.
+    /// A per-slot state byte (`$7C80`), the bits of [`shot_state`].
     pub state: u8,
     /// A per-slot countdown (`$7CB0`): the wall-bounce timer and a spent shot's or
     /// explosion's frames.
@@ -585,6 +607,17 @@ pub const PROJECTILE_ARRAYS: [u16; 19] = [
 ];
 
 impl Projectile {
+    /// The timer down by one; frees the slot (true) when that sets bit 7.
+    pub fn count_down(&mut self) -> bool {
+        self.timer = self.timer.wrapping_sub(1);
+        if self.timer & 0x80 != 0 {
+            self.kind = 0;
+            true
+        } else {
+            false
+        }
+    }
+
     /// The projectile's byte in `array` (one of [`PROJECTILE_ARRAYS`]).
     #[must_use]
     pub fn byte(&self, array: u16) -> u8 {

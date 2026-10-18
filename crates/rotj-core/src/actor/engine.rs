@@ -4,7 +4,7 @@ use super::oam::{DrawCall, Metasprite, attr};
 use super::slots::{Body, Field, hit};
 use super::world::{
     Cx, Effects, Level, Motion, Player, Schedule, Weapon, World, attack, busy, hurt, orientation,
-    pose, power_up, sliding, stage_script,
+    pose, power_up, shot_flags, shot_state, sliding, stage_script,
 };
 use crate::actors::{STATE_DROPS_PICKUP, bank_slice};
 use crate::levelmap::Cell;
@@ -628,7 +628,7 @@ pub fn projectile_hits(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     let [seed, noise] = cx.world.rng;
     for index in (0..16).rev() {
         let projectile = cx.effects.projectiles[index];
-        if projectile.kind == 0 || projectile.flags & 0x80 != 0 {
+        if projectile.kind == 0 || projectile.flags & shot_flags::HARMLESS != 0 {
             continue;
         }
         if work.screen_x.abs_diff(projectile.screen_x) >= half_width {
@@ -644,11 +644,11 @@ pub fn projectile_hits(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         }
         let projectile = &mut cx.effects.projectiles[index];
         if body.contact & 0x80 != 0 {
-            if projectile.flags & 0x20 != 0 {
+            if projectile.flags & shot_flags::PASSES_SHIELDS != 0 {
                 continue;
             }
             cx.effects.sound[0] = 0x3C;
-            projectile.flags |= 0xE0;
+            projectile.flags |= shot_flags::INERT;
             let away_right = if projectile.vx == 0 {
                 noise & 0x01 == 0
             } else {
@@ -659,7 +659,7 @@ pub fn projectile_hits(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             } else {
                 i16::from_be_bytes([0xFF, !(noise & 0x3F)])
             };
-            projectile.state |= 0x40;
+            projectile.state |= shot_state::FALLING;
             projectile.timer = 0x20;
             projectile.vy = i16::from_be_bytes([0xFF, !(seed & 0x7F)]);
             continue;
@@ -679,10 +679,10 @@ pub fn projectile_hits(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 
 /// A projectile that hit bounces off and is spent (`$B108`).
 fn spend(projectile: &mut super::world::Projectile, rng_f9: u8) {
-    if projectile.flags & 0x40 != 0 {
+    if projectile.flags & shot_flags::PIERCING != 0 {
         return;
     }
-    projectile.flags |= 0x80;
+    projectile.flags |= shot_flags::HARMLESS;
     let random = if rng_f9 & 0x80 == 0 { 0x20 } else { -0x20 };
     if projectile.timer & 0x80 == 0 {
         projectile.vx = if projectile.vx < 0 { 0x20 } else { -0x20 };
@@ -691,7 +691,7 @@ fn spend(projectile: &mut super::world::Projectile, rng_f9: u8) {
         projectile.vy = 0x20;
         projectile.vx = random;
     }
-    projectile.state = 0x80;
+    projectile.state = shot_state::SPENT;
     projectile.attr = 0;
     projectile.param = 0;
     projectile.timer = 4;
@@ -779,7 +779,7 @@ pub fn boss_contact(amount: u16, mode: u8, body: &mut Body, work: &Work, cx: &mu
     }
     for index in (0..16).rev() {
         let projectile = &mut cx.effects.projectiles[index];
-        if projectile.kind == 0 || projectile.flags & 0x80 != 0 {
+        if projectile.kind == 0 || projectile.flags & shot_flags::HARMLESS != 0 {
             continue;
         }
         if work.screen_x.abs_diff(projectile.screen_x) >= half_width {

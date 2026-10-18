@@ -12,7 +12,8 @@ use super::oam::{Mark, attr};
 use super::scroll::Scroll;
 use super::slots::{Field, hit};
 use super::world::{
-    Cx, Motion, Projectile, Weapon, attack, busy, power_up, set_first_colours, stage_script,
+    Cx, Motion, Projectile, Weapon, attack, busy, power_up, set_first_colours, shot_flags,
+    shot_state, stage_script,
 };
 use crate::actor::button::Buttons;
 use crate::actors::STATE_UNTARGETED;
@@ -620,7 +621,7 @@ fn homing_spawn_circlers(source: usize, cx: &mut Cx<'_>) -> bool {
             let projectile = &mut cx.effects.projectiles[index];
             projectile.kind = homing_stage::CIRCLING;
             projectile.damage = 1;
-            projectile.flags = 0xE0;
+            projectile.flags = shot_flags::INERT;
             projectile.state = 0;
             projectile.param = angle;
             parts[count] = at.cast_unsigned();
@@ -651,7 +652,7 @@ fn homing_draw_circlers(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         centre.part_timer & 0x0F,
     ] {
         let part = usize::from(part);
-        cx.effects.projectiles[part].flags = 0x60;
+        cx.effects.projectiles[part].flags = shot_flags::UNSTOPPABLE;
         let (dx, dy) =
             cx.prg.weapons.circle_offsets[usize::from(cx.effects.projectiles[part].param & 0x3F)];
         work.x = centre.x.wrapping_add(dx);
@@ -667,7 +668,7 @@ fn homing_draw_circlers(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
             projectile.screen_x = work.screen_x;
             projectile.screen_y = work.screen_y;
         } else {
-            cx.effects.projectiles[part].flags = 0xE0;
+            cx.effects.projectiles[part].flags = shot_flags::INERT;
         }
     }
 }
@@ -850,7 +851,7 @@ fn super_unleash(slot: usize, cx: &mut Cx<'_>, scroll: &mut Scroll, overflow: bo
     for projectile in &mut cx.effects.projectiles {
         if projectile.kind & 0x80 == 0 {
             projectile.kind = super_stage::CLAIMED;
-            projectile.flags = 0xE0;
+            projectile.flags = shot_flags::INERT;
         }
     }
     let (x, y) = if cx.effects.player.motion == Motion::AimingUp {
@@ -892,7 +893,7 @@ fn super_pairs(slot: usize, cx: &mut Cx<'_>) {
     let source = cx.effects.projectiles[slot];
     let orbiter_weapon = &mut cx.effects.projectiles[orbiter];
     (orbiter_weapon.x, orbiter_weapon.y) = (0x0100, 0);
-    orbiter_weapon.flags = 0xE0;
+    orbiter_weapon.flags = shot_flags::INERT;
     orbiter_weapon.param = 0;
     orbiter_weapon.part = if source.part_timer == 0 { 0x80 } else { 0 };
     orbiter_weapon.vx = -8;
@@ -1065,41 +1066,70 @@ fn super_smite(cx: &mut Cx<'_>) {
     }
 }
 
-/// A shot's flight, wall bounce and draw: `flight` picks the sprite in flight
+/// What a shot's flight did this frame.
+enum Flight {
+    /// Flying on, or spent; gravity has run when it falls.
+    On,
+    /// The falling shot's timer ran out and the slot is free; `overflow` is gravity's flag.
+    Freed { overflow: bool },
+    /// The first wall touch (timer bit 0 clear); nothing is written yet.
+    Touched,
+    /// A later wall touch (timer bit 0 set); nothing is written yet.
+    TouchedAgain,
+}
+
+/// Advances a shot, then lets a falling one fall and count down, or probes the wall for the others.
+fn fly(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> Flight {
+    advance(slot, work, cx);
+    let phase = cx.effects.projectiles[slot].state;
+    if phase & shot_state::SPENT != 0 {
+        return Flight::On;
+    }
+    if phase & shot_state::FALLING != 0 {
+        let projectile = &mut cx.effects.projectiles[slot];
+        let overflow = gravity(projectile);
+        return if projectile.count_down() {
+            Flight::Freed { overflow }
+        } else {
+            Flight::On
+        };
+    }
+    if !solid(work, phase << 1, cx) {
+        return Flight::On;
+    }
+    if cx.effects.projectiles[slot].timer & 1 == 0 {
+        Flight::Touched
+    } else {
+        Flight::TouchedAgain
+    }
+}
+
+/// A shot's flight, wall bounce and draw: `sprite` picks the sprite in flight
 /// (and may change `$7C20`), `spent` is the spent sprites' pointer table. The overflow
 /// flag it leaves: gravity's, the projection's or the draw's.
 fn flying_shot(
     slot: usize,
     work: &mut Work,
     cx: &mut Cx<'_>,
-    flight: impl FnOnce(&mut Cx<'_>) -> u16,
+    sprite: impl FnOnce(&mut Cx<'_>) -> u16,
     spent: u16,
 ) -> bool {
-    advance(slot, work, cx);
-    let phase = cx.effects.projectiles[slot].state;
-    if phase & 0x80 == 0 {
-        if phase & 0x40 != 0 {
-            let projectile = &mut cx.effects.projectiles[slot];
-            let overflow = gravity(projectile);
-            projectile.timer = projectile.timer.wrapping_sub(1);
-            if projectile.timer & 0x80 != 0 {
-                projectile.kind = 0;
-                return overflow;
-            }
-        } else if solid(work, phase << 1, cx) {
-            let timer = cx.effects.projectiles[slot].timer;
-            if timer & 1 == 0 {
-                #[cfg(test)]
-                super::oracle::seen(0x80CD);
-                cx.effects.projectiles[slot].timer = timer | 1;
-                let on_screen = project_or_free(slot, work, cx);
-                return projection_overflow(on_screen, work, cx);
-            }
+    match fly(slot, work, cx) {
+        Flight::Freed { overflow } => return overflow,
+        Flight::Touched => {
+            #[cfg(test)]
+            super::oracle::seen(0x80CD);
+            cx.effects.projectiles[slot].timer |= 1;
+            let on_screen = project_or_free(slot, work, cx);
+            return projection_overflow(on_screen, work, cx);
+        }
+        Flight::TouchedAgain => {
             #[cfg(test)]
             super::oracle::seen(0x80DA);
             let positive = cx.world.rng[0] & 0x01 != 0;
             bounce_off_wall(slot, cx, positive);
         }
+        Flight::On => {}
     }
     let on_screen = project_or_free(slot, work, cx);
     let projected = projection_overflow(on_screen, work, cx);
@@ -1110,15 +1140,12 @@ fn flying_shot(
         let projectile = &cx.effects.projectiles[slot];
         (projectile.state, projectile.timer)
     };
-    if phase & 0x80 == 0 {
-        work.pointer = flight(cx);
+    if phase & shot_state::SPENT == 0 {
+        work.pointer = sprite(cx);
     } else {
         work.pointer = rom_word(cx.prg, 5, spent + u16::from(timer & 0xFE));
         let projectile = &mut cx.effects.projectiles[slot];
-        projectile.timer = projectile.timer.wrapping_sub(1);
-        if projectile.timer & 0x80 != 0 {
-            projectile.kind = 0;
-        }
+        projectile.count_down();
     }
     work.attr = cx.effects.projectiles[slot].attr;
     draw_alternate_frames(slot, work, cx).unwrap_or(projected)
@@ -1131,28 +1158,20 @@ fn splitter(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         splitter_orbit(slot, work, cx);
         return;
     }
-    advance(slot, work, cx);
-    let phase = cx.effects.projectiles[slot].state;
-    if phase & 0x80 == 0 {
-        if phase & 0x40 != 0 {
-            let projectile = &mut cx.effects.projectiles[slot];
-            gravity(projectile);
-            projectile.timer = projectile.timer.wrapping_sub(1);
-            if projectile.timer & 0x80 != 0 {
-                projectile.kind = 0;
-                return;
-            }
-        } else if solid(work, phase << 1, cx) {
+    match fly(slot, work, cx) {
+        Flight::Freed { .. } => return,
+        Flight::Touched => {
             cx.effects.sound[0] = 0x22;
-            let timer = cx.effects.projectiles[slot].timer;
-            if timer & 1 != 0 {
-                splitter_split(slot, cx);
-                return;
-            }
-            cx.effects.projectiles[slot].timer = timer | 1;
+            cx.effects.projectiles[slot].timer |= 1;
             project_or_free(slot, work, cx);
             return;
         }
+        Flight::TouchedAgain => {
+            cx.effects.sound[0] = 0x22;
+            splitter_split(slot, cx);
+            return;
+        }
+        Flight::On => {}
     }
     if !project_or_free(slot, work, cx) {
         return;
@@ -1167,7 +1186,7 @@ fn splitter(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         )
     };
     work.attr = attr;
-    if phase & 0x80 != 0 {
+    if phase & shot_state::SPENT != 0 {
         if bounce & 0x80 == 0 {
             splitter_split(slot, cx);
             return;
@@ -1182,7 +1201,7 @@ fn splitter(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     } else {
         let kind = cx.effects.projectiles[slot].kind;
         if timer & 0x80 != 0 {
-            if phase & 0x40 == 0 {
+            if phase & shot_state::FALLING == 0 {
                 let projectile = &mut cx.effects.projectiles[slot];
                 let [hi, lo] = projectile.vy.to_be_bytes();
                 let (sub, borrow) = lo.overflowing_sub(2);
@@ -1191,7 +1210,7 @@ fn splitter(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
             }
             work.pointer = rom_word(cx.prg, 5, 0x8A43 + u16::from(kind & 0x80 != 0) * 2);
         } else {
-            if phase & 0x40 == 0 {
+            if phase & shot_state::FALLING == 0 {
                 let projectile = &mut cx.effects.projectiles[slot];
                 let [hi, lo] = projectile.vx.to_be_bytes();
                 if attr & attr::FLIP_X != 0 {
@@ -1241,11 +1260,11 @@ fn splitter_part(slot: usize, part: usize, source: usize, cx: &mut Cx<'_>) {
     projectile.vy = vy;
     projectile.param = bounce;
     projectile.kind = 0x06;
-    projectile.state = 0x80;
+    projectile.state = shot_state::SPENT;
     projectile.attr = 0;
     projectile.timer = 0;
     (projectile.x, projectile.y) = (src.x, src.y);
-    projectile.flags = 0x60;
+    projectile.flags = shot_flags::UNSTOPPABLE;
     projectile.damage = 0x02;
 }
 
@@ -1261,27 +1280,18 @@ fn wave(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
         }
         _ => {}
     }
-    advance(slot, work, cx);
-    let phase = cx.effects.projectiles[slot].state;
-    if phase & 0x80 == 0 {
-        if phase & 0x40 != 0 {
-            let projectile = &mut cx.effects.projectiles[slot];
-            gravity(projectile);
-            projectile.timer = projectile.timer.wrapping_sub(1);
-            if projectile.timer & 0x80 != 0 {
-                projectile.kind = 0;
-                return true;
-            }
-        } else if solid(work, phase << 1, cx) {
-            let timer = cx.effects.projectiles[slot].timer;
-            if timer & 1 == 0 {
-                cx.effects.projectiles[slot].timer = timer | 1;
-                project_or_free(slot, work, cx);
-                return true;
-            }
+    match fly(slot, work, cx) {
+        Flight::Freed { .. } => return true,
+        Flight::Touched => {
+            cx.effects.projectiles[slot].timer |= 1;
+            project_or_free(slot, work, cx);
+            return true;
+        }
+        Flight::TouchedAgain => {
             let positive = cx.world.rng[0] & 0x80 == 0;
             bounce_off_wall(slot, cx, positive);
         }
+        Flight::On => {}
     }
     wave_flight(slot, work, cx);
     true
@@ -1297,25 +1307,15 @@ fn three_way(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         other @ 0x83.. => panic!("handler 4's type ${other:02X} is past the $95EF table"),
         _ => {}
     }
-    advance(slot, work, cx);
-    let phase = cx.effects.projectiles[slot].state;
-    if phase & 0x80 == 0 {
-        if phase & 0x40 != 0 {
-            let projectile = &mut cx.effects.projectiles[slot];
-            gravity(projectile);
-            projectile.timer = projectile.timer.wrapping_sub(1);
-            if projectile.timer & 0x80 != 0 {
-                projectile.kind = 0;
-                return;
-            }
-        } else if solid(work, phase << 1, cx) {
-            let timer = cx.effects.projectiles[slot].timer;
-            if timer & 1 == 0 {
-                cx.effects.projectiles[slot].timer = timer | 1;
-                project_or_free(slot, work, cx);
-                return;
-            }
-            if timer & 0x80 != 0 {
+    match fly(slot, work, cx) {
+        Flight::Freed { .. } => return,
+        Flight::Touched => {
+            cx.effects.projectiles[slot].timer |= 1;
+            project_or_free(slot, work, cx);
+            return;
+        }
+        Flight::TouchedAgain => {
+            if cx.effects.projectiles[slot].timer & 0x80 != 0 {
                 #[cfg(test)]
                 super::oracle::seen(0x9268);
                 let pick = usize::from(cx.world.rng[0] & 0x02 | 0x01);
@@ -1326,10 +1326,10 @@ fn three_way(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
                 let projectile = &mut cx.effects.projectiles[slot];
                 projectile.vx = vx;
                 projectile.vy = vy;
-                projectile.state = 0x80;
+                projectile.state = shot_state::SPENT;
                 projectile.attr = 0;
                 projectile.timer = 0x04;
-                projectile.flags = 0xE0;
+                projectile.flags = shot_flags::INERT;
             } else {
                 #[cfg(test)]
                 super::oracle::seen(0x9275);
@@ -1337,19 +1337,17 @@ fn three_way(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
                 bounce_off_wall(slot, cx, positive);
             }
         }
+        Flight::On => {}
     }
     if !project_or_free(slot, work, cx) {
         return;
     }
     let projectile = &mut cx.effects.projectiles[slot];
-    if projectile.state & 0x80 == 0 {
+    if projectile.state & shot_state::SPENT == 0 {
         work.pointer = rom_word(cx.prg, 5, 0x92BA + u16::from((cx.world.frame & 0x04) >> 1));
     } else {
         work.pointer = rom_word(cx.prg, 5, 0x92BE + u16::from(projectile.timer & 0xFE));
-        projectile.timer = projectile.timer.wrapping_sub(1);
-        if projectile.timer & 0x80 != 0 {
-            projectile.kind = 0;
-        }
+        projectile.count_down();
     }
     draw_alternate_frames(slot, work, cx);
 }
@@ -1412,7 +1410,7 @@ fn three_way_blow(slot: usize, vx: i16, cx: &mut Cx<'_>) {
     projectile.kind = three_way_stage::BUBBLE;
     projectile.state = 0;
     projectile.part_timer = 0;
-    projectile.flags = 0x20;
+    projectile.flags = shot_flags::PASSES_SHIELDS;
     projectile.vx = vx;
     projectile.vy = i16::from_be_bytes([0xFF, rise]);
     projectile.attr = attr;
@@ -1441,7 +1439,7 @@ fn three_way_let_go(slot: usize, cx: &mut Cx<'_>) {
     projectile.state = 0;
     projectile.param = 0;
     projectile.part = 0;
-    projectile.flags = 0x60;
+    projectile.flags = shot_flags::UNSTOPPABLE;
     projectile.part_timer = if aim_up { 0x80 } else { 0 };
     projectile.vx = vx;
     projectile.vy = vy;
@@ -1454,7 +1452,7 @@ fn three_way_bubble(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     #[cfg(test)]
     super::oracle::seen(0x930B);
     let projectile = &mut cx.effects.projectiles[slot];
-    if projectile.state & 0x80 != 0 {
+    if projectile.state & shot_state::SPENT != 0 {
         projectile.kind = 0;
         return;
     }
@@ -1756,7 +1754,7 @@ fn wave_spread(slot: usize, cx: &mut Cx<'_>) -> bool {
     projectile.kind = wave_stage::SPREAD_SHOT;
     projectile.part_timer = 0;
     projectile.damage = 1;
-    projectile.flags = 0xE0;
+    projectile.flags = shot_flags::INERT;
     projectile.x = x;
     projectile.y = y;
     if cx.effects.player.motion == Motion::AimingUp {
@@ -1780,7 +1778,7 @@ fn wave_spread_shot(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     #[cfg(test)]
     super::oracle::seen(0x90E1);
     let projectile = &mut cx.effects.projectiles[slot];
-    projectile.flags = 0x60;
+    projectile.flags = shot_flags::UNSTOPPABLE;
     projectile.part_timer = projectile.part_timer.wrapping_add(1);
     if projectile.part_timer >= 0x18 {
         projectile.kind = 0;
@@ -1817,10 +1815,10 @@ fn bounce_off_wall(slot: usize, cx: &mut Cx<'_>, positive: bool) {
         projectile.vx = if projectile.vx < 0 { 0x0020 } else { -0x0020 };
         projectile.vy = random;
     }
-    projectile.state = 0x80;
+    projectile.state = shot_state::SPENT;
     projectile.attr = 0;
     projectile.timer = 0x04;
-    projectile.flags = 0xE0;
+    projectile.flags = shot_flags::INERT;
 }
 
 /// Projects, weaves and draws the wave's part (`$8D7E`-`$8E62`).
@@ -1832,20 +1830,14 @@ fn wave_flight(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         let projectile = &cx.effects.projectiles[slot];
         (projectile.state, projectile.timer)
     };
-    if phase & 0x80 != 0 {
+    if phase & shot_state::SPENT != 0 {
         if cx.world.frame_odd {
             let projectile = &mut cx.effects.projectiles[slot];
-            projectile.timer = projectile.timer.wrapping_sub(1);
-            if projectile.timer & 0x80 != 0 {
-                projectile.kind = 0;
-            }
+            projectile.count_down();
             return;
         }
         work.pointer = rom_word(cx.prg, 5, 0x8EEF + u16::from(timer & 0xFE));
-        let projectile = &mut cx.effects.projectiles[slot];
-        projectile.timer = projectile.timer.wrapping_sub(1);
-        if projectile.timer & 0x80 != 0 {
-            projectile.kind = 0;
+        if cx.effects.projectiles[slot].count_down() {
             return;
         }
         draw(work, cx);
@@ -1926,7 +1918,7 @@ fn draw_on_odd_frames(work: &mut Work, cx: &mut Cx<'_>) {
 #[cfg(test)]
 mod tests {
     use super::super::oracle::{Scene, assert_game, assert_routine, was_seen};
-    use super::super::world::Cx;
+    use super::super::world::{Cx, shot_state};
 
     /// Stage 1-1 with the power-up's weapon and its charge (type `$80`) in slot 14, the
     /// meter at 2, after one weapons call with `overflow` coming in and, if `shot_above`, a
@@ -1941,7 +1933,7 @@ mod tests {
         if shot_above {
             let shot = &mut game.effects.projectiles[15];
             shot.kind = 1;
-            shot.state = 0x40;
+            shot.state = shot_state::FALLING;
             shot.timer = 0x10;
             let [_, low] = shot.x.to_be_bytes();
             let high = game.world.camera_x.to_be_bytes()[0].wrapping_add(0x20);

@@ -10,7 +10,7 @@ use super::engine::{self, Work, adc_overflows, rom_word, sub_overflows16};
 use super::oam::attr;
 use super::world::{
     Cx, Motion, Player, Projectile, Weapon, attack, busy, hurt, orientation, pose, power_up,
-    set_first_colours, sliding, stage_script,
+    set_first_colours, shot_flags, sliding, stage_script,
 };
 use crate::actor::button::Buttons;
 use crate::actors::STATE_UNTARGETED;
@@ -1311,7 +1311,7 @@ impl Port<'_, '_> {
         let charge = |projectile: &mut Projectile| {
             projectile.kind = super::weapons::CHARGE_START;
             projectile.part_timer = 0;
-            projectile.flags = 0xE0;
+            projectile.flags = shot_flags::INERT;
         };
         let handler = self.rw(0x9A75 + u16::from(weapon.byte()) * 2);
         #[cfg(test)]
