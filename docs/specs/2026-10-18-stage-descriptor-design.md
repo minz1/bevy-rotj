@@ -5,7 +5,7 @@ not release 1's `levels::Stage`; the pause letters are the checkpoint's password
 screen's own copy checked; the signature changes listed; `forced` bounded; `LEVEL_AREA_TABLE`'s
 fate; `hurtful_burst`'s reason).
 
-Implemented: the password screen holds the 13 checkpoints' passwords
+Implemented in 1.1.23: the password screen holds the 13 checkpoints' passwords
 in order and a fourteenth of its own, one the pause never shows, which starts the last level too
 (the proof below said its 14th was the last checkpoint's; the test pins what the ROM holds).
 

@@ -1,4 +1,4 @@
-# Status — where 1.1.22 stands
+# Status — where 1.1.23 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -46,6 +46,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.20 | **done, tag `1.1.20`** (2026-10-18): the twentieth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The raster split typed (`docs/specs/2026-10-18-raster-split-design.md`, the survey loop's #3): `Scroll::room`'s 13 raw bytes (`$D0-$DC`) are `Scroll::split`, the `rooms::Raster` header a room's screen record already used (armed, the first IRQ's delay as a word, the handler chain, the next IRQ's index), and `Scroll::bands` (`$D5-$DC`), the chain's own bytes; the handlers' delays are words; the chain lockstep reaches every handler chain but the intro's (`$09`, proven by its own oracle test) and `$0B` (checked by hand) |
 | 1.1.21 | **done, tag `1.1.21`** (2026-10-18): level packs, release 1 (`docs/specs/2026-10-18-level-packs-release-1-design.md`, on the owner-approved format and the owner's answers): `rotj_core::levels` holds the Tiled JSON model (maps, layers, objects, typed and list properties, tileset references, the `.world`, `pack.json`, unknown fields kept), the exporter (`rotj export-levels --rom <file> --out <dir>` writes the original game as one world: a stage per area named by its banner, a room per Tiled map, one tileset name per (area, CHR) variant, the stage's page map, actors as objects classed by family with `variant`s and `triggers`, scroll-lock markers, `player-start` with facing and scroll mode and lock) and the importer, which refuses malformed packs by name. Proven against the ROM: `import(export(rom))` equals the game's assets in everything the game reads (terrain, rooms, the 590 spawn records the schedule can name, the schedule's triggers and locks), with three owner questions skipped by name and pinned (two rooms' first spawn column, bit 6 of 24 pending cells, the dropped residue), and `export(import(export(rom)))` is byte-equal file by file. The game does not load packs yet (release 3); nothing it does changed (the Classic suites, a sweep and a 300-branch exploration unchanged, the chain's tape byte-identical) |
 | 1.1.22 | **done, tag `1.1.22`** (2026-10-18): the twenty-second modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The empty slot named (`docs/specs/2026-10-18-empty-slot-design.md`, MODERNIZE #3): `Brain::Unported` and `SecondBrain::Unported` are `Empty`, the empty slot's brain and the fallback for a kind with no handler; `engine::unported`, a far-off despawn standing in for a missing handler since before 1.0.0, is deleted, and the dispatch's `Empty` arm is unreachable (`$CF72` has a handler for every main kind); the loop's test-build assert reads that a live second-class slot's kind has no `$CEC3` entry |
+| 1.1.23 | **done, tag `1.1.23`** (2026-10-18): level packs release 2's engine side, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The stage descriptor (`docs/specs/2026-10-18-stage-descriptor-design.md`): what the engine reads by stage (the song or keep, the banner's and pause's digits, the picture before the banner, the checkpoint's password, what clearing it does) is one `actor::stage::Stage` per stage in `Prg::stages`, read where the game read ten ROM tables and two hard-coded areas; Continue, the pause's letters and the level places all follow one rule (the latest checkpoint at or before a stage; level n is the n-th checkpoint), proven against the ROM's continue and level tables for all 18 stages. Found on the way: the password screen holds a fourteenth password the pause never shows, which starts the last level too |
 
 ## Verified working
 
@@ -104,9 +105,9 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    tagged `1.1.17`** (2026-10-18). **1.1.18, the attribute bits named: tagged `1.1.18`**
    (2026-10-18). **1.1.19, the probe results typed: tagged `1.1.19`** (2026-10-18). **1.1.20, the
    raster split typed: tagged `1.1.20`** (2026-10-18). **1.1.21, level packs release 1: tagged
-   `1.1.21`** (2026-10-18). **1.1.22, the empty slot named: tagged `1.1.22`** (2026-10-18). Next:
-   level packs release 2 (the stage descriptor) and the survey loop's list (the PPU names, the
-   projectile, ...).
+   `1.1.21`** (2026-10-18). **1.1.22, the empty slot named: tagged `1.1.22`** (2026-10-18). **1.1.23,
+   the stage descriptor: tagged `1.1.23`** (2026-10-18). Next: the survey loop's list (the PPU
+   names, the projectile's position, ...).
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
@@ -154,7 +155,9 @@ from the game's own requests.
   read by area; rooms carry theirs): drop it? The approved `boss` knob: the boss intro comes from
   the next-area gate's spawn record (stage 3-1 mixes plain and intro gates), so a stage-level
   `boss` can't express it; drop it or keep it as an editor-wizard field (recommended), with typed
-  gate properties later. The engine side of release 2 goes ahead without these.
+  gate properties later. And the password screen's fourteenth password (one the pause never shows,
+  starting the last level): carry it as an extra password list in `pack.json`, or keep it Classic's
+  alone? The engine side of release 2 shipped in 1.1.23 without these.
 - **Level packs, the schedule residue in release 3**: dropping the residue (the owner's answer)
   changes WRAM bytes the lockstep compares (`$7410-$750F`); release 3's spec will propose how the
   proof treats them.
