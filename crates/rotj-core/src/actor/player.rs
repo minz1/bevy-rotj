@@ -2638,7 +2638,7 @@ mod tests {
     use crate::actor::collision::Probe;
     use crate::actor::oracle::{Routine, Scene, assert_game, assert_routine, was_seen};
     use crate::actor::world::Cx;
-    use crate::collision::map_offset;
+    use crate::levelmap::Cell;
 
     use super::{draw_player, step_draw, step_move};
 
@@ -2845,10 +2845,11 @@ mod tests {
             let x = u16::from_be_bytes([ram[0x460], ram[0x461]]);
             let [column, _] = if behind { x - 0xA0 } else { x }.to_be_bytes();
             let feet = ram[0x462];
-            let rows: [u8; 32] = ram[0x440..0x460].try_into().expect("32 rows");
+            let page_columns: [u8; 32] = ram[0x440..0x460].try_into().expect("32 pages");
             let wram = &mut scene.machine.bus.wram;
-            let ground = wram[map_offset(x.to_be_bytes()[0], feet + 1, &rows, false)];
-            wram[map_offset(column, feet - 3, &rows, false)] = ground;
+            let ground =
+                wram[Cell::at(x.to_be_bytes()[0], feet + 1, &page_columns, false).offset()];
+            wram[Cell::at(column, feet - 3, &page_columns, false).offset()] = ground;
             scene.script(20, |i| direction | u8::from((1..4).contains(&i)));
             let blocked = scene.clone().run(20, &[0x8A07, 0x854C]);
             assert!(

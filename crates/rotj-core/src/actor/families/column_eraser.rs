@@ -22,7 +22,7 @@ impl State {
             return;
         }
         let first = usize::from(body.phase);
-        for row in cx.effects.level.map.as_chunks_mut::<256>().0 {
+        for row in cx.effects.level.map.rows_mut() {
             row[first..first + 16].fill(0);
         }
     }

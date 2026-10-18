@@ -593,6 +593,138 @@ pub fn transpose(m7: &[u8; 0x1000]) -> [[u8; MAP_COLUMNS]; ROM_MAP_ROWS] {
     out
 }
 
+/// A cell of the live map: `row` 0-15, `column` 0-255 (a page's first column from the page
+/// table plus the column in the page).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cell {
+    /// 0-15.
+    pub row: u8,
+    /// 0-255.
+    pub column: u8,
+}
+
+impl Cell {
+    /// The cell the game's probes read for a point's 16 px column and row (`$C99D`'s
+    /// `$2A/$2B`): the page from [`page_index`], its first column from `page_columns`.
+    #[must_use]
+    pub fn at(column: u8, row: u8, page_columns: &[u8; 32], vertical: bool) -> Cell {
+        let page = page_index(column, row, vertical);
+        Cell {
+            row: row & 0x0F,
+            column: (column & 0x0F) | page_columns[usize::from(page)],
+        }
+    }
+
+    /// The cell `column` (0-15) past the page's first column `page_column`, carrying into
+    /// the next row as the flat buffer does.
+    #[must_use]
+    pub fn in_page(row: u8, page_column: u8, column: u8) -> Cell {
+        let offset = u16::from(row) << 8 | u16::from(page_column);
+        let [row, column] = (offset + u16::from(column)).to_be_bytes();
+        Cell { row, column }
+    }
+
+    /// The cell at a map address (`$6000-$6FFF`), the form ROM tables and spawn records hold.
+    ///
+    /// # Panics
+    /// On an address outside the map.
+    #[must_use]
+    pub fn from_address(address: u16) -> Cell {
+        let offset = address
+            .checked_sub(MAP_ADDR)
+            .filter(|&offset| offset < 0x1000)
+            .unwrap_or_else(|| panic!("${address:04X} is outside the map"));
+        let [row, column] = offset.to_be_bytes();
+        Cell { row, column }
+    }
+
+    /// The cell to the right; past column `$FF` the next row's first, as the flat buffer runs.
+    #[must_use]
+    pub fn next(self) -> Cell {
+        let (column, carry) = self.column.overflowing_add(1);
+        Cell {
+            row: self.row + u8::from(carry),
+            column,
+        }
+    }
+
+    /// The cell's offset from `$6000`.
+    #[cfg(test)]
+    pub(crate) fn offset(self) -> usize {
+        usize::from(self.row) << 8 | usize::from(self.column)
+    }
+}
+
+/// The page-table index of a point's 16 px column and row: `(inner & $10) | (outer >> 4)`,
+/// the column outer on horizontal levels and the row on vertical ones.
+#[must_use]
+pub fn page_index(column: u8, row: u8, vertical: bool) -> u8 {
+    let (outer, inner) = if vertical {
+        (row, column)
+    } else {
+        (column, row)
+    };
+    (inner & 0x10) | (outer >> 4)
+}
+
+/// The level's live map (`$6000-$6FFF`): 16 rows of 256 metatile ids, each row every page's
+/// 16 columns, a level page's place given by the page table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Map {
+    rows: [[u8; MAP_COLUMNS]; ROM_MAP_ROWS],
+}
+
+impl Default for Map {
+    fn default() -> Self {
+        Map::from_rows([[0; MAP_COLUMNS]; ROM_MAP_ROWS])
+    }
+}
+
+impl Map {
+    /// The map from its 16 rows.
+    #[must_use]
+    pub fn from_rows(rows: [[u8; MAP_COLUMNS]; ROM_MAP_ROWS]) -> Map {
+        Map { rows }
+    }
+
+    /// The map as WRAM holds it.
+    #[must_use]
+    pub fn from_bytes(bytes: &[u8; 0x1000]) -> Map {
+        let (rows, _) = bytes.as_chunks::<MAP_COLUMNS>();
+        Map::from_rows(rows.try_into().expect("16 rows"))
+    }
+
+    /// The 16 rows.
+    pub fn rows_mut(&mut self) -> &mut [[u8; MAP_COLUMNS]; ROM_MAP_ROWS] {
+        &mut self.rows
+    }
+
+    /// The bytes as WRAM holds them.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.rows.as_flattened()
+    }
+
+    /// The bytes as WRAM holds them, to write.
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        self.rows.as_flattened_mut()
+    }
+}
+
+impl std::ops::Index<Cell> for Map {
+    type Output = u8;
+
+    fn index(&self, cell: Cell) -> &u8 {
+        &self.rows[usize::from(cell.row)][usize::from(cell.column)]
+    }
+}
+
+impl std::ops::IndexMut<Cell> for Map {
+    fn index_mut(&mut self, cell: Cell) -> &mut u8 {
+        &mut self.rows[usize::from(cell.row)][usize::from(cell.column)]
+    }
+}
+
 /// A WRAM image was too short to hold the map and the auto-tile tables.
 #[derive(Debug, Error)]
 pub enum LevelMapError {
@@ -1228,5 +1360,94 @@ mod tests {
         let prg = &rom.prg;
         assert_eq!(map_for_level(prg, chr, 0), map_from_rom(prg, chr, 0));
         assert_eq!(map_for_level(prg, chr, 12), map_from_rom(prg, chr, 16));
+    }
+
+    #[test]
+    fn a_cell_in_a_page_carries_past_the_last_column() {
+        assert_eq!(
+            Cell::in_page(2, 0x70, 5),
+            Cell {
+                row: 2,
+                column: 0x75
+            }
+        );
+        assert_eq!(Cell::in_page(2, 0xF8, 9), Cell { row: 3, column: 1 });
+    }
+
+    #[test]
+    fn the_map_round_trips_its_bytes() {
+        let bytes: [u8; 0x1000] =
+            std::array::from_fn(|at| u8::try_from(at * 7 % 251).expect("a byte"));
+        let map = Map::from_bytes(&bytes);
+        assert_eq!(map.as_bytes(), &bytes[..]);
+        assert_eq!(map[Cell { row: 2, column: 3 }], bytes[0x203]);
+    }
+
+    #[test]
+    fn the_cell_right_of_the_last_column_is_the_next_rows_first() {
+        assert_eq!(
+            Cell {
+                row: 3,
+                column: 0xFF
+            }
+            .next(),
+            Cell { row: 4, column: 0 }
+        );
+        assert_eq!(
+            Cell {
+                row: 3,
+                column: 0x41
+            }
+            .next(),
+            Cell {
+                row: 3,
+                column: 0x42
+            }
+        );
+    }
+
+    #[test]
+    fn map_addresses_are_cells() {
+        for (address, row, column) in [
+            (0x6000, 0, 0),
+            (0x60FF, 0, 0xFF),
+            (0x6101, 1, 1),
+            (0x6FFF, 15, 0xFF),
+            (0x60FF + 1, 1, 0),
+        ] {
+            let cell = Cell::from_address(address);
+            assert_eq!(cell, Cell { row, column }, "${address:04X}");
+            assert_eq!(cell.offset(), usize::from(address - 0x6000));
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "outside the map")]
+    fn an_address_past_the_map_is_refused() {
+        let _ = Cell::from_address(0x7000);
+    }
+
+    #[test]
+    fn the_page_index_swaps_its_axes_on_vertical_levels() {
+        assert_eq!(page_index(0x35, 0x04, false), 0x03);
+        assert_eq!(page_index(0x35, 0x14, false), 0x13);
+        assert_eq!(page_index(0x04, 0x35, true), 0x03);
+        assert_eq!(page_index(0x14, 0x35, true), 0x13);
+        let mut page_columns = [0; 32];
+        page_columns[0x13] = 0x70;
+        assert_eq!(
+            Cell::at(0x35, 0x14, &page_columns, false),
+            Cell {
+                row: 4,
+                column: 0x75
+            }
+        );
+        assert_eq!(
+            Cell::at(0x14, 0x35, &page_columns, true),
+            Cell {
+                row: 5,
+                column: 0x74
+            }
+        );
     }
 }

@@ -12,6 +12,7 @@ use super::world::{
     set_first_colours, stage_script,
 };
 use crate::actors::spawn_schedule;
+use crate::levelmap::Cell;
 use crate::prg::Prg;
 use crate::rooms::{Arrival, Room};
 
@@ -104,7 +105,7 @@ impl RoomChange {
                     let page = usize::from(game.world.camera_y >> 12)
                         + usize::from(game.scroll.ppu_ctrl & 1) * 16;
                     let draw = PageDraw::new(
-                        game.schedule.rows[page],
+                        game.schedule.page_columns[page],
                         0x60,
                         table(game.scroll.ppu_ctrl),
                         game.scroll.mirroring,
@@ -329,7 +330,10 @@ fn page_draws(game: &Game, last: Then) -> (PageDraw, Then) {
         game.world.camera_x
     };
     let page = usize::from(camera >> 12);
-    let (first, second) = (game.schedule.rows[page], game.schedule.rows[page + 16]);
+    let (first, second) = (
+        game.schedule.page_columns[page],
+        game.schedule.page_columns[page + 16],
+    );
     let (first, second) = if orientation::horizontal_two_page(orientation) {
         (second, first)
     } else {
@@ -429,11 +433,12 @@ impl PageDraw {
         }
         let level = &game.effects.level;
         let mut bytes = [0u8; 64];
-        for column in 0..16 {
-            let at = usize::from(self.row & 0x0F) * 256 + usize::from(self.column) + column;
-            let corners = level.tiles(level.map[at]);
-            bytes[column * 2..column * 2 + 2].copy_from_slice(&corners[..2]);
-            bytes[32 + column * 2..34 + column * 2].copy_from_slice(&corners[2..]);
+        for column in 0..16u8 {
+            let cell = Cell::in_page(self.row & 0x0F, self.column, column);
+            let corners = level.tiles(level.map[cell]);
+            let at = usize::from(column) * 2;
+            bytes[at..at + 2].copy_from_slice(&corners[..2]);
+            bytes[32 + at..34 + at].copy_from_slice(&corners[2..]);
         }
         game.effects.vram.push(self.addr, 0, &bytes);
         super::frame::animate_chr(game);
@@ -464,11 +469,11 @@ pub fn load(game: &mut Game, prg: &[u8]) {
     game.oam.chr[..4].copy_from_slice(&layout.chr);
     game.world.orientation = layout.orientation;
     animate_banks(game, prg);
-    game.schedule.rows = layout.pages.map(|page| page << 4);
+    game.schedule.page_columns = layout.pages.map(|page| page << 4);
     if orientation::horizontal_two_page(game.world.orientation) {
         raise_attributes(
             &mut game.effects.level,
-            &game.schedule.rows,
+            &game.schedule.page_columns,
             layout.raised_page_count,
         );
     }
@@ -561,7 +566,7 @@ pub fn start(prg: &[u8], chr: &[u8], level: usize) -> Game {
         },
         schedule: Schedule {
             cells: [0; 256],
-            rows: [0; 32],
+            page_columns: [0; 32],
         },
         effects: Effects {
             meter: 0xFE,
@@ -694,7 +699,7 @@ pub fn spawn_first_row(game: &mut Game, prg: &[u8]) {
         let page = game.world.camera_x.to_be_bytes()[0] & 0x0F;
         *game
             .schedule
-            .rows
+            .page_columns
             .get(usize::from(page) << 4)
             .expect("$D73C reads past the page order $0440-$045F")
     } else {
@@ -719,19 +724,19 @@ pub fn first_page(game: &mut Game) -> Vec<VramWrite> {
     } else {
         game.world.camera_x
     };
-    let column = game.schedule.rows[usize::from(camera >> 12)] & 0xF0;
+    let column = game.schedule.page_columns[usize::from(camera >> 12)] & 0xF0;
     let level = &game.effects.level;
-    let mut writes: Vec<VramWrite> = (0..15u16)
+    let mut writes: Vec<VramWrite> = (0..15u8)
         .map(|row| {
             let mut bytes = [0u8; 64];
-            for i in 0..16 {
-                let at = usize::from(row) * 256 + usize::from(column) + i;
-                let tiles = level.tiles(level.map[at]);
-                bytes[i * 2..i * 2 + 2].copy_from_slice(&tiles[..2]);
-                bytes[32 + i * 2..34 + i * 2].copy_from_slice(&tiles[2..]);
+            for i in 0..16u8 {
+                let tiles = level.tiles(level.map[Cell::in_page(row, column, i)]);
+                let at = usize::from(i) * 2;
+                bytes[at..at + 2].copy_from_slice(&tiles[..2]);
+                bytes[32 + at..34 + at].copy_from_slice(&tiles[2..]);
             }
             VramWrite {
-                addr: 0x2000 + row * 0x40,
+                addr: 0x2000 + u16::from(row) * 0x40,
                 flags: 0,
                 bytes: bytes.to_vec(),
             }

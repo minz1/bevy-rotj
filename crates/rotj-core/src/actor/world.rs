@@ -11,14 +11,14 @@ pub struct Schedule {
     /// Cells: bit 7 pending, bits 7-6 = `01` a scroll lock, bits 0-5 a record id.
     pub cells: [u8; 256],
     /// Each page's base column in the schedule and the map (`$0440-$045F`).
-    pub rows: [u8; 32],
+    pub page_columns: [u8; 32],
 }
 
 impl Default for Schedule {
     fn default() -> Schedule {
         Schedule {
             cells: [0; 256],
-            rows: [0; 32],
+            page_columns: [0; 32],
         }
     }
 }
@@ -887,7 +887,9 @@ mod layout {
                 pause_name: wram[0x1FD0..0x1FE2].try_into().expect("18 bytes"),
                 pause_aux: wram[0x1FF1],
                 level: Level {
-                    map: wram[..0x1000].try_into().expect("the map"),
+                    map: crate::levelmap::Map::from_bytes(
+                        wram[..0x1000].try_into().expect("the map"),
+                    ),
                     corners: std::array::from_fn(|id| {
                         [0x1000, 0x10D0, 0x11A0, 0x1270].map(|table| wram[table + id])
                     }),
@@ -931,7 +933,7 @@ mod layout {
             ram[0x4E0..0x500].copy_from_slice(&self.palette);
             ram[0xB5] = self.palette_dirty;
             ram[0x401] = self.animated;
-            wram[..0x1000].copy_from_slice(&self.level.map);
+            wram[..0x1000].copy_from_slice(self.level.map.as_bytes());
             for (id, corners) in self.level.corners.iter().enumerate() {
                 for (table, &corner) in [0x1000, 0x10D0, 0x11A0, 0x1270].iter().zip(corners) {
                     wram[table + id] = corner;
@@ -996,13 +998,13 @@ mod layout {
         pub(crate) fn lift(ram: &[u8; 2048], wram: &[u8; 8192]) -> Schedule {
             Schedule {
                 cells: wram[0x1410..0x1510].try_into().expect("256 cells"),
-                rows: ram[0x440..0x460].try_into().expect("32 rows"),
+                page_columns: ram[0x440..0x460].try_into().expect("32 page columns"),
             }
         }
 
         pub(crate) fn project(&self, ram: &mut [u8; 2048], wram: &mut [u8; 8192]) {
             wram[0x1410..0x1510].copy_from_slice(&self.cells);
-            ram[0x440..0x460].copy_from_slice(&self.rows);
+            ram[0x440..0x460].copy_from_slice(&self.page_columns);
         }
     }
 }

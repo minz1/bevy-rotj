@@ -11,6 +11,7 @@
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion};
+use crate::levelmap::Cell;
 
 /// The map page the helper clears two cells of (`$6C00`).
 const MAP_PAGE: u16 = 0x6C00;
@@ -114,9 +115,9 @@ fn helper(body: &mut Body, cx: &mut Cx<'_>) -> u8 {
     let behaviour = body.behaviour;
     let offset = cx.prg.families.collapsing_floor_controller.map_table[usize::from(behaviour >> 4)]
         | (behaviour & 0x0E);
-    let at = usize::from((MAP_PAGE | u16::from(offset)) - 0x6000);
-    cx.effects.level.map[at] = 0;
-    cx.effects.level.map[at + 1] = 0;
+    let cell = Cell::from_address(MAP_PAGE | u16::from(offset));
+    cx.effects.level.map[cell] = 0;
+    cx.effects.level.map[cell.next()] = 0;
     let camera = cx.world.camera_x.to_be_bytes()[0];
     let sprite = if (0x05..0x50).contains(&camera) {
         0x08

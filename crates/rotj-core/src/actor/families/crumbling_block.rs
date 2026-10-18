@@ -5,6 +5,7 @@ use crate::actor::collision::{Probe, wall};
 use crate::actor::engine::{self, TileBlock, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
+use crate::levelmap::Cell;
 
 /// `state` bit 7 while the block is still in the nametable and the map.
 const UNCLEARED: u8 = 0x80;
@@ -76,8 +77,9 @@ fn clear(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     work.x = u16::from_be_bytes([column, work.x.to_be_bytes()[1]]);
     work.y = u16::from_be_bytes([row, work.y.to_be_bytes()[1]]);
     let (base, _) = engine::map_page(work, cx);
-    let at = usize::from(row & 0x0F) * 0x100 + usize::from(base) + usize::from(column & 0x0F);
-    cx.effects.level.map[at..at + 2].fill(0);
+    let cell = Cell::in_page(row & 0x0F, base, column & 0x0F);
+    cx.effects.level.map[cell] = 0;
+    cx.effects.level.map[cell.next()] = 0;
     body.state = 0;
     body.scratch = 0;
     let hit = body.hit;

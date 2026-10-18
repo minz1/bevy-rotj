@@ -1,5 +1,5 @@
 //! Type `$B2`, the stage's room-start marker (bank 12 `$8C4E`): on its first step
-//! it clears a row base and frees its own slot.
+//! it clears a page column and frees its own slot.
 
 use crate::actor::engine::Work;
 use crate::actor::slots::Body;
@@ -13,7 +13,7 @@ impl State {
     /// One frame of the handler (`$8C4E`): clear `$0443` and free the slot. The
     /// 6502 then jumps to the dispatch tail (`$CEDE`) and runs no other code.
     pub fn step(&mut self, kind: &mut u8, _body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
-        cx.schedule.rows[3] = 0;
+        cx.schedule.page_columns[3] = 0;
         *kind = 0;
     }
 }
@@ -39,10 +39,10 @@ mod tests {
         assert_eq!(coverage, expected);
     }
 
-    /// The one occupied frame starts with a set row base, so the diff above pins
+    /// The one occupied frame starts with a set page column, so the diff above pins
     /// the handler's clear rather than passing on an already-zero byte.
     #[test]
-    fn the_occupied_frame_starts_with_a_set_row_base() {
+    fn the_occupied_frame_starts_with_a_set_page_column() {
         let Some(mut scene) = Scene::route(640) else {
             return;
         };

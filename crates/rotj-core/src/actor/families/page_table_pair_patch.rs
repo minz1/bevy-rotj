@@ -1,5 +1,5 @@
 //! Type `$76`, a one-shot level-start record (bank 0 `$8D3F`): it stores `$70`
-//! in `$0451`/`$0452`, the page order rows 17-18 (`Schedule::rows`), and frees its own slot. It never draws and never touches the player, and it calls no engine or
+//! in `$0451`/`$0452`, the page table entries 17-18 (`Schedule::page_columns`), and frees its own slot. It never draws and never touches the player, and it calls no engine or
 //! collision routine.
 
 use crate::actor::engine::Work;
@@ -13,7 +13,7 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$8D3F`).
     pub fn step(&mut self, kind: &mut u8, _body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
-        cx.schedule.rows[17..19].copy_from_slice(&[0x70; 2]);
+        cx.schedule.page_columns[17..19].copy_from_slice(&[0x70; 2]);
         *kind = 0;
     }
 }

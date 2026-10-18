@@ -42,14 +42,16 @@ impl SpawnTable {
 }
 
 impl View {
-    /// The schedule cell of the 16 px column at the leading edge, if the row table has one.
+    /// The schedule cell of the 16 px column at the leading edge, if the page table has one.
     #[must_use]
     pub fn column_cell(&self, camera_x: u16, schedule: &Schedule, right: bool) -> Option<u8> {
         let left = i32::from(camera_x);
         let edge = if right { left + self.width } else { left };
         let column = edge >> 8;
-        let row = *schedule.rows.get(usize::try_from(column >> 4).ok()?)?;
-        Some(row | u8::try_from(column & 0x0F).expect("a nibble"))
+        let page_column = *schedule
+            .page_columns
+            .get(usize::try_from(column >> 4).ok()?)?;
+        Some(page_column | u8::try_from(column & 0x0F).expect("a nibble"))
     }
 }
 
@@ -319,7 +321,7 @@ mod tests {
         slots.main[..taken].iter_mut().for_each(|s| s.kind = 2);
         let mut schedule = Schedule {
             cells: [0; 256],
-            rows: [0; 32],
+            page_columns: [0; 32],
         };
         schedule.cells[0x03] = CELL_PENDING;
         let table = SpawnTable {

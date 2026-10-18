@@ -7,6 +7,7 @@ use crate::actor::slots::Body;
 use crate::actor::slots::hit;
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
+use crate::levelmap::Cell;
 
 /// Both kinds keep no state outside [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -69,8 +70,8 @@ fn shatter(body: &Body, work: &Work, cx: &mut Cx<'_>) {
     let level = &mut cx.effects.level;
     let mut tiles = [0u8; 16];
     for (i, cell) in cells.into_iter().enumerate() {
-        let id = level.map[usize::from(source.wrapping_add(cell) - 0x6000)];
-        level.map[usize::from(target.wrapping_add(cell) - 0x6000)] = id;
+        let id = level.map[Cell::from_address(source.wrapping_add(cell))];
+        level.map[Cell::from_address(target.wrapping_add(cell))] = id;
         let [top_left, top_right, bottom_left, bottom_right] = level.tiles(id);
         let at = (i / 2) * 8 + (i % 2) * 2;
         tiles[at..at + 2].copy_from_slice(&[top_left, top_right]);
@@ -78,7 +79,7 @@ fn shatter(body: &Body, work: &Work, cx: &mut Cx<'_>) {
     }
     let fields = (body.flags & 0x80 == 0).then(|| {
         let [target_hi, target_lo] = target.to_be_bytes();
-        let hi = if engine::is_page_row(base, cx) {
+        let hi = if engine::is_page_column(base, cx) {
             target_hi.wrapping_sub(1)
         } else {
             target_hi

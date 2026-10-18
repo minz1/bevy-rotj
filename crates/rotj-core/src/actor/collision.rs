@@ -38,7 +38,12 @@ fn adc(a: u8, b: u8, carry: bool) -> (u8, bool) {
 fn class_at(probe: Probe, cx: &Cx<'_>) -> u8 {
     let level = &cx.effects.level;
     let vertical = cx.world.orientation & orientation::VERTICAL != 0;
-    let id = level.metatile(hi(probe.x), hi(probe.y), &cx.schedule.rows, vertical);
+    let id = level.metatile(
+        hi(probe.x),
+        hi(probe.y),
+        &cx.schedule.page_columns,
+        vertical,
+    );
     level
         .class(id)
         .unwrap_or_else(|| cx.schedule.cells[usize::from(id - 0xD0)])

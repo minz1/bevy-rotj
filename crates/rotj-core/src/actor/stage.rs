@@ -1000,7 +1000,8 @@ impl Continue {
                     game.scroll.scroll_x = 0;
                     game.scroll.scroll_y = 0;
                     game.effects.vram.direct.extend(text(prg, 0x91B7));
-                    for (glyph, cells) in game.effects.level.map[..640].chunks_mut(64).enumerate() {
+                    let glyphs = &mut game.effects.level.map.as_bytes_mut()[..640];
+                    for (glyph, cells) in glyphs.chunks_mut(64).enumerate() {
                         let rows = 0x9204 + 8 * u16::try_from(glyph).expect("10 glyphs");
                         for (row, line) in cells.chunks_mut(8).enumerate() {
                             let bits = rom_byte(prg, 2, rows + u16::try_from(row).expect("< 8"));
@@ -1181,9 +1182,9 @@ impl Continue {
         let split = usize::from(self.offset.to_be_bytes()[0] & 0xF8);
         let mut buffer = [0u8; 64];
         if split < 0x20 {
-            buffer[split..0x20].copy_from_slice(&level.map[glyph..glyph + 0x20 - split]);
-            buffer[0x20..0x40 - split]
-                .copy_from_slice(&level.map[glyph + 0x20 + split..glyph + 0x40]);
+            let glyphs = level.map.as_bytes();
+            buffer[split..0x20].copy_from_slice(&glyphs[glyph..glyph + 0x20 - split]);
+            buffer[0x20..0x40 - split].copy_from_slice(&glyphs[glyph + 0x20 + split..glyph + 0x40]);
         }
         for (corners, &byte) in level.corners.iter_mut().zip(&buffer) {
             corners[0] = byte;

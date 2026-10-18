@@ -6,6 +6,7 @@ use super::engine::rom_byte;
 use super::spawn::{SpawnTable, lock_at, spawn_at};
 use super::world::orientation;
 use crate::actors::CELL_PENDING;
+use crate::levelmap::Cell;
 
 /// Scroll state outside the camera position.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -203,9 +204,9 @@ fn edge_spawn(game: &mut Game, prg: &[u8], cell: u8) {
     spawn_at(&mut game.slots, &mut game.schedule, &table, cell);
 }
 
-fn cell(rows: &[u8; 32], position: u8, ahead: bool) -> u8 {
+fn cell(page_columns: &[u8; 32], position: u8, ahead: bool) -> u8 {
     let page = usize::from(position >> 4) + usize::from(ahead);
-    rows[page] | (position & 0x0F)
+    page_columns[page] | (position & 0x0F)
 }
 
 fn horizontal(game: &mut Game, prg: &[u8]) {
@@ -221,10 +222,10 @@ fn horizontal(game: &mut Game, prg: &[u8]) {
             (2, fraction & 0x80 == 0)
         };
         if at_edge {
-            let left = cell(&game.schedule.rows, column, false);
+            let left = cell(&game.schedule.page_columns, column, false);
             game.effects.scroll_lock =
                 lock_at(&game.schedule, left, mask, 0x0C, game.effects.scroll_lock);
-            edge_spawn(game, prg, cell(&game.schedule.rows, column, right));
+            edge_spawn(game, prg, cell(&game.schedule.page_columns, column, right));
             if game.effects.scroll_lock & mask != 0 {
                 if right {
                     stream_column(game, true);
@@ -271,10 +272,10 @@ fn vertical(game: &mut Game, prg: &[u8]) {
         };
         let mut locked = false;
         if at_edge {
-            let top = cell(&game.schedule.rows, row, false);
+            let top = cell(&game.schedule.page_columns, row, false);
             game.effects.scroll_lock =
                 lock_at(&game.schedule, top, mask, 0x03, game.effects.scroll_lock);
-            edge_spawn(game, prg, cell(&game.schedule.rows, row, down));
+            edge_spawn(game, prg, cell(&game.schedule.page_columns, row, down));
             locked = game.effects.scroll_lock & mask != 0;
             if locked {
                 game.world.camera_y &= 0xFF00;
@@ -349,12 +350,12 @@ fn stream_column(game: &mut Game, right: bool) {
     } else {
         camera
     };
-    let base = cell(&game.schedule.rows, column, false);
+    let base = cell(&game.schedule.page_columns, column, false);
     let tile_column = u16::from(((camera & 0x0F) << 1) | (fraction >> 7));
     let half = usize::from(fraction >> 7);
     let level = &game.effects.level;
     let tiles = |row: u8| {
-        let id = level.map[usize::from(row) * 256 + usize::from(base)];
+        let id = level.map[Cell { row, column: base }];
         let corners = level.tiles(id);
         [corners[half], corners[half + 2]]
     };
@@ -413,16 +414,16 @@ fn stream_column_across(game: &mut Game, right: bool) {
         camera
     };
     let page = usize::from(column >> 4);
-    let rows = &game.schedule.rows;
+    let page_columns = &game.schedule.page_columns;
     let pages = [
         AcrossPage {
-            base: rows[page + 16] | (column & 0x0F),
+            base: page_columns[page + 16] | (column & 0x0F),
             rows: 0..15,
             table: 0x2000,
             mirror: 0,
         },
         AcrossPage {
-            base: rows[page] | (column & 0x0F),
+            base: page_columns[page] | (column & 0x0F),
             rows: 1..16,
             table: 0x2800,
             mirror: 64,
@@ -437,8 +438,12 @@ fn stream_column_across(game: &mut Game, right: bool) {
             .rows
             .clone()
             .flat_map(|row| {
-                let corners =
-                    level.tiles(level.map[usize::from(row) * 256 + usize::from(entry.base)]);
+                let corners = level.tiles(
+                    level.map[Cell {
+                        row,
+                        column: entry.base,
+                    }],
+                );
                 [corners[half], corners[half + 2]]
             })
             .collect();
@@ -490,17 +495,17 @@ fn stream_row(game: &mut Game, down: bool) {
     } else {
         &[0, 1]
     };
-    let bases: Vec<usize> = tables
+    let bases: Vec<u8> = tables
         .iter()
-        .map(|&table| usize::from(game.schedule.rows[page + 16 * table]))
+        .map(|&table| game.schedule.page_columns[page + 16 * table])
         .collect();
     let level = &game.effects.level;
     let half = if fraction & 0x80 != 0 { 2 } else { 0 };
     let vram = &mut game.effects.vram;
     for (&table, &base) in tables.iter().zip(&bases) {
-        let bytes: Vec<u8> = (0..16)
+        let bytes: Vec<u8> = (0..16u8)
             .flat_map(|column| {
-                let id = level.map[usize::from(row & 0x0F) * 256 + base + column];
+                let id = level.map[Cell::in_page(row & 0x0F, base, column)];
                 let corners = level.tiles(id);
                 [corners[half], corners[half + 1]]
             })
@@ -516,7 +521,7 @@ fn stream_row(game: &mut Game, down: bool) {
     let swap = take | keep != 0xFF;
     let take = if swap { !take } else { take };
     for (&table, &base) in tables.iter().zip(&bases) {
-        let source = (base >> 4) * 64 + usize::from(row & 0x0E) * 4;
+        let source = usize::from(base >> 4) * 64 + usize::from(row & 0x0E) * 4;
         let mirror = &mut vram.attributes[table * 64..table * 64 + 64];
         let mut bytes = [0u8; 8];
         for (i, byte) in bytes.iter_mut().enumerate().rev() {

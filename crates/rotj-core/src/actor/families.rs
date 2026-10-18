@@ -101,15 +101,15 @@ pub mod mirrored_scroller;
 pub mod next_area_cue;
 pub mod next_area_gate;
 pub mod opening_fall_warp;
+pub mod page_column_reset;
+pub mod page_table_pair_patch;
+pub mod page_table_tail_clear;
+pub mod page_table_tail_set;
 pub mod path_platform;
 pub mod patrol_walker;
 pub mod pickup;
 pub mod proximity_bomb;
 pub mod room_exit;
-pub mod row_base_reset;
-pub mod row_table_pair_patch;
-pub mod row_table_tail_clear;
-pub mod row_table_tail_set;
 pub mod scenery_spawner;
 pub mod shell_spawner;
 pub mod shot_impact_burst;
@@ -411,7 +411,7 @@ families! {
         0x70 => TwoStageDrifterContinuation(two_stage_drifter_continuation),
         0x72 => DivingDropper(diving_dropper),
         0x74 => DivingDropperPart(diving_dropper_part),
-        0x76 => RowTablePairPatch(row_table_pair_patch),
+        0x76 => PageTablePairPatch(page_table_pair_patch),
         0x78 => MarkerTrigger(marker_trigger),
         0x7A => FlashMarker(flash_marker),
         0x7C => BlastWalker(blast_walker),
@@ -430,7 +430,7 @@ families! {
         0x96 => Stage6Lobber(stage6_lobber),
         0x98 => Stage6FixedSprite(stage6_fixed_sprite),
         0x9A => Stage6LobbedPiece(stage6_lobbed_piece),
-        0x9C => RowTableTailSet(row_table_tail_set),
+        0x9C => PageTableTailSet(page_table_tail_set),
         0x9E => HoverPlummeter(hover_plummeter),
         0xA0 => FallingHazardTrigger(falling_hazard_trigger),
         0xA2 => FallingHazard(falling_hazard),
@@ -441,7 +441,7 @@ families! {
         0xAC => Turret(turret),
         0xAE => FallingEnemy(falling_enemy),
         0xB0 => FallingEnemySpawner(falling_enemy_spawner),
-        0xB2 => RowBaseReset(row_base_reset),
+        0xB2 => PageColumnReset(page_column_reset),
         0xB4 => FinalBoss(final_boss),
         0xB6 => FinalBossPart(final_boss_part),
         0xB8 => FinalBossDefeat(final_boss_defeat),
@@ -452,7 +452,7 @@ families! {
         0xC2 => DriftWaveSpawner(drift_wave_spawner),
         0xC4 => DriftShot(drift_shot),
         0xC6 => OpeningFallWarp(opening_fall_warp),
-        0xC8 => RowTableTailClear(row_table_tail_clear),
+        0xC8 => PageTableTailClear(page_table_tail_clear),
     }
     second {
         0x02 => SidewaysPlatform(sideways_platform),

@@ -7,6 +7,7 @@ use super::world::{
     pose, power_up, sliding, stage_script,
 };
 use crate::actors::{CELL_PENDING, STATE_DROPS_PICKUP, bank_slice};
+use crate::levelmap::Cell;
 
 /// The zero-page working set `$90-$A6`, carried from slot to slot as the game's is.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -274,25 +275,22 @@ pub fn face(dx: i16) -> u8 {
     (sign >> 1) ^ 0x40
 }
 
-/// The map row base and page index under the working position (`$A0A9`: `$20`, `$21`).
+/// The page column and page index under the working position (`$A0A9`: `$20`, `$21`).
 #[must_use]
 pub fn map_page(work: &Work, cx: &Cx<'_>) -> (u8, u8) {
     let [x_hi, _] = work.x.to_be_bytes();
     let [y_hi, _] = work.y.to_be_bytes();
-    let (outer, inner) = if cx.world.orientation & orientation::VERTICAL == 0 {
-        (x_hi, y_hi)
-    } else {
-        (y_hi, x_hi)
-    };
-    let page = (inner & 0x10) | (outer >> 4);
-    (cx.schedule.rows[usize::from(page)], page)
+    let vertical = cx.world.orientation & orientation::VERTICAL != 0;
+    let page = crate::levelmap::page_index(x_hi, y_hi, vertical);
+    (cx.schedule.page_columns[usize::from(page)], page)
 }
 
-/// On a horizontal-then-vertical level (`$DD` bits 7-6 = `10`), is `row` one of the
-/// first eight page bases (`$AEC6`, `row` in `$30`)?
+/// On a horizontal-then-vertical level (`$DD` bits 7-6 = `10`), is `column` one of the
+/// first eight page columns (`$AEC6`, `column` in `$30`)?
 #[must_use]
-pub fn is_page_row(row: u8, cx: &Cx<'_>) -> bool {
-    orientation::horizontal_two_page(cx.world.orientation) && cx.schedule.rows[..8].contains(&row)
+pub fn is_page_column(column: u8, cx: &Cx<'_>) -> bool {
+    orientation::horizontal_two_page(cx.world.orientation)
+        && cx.schedule.page_columns[..8].contains(&column)
 }
 
 /// A block of nametable tiles to queue at a map cell, with its metatiles' attribute fields.
@@ -729,8 +727,7 @@ fn die(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 pub fn copy_metatiles(cell: u16, width: u8, metatiles: &[u8], level: &mut Level) {
     for (row, ids) in (0u16..).zip(metatiles.chunks(usize::from(width))) {
         for (column, &id) in (0u16..).zip(ids) {
-            let at = cell.wrapping_add(row * 0x100 + column) - 0x6000;
-            level.map[usize::from(at)] = id;
+            level.map[Cell::from_address(cell.wrapping_add(row * 0x100 + column))] = id;
         }
     }
 }
@@ -1723,7 +1720,7 @@ mod tests {
     }
 
     #[test]
-    fn is_page_row_matches_aec6() {
+    fn is_page_column_matches_aec6() {
         check(
             Scene::tas(2860),
             20,
@@ -1732,7 +1729,7 @@ mod tests {
             1,
             |r| {
                 let row = r.begin.ram[0x30];
-                let found = r.in_slot(|_, _, cx| is_page_row(row, cx));
+                let found = r.in_slot(|_, _, cx| is_page_column(row, cx));
                 r.a = Some(if found { 0x80 } else { 0 });
             },
         );
@@ -1778,7 +1775,7 @@ mod tests {
         let world = world();
         let mut schedule = Schedule {
             cells: [0; 256],
-            rows: [0; 32],
+            page_columns: [0; 32],
         };
         let (mut slots, mut effects, mut oam) = (
             super::super::slots::Slots::default(),

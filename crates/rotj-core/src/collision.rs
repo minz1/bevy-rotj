@@ -21,6 +21,8 @@
 //! $89E9 LDA $32 : ASL : STA $7340,x : INX  ; repeat $33 times, stop at $D0
 //! ```
 
+use crate::levelmap::{Cell, Map};
+
 /// The loader fills `$D0` = 208 entries; ids `>= 208` are outside the level.
 pub const CLASS_COUNT: usize = 208;
 
@@ -158,8 +160,8 @@ pub fn class_table(prg: &[u8], area: usize) -> Option<[u8; CLASS_COUNT]> {
 /// level write it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Level {
-    /// Metatile ids, 16 rows of 256 (a row holds every page's 16 columns).
-    pub map: [u8; 4096],
+    /// The live map.
+    pub map: Map,
     /// Each metatile id's nametable tiles: top-left, top-right, bottom-left, bottom-right.
     pub corners: [[u8; 4]; CLASS_COUNT],
     /// `2 * class` by metatile id; ids from `$D0` read past it (the schedule).
@@ -176,28 +178,16 @@ pub const UNREAD: [std::ops::Range<usize>; 3] = [0x510..0x530, 0x5B0..0x600, 0xA
 const UNREAD_BYTES: usize = 0x20 + 0x50 + 0x100;
 
 /// The map cell the loader's transpose moves `$7000 + at` to.
-fn streamed_cell(at: usize) -> usize {
-    ((at >> 4) & 0x0F) * 256 + (at >> 8) * 16 + (at & 0x0F)
-}
-
-/// The map offset (`$6000 +`) the game's probes build from a point's 16 px column
-/// and row (`$C99D`'s `$2A/$2B`): page `(row & $10) | (column >> 4)` (swapped on
-/// vertical levels), `rows[page]` its base column.
-#[must_use]
-pub fn map_offset(column: u8, row: u8, rows: &[u8; 32], vertical: bool) -> usize {
-    let (outer, inner) = if vertical {
-        (row, column)
-    } else {
-        (column, row)
-    };
-    let page = usize::from((inner & 0x10) | (outer >> 4));
-    usize::from(row & 0x0F) << 8 | usize::from((column & 0x0F) | rows[page])
+fn streamed_cell(at: usize) -> Cell {
+    let [row, column] = [(at >> 4) & 0x0F, (at >> 8) << 4 | (at & 0x0F)]
+        .map(|part| u8::try_from(part).expect("within $7000-$7FFF"));
+    Cell { row, column }
 }
 
 impl Default for Level {
     fn default() -> Self {
         Level {
-            map: [0; 4096],
+            map: Map::default(),
             corners: [[0; 4]; CLASS_COUNT],
             classes: [0; CLASS_COUNT],
             attributes: [0; 1024],
@@ -243,10 +233,7 @@ impl Level {
         );
         image[..terrain.stream.len()].copy_from_slice(&terrain.stream);
         let rows = crate::levelmap::transpose(&image);
-        let mut map = [0u8; 4096];
-        for (row, bytes) in rows.iter().enumerate() {
-            map[row * 256..(row + 1) * 256].copy_from_slice(bytes);
-        }
+        let map = Map::from_rows(rows);
         let classes = terrain.classes.map(|class| class << 1);
         let corners = std::array::from_fn(|id| {
             terrain.corners.get(id).copied().unwrap_or_else(|| {
@@ -307,8 +294,8 @@ impl Level {
 
     /// The metatile id at a 16 px column and row.
     #[must_use]
-    pub fn metatile(&self, column: u8, row: u8, rows: &[u8; 32], vertical: bool) -> u8 {
-        self.map[map_offset(column, row, rows, vertical)]
+    pub fn metatile(&self, column: u8, row: u8, page_columns: &[u8; 32], vertical: bool) -> u8 {
+        self.map[Cell::at(column, row, page_columns, vertical)]
     }
 
     /// Metatile `id`'s four tiles as the game reads them: ids from `$D0` on read the
@@ -344,10 +331,7 @@ mod tests {
         mut image: [u8; 0x1000],
     ) -> Option<Level> {
         let rows = crate::levelmap::map_over(prg, chr, area, &mut image)?;
-        let mut map = [0u8; 4096];
-        for (row, bytes) in rows.iter().enumerate() {
-            map[row * 256..(row + 1) * 256].copy_from_slice(bytes);
-        }
+        let map = Map::from_rows(rows);
         let mut classes = class_table(prg, area)?;
         for class in &mut classes {
             *class <<= 1;
