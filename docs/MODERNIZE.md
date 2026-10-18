@@ -104,7 +104,8 @@ riskiest, so they belong to the pilot the PLAN schedules after 1.0.1.
 ## 2 — Replace wholesale with existing tech
 
 Only the app/presentation layer; the brief (and PLAN) exclude the game logic, the
-oracle, the music driver and the 2A03 synth.
+oracle, the music driver and the 2A03 synth. The driver is modernised in place
+instead (owner, 2026-10-18): its stream commands are typed and its registers named.
 
 ### 2.1 Rendering and UI (PLAN phase 1: presentation and UI)
 
@@ -168,10 +169,12 @@ oracle, the music driver and the 2A03 synth.
   projection PLAN says stays NES-shaped.
 - `Rng` (world.rs:419), the `View` (world.rs:18) and the `Settings`-as-one-value
   idea (PLAN 1.1) are already named.
-- The oracle (`tools/rotj-oracle`), the 2A03 synth (`crates/rotj-apu`) and the
-  music driver (`crates/rotj-music`) are Classic's spec and stay NES-shaped by
-  the brief; the oracle's `Cpu::step` (cpu.rs:333) is already an opcode enum, not
-  a byte dispatcher.
+- The oracle (`tools/rotj-oracle`) and the 2A03 synth (`crates/rotj-apu`) are
+  Classic's spec and stay NES-shaped by the brief. The music driver
+  (`crates/rotj-music`) is Classic's spec too, but its commands are typed
+  (`Command`, `SfxCommand`) and its registers named, proven write for write by
+  the oracle's music test. The oracle's `Cpu::step` (cpu.rs:333) is already an
+  opcode enum, not a byte dispatcher.
 
 ## Found during 1.1.x (2026-10-16, the modernisation roadmap's step 7)
 

@@ -116,20 +116,29 @@ The dispatcher at `$827D` reads a byte:
   `$8B33+Y..` (triangle) or `$8B4B+Y..`/`$8B4D+Y..` (pulse/noise). The `$C0-$C5`
   records are `[vibrato][env lo][env hi][note]` and `[env lo][period lo]…`.
 - `$E0-$FF` — a command, via the tables `$845B`(lo)/`$843B`(hi) indexed by the
-  full opcode (so `$E0`'s handler lives at `$853B`). The port matches on the
-  opcode: `$E0` vibrato depth, `$E3-$E6` flag clears, `$E7`/`$E8` vibrato
-  macro + depth, `$EA` instrument envelope pointer, `$EB`/`$EC` envelope
-  cancel, `$ED` envelope decay, `$EE`/`$EF` volume, `$F1` "rest" note,
-  `$F3` volume counter, `$F6`/`$F7` duration reload, `$F8` tuning, `$F9`
-  transpose, `$FA`/`$FB`/`$FC` jumps and loops, `$FD`/`$FE` counted loops.
+  full opcode (so `$E0`'s handler lives at `$853B`). The port decodes each byte
+  with its fixed operands into a typed `Command` and runs that: `$E0` vibrato
+  depth, `$E3-$E6` flag clears, `$E7`/`$E8` vibrato macro + depth, `$EA`
+  instrument envelope pointer, `$EB`/`$EC` envelope cancel, `$ED` envelope
+  decay, `$EE`/`$EF` volume, `$F1` "rest" note, `$F3` volume counter,
+  `$F6`/`$F7` duration reload, `$F8` tuning, `$F9` transpose, `$FA`/`$FB`/`$FC`
+  jumps and loops, `$FD`/`$FE` counted loops.
 - A second table (`$864B`/`$8640`, also indexed by the full opcode) serves
   `$F5-$FF` when one is reached *mid-note* (`$82C4`), so loops and volume
-  changes take effect without waiting for the note to end.
+  changes take effect without waiting for the note to end. The gate is on the
+  raw byte (`FIRST_MID_NOTE_OP`): `$F3-$F5` are one `Command::ReleaseFrames`, of
+  which only `$F5` acts mid-note.
+- `$FF` has no handler: its entries in both tables point into data, so the 6502
+  would run data as code. The port's `Command::Unhandled` skips it as an event
+  and, mid-note, neither advances nor consumes anything. The long sweep (§7)
+  never reaches it.
 
 The DMC ("sampled bass") is driven by the **SFX engine** (`$88BD`): for each of
 two channels it walks `$06E7/$06E9`, and a note makes `$893E` play the four
 bytes at `pointer + note*4` into `$4010-$4013`; `$F3` sets that pointer. This is
-exactly what `rotj dmc` extracts (`docs/RE-NOTES.md`).
+exactly what `rotj dmc` extracts (`docs/RE-NOTES.md`). Its commands are typed
+too (`SfxCommand`), its own map: `$F4-$F6` fixed duration, `$F8-$FA` return, and
+`$80-$EF`/`$FF` end the SFX frame (`SfxCommand::Abort`).
 
 ## 3. Extraction and the port
 
@@ -409,6 +418,14 @@ request bytes as they were on entry), and each frame's driver writes (PC in
 | `port_matches_the_driver_through_run1` | 3,000 frames, `INPUT=plan` | 14,779 writes, equal |
 | `port_matches_the_driver_for_every_song_and_effect` | ids `$00-$2F` and `$FC` then `$04`, 480 frames each over stage 1-1 | equal |
 | `port_matches_the_driver_through_the_tas` (`--ignored`) | the whole TAS, 40,894 frames | 408,723 writes, equal |
+| `every_song_to_its_loop` (`--ignored`) | the same ids and sequences, 3,600 frames each | equal; reaches the committed 172 (path, opcode) pairs |
+
+The long sweep also records, from the 6502 side, which driver paths each opcode
+reached: the command dispatch `$8288`, the notes `$82DD`/`$8A7B`, the mid-note
+gate `$82C4`, the SFX reader `$88DE` and the six repeat handlers where the count
+runs out. 7,200 frames reach no more pairs than 3,600; 1,800 miss four. Not
+reached: `$E0`, `$E1`, `$E3`, `$E4`, `$E8`, `$F3`, `$F4`, `$F7` and `$FF` as
+events, `$FF` mid-note, and the SFX `$F4`, `$F5`, `$F8`, `$F9` and abort bytes.
 
 The game never calls `$8006` directly in any of these runs; every request goes
 through `$0040-$0043`.

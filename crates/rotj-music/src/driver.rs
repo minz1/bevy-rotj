@@ -44,6 +44,8 @@ const LENGTH_LOAD: u8 = 0x08;
 const IN_TUNE: u8 = 0x80;
 /// The envelope step `$ED`/`$F1` set: decay only, never jump to the release.
 const DECAY_ONLY: u8 = 0xFF;
+/// `$82C4`: the lowest opcode that acts when reached mid-note (`CMP #$F5`).
+const FIRST_MID_NOTE_OP: u8 = 0xF5;
 
 /// Stream steps one music channel may take in a frame before the port gives up
 /// on a malformed stream.
@@ -327,6 +329,237 @@ struct Frame {
     offset: u16,
 }
 
+/// How a music command was reached.
+#[derive(Clone, Copy)]
+enum Reached {
+    /// As the next event (`$853B`): the channel keeps reading.
+    Event,
+    /// Mid-note (`$8740`, opcodes from [`FIRST_MID_NOTE_OP`] only): the note keeps sounding.
+    MidNote,
+}
+
+impl Reached {
+    /// After a command that only sets state: read on, or step past it.
+    const fn after_data(self) -> Step {
+        match self {
+            Self::Event => Step::ReadEvent,
+            Self::MidNote => Step::Advance,
+        }
+    }
+
+    /// After a jump: read at the new place, or let the note sound.
+    const fn after_jump(self) -> Step {
+        match self {
+            Self::Event => Step::ReadEvent,
+            Self::MidNote => Step::Pitch,
+        }
+    }
+}
+
+/// Which of a channel's two repeat counters a loop counts on.
+#[derive(Clone, Copy)]
+enum Counter {
+    /// `$FD`'s.
+    Fd,
+    /// `$FE`'s.
+    Fe,
+}
+
+impl Counter {
+    /// The counter a `$FD`/`$FE` opcode counts on.
+    const fn of(op: u8) -> Self {
+        if op == 0xFE { Self::Fe } else { Self::Fd }
+    }
+}
+
+/// A counted loop's step (`$86DF`/`$870A`, mid-note `$87B3`/`$87D7`, SFX `$8A24`/`$8A4F`): load
+/// the count, else count down. Whether it jumps back.
+fn repeats(counter: &mut u8, count: u8) -> bool {
+    if *counter == 0 {
+        *counter = count;
+        return true;
+    }
+    *counter -= 1;
+    *counter != 0
+}
+
+/// A music stream command: its opcode and fixed operands. Note lengths are read where they
+/// are latched, since a fixed duration replaces them.
+#[derive(Clone, Copy)]
+enum Command {
+    /// `$00`-`$7F`: a note.
+    Note(u8),
+    /// `$80`-`$DF`: a note from an instrument record, by its raw opcode.
+    InstrumentNote(u8),
+    /// `$E0`-`$E2`: the frames a note waits before its pitch macro.
+    PitchDelay(u8),
+    /// `$E4` (on) / `$E3` (off): [`flag::PERIOD_LO_ONLY`].
+    PeriodLoOnly(bool),
+    /// `$E5`: clear [`flag::TIE`].
+    Untie,
+    /// `$E6`: no pitch macro.
+    IdlePitch,
+    /// `$E7` (a period-offset macro, `on`) / `$E8` (a sweep macro), with its start delay.
+    PeriodMacro { on: bool, delay: u8, table: u16 },
+    /// `$E9`: set [`flag::RETRIGGER`] and [`flag::TIE`].
+    Retrigger,
+    /// `$EA`: a volume-envelope macro.
+    Envelope(u16),
+    /// `$EB`: a fixed sweep (triangle: slide) for [`Channel::pitch_macro`].
+    PitchMacro(u8),
+    /// `$EC`: a fixed volume, no envelope.
+    FixedVolume(u8),
+    /// `$ED`: decay only, one step per this many frames; a note length follows.
+    Decay(u8),
+    /// `$EE`: release at this many frames left.
+    ReleaseAt(u8),
+    /// `$EF`: no release.
+    ClearRelease,
+    /// `$F0`: the stream ends.
+    Stop,
+    /// `$F1`: a rest; a note length follows.
+    Rest,
+    /// `$F2`: hold the note; a note length follows.
+    Hold,
+    /// `$F3`-`$F5`: the release length.
+    ReleaseFrames(u8),
+    /// `$F6`: a fixed note length.
+    FixedDuration(u8),
+    /// `$F7`: each note carries its own length again.
+    ClearFixedDuration,
+    /// `$F8`: added to every looked-up period.
+    Tuning(u8),
+    /// `$F9`: added to every note number.
+    Transpose(u8),
+    /// `$FA`: return from a `$FB` call; skipped when none is open.
+    Return,
+    /// `$FB`: call.
+    Call(u16),
+    /// `$FC`: jump.
+    Jump(u16),
+    /// `$FD`/`$FE`: jump back to `target` until `count` runs out.
+    Repeat {
+        counter: Counter,
+        count: u8,
+        target: u16,
+    },
+    /// `$FF`: no handler in the ROM (its table entries point into data).
+    Unhandled,
+}
+
+impl Command {
+    /// The command at `stream + offset`; `offset` steps past its opcode and fixed operands.
+    fn decode(banks: &Banks, stream: u16, offset: &mut u16) -> Self {
+        let mut next = || {
+            let value = banks.byte(stream + *offset);
+            *offset += 1;
+            value
+        };
+        let op = next();
+        match op {
+            0x00..=0x7F => Self::Note(op),
+            0x80..=0xDF => Self::InstrumentNote(op),
+            0xE0..=0xE2 => Self::PitchDelay(next()),
+            0xE3 | 0xE4 => Self::PeriodLoOnly(op == 0xE4),
+            0xE5 => Self::Untie,
+            0xE6 => Self::IdlePitch,
+            0xE7 | 0xE8 => Self::PeriodMacro {
+                on: op == 0xE7,
+                delay: next(),
+                table: u16::from_le_bytes([next(), next()]),
+            },
+            0xE9 => Self::Retrigger,
+            0xEA => Self::Envelope(u16::from_le_bytes([next(), next()])),
+            0xEB => Self::PitchMacro(next()),
+            0xEC => Self::FixedVolume(next()),
+            0xED => Self::Decay(next()),
+            0xEE => Self::ReleaseAt(next()),
+            0xEF => Self::ClearRelease,
+            0xF0 => Self::Stop,
+            0xF1 => Self::Rest,
+            0xF2 => Self::Hold,
+            0xF3..=0xF5 => Self::ReleaseFrames(next()),
+            0xF6 => Self::FixedDuration(next()),
+            0xF7 => Self::ClearFixedDuration,
+            0xF8 => Self::Tuning(next()),
+            0xF9 => Self::Transpose(next()),
+            0xFA => Self::Return,
+            0xFB => Self::Call(u16::from_le_bytes([next(), next()])),
+            0xFC => Self::Jump(u16::from_le_bytes([next(), next()])),
+            0xFD | 0xFE => Self::Repeat {
+                counter: Counter::of(op),
+                count: next(),
+                target: u16::from_le_bytes([next(), next()]),
+            },
+            0xFF => Self::Unhandled,
+        }
+    }
+}
+
+/// An SFX stream command: its opcode and fixed operands. Note lengths are read where they
+/// are latched.
+#[derive(Clone, Copy)]
+enum SfxCommand {
+    /// `$00`-`$7F`: a DMC note.
+    Note(u8),
+    /// `$F0`: the stream ends.
+    Stop,
+    /// `$F1`: stop the DMC for a note's length.
+    Silence,
+    /// `$F2`: hold for a note's length.
+    Hold,
+    /// `$F3`: the table of four-byte DMC records.
+    DmcRecords(u16),
+    /// `$F4`-`$F6`: a fixed note length.
+    FixedDuration(u8),
+    /// `$F7`: each note carries its own length again.
+    ClearFixedDuration,
+    /// `$F8`-`$FA`: return from a `$FB` call; skipped when none is open.
+    Return,
+    /// `$FB`: call.
+    Call(u16),
+    /// `$FC` (`$8A0F`): jump.
+    Jump(u16),
+    /// `$FD`/`$FE`: jump back to `target` until `count` runs out.
+    Repeat {
+        counter: Counter,
+        count: u8,
+        target: u16,
+    },
+    /// `$FF` (`$8A7A`, an `RTS`) and `$80`-`$EF` (no handler): end the SFX frame.
+    Abort,
+}
+
+impl SfxCommand {
+    /// The command at `stream + offset`; `offset` steps past its opcode and fixed operands.
+    fn decode(banks: &Banks, stream: u16, offset: &mut u16) -> Self {
+        let mut next = || {
+            let value = banks.byte(stream + *offset);
+            *offset += 1;
+            value
+        };
+        let op = next();
+        match op {
+            0x00..=0x7F => Self::Note(op),
+            0xF0 => Self::Stop,
+            0xF1 => Self::Silence,
+            0xF2 => Self::Hold,
+            0xF3 => Self::DmcRecords(u16::from_le_bytes([next(), next()])),
+            0xF4..=0xF6 => Self::FixedDuration(next()),
+            0xF7 => Self::ClearFixedDuration,
+            0xF8..=0xFA => Self::Return,
+            0xFB => Self::Call(u16::from_le_bytes([next(), next()])),
+            0xFC => Self::Jump(u16::from_le_bytes([next(), next()])),
+            0xFD | 0xFE => Self::Repeat {
+                counter: Counter::of(op),
+                count: next(),
+                target: u16::from_le_bytes([next(), next()]),
+            },
+            _ => Self::Abort,
+        }
+    }
+}
+
 /// One music channel: a column of the RAM arrays at `$0605` (stride 8).
 #[derive(Debug, Clone, Copy, Default)]
 struct Channel {
@@ -398,14 +631,6 @@ impl Channel {
         value
     }
 
-    /// Reads a little-endian operand word at `offset`.
-    fn operand_word(&self, banks: &Banks, offset: u16) -> u16 {
-        u16::from_le_bytes([
-            banks.byte(self.stream + offset),
-            banks.byte(self.stream + offset + 1),
-        ])
-    }
-
     /// The next note's length: the fixed one if set, else a stream byte.
     fn next_duration(&self, banks: &Banks, offset: &mut u16) -> u8 {
         if self.fixed_duration != 0 {
@@ -417,22 +642,8 @@ impl Channel {
 
     /// `$827D`: dispatch one stream event.
     fn read_event(&mut self, banks: &Banks, frame: &mut Frame) -> Step {
-        let op = banks.byte(self.stream + frame.offset);
-        match op {
-            0x00..=0x7F => {
-                self.note(banks, op, frame);
-                Step::LatchDuration
-            }
-            0x80..=0xDF => self.instrument_note(banks, op, frame),
-            0xF0 => {
-                self.flags = 0;
-                Step::Stop
-            }
-            _ => {
-                frame.offset += 1;
-                self.command(banks, op, frame, false)
-            }
-        }
+        let command = Command::decode(banks, self.stream, &mut frame.offset);
+        self.run(banks, command, frame, Reached::Event)
     }
 
     /// `$829B`: mid-note, start the release once the note is down to
@@ -449,19 +660,18 @@ impl Channel {
         Step::Pitch
     }
 
-    /// `$82C4`: only `$F5`-`$FF` act mid-note; anything else waits.
+    /// `$82C4`: only [`FIRST_MID_NOTE_OP`] and up act mid-note; anything else waits.
     fn mid_note(&mut self, banks: &Banks, frame: &mut Frame) -> Step {
-        let op = banks.byte(self.stream + frame.offset);
-        if op < 0xF5 {
+        if banks.byte(self.stream + frame.offset) < FIRST_MID_NOTE_OP {
             return Step::Pitch;
         }
-        frame.offset += 1;
-        self.command(banks, op, frame, true)
+        let command = Command::decode(banks, self.stream, &mut frame.offset);
+        self.run(banks, command, frame, Reached::MidNote)
     }
 
     /// `$82DD`: a `$00-$7F` note, transposed, tuned and looked up.
     fn note(&mut self, banks: &Banks, op: u8, frame: &mut Frame) {
-        frame.offset = u16::from(lo(frame.offset + 1));
+        frame.offset = u16::from(lo(frame.offset));
         let index = op.wrapping_add(self.transpose);
         self.period = if self.voice == Voice::Noise {
             with_lo(self.period, index)
@@ -490,7 +700,8 @@ impl Channel {
 
     /// `$8A7B`: an `$80-$DF` note played from an instrument record.
     fn instrument_note(&mut self, banks: &Banks, op: u8, frame: &mut Frame) -> Step {
-        let offset = lo(frame.offset);
+        // The 6502's Y at the opcode.
+        let offset = lo(frame.offset - 1);
         let record = u16::from(op.wrapping_sub(0xC0)) * 4;
         if self.voice == Voice::Triangle {
             let at = TRIANGLE_INSTRUMENTS + record;
@@ -543,162 +754,125 @@ impl Channel {
         Step::Advance
     }
 
-    /// The `$E0-$FF` command handlers. Read as a new event (`$853B`), most
-    /// continue reading; reached mid-note (`$8740`, `$F5`-`$FF` only), they
-    /// advance the stream and let the note sound.
-    fn command(&mut self, banks: &Banks, op: u8, frame: &mut Frame, mid_note: bool) -> Step {
-        let Frame { flags, offset } = frame;
-        let after_operand = if mid_note {
-            Step::Advance
-        } else {
-            Step::ReadEvent
-        };
-        match op {
-            0xE0..=0xE2 => self.pitch_delay = self.operand(banks, offset),
-            0xE3 => *flags &= !flag::PERIOD_LO_ONLY,
-            0xE4 => *flags |= flag::PERIOD_LO_ONLY,
-            0xE5 => *flags &= !flag::TIE,
-            0xE6 => {
-                *flags &= !flag::PERIOD_MACRO;
+    /// Runs a command: the notes, and the `$E0`-`$FF` handlers read as a new event (`$853B`)
+    /// or mid-note (`$8740`).
+    fn run(
+        &mut self,
+        banks: &Banks,
+        command: Command,
+        frame: &mut Frame,
+        reached: Reached,
+    ) -> Step {
+        match command {
+            Command::Note(op) => {
+                self.note(banks, op, frame);
+                return Step::LatchDuration;
+            }
+            Command::InstrumentNote(op) => return self.instrument_note(banks, op, frame),
+            Command::PitchDelay(delay) => self.pitch_delay = delay,
+            Command::PeriodLoOnly(true) => frame.flags |= flag::PERIOD_LO_ONLY,
+            Command::PeriodLoOnly(false) => frame.flags &= !flag::PERIOD_LO_ONLY,
+            Command::Untie => frame.flags &= !flag::TIE,
+            Command::IdlePitch => {
+                frame.flags &= !flag::PERIOD_MACRO;
                 self.pitch_macro = self.idle_pitch();
             }
-            0xE7 | 0xE8 => {
-                if op == 0xE7 {
-                    *flags |= flag::PERIOD_MACRO;
+            Command::PeriodMacro { on, delay, table } => {
+                if on {
+                    frame.flags |= flag::PERIOD_MACRO;
                 } else {
-                    *flags &= !flag::PERIOD_MACRO;
+                    frame.flags &= !flag::PERIOD_MACRO;
                 }
-                self.pitch_delay = self.operand(banks, offset);
-                let low = self.operand(banks, offset);
-                self.pitch_macro = u16::from_le_bytes([low, self.operand(banks, offset)]);
+                self.pitch_delay = delay;
+                self.pitch_macro = table;
             }
-            0xE9 => *flags |= flag::RETRIGGER | flag::TIE,
-            0xEA => {
-                let low = self.operand(banks, offset);
-                self.envelope = u16::from_le_bytes([low, self.operand(banks, offset)]);
+            Command::Retrigger => frame.flags |= flag::RETRIGGER | flag::TIE,
+            Command::Envelope(table) => {
+                self.envelope = table;
                 self.envelope_step = 1;
             }
-            0xEB => {
-                *flags &= !flag::PERIOD_MACRO;
-                self.pitch_macro = u16::from(self.operand(banks, offset));
+            Command::PitchMacro(fixed) => {
+                frame.flags &= !flag::PERIOD_MACRO;
+                self.pitch_macro = u16::from(fixed);
             }
-            0xEC => {
-                self.volume = self.operand(banks, offset);
-                self.envelope = u16::from(self.volume);
+            Command::FixedVolume(volume) => {
+                self.volume = volume;
+                self.envelope = u16::from(volume);
                 self.envelope_step = 0;
             }
-            0xED => {
-                self.decay_period = self.operand(banks, offset);
-                self.decay_timer = self.decay_period;
+            Command::Decay(period) => {
+                self.decay_period = period;
+                self.decay_timer = period;
                 self.envelope_step = DECAY_ONLY;
                 return Step::LatchDuration;
             }
-            0xEE => {
+            Command::ReleaseAt(frames) => {
                 self.release_frames = 0;
-                self.release_at = self.operand(banks, offset);
+                self.release_at = frames;
             }
-            0xEF => {
+            Command::ClearRelease => {
                 self.release_at = 0;
                 self.release_frames = 0;
             }
-            0xF1 => {
+            Command::Stop => {
+                self.flags = 0;
+                return Step::Stop;
+            }
+            Command::Rest => {
                 self.envelope_step = DECAY_ONLY;
                 self.volume = self.voice.silent_volume();
                 return Step::LatchDuration;
             }
-            0xF2 => return Step::LatchDuration,
-            0xF3..=0xF5 => {
-                self.release_frames = self.operand(banks, offset);
-                return after_operand;
-            }
-            0xF6 => {
-                self.fixed_duration = self.operand(banks, offset);
-                return after_operand;
-            }
-            0xF7 => {
-                self.fixed_duration = 0;
-                return self.skip_one_byte(mid_note);
-            }
-            0xF8 => {
-                self.tuning = self.operand(banks, offset);
-                return after_operand;
-            }
-            0xF9 => {
-                self.transpose = self.operand(banks, offset);
-                return after_operand;
-            }
-            _ => return self.flow_command(banks, op, offset, mid_note),
-        }
-        Step::ReadEvent
-    }
-
-    /// The `$FA`-`$FF` jumps: return, call, jump, repeat.
-    fn flow_command(&mut self, banks: &Banks, op: u8, offset: &mut u16, mid_note: bool) -> Step {
-        let after_jump = if mid_note {
-            Step::Pitch
-        } else {
-            Step::ReadEvent
-        };
-        match op {
-            0xFA => {
+            Command::Hold => return Step::LatchDuration,
+            Command::ReleaseFrames(frames) => self.release_frames = frames,
+            Command::FixedDuration(length) => self.fixed_duration = length,
+            Command::ClearFixedDuration => self.fixed_duration = 0,
+            Command::Tuning(tuning) => self.tuning = tuning,
+            Command::Transpose(transpose) => self.transpose = transpose,
+            Command::Return => {
                 if !is_set(self.loop_return) {
-                    return self.skip_one_byte(mid_note);
+                    return reached.after_data();
                 }
-                self.stream = self.loop_return;
+                self.jump(self.loop_return, frame);
                 unset(&mut self.loop_return);
-                *offset = 0;
+                return reached.after_jump();
             }
-            0xFB => {
-                self.loop_return = self.stream.wrapping_add(*offset).wrapping_add(2);
-                self.stream = self.operand_word(banks, *offset);
-                *offset = 0;
+            Command::Call(target) => {
+                self.loop_return = self.stream.wrapping_add(frame.offset);
+                self.jump(target, frame);
+                return reached.after_jump();
             }
-            0xFC => {
-                self.stream = self.operand_word(banks, *offset);
-                *offset = 0;
+            Command::Jump(target) => {
+                self.jump(target, frame);
+                return reached.after_jump();
             }
-            0xFD | 0xFE => return self.repeat(banks, op, offset, mid_note),
-            _ => {}
+            Command::Repeat {
+                counter,
+                count,
+                target,
+            } => {
+                if !repeats(self.counter(counter), count) {
+                    return reached.after_data();
+                }
+                self.jump(target, frame);
+                return reached.after_jump();
+            }
+            Command::Unhandled => return reached.after_jump(),
         }
-        after_jump
+        reached.after_data()
     }
 
-    /// After a one-byte command: keep reading, or mid-note step past it.
-    fn skip_one_byte(&mut self, mid_note: bool) -> Step {
-        if !mid_note {
-            return Step::ReadEvent;
-        }
-        self.stream = self.stream.wrapping_add(1);
-        Step::Pitch
+    /// Continues the stream at `target`.
+    fn jump(&mut self, target: u16, frame: &mut Frame) {
+        self.stream = target;
+        frame.offset = 0;
     }
 
-    /// `$86DF`/`$870A` (mid-note `$87B3`/`$87D7`): `$FD`/`$FE` count, operand
-    /// word: jump back until the count runs out, then step past the command.
-    fn repeat(&mut self, banks: &Banks, op: u8, offset: &mut u16, mid_note: bool) -> Step {
-        let counter = if op == 0xFE {
-            &mut self.repeat_fe
-        } else {
-            &mut self.repeat_fd
-        };
-        if *counter == 0 {
-            *counter = banks.byte(self.stream + *offset);
-        } else {
-            *counter -= 1;
-            if *counter == 0 {
-                *offset += 3;
-                return if mid_note {
-                    Step::Advance
-                } else {
-                    Step::ReadEvent
-                };
-            }
-        }
-        self.stream = self.operand_word(banks, *offset + 1);
-        *offset = 0;
-        if mid_note {
-            Step::Pitch
-        } else {
-            Step::ReadEvent
+    /// The repeat counter a loop counts on.
+    fn counter(&mut self, counter: Counter) -> &mut u8 {
+        match counter {
+            Counter::Fd => &mut self.repeat_fd,
+            Counter::Fe => &mut self.repeat_fe,
         }
     }
 
@@ -895,77 +1069,64 @@ impl SfxChannel {
     fn read_events(&mut self, banks: &Banks) -> SfxEvent {
         let mut offset: u16 = 0;
         for _ in 0..SFX_STEP_LIMIT {
-            let op = self.operand(banks, &mut offset);
-            match op {
-                0x00..=0x7F => {
+            match SfxCommand::decode(banks, self.stream, &mut offset) {
+                SfxCommand::Note(note) => {
                     self.latch_duration(banks, offset);
-                    return SfxEvent::Play(SfxSound::Sample(op));
+                    return SfxEvent::Play(SfxSound::Sample(note));
                 }
-                0xF0 => {
+                SfxCommand::Stop => {
                     self.flags = 0;
                     return SfxEvent::Quiet;
                 }
-                0xF1 => {
+                SfxCommand::Silence => {
                     self.latch_duration(banks, offset);
                     return SfxEvent::Play(SfxSound::Silence);
                 }
-                0xF2 => {
+                SfxCommand::Hold => {
                     self.latch_duration(banks, offset);
                     return SfxEvent::Quiet;
                 }
-                0xF3 => {
-                    let low = self.operand(banks, &mut offset);
-                    self.dmc_records = u16::from_le_bytes([low, self.operand(banks, &mut offset)]);
-                }
-                0xF4..=0xF6 => self.fixed_duration = self.operand(banks, &mut offset),
-                0xF7 => self.fixed_duration = 0,
-                0xF8..=0xFA => {
+                SfxCommand::DmcRecords(table) => self.dmc_records = table,
+                SfxCommand::FixedDuration(length) => self.fixed_duration = length,
+                SfxCommand::ClearFixedDuration => self.fixed_duration = 0,
+                SfxCommand::Return => {
                     if is_set(self.loop_return) {
                         self.stream = self.loop_return;
                         unset(&mut self.loop_return);
                         offset = 0;
                     }
                 }
-                0xFB => {
-                    self.loop_return = self.stream.wrapping_add(offset).wrapping_add(2);
-                    self.jump(banks, &mut offset);
+                SfxCommand::Call(target) => {
+                    self.loop_return = self.stream.wrapping_add(offset);
+                    self.stream = target;
+                    offset = 0;
                 }
-                0xFC => self.jump(banks, &mut offset),
-                0xFD | 0xFE => self.repeat(banks, op, &mut offset),
-                _ => return SfxEvent::Abort,
+                SfxCommand::Jump(target) => {
+                    self.stream = target;
+                    offset = 0;
+                }
+                SfxCommand::Repeat {
+                    counter,
+                    count,
+                    target,
+                } => {
+                    if repeats(self.counter(counter), count) {
+                        self.stream = target;
+                        offset = 0;
+                    }
+                }
+                SfxCommand::Abort => return SfxEvent::Abort,
             }
         }
         SfxEvent::Quiet
     }
 
-    /// `$8A0F`: continue at the operand address.
-    fn jump(&mut self, banks: &Banks, offset: &mut u16) {
-        self.stream = u16::from_le_bytes([
-            banks.byte(self.stream + *offset),
-            banks.byte(self.stream + *offset + 1),
-        ]);
-        *offset = 0;
-    }
-
-    /// `$8A24`/`$8A4F`: a counted loop: jump back until the count runs out,
-    /// then step past the command.
-    fn repeat(&mut self, banks: &Banks, op: u8, offset: &mut u16) {
-        let counter = if op == 0xFE {
-            &mut self.repeat_fe
-        } else {
-            &mut self.repeat_fd
-        };
-        if *counter == 0 {
-            *counter = banks.byte(self.stream + *offset);
-        } else {
-            *counter -= 1;
-            if *counter == 0 {
-                *offset += 3;
-                return;
-            }
+    /// The repeat counter a loop counts on.
+    fn counter(&mut self, counter: Counter) -> &mut u8 {
+        match counter {
+            Counter::Fd => &mut self.repeat_fd,
+            Counter::Fe => &mut self.repeat_fe,
         }
-        *offset += 1;
-        self.jump(banks, offset);
     }
 }
 
