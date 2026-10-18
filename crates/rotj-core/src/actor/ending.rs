@@ -8,6 +8,7 @@ use super::cutscene::{
 };
 use super::script::{Flow, Runner, wait};
 use super::stage::Fade;
+use crate::actor::world::sound;
 use crate::levelmap::PAYLOAD_FIRST_BANK;
 use crate::render::mask;
 use crate::rooms::Raster;
@@ -124,7 +125,7 @@ const SCRIPT: &[Row] = &[
     Row::Watch(0x5F),
     Row::Light,
     Row::ShowBuffer,
-    Row::Sound(0x23),
+    Row::Sound(sound::EXPLOSION),
     Row::Wait(0x21),
     Row::White,
     Row::ShowBuffer,
@@ -339,10 +340,10 @@ impl Ending {
     fn set(&mut self, action: Row, game: &mut Game, chr: &[u8]) {
         let read = |addr| wram(chr, &self.buffer, addr);
         match action {
-            Row::StopMusic => game.effects.music = 0xFF,
+            Row::StopMusic => game.effects.music = sound::music::STOP,
             Row::Song(song) => game.effects.song = song,
             Row::Mask(mask) => game.scroll.mask = mask,
-            Row::Sound(sound) => game.effects.sound[0] = sound,
+            Row::Sound(id) => game.effects.sound[0] = id,
             Row::Banks(table, count) => {
                 for (i, shadow) in (0..u16::from(count)).zip(&mut game.oam.chr) {
                     *shadow = read(table + i);
@@ -555,7 +556,7 @@ impl Burst {
     fn step(&mut self, game: &mut Game, read: impl Fn(u16) -> u8) {
         if read(BURST_HOLDS + u16::from(self.stage)) < self.ticks {
             if self.stage == 0 {
-                game.effects.sound[0] = 0x22;
+                game.effects.sound[0] = sound::IMPACT;
             }
             self.stage += 1;
             self.ticks = 0;

@@ -8,7 +8,7 @@ use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
 use crate::actor::slots::hit;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
 /// The metasprite pointer the handler reads from bank 0 `$8604`.
 const METASPRITE_PTR: u16 = 0x8604;
@@ -20,8 +20,6 @@ const DRIFT: i16 = -0x20;
 const FLOOR_PAGE: u8 = 0x0F;
 /// What the landing adds to the stored y (1/16 px).
 const LANDING_DROP: u16 = 0x04C0;
-/// The sound request on landing.
-const LANDING_SOUND: u8 = 0x22;
 /// Contact damage.
 const DAMAGE: u8 = 2;
 
@@ -45,7 +43,7 @@ impl State {
         }
         let mut probe = Probe::default();
         if collision::feet(work, &mut probe, cx) {
-            cx.effects.sound[0] = LANDING_SOUND;
+            cx.effects.sound[0] = sound::IMPACT;
             body.y = body.y.wrapping_add(LANDING_DROP);
             body.hit = hit::DYING;
             body.dying_timer = 0;

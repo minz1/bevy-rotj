@@ -10,7 +10,7 @@
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
 use crate::actor::slots::hit;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
 /// The `$3A` metasprite pointers (`$91D8`), indexed by `$7C30`.
 const PART_SPRITE: u16 = 0x91D8;
@@ -22,7 +22,6 @@ const SHELL_POOL: u16 = 0x0258;
 const PART_POOL: u16 = 0x01E0;
 const PART_MODE: u8 = 0x80;
 /// The `$3C` detonation (`$9288`): sound and the y step down.
-const DETONATE_SOUND: u8 = 0x22;
 const DETONATE_DROP: u16 = 0x04C0;
 /// `$826F` maps bank 9 into `$A000` for the draws (`$C247`).
 const DRAW_BANK: u8 = 9;
@@ -139,7 +138,7 @@ fn shell(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     }
     if detonate {
         // `$9288`: sound, 76 px down, and the `$7D70` that starts the death.
-        cx.effects.sound[0] = DETONATE_SOUND;
+        cx.effects.sound[0] = sound::IMPACT;
         work.y = work.y.wrapping_add(DETONATE_DROP);
         body.hit = hit::DYING;
         body.dying_timer = 0;

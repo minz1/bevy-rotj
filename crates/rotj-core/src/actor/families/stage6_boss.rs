@@ -8,7 +8,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::{Cx, Motion};
+use crate::actor::world::{Cx, Motion, sound};
 
 /// Primary metasprite pointers (`$87C1`), by `$F1` bit 2.
 const METASPRITES: u16 = 0x87C1;
@@ -21,8 +21,6 @@ const CHR_6: u8 = 0xC6;
 const CHR_7: u8 = 0xC7;
 /// The `$AFD6` amount the boss drains from `$B2` on contact.
 const CONTACT: u16 = 0x0190;
-/// The `$42` request when an `$A8` part spawns (`$8748`).
-const SPAWN_SOUND: u8 = 0x2B;
 
 /// Type `$A6`'s tables (bank 12).
 pub struct Tables {
@@ -204,8 +202,8 @@ fn animating(body: &mut Body, cx: &mut Cx<'_>) {
     }
 }
 
-/// `$8737`: drop two `$A8` parts into the highest free slots 16-23. Returns the
-/// X the routine leaves behind (its spawn index `$1F`, 0 after a full pair).
+/// `$8737`: drop two `$A8` parts (the spawn sound `$8748`) into the highest free slots 16-23.
+/// Returns the X the routine leaves behind (its spawn index `$1F`, 0 after a full pair).
 fn spawn_a8(work: &Work, cx: &mut Cx<'_>) -> u8 {
     let mut part = 1u8;
     let mut spawn_index = work.slot;
@@ -214,7 +212,7 @@ fn spawn_a8(work: &Work, cx: &mut Cx<'_>) -> u8 {
             return spawn_index;
         };
         spawn_index = part;
-        cx.effects.sound[0] = SPAWN_SOUND;
+        cx.effects.sound[0] = sound::SPAWN;
         let tables = &cx.prg.families.stage6_boss;
         let (phase, timer) = (
             tables.child_phases[usize::from(part)],

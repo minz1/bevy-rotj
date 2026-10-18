@@ -5,7 +5,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 use crate::actors::CELL_PENDING;
 
 /// Metasprites indexed by `$7C30` (bank 8 `$9813`, byte-indexed).
@@ -139,7 +139,7 @@ fn firing(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
         body.sprite = 2;
     } else {
         if let Some(slot) = engine::free_child_slot(cx.slots) {
-            cx.effects.sound[0] = 0x28;
+            cx.effects.sound[0] = sound::ENEMY_FIRES;
             spawn_child(body, slot, cx);
         }
         body.sprite = 6;

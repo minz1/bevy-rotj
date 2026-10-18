@@ -10,7 +10,7 @@ use super::script::{Flow, Runner, wait};
 use super::sound_test::SoundTest;
 use super::stage::{Fade, NextArea, blackout, queue_palette};
 use crate::actor::button::Buttons;
-use crate::actor::world::{Weapon, set_first_colours};
+use crate::actor::world::{Weapon, set_first_colours, sound};
 use crate::levelmap::BOOT_FIRST_BANK;
 use crate::prg::Prg;
 use crate::render::{ctrl, mask};
@@ -525,7 +525,7 @@ impl Boot {
                 wait(frame, 1)
             }
             PowerRow::PreparePayload => {
-                game.effects.music = 0xFF;
+                game.effects.music = sound::music::STOP;
                 self.level = 0;
                 Flow::Done
             }
@@ -665,7 +665,7 @@ impl Boot {
         let frame = self.runner.frame;
         let flow = match row {
             TitleSetupRow::Start => {
-                game.effects.music = 0xFF;
+                game.effects.music = sound::music::STOP;
                 self.clear = ScreenClear::new(0);
                 Flow::Done
             }
@@ -707,7 +707,7 @@ impl Boot {
     fn title_frame(&mut self, step: Title, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
         let next = match step {
             Title::Start => {
-                game.effects.song = 0x01;
+                game.effects.song = sound::song::TITLE;
                 self.timeout = TITLE_FRAMES;
                 self.choice = GAME_START;
                 self.draw_title(game, chr);
@@ -780,7 +780,7 @@ impl Boot {
         let flow = match row {
             ChosenRow::StopMusic => {
                 if frame == 0 {
-                    game.effects.music = 0xFF;
+                    game.effects.music = sound::music::STOP;
                 }
                 wait(frame, 1)
             }
@@ -790,7 +790,7 @@ impl Boot {
                     let phase = frame % 12;
                     if phase == 0 || phase == 6 {
                         if frame == 0 {
-                            game.effects.sound[0] = 0x3B;
+                            game.effects.sound[0] = sound::CONFIRM;
                         }
                         self.cursor = match (phase, self.choice) {
                             (6, _) => 0,
@@ -900,9 +900,9 @@ impl Boot {
                 if accepted {
                     self.buffer[0x21] = 0;
                     self.buffer[0] = 0x21;
-                    game.effects.sound[0] = 0x3B;
+                    game.effects.sound[0] = sound::CONFIRM;
                 } else {
-                    game.effects.sound[0] = 0x45;
+                    game.effects.sound[0] = sound::PASSWORD_REJECTED;
                 }
                 self.step = Step::Password(Password::Judged { accepted });
                 return false;
@@ -990,7 +990,7 @@ impl Boot {
                 continue;
             }
             entry.repeat_in = entry.period;
-            game.effects.sound[0] = 0x39;
+            game.effects.sound[0] = sound::PASSWORD_LETTER;
             let letter = &mut entry.letters[column];
             match bit {
                 Buttons::UP => *letter = letter.checked_sub(1).unwrap_or(0x19),

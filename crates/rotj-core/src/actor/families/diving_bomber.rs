@@ -3,14 +3,13 @@
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 use crate::actors::STATE_UNTARGETED;
 
 const BODY_SPRITES: u16 = 0x8506;
 const PART_SPRITES: u16 = 0x850A;
 const BLAST_SPRITES: u16 = 0x850E;
 const CHILD: u8 = 0x2C;
-const DROP_SOUND: u8 = 0x22;
 const DRAW_BANK: u8 = 1;
 const SOURCE_BANK: u8 = 11;
 const BLAST_DROP: u8 = 0x2B;
@@ -126,7 +125,7 @@ fn sweeping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
 fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if body.timer & 0x80 == 0 {
         if body.counter & 0x80 == 0 {
-            cx.effects.sound[0] = DROP_SOUND;
+            cx.effects.sound[0] = sound::IMPACT;
             spawn_bomb(body, work, cx);
             body.counter = 0x80;
             body.subtype = BLASTING;

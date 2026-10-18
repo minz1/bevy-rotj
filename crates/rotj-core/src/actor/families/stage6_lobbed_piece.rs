@@ -10,7 +10,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
 /// The `$96:$97` metasprite table the moving phase selects (bank 12 `$82E5`).
 const MOVING_METASPRITES: u16 = 0x82E5;
@@ -94,7 +94,7 @@ impl State {
 
 /// The `$82C9` tail: sound `$43`, the slot parked at `$0C20` and the dying phase armed.
 fn die(body: &mut Body, cx: &mut Cx<'_>) {
-    cx.effects.sound[1] = 0x22;
+    cx.effects.sound[1] = sound::IMPACT;
     body.y = DEATH_Y;
     body.behaviour = 0x80;
     body.anim = 0;

@@ -3,7 +3,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
 /// The appearing phase's metasprite table (bank 8 `$8EC3`).
 const APPEARING_SPRITES: u16 = 0x8EC3;
@@ -91,7 +91,7 @@ fn falling(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     work.vy = i16::from_be_bytes([work.vy.to_be_bytes()[0], 0xFF]);
     let mut probe = Probe::default();
     if collision::feet(work, &mut probe, cx) {
-        cx.effects.sound[0] = 0x22;
+        cx.effects.sound[0] = sound::IMPACT;
         body.phase = Phase::Landed.byte();
         body.counter = 0;
     }

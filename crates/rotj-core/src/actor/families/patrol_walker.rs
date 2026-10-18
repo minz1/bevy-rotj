@@ -5,7 +5,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 use crate::actors::CELL_PENDING;
 
 /// Metasprite pointers indexed by `$7C30` (`$9C17`, drawn from bank 1).
@@ -182,7 +182,7 @@ fn biting(body: &mut Body, cx: &mut Cx<'_>) {
     body.counter = 0;
     body.timer = body.timer.wrapping_add(1);
     if body.timer == 8 {
-        cx.effects.sound[0] = 0x28;
+        cx.effects.sound[0] = sound::ENEMY_FIRES;
         spawn_child(body, cx);
     }
     if body.timer >= 0x10 {

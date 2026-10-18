@@ -13,7 +13,7 @@ use super::scroll::Scroll;
 use super::slots::{Field, hit};
 use super::world::{
     Cx, Motion, Projectile, Weapon, attack, busy, power_up, set_first_colours, shot_flags,
-    shot_state, stage_script,
+    shot_state, sound, stage_script,
 };
 use crate::actor::button::Buttons;
 use crate::actors::STATE_UNTARGETED;
@@ -408,7 +408,7 @@ fn homing(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         return;
     }
     if cx.world.frame.trailing_zeros() >= 5 {
-        cx.effects.sound[0] = 0x2E;
+        cx.effects.sound[0] = sound::CHARGE;
     }
     match kind {
         homing_stage::GATHER => homing_gather(slot, work, cx),
@@ -836,7 +836,7 @@ fn super_unleash(slot: usize, cx: &mut Cx<'_>, scroll: &mut Scroll, overflow: bo
     #[cfg(test)]
     super::oracle::seen(0x97AC);
     cx.effects.busy = busy::SCRIPTED;
-    cx.effects.sound[0] = 0x47;
+    cx.effects.sound[0] = sound::SUPER_UNLEASH;
     cx.effects.player.stage_script |= stage_script::FROZEN;
     scroll.gate = 0;
     scroll.speed_x = 0;
@@ -953,7 +953,7 @@ fn super_orbiter(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scr
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.param = projectile.param.wrapping_add(1);
     if projectile.param.trailing_zeros() >= 5 {
-        cx.effects.sound[0] = 0x48;
+        cx.effects.sound[0] = sound::SUPER_ORBITER;
     }
     if cx.effects.projectiles[slot].param >= 0xE0 {
         super_end_attack(slot, cx, scroll);
@@ -1161,13 +1161,13 @@ fn splitter(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     match fly(slot, work, cx) {
         Flight::Freed { .. } => return,
         Flight::Touched => {
-            cx.effects.sound[0] = 0x22;
+            cx.effects.sound[0] = sound::IMPACT;
             cx.effects.projectiles[slot].timer |= 1;
             project_or_free(slot, work, cx);
             return;
         }
         Flight::TouchedAgain => {
-            cx.effects.sound[0] = 0x22;
+            cx.effects.sound[0] = sound::IMPACT;
             splitter_split(slot, cx);
             return;
         }
@@ -1359,7 +1359,7 @@ fn three_way_brew(slot: usize, cx: &mut Cx<'_>) {
     #[cfg(test)]
     super::oracle::seen(0x92D3);
     if cx.effects.attack & attack::CHARGING == 0 {
-        cx.effects.sound[1] = 0x2A;
+        cx.effects.sound[1] = sound::THREE_WAY_TETHER;
         three_way_let_go(slot, cx);
         return;
     }
@@ -1372,7 +1372,7 @@ fn three_way_brew(slot: usize, cx: &mut Cx<'_>) {
     let Some(free) = free_slot(cx) else {
         return;
     };
-    cx.effects.sound[0] = 0x3F;
+    cx.effects.sound[0] = sound::THREE_WAY_BUBBLE;
     let (x, y) = if cx.effects.player.motion == Motion::AimingUp {
         above_player(cx)
     } else {
@@ -1507,7 +1507,7 @@ fn three_way_tether(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     if count.trailing_zeros() >= 3
         && let Some(free) = free_slot(cx)
     {
-        cx.effects.sound[0] = 0x3F;
+        cx.effects.sound[0] = sound::THREE_WAY_BUBBLE;
         let projectile = &mut cx.effects.projectiles[free];
         projectile.x = work.x;
         projectile.y = work.y;
@@ -1580,7 +1580,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     if projectile.part_timer >= 0x40 {
         projectile.param ^= 0x80;
         projectile.part_timer = 0;
-        cx.effects.sound[1] = 0x30;
+        cx.effects.sound[1] = sound::SPLITTER_ORBIT;
     }
     let [hi, lo] = vx.to_be_bytes();
     let (back_lo, carry) = (!lo).overflowing_add(1);
@@ -1621,7 +1621,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     }
     #[cfg(test)]
     super::oracle::seen(0x8BCB);
-    cx.effects.sound[0] = 0x2F;
+    cx.effects.sound[0] = sound::SPLITTER_SHOT;
     let player = &cx.effects.player;
     let (aim_up, left) = (player.motion == Motion::AimingUp, player.faces_left());
     let projectile = &mut cx.effects.projectiles[slot];
@@ -1713,7 +1713,7 @@ fn wave_spread(slot: usize, cx: &mut Cx<'_>) -> bool {
     #[cfg(test)]
     super::oracle::seen(0x8FC2);
     if cx.effects.attack & attack::CHARGING != 0 {
-        cx.effects.sound[0] = 0x2C;
+        cx.effects.sound[0] = sound::WAVE_SPREAD;
     }
     let count = cx.effects.projectiles[slot].part_timer;
     if cx.effects.attack & attack::CHARGING == 0 || count >= 0x40 {

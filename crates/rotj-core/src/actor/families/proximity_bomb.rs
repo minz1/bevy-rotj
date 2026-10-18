@@ -11,14 +11,13 @@ use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
 const METASPRITE_PTR: u16 = 0x857E;
 const DRAW_BANK: u8 = 9;
 const HOVER: i16 = -6;
 const WAKE_DISTANCE: u16 = 0x200;
 const FALL_LIMIT_ROW: u8 = 0x0F;
-const LANDING_SOUND: u8 = 0x22;
 const PARTS_VARIANT: u8 = 5;
 const PARTS_KIND: u8 = 0x18;
 const PARTS_CONTACT: u8 = 0x20;
@@ -72,7 +71,7 @@ impl State {
 
 /// `$8533`: frees the slot and spawns the `$18` burst.
 fn explode(kind: &mut u8, body: &Body, work: &Work, cx: &mut Cx<'_>) {
-    cx.effects.sound[0] = LANDING_SOUND;
+    cx.effects.sound[0] = sound::IMPACT;
     engine::free_own_slot(kind, body, work, cx);
     if let Some(index) = engine::spawn_parts(PARTS_VARIANT, work, cx) {
         let parts = &mut cx.slots.main[index];

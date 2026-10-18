@@ -8,14 +8,13 @@
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::oam::attr;
 use crate::actor::slots::{Body, Field};
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
 const BANK: u8 = 11;
 /// The two bytes of the resting pose's metasprite pointer (`$893C`).
 const REST_POINTER: u16 = 0x893C;
 /// The four landing-pose pointers (`$893E`), indexed by the animation byte.
 const FALL_POINTERS: u16 = 0x893E;
-const SOUND: u8 = 0x22;
 const CHR: u8 = 0xAF;
 const HITBOX: u8 = 4;
 const DAMAGE: u8 = 2;
@@ -45,7 +44,7 @@ impl State {
         engine::integrate(body, work);
         let landing_y = u16::from_be_bytes([body.counter, body.timer]);
         if work.y.to_be_bytes()[0] & 0x80 == 0 && work.y >= landing_y && body.anim & LANDING == 0 {
-            cx.effects.sound[0] = SOUND;
+            cx.effects.sound[0] = sound::IMPACT;
             body.flags &= attr::PALETTE;
             work.attr = body.flags;
             body.vx = 0;

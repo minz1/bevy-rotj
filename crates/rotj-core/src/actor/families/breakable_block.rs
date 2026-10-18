@@ -5,7 +5,7 @@
 use crate::actor::engine::{self, TileBlock, Visibility, Work};
 use crate::actor::slots::Body;
 use crate::actor::slots::hit;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 use crate::actors::CELL_PENDING;
 use crate::levelmap::Cell;
 
@@ -33,7 +33,7 @@ impl State {
                         if cx.effects.vram.top < 0x60 {
                             return;
                         }
-                        cx.effects.sound[1] = 0x20;
+                        cx.effects.sound[1] = sound::BLOCK_BREAKS;
                         _ = engine::spawn_parts(0, work, cx);
                         _ = engine::spawn_parts(1, work, cx);
                         shatter(body, work, cx);

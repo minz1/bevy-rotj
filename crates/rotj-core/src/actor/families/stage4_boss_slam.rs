@@ -11,7 +11,7 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::{Body, Field};
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
 const HOME_BANK: u8 = 11;
 const DRAW_BANK: u8 = 9;
@@ -23,8 +23,6 @@ const GRAVITY: u8 = 3;
 const FLOOR_ROW: u8 = 0x0B;
 const LANDED: u8 = 0x80;
 const FLASHING: u8 = 0xC0;
-const LANDING_SOUND: u8 = 0x35;
-const FLASH_SOUND: u8 = 0x23;
 const LANDING_FRAMES: u8 = 6;
 const FLASH_FRAMES: u8 = 0x0C;
 /// The flash palette: every colour `$30`, sprite palette 0's colours 1-3 `$0F` (`$983D`).
@@ -67,7 +65,7 @@ fn fall(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) -> bool {
     [body.subtype, body.behaviour] = fall_speed.to_be_bytes();
     work.y = work.y.wrapping_add(fall_speed);
     if work.y.to_be_bytes()[0] >= FLOOR_ROW {
-        cx.effects.sound[1] = LANDING_SOUND;
+        cx.effects.sound[1] = sound::STOMP;
         work.y = u16::from_be_bytes([FLOOR_ROW, 0]);
         body.phase = LANDING_START;
         body.timer = LANDED;
@@ -92,7 +90,7 @@ fn land(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     );
     body.phase = body.phase.wrapping_add(1);
     if body.phase >= LANDING_FRAMES {
-        cx.effects.sound[1] = FLASH_SOUND;
+        cx.effects.sound[1] = sound::EXPLOSION;
         body.timer = FLASHING;
         body.phase = FLASH_START;
     }

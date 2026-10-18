@@ -2,7 +2,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
 const METASPRITES: u16 = 0x8763;
 const LAST_FRAME: u8 = 6;
@@ -50,7 +50,7 @@ impl State {
             Some(Phase::Diving) => {
                 if work.y.to_be_bytes()[0] >= FLOOR_ROW {
                     work.y = u16::from_be_bytes([FLOOR_ROW - 1, 0xFF]);
-                    cx.effects.sound[0] = 0x34;
+                    cx.effects.sound[0] = sound::DIVER_LANDS;
                     work.vy = HOVER;
                     work.y = work.y.wrapping_add(DROP);
                     engine::spawn_parts(2, work, cx);

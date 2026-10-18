@@ -5,7 +5,7 @@ use super::Game;
 use super::cutscene::Cutscene;
 use super::engine::{draw, rom_byte, rom_word};
 use super::room;
-use super::world::{Motion, VramWrite, Weapon, attack, set_first_colours, stage_script};
+use super::world::{Motion, VramWrite, Weapon, attack, set_first_colours, sound, stage_script};
 use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
 use crate::ppulist::WriteList;
@@ -148,7 +148,7 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
     match end.phase {
         0 => {
             if x >= 0x2000 || (x >= 0x1F60 && !game.effects.player.faces_left()) {
-                game.effects.music = 0xFC;
+                game.effects.music = sound::music::FADE_OUT;
                 end.phase = 1;
                 for projectile in &mut game.effects.projectiles {
                     projectile.kind = 0;
@@ -163,7 +163,7 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
                 queue_palette(game);
                 let end = &mut game.effects.stage_end;
                 (end.timer, end.phase, end.y, end.x) = (0, 2, 0x70, 0xFF);
-                game.effects.song = 0x0E;
+                game.effects.song = sound::song::STAGE_CLEAR;
                 pads = Some(Buttons::NONE);
             } else {
                 pads = Some(Buttons::RIGHT);
@@ -201,7 +201,7 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
             let timer = end.timer;
             if timer >= 0x90 {
                 if timer == 0x90 {
-                    game.effects.music = 0xFC;
+                    game.effects.music = sound::music::FADE_OUT;
                     end.fade = 0x40;
                 }
                 if timer.is_multiple_of(16) {
@@ -292,7 +292,7 @@ impl PowerUp {
     pub fn step(&mut self, game: &mut Game, prg: &[u8]) {
         let effects = &mut game.effects;
         if self.frames == 0 {
-            effects.sound[0] = 0x31;
+            effects.sound[0] = sound::POWER_UP;
             for projectile in &mut effects.projectiles {
                 projectile.kind = 0;
             }
@@ -679,7 +679,7 @@ fn hide_for_banner(game: &mut Game, prg: &[u8]) {
     game.scroll.split.armed = false;
     game.scroll.mask = 0;
     game.scroll.ppu_ctrl &= !(ctrl::NMI | ctrl::NAMETABLE);
-    game.effects.music = 0xFF;
+    game.effects.music = sound::music::STOP;
     blackout(game, prg);
 }
 
@@ -709,7 +709,7 @@ fn start_area(game: &mut Game, prg: &[u8], chr: &[u8], leftover: room::Leftover)
 /// The area start's first frame (bank 13 `$BD4D-$BD51`, `$BE58`): the music
 /// stopped, every sprite parked, the IRQ split off.
 fn clear_for_area(game: &mut Game) {
-    game.effects.music = 0xFF;
+    game.effects.music = sound::music::STOP;
     game.oam.clear();
     game.scroll.split.armed = false;
     game.scroll.ppu_ctrl &= !ctrl::NMI;
@@ -761,7 +761,7 @@ impl BossIntro {
     pub fn step(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) -> bool {
         match self.step {
             Intro::Clear => {
-                game.effects.music = 0xFF;
+                game.effects.music = sound::music::STOP;
                 for slot in &mut game.slots.main {
                     slot.kind = 0;
                 }
@@ -798,7 +798,7 @@ impl BossIntro {
                 self.step = Intro::Start;
             }
             Intro::Start => {
-                game.effects.song = 0x0A;
+                game.effects.song = sound::song::BOSS_CARD;
                 let sprites = game.effects.stage_args[0];
                 room::build_palette(prg, 0x0F, sprites, &mut game.effects.palette);
                 queue_palette(game);
@@ -1097,7 +1097,7 @@ impl Continue {
                     game.scroll.split.armed = false;
                     game.scroll.mask &= !mask::RENDERING;
                     game.scroll.ppu_ctrl &= !(ctrl::NMI | ctrl::NAMETABLE);
-                    game.effects.music = 0xFF;
+                    game.effects.music = sound::music::STOP;
                     blackout(game, prg);
                     self.step = Countdown::Draw;
                 }
@@ -1185,7 +1185,7 @@ impl Continue {
         loop {
             match self.step {
                 Countdown::Over => {
-                    game.effects.music = 0xFF;
+                    game.effects.music = sound::music::STOP;
                     game.scroll.ppu_ctrl &= !ctrl::NMI;
                     game.scroll.mask &= !mask::RENDERING;
                     self.step = Countdown::OverDraw;
@@ -1200,7 +1200,7 @@ impl Continue {
                     self.step = Countdown::OverPalette;
                 }
                 Countdown::OverPalette => {
-                    game.effects.song = 0x08;
+                    game.effects.song = sound::song::GAME_OVER;
                     room::build_palette(prg, 0x1B, 0, &mut game.effects.palette);
                     queue_palette(game);
                     game.scroll.scroll_y = 0xB0;
@@ -1242,7 +1242,11 @@ impl Continue {
             0 => {
                 self.timer = self.timer.wrapping_sub(1);
                 if self.timer & 0x80 != 0 {
-                    game.effects.sound[0] = if self.digit == 0 { 0x46 } else { 0x41 };
+                    game.effects.sound[0] = if self.digit == 0 {
+                        sound::COUNTDOWN_END
+                    } else {
+                        sound::COUNTDOWN_TICK
+                    };
                     self.phase = 1;
                     (self.speed, self.offset) = (0, 0);
                 }

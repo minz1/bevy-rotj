@@ -13,7 +13,7 @@ use crate::actor::engine::{self, Work};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
 const HOME_BANK: u8 = 11;
 const DRAW_BANK: u8 = 9;
@@ -30,9 +30,8 @@ const THROW_AFTER_RIGHT: u16 = 0x9A39;
 const METASPRITE: u16 = 0x9A49;
 /// `$7DF0` bit 7 while a volley is in flight (`$996D`).
 const THROWING: u8 = 0x80;
-/// The child's type (`$9A11`) and the volley's sound (`$99CA`).
+/// The child's type (`$9A11`) and the volley's sound (`$99CA`, [`sound::STOMP`]).
 const CHILD: u8 = 0x4A;
-const THROW_SOUND: u8 = 0x35;
 /// `$7E10` runs 0..`$60`; children spawn every fourth step in `$20`..`$2B` (`$99B6`).
 const THROW_START: u8 = 0x20;
 const THROW_END: u8 = 0x2C;
@@ -142,7 +141,7 @@ fn throw(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
         return;
     }
     if (THROW_START..THROW_END).contains(&body.counter) {
-        cx.effects.sound[0] = THROW_SOUND;
+        cx.effects.sound[0] = sound::STOMP;
         if body.counter.is_multiple_of(SPAWN_SPACING) {
             spawn_child(work, cx);
         }

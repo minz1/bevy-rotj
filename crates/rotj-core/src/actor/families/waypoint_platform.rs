@@ -7,12 +7,11 @@
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
 const WAYPOINTS: u16 = 0x81DF;
 const SEQUENCES: u16 = 0x81ED;
 const METASPRITE: u16 = 0x81CB;
-const SPAWN_SOUND: u8 = 0x2B;
 const CHILD: u8 = 0x24;
 
 /// Type `$28`'s tables (bank 11), by `subtype & $3F` (the 6502's 8-bit `subtype << 2`).
@@ -122,7 +121,7 @@ fn spawn_children(body: &Body, cx: &mut Cx<'_>) {
         let Some(slot) = engine::free_child_slot(cx.slots) else {
             return;
         };
-        cx.effects.sound[0] = SPAWN_SOUND;
+        cx.effects.sound[0] = sound::SPAWN;
         let child = &mut cx.slots.main[slot];
         child.kind = CHILD;
         child.body.x = if right {

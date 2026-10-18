@@ -8,11 +8,10 @@
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::{Body, Field};
 use crate::actor::stage::{self, OnClear};
-use crate::actor::world::{Cx, Motion, attack, hurt, stage_script};
+use crate::actor::world::{Cx, Motion, attack, hurt, sound, stage_script};
 
 const CHILD: u8 = 0x52;
 const COUNTDOWN: u8 = 0xC0;
-const SPAWN_SOUND: u8 = 0x23;
 
 /// Type `$50`'s `$52` spawn offsets (bank 11), by the offset index `counter` (0-5).
 pub struct Tables {
@@ -70,7 +69,7 @@ impl State {
 /// `$9C67`: spawn a `$52` next to the source slot; always advances the counter.
 fn spawn_52(body: &mut Body, cx: &mut Cx<'_>) {
     if body.anim & 0x1C == 0 {
-        cx.effects.sound[0] = SPAWN_SOUND;
+        cx.effects.sound[0] = sound::EXPLOSION;
     }
     if let Some((child, x, y)) = child_slot(body, cx) {
         let part = &mut cx.slots.main[child];

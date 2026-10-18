@@ -1,20 +1,16 @@
 //! Type `$82`, a stage transition controller (bank 0 `$931F`): on its first step
-//! it stops the music and arms an `$80` guard in `$7E10`; it then counts `$7E90`
-//! up, requests song `$44` at `$40`, selects CHR bank 2 (`$E2`), and once `$7E90`
+//! it stops the music (`$9326`) and arms an `$80` guard in `$7E10`; it then counts `$7E90`
+//! up, requests song `$44` at `$41` (`$933B`), selects CHR bank 2 (`$E2`), and once `$7E90`
 //! reaches `$C0` clears the HUD and the contact gates and arms the next-area
 //! transition (`$BA` 3). It never loads the working set, draws, or contacts the
 //! player, and it calls no engine or collision routine.
 
 use crate::actor::engine::Work;
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
-/// The music stop written to `$40` on the first step (`$9326`).
-const MUSIC_STOP: u8 = 0xFF;
 /// The `$7E10` guard written with it (`$932A`).
 const GUARD: u8 = 0x80;
-/// The song requested once `$7E90` reaches `$40` (`$933B`).
-const SONG: u8 = 0x44;
 /// The `$7E90` count that arms the next-area transition (`$9333`).
 const ARMED: u8 = 0xC0;
 /// The CHR bank 2 value (`$E2`), by `$7E90` bit 2 (`$9345`).
@@ -32,7 +28,7 @@ impl State {
     /// One frame of the handler (`$931F`).
     pub fn step(&mut self, _kind: &mut u8, body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
         if body.counter == 0 {
-            cx.effects.music = MUSIC_STOP;
+            cx.effects.music = sound::music::STOP;
             body.counter = GUARD;
         }
         body.anim = body.anim.wrapping_add(1);
@@ -40,7 +36,7 @@ impl State {
             return;
         }
         if body.anim == 0x40 {
-            cx.effects.song = SONG;
+            cx.effects.song = sound::song::NEXT_AREA;
         }
         if body.anim >= ARMED {
             cx.effects.hud = 0;

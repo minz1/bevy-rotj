@@ -9,7 +9,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::Body;
-use crate::actor::world::{Cx, Motion};
+use crate::actor::world::{Cx, Motion, sound};
 
 /// Metasprite pointers (`$90E7`), indexed by `$7C30`.
 const METASPRITES: u16 = 0x90E7;
@@ -19,8 +19,6 @@ const SECOND_DRAW: u16 = 0x9136;
 const THIRD_DRAW: u16 = 0x913A;
 /// `$C229` maps bank 9 into `$A000` for the draws, where the metasprites live.
 const DRAW_BANK: u8 = 9;
-/// The `$42` request when a part spawns.
-const SPAWN_SOUND: u8 = 0x28;
 /// The `$AFD6` amount the boss drains from `$B2` on contact.
 const CONTACT: u16 = 0x00E0;
 /// `counter` bit 6: the tail adds the second draw, bit 0 picking its frame.
@@ -302,7 +300,7 @@ fn spawn_3a(body: &Body, work: &Work, cx: &mut Cx<'_>) {
     let Some(slot) = (16..24).rev().find(|&i| cx.slots.main[i].kind == 0) else {
         return;
     };
-    cx.effects.sound[0] = SPAWN_SOUND;
+    cx.effects.sound[0] = sound::ENEMY_FIRES;
     let left = work.attr & attr::FLIP_X != 0;
     let (dx, dy, phase, frame) = if body.phase == Phase::Spawning.byte() {
         (0x01D0, 0x03B0, if left { 2 } else { 3 }, 1)

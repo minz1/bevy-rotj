@@ -11,7 +11,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 use crate::actors::CELL_PENDING;
 
 /// Metasprite pointers indexed by `$7C30` (bank 11 `$9402`, 2-byte entries).
@@ -20,8 +20,6 @@ const METASPRITES: u16 = 0x9402;
 const DRAW_BANK: u8 = 9;
 /// The projectile it throws (`$93CD` leaves the kind to `$7CD0`).
 const PROJECTILE: u8 = 0x40;
-/// The throw sound written to `$42` (`$9341`).
-const THROW_SOUND: u8 = 0x2E;
 /// The hit box the contact uses (`$938A`).
 const HITBOX: u8 = 0x0D;
 /// Contact damage (`$938E`).
@@ -101,10 +99,10 @@ fn crouching(body: &mut Body) {
     body.sprite = 3;
 }
 
-/// Throwing (`$933A`): throw every eighth frame, alternating two poses.
+/// Throwing (`$933A`, the throw sound `$9341`): throw every eighth frame, alternating two poses.
 fn throwing(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     if body.timer.is_multiple_of(8) {
-        cx.effects.sound[0] = THROW_SOUND;
+        cx.effects.sound[0] = sound::CHARGE;
         spawn_projectile(body, work, cx);
     }
     body.sprite = if body.timer & 0x08 == 0 { 2 } else { 3 };

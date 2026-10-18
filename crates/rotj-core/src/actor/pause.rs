@@ -6,7 +6,7 @@ use super::engine::{draw, draw_metasprite, rom_byte, rom_word};
 use super::oam::{Mark, Metasprite};
 use super::stage;
 use crate::actor::button::Buttons;
-use crate::actor::world::set_first_colours;
+use crate::actor::world::{set_first_colours, sound};
 use crate::prg::Prg;
 
 /// The area name's metasprite the pause builds in WRAM (`$7FD0-$7FE1`).
@@ -51,8 +51,8 @@ impl Pause {
     pub fn step(&mut self, game: &mut Game, prg: &Prg) {
         match self.step {
             Step::Start => {
-                game.effects.music = 0xFE;
-                game.effects.song = 0x3A;
+                game.effects.music = sound::music::PAUSE;
+                game.effects.song = sound::song::PAUSE;
                 game.scroll.gate = 0;
                 game.scroll.speed_x = 0;
                 game.scroll.speed_y = 0;
@@ -78,8 +78,8 @@ impl Pause {
                 let effects = &mut game.effects;
                 effects.vram.push_palette(&effects.palette);
                 game.oam.clear();
-                game.effects.music = 0xFD;
-                game.effects.song = 0x3A;
+                game.effects.music = sound::music::RESUME;
+                game.effects.song = sound::song::PAUSE;
                 self.step = Step::Done;
             }
             Step::Done => return,

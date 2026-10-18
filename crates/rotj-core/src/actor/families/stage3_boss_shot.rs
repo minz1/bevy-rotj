@@ -9,7 +9,7 @@ use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
 const HOME_BANK: u8 = 0;
 const DRAW_BANK: u8 = 9;
@@ -17,7 +17,6 @@ const DRAW_BANK: u8 = 9;
 const METASPRITES: u16 = 0x9E81;
 const DIRECTIONS: u8 = 5;
 const SOLID_FLAGS: u8 = 0x80 | collision::probe::FLOORS_SOLID;
-const WALL_SOUND: u8 = 0x23;
 /// Directions below this burst on a wall (`$9E35`).
 const BURSTING: u8 = 2;
 const BURST_VARIANT: u8 = 7;
@@ -68,7 +67,7 @@ impl State {
         };
         let frame = body.phase % DIRECTIONS;
         if collision::solid(&mut probe, SOLID_FLAGS, cx) {
-            cx.effects.sound[1] = WALL_SOUND;
+            cx.effects.sound[1] = sound::EXPLOSION;
             if frame < BURSTING {
                 burst(work, cx);
             }

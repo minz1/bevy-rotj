@@ -4,6 +4,7 @@
 use super::Game;
 use super::oam::{DrawCall, Metasprite};
 use super::script::{Flow, Runner, wait};
+use crate::actor::world::sound;
 use crate::levelmap::PAYLOAD_FIRST_BANK;
 use crate::render::{ctrl, mask};
 
@@ -193,7 +194,7 @@ impl Cutscene {
                 Flow::Done
             }
             Row::StopMusic => {
-                game.effects.music = 0xFF;
+                game.effects.music = sound::music::STOP;
                 Flow::Done
             }
         }
@@ -201,7 +202,7 @@ impl Cutscene {
 
     /// The picture's song, CHR banks and dark palette (`$600B-$6053`).
     fn picture(&mut self, game: &mut Game, chr: &[u8]) {
-        game.effects.song = 0x0F;
+        game.effects.song = sound::song::BANNER;
         self.scene = payload_byte(chr, 0x76D1 + u16::from(self.scene));
         let banks = 0x76D7 + u16::from(self.scene) * 8;
         for (i, shadow) in (0..).zip(&mut game.oam.chr) {

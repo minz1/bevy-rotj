@@ -228,6 +228,117 @@ pub mod sliding {
     pub const ON: u8 = 0x80;
 }
 
+/// The sound driver's ids. The four request slots (`$40` music, `$41` song, `$42` and `$43`
+/// sounds) share one id space; the slot belongs to the call site.
+pub mod sound {
+    /// A breakable block breaks.
+    pub const BLOCK_BREAKS: u8 = 0x20;
+    /// The player's attack kills an actor (`die`, `$AB13`).
+    pub const ACTOR_DIES: u8 = 0x21;
+    /// A landing or burst: a bomb, payload, debris, a shell, a splitter, the slide into a boss.
+    pub const IMPACT: u8 = 0x22;
+    /// A big blast: a boss's death, the stage 4 boss's flash, a boss shot's wall hit, the ending.
+    pub const EXPLOSION: u8 = 0x23;
+    /// The player jumps (standing or walking) and launches a slide.
+    pub const JUMP: u8 = 0x24;
+    /// The player is hurt.
+    pub const PLAYER_HURT: u8 = 0x25;
+    /// A pickup is taken.
+    pub const PICKUP: u8 = 0x26;
+    /// An enemy attacks: the ace ranger's part, the crate soldier's shot, the patrol walker's bite.
+    pub const ENEMY_FIRES: u8 = 0x28;
+    /// The three-way weapon's shot.
+    pub const THREE_WAY_SHOT: u8 = 0x29;
+    /// The three-way weapon's tether.
+    pub const THREE_WAY_TETHER: u8 = 0x2A;
+    /// An actor spawns (the waypoint platform, the stage 6 boss).
+    pub const SPAWN: u8 = 0x2B;
+    /// The wave weapon's spread.
+    pub const WAVE_SPREAD: u8 = 0x2C;
+    /// The plain shot.
+    pub const SHOT: u8 = 0x2D;
+    /// The homing charged attack (spawn, every 32nd frame), and `hop_thrower`'s throw.
+    pub const CHARGE: u8 = 0x2E;
+    /// The splitter weapon's shot.
+    pub const SPLITTER_SHOT: u8 = 0x2F;
+    /// The splitter weapon's orbiting piece.
+    pub const SPLITTER_ORBIT: u8 = 0x30;
+    /// The power-up is taken.
+    pub const POWER_UP: u8 = 0x31;
+    /// The player dies.
+    pub const PLAYER_DIES: u8 = 0x33;
+    /// A diver touches down: the hover diver on the floor, the hover plummeter's burst.
+    pub const DIVER_LANDS: u8 = 0x34;
+    /// A heavy landing: the stomper's and the stage 4 boss's, and `volley_thrower`'s volley.
+    pub const STOMP: u8 = 0x35;
+    /// The level starts (ACTORS' `$1C`: the cell painter).
+    pub const LEVEL_START: u8 = 0x37;
+    /// A shot lands on an actor.
+    pub const ACTOR_HIT: u8 = 0x38;
+    /// A password letter is entered.
+    pub const PASSWORD_LETTER: u8 = 0x39;
+    /// A menu choice is confirmed.
+    pub const CONFIRM: u8 = 0x3B;
+    /// A player's shot hits a shielded actor and bounces off.
+    pub const SHOT_DEFLECTED: u8 = 0x3C;
+    /// The drifting bomber's bomb, the scenery spawner's piece (the diving bomber's is `IMPACT`).
+    pub const DROP: u8 = 0x3D;
+    /// The tally counts a step.
+    pub const TALLY_TICK: u8 = 0x3E;
+    /// The three-way weapon's bubble.
+    pub const THREE_WAY_BUBBLE: u8 = 0x3F;
+    /// The death screen's tick.
+    pub const DEATH_TICK: u8 = 0x40;
+    /// The countdown's tick.
+    pub const COUNTDOWN_TICK: u8 = 0x41;
+    /// The wave weapon's shot.
+    pub const WAVE_SHOT: u8 = 0x43;
+    /// The password is rejected.
+    pub const PASSWORD_REJECTED: u8 = 0x45;
+    /// The countdown ends.
+    pub const COUNTDOWN_END: u8 = 0x46;
+    /// The super attack unleashes.
+    pub const SUPER_UNLEASH: u8 = 0x47;
+    /// The super attack's orbiter.
+    pub const SUPER_ORBITER: u8 = 0x48;
+
+    /// The music control written to `$40`.
+    pub mod music {
+        /// Silences the music.
+        pub const STOP: u8 = 0xFF;
+        /// Fades the music out (`start_fade`, `$81A2`).
+        pub const FADE_OUT: u8 = 0xFC;
+        /// Pauses the music.
+        pub const PAUSE: u8 = 0xFE;
+        /// Resumes the music.
+        pub const RESUME: u8 = 0xFD;
+    }
+
+    /// The songs, requested through `$41`.
+    pub mod song {
+        /// The title screen.
+        pub const TITLE: u8 = 0x01;
+        /// The attract demo.
+        pub const ATTRACT: u8 = 0x02;
+        /// The boss fight, started when the boss-entry sequence ends.
+        pub const BOSS_FIGHT: u8 = 0x03;
+        /// The game over screen.
+        pub const GAME_OVER: u8 = 0x08;
+        /// The boss's introduction card.
+        pub const BOSS_CARD: u8 = 0x0A;
+        /// The ending.
+        pub const ENDING: u8 = 0x0D;
+        /// The stage clear.
+        pub const STAGE_CLEAR: u8 = 0x0E;
+        /// The cutscene picture's song (`$600B`).
+        pub const BANNER: u8 = 0x0F;
+        /// The pause, for both pause and resume.
+        pub const PAUSE: u8 = 0x3A;
+        /// The next-area transition.
+        pub const NEXT_AREA: u8 = 0x44;
+    }
+}
+
 /// The bits of the hurt byte (`$047A`).
 pub mod hurt {
     /// The hurt lockout: controls locked while the timers run.
@@ -380,7 +491,7 @@ pub struct World {
 pub struct Effects {
     /// Sound requests (`$42`, `$43`).
     pub sound: [u8; 2],
-    /// Music control (`$40`): `$FF` stops, `$FC` fades.
+    /// Music control (`$40`), the `sound::music` commands.
     pub music: u8,
     /// Song request (`$41`).
     pub song: u8,
@@ -594,7 +705,7 @@ pub struct Projectile {
     pub part: u8,
     /// A charged attack's frame counter (`$7F60`).
     pub part_timer: u8,
-    /// The level x in 1/16 px: the high byte is `$7BB0` (also slots 16-23's `$7BA0`), the low `$7BC0`.
+    /// The level x in 1/16 px: high byte `$7BB0` (also slots 16-23's `$7BA0`), low `$7BC0`.
     pub x: u16,
     /// The level y in 1/16 px: the high byte is `$7C60`, the low `$7C70`.
     pub y: u16,

@@ -10,7 +10,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
 /// The metasprite pointer (`$83CB`): bank 9's `$A946`.
 const METASPRITE: u16 = 0xA946;
@@ -24,8 +24,6 @@ const WAKE_DISTANCE: u16 = 0x300;
 const FALL_LIMIT_ROW: u8 = 0x0F;
 /// Row from which the fall accelerates (`$837B`).
 const ACCEL_ROW: u8 = 0x0C;
-/// The burst's sound (`$8353`).
-const BURST_SOUND: u8 = 0x34;
 /// The `$04C0` offset the burst spawns at, restored after (`$835C`/`$836E`).
 const BURST_OFFSET: u16 = 0x04C0;
 /// The burst's part variant (`$8369`).
@@ -55,7 +53,7 @@ phases! {
 pub struct State;
 
 impl State {
-    /// One frame of the handler (`$8309`, hovering, then falling).
+    /// One frame of the handler (`$8309`, hovering, then falling; the burst's sound `$8353`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         engine::integrate(body, work);
@@ -75,7 +73,7 @@ impl State {
                 }
                 let mut probe = Probe::default();
                 if collision::feet(work, &mut probe, cx) && body.timer & 0x80 == 0 {
-                    cx.effects.sound[0] = BURST_SOUND;
+                    cx.effects.sound[0] = sound::DIVER_LANDS;
                     body.timer = 0x80;
                     work.y = work.y.wrapping_add(BURST_OFFSET);
                     engine::spawn_parts(BURST_VARIANT, work, cx);

@@ -5,7 +5,7 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::{Cx, Motion};
+use crate::actor::world::{Cx, Motion, sound};
 
 /// The metasprite pointers, indexed by `$7D90` (bank 11 `$8A88`).
 const METASPRITES: u16 = 0x8A88;
@@ -37,7 +37,7 @@ impl State {
         let ending = cx.effects.player.motion == Motion::Dying;
         if ending || b3 & 0x80 != 0 || (b2 | b3) == 0 {
             if !ending {
-                cx.effects.music = 0xFF;
+                cx.effects.music = sound::music::STOP;
                 engine::level_end(cx.effects);
             }
             cx.effects.boss_pool = [0, 0];

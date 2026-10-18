@@ -2,7 +2,7 @@
 
 use super::engine::{Work, rom_byte, rom_word};
 use super::oam::attr;
-use super::world::{Cx, orientation, power_up};
+use super::world::{Cx, orientation, power_up, sound};
 use crate::collision::Surface;
 
 /// The probe flag bits (`$24`) the ported handlers read; the other bits are the game's own.
@@ -138,7 +138,7 @@ fn spikes(work: &mut Work, cx: &mut Cx<'_>) {
     player.hit = work.probe_flags;
     player.power_up &= !power_up::ON;
     cx.effects.scroll_lock = 0xFF;
-    cx.effects.music = 0xFF;
+    cx.effects.music = sound::music::STOP;
     cx.scroll.gate = 0;
 }
 

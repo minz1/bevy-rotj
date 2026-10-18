@@ -8,7 +8,7 @@ use super::cutscene::draw_sprite_with;
 use super::engine::{rom_byte, rom_word};
 use super::room::build_palette;
 use super::stage::{Fade, blackout, queue_palette};
-use super::world::{VramWrite, set_first_colours};
+use super::world::{VramWrite, set_first_colours, sound};
 use crate::render::{ctrl, mask};
 
 /// The buttons that leave the attract mode while held (`$F6 & $D0`).
@@ -128,7 +128,7 @@ impl Attract {
             Step::Leave(start) => {
                 if self.ended.is_none() {
                     game.scroll.mask = 0;
-                    game.effects.music = 0xFF;
+                    game.effects.music = sound::music::STOP;
                     self.ended = Some(start);
                 }
                 true
@@ -159,7 +159,7 @@ impl Attract {
                 game.scroll.scroll_y = 0;
                 build_palette(prg, 0x28, 0x13, &mut game.effects.palette);
                 game.effects.palette[7] = 1;
-                game.effects.song = 2;
+                game.effects.song = sound::song::ATTRACT;
                 self.fade = Fade::new(true, false);
                 self.step = Step::FirstFadeIn;
                 return false;
@@ -451,7 +451,7 @@ impl Attract {
 /// The first frame (`$99F7-$9A14`): the music stopped, the sprites parked, the CHR
 /// banks to copy from (`$EC-$EF`), rendering and NMIs off (`$9985`).
 fn stop(game: &mut Game) {
-    game.effects.music = 0xFF;
+    game.effects.music = sound::music::STOP;
     game.oam.clear();
     game.scroll.mirroring = 0;
     game.scroll.ppu_ctrl &= !ctrl::VERTICAL_INCREMENT;

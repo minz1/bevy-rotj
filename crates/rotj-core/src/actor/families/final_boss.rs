@@ -11,7 +11,7 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::{Cx, Motion, set_first_colours};
+use crate::actor::world::{Cx, Motion, set_first_colours, sound};
 
 /// The single body draw's metasprite pointers (`$910E`), by `$F1` bits 2-3.
 const BODY_DRAW: u16 = 0x910E;
@@ -416,7 +416,7 @@ fn spawn_c0(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
 
 /// `$907A`: a type `$52` part at a `$7E10`-indexed offset, once every fourth count.
 fn spawn_52(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
-    cx.effects.sound[0] = 0x23;
+    cx.effects.sound[0] = sound::EXPLOSION;
     let n = usize::from(body.counter);
     let tables = &cx.prg.families.final_boss;
     let x = work.x.wrapping_add(tables.spot_x[n]);

@@ -1,7 +1,7 @@
 //! Type `$32` (bank 11 `$8950`): a screen-transition controller. It never draws.
 //!
 //! With `$7D90 != 0` it waits until the camera page (`$CC`, or `$CE` on a
-//! vertical level) equals its `$7EF0` byte, then plays music `$FC` and counts
+//! vertical level) equals its `$7EF0` byte, then plays music `$FC` (`$8986`, `$89B1`) and counts
 //! `$7DD0` down from `$C0`; at 0 it arms the transition. With `$7D90 == 0` it
 //! arms the transition while the player is within reach (`$A025`), despawns when
 //! he is far, and does nothing when he is clear. It calls only `$A000` (`load`),
@@ -9,13 +9,11 @@
 
 use crate::actor::engine::{self, Proximity, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::{Cx, Motion, Weapon, attack, hurt, orientation, power_up};
+use crate::actor::world::{Cx, Motion, Weapon, attack, hurt, orientation, power_up, sound};
 use crate::actors::{CELL_LOCK, CELL_PENDING};
 
 /// The transition selector it arms (`$89CF`).
 const TRANSITION: u8 = 3;
-/// Music request `$FC` (`$8986`, `$89B1`).
-const MUSIC: u8 = 0xFC;
 /// The countdown's first value (`$898F`).
 const COUNTDOWN: u8 = 0xC0;
 
@@ -55,7 +53,7 @@ impl State {
                 if body.health.to_be_bytes()[0] != camera.to_be_bytes()[0] {
                     return;
                 }
-                cx.effects.music = MUSIC;
+                cx.effects.music = sound::music::FADE_OUT;
                 body.timer = 0x80;
                 body.phase = COUNTDOWN;
                 cx.effects.scroll_lock = 0xFF;
@@ -71,7 +69,7 @@ impl State {
                     engine::despawn(kind, body, CELL_PENDING | CELL_LOCK, cx.schedule);
                     return;
                 }
-                Proximity::Touching => cx.effects.music = MUSIC,
+                Proximity::Touching => cx.effects.music = sound::music::FADE_OUT,
             }
         }
         transition(body, cx);

@@ -7,7 +7,7 @@ use super::Game;
 use super::cutscene::draw_sprite;
 use super::engine::rom_byte;
 use super::stage::blackout;
-use super::world::VramWrite;
+use super::world::{VramWrite, sound};
 use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
 use crate::ppulist::WriteList;
@@ -73,7 +73,7 @@ impl SoundTest {
         loop {
             match self.step {
                 Step::Start => {
-                    game.effects.music = 0xFF;
+                    game.effects.music = sound::music::STOP;
                     blackout(game, prg);
                     self.step = Step::Mask;
                 }
@@ -123,7 +123,7 @@ impl SoundTest {
         if pressed.contains(Buttons::A) {
             match self.row {
                 SONG_ROW => {
-                    game.effects.music = 0xFF;
+                    game.effects.music = sound::music::STOP;
                     self.step = Step::Song;
                 }
                 EFFECT_ROW => {
@@ -135,12 +135,12 @@ impl SoundTest {
                 }
             }
         } else if pressed.contains(Buttons::B) {
-            game.effects.music = 0xFF;
+            game.effects.music = sound::music::STOP;
         } else if pressed.intersects(Buttons::SIDEWAYS) {
             let right = pressed.contains(Buttons::RIGHT);
             match self.row {
                 SONG_ROW => {
-                    game.effects.music = 0xFF;
+                    game.effects.music = sound::music::STOP;
                     self.song = step_wrapping(self.song, right, SONG_COUNT);
                 }
                 EFFECT_ROW => self.effect = step_wrapping(self.effect, right, EFFECT_COUNT),

@@ -6,7 +6,7 @@
 
 use crate::actor::engine::Work;
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 use crate::levelmap::Cell;
 
 /// Type `$1C` keeps no state of its own.
@@ -16,7 +16,7 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$933A`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
-        cx.effects.sound[1] = 0x37;
+        cx.effects.sound[1] = sound::LEVEL_START;
         let column = if body.state & 0x80 != 0 { 0xAF } else { 0x40 };
         for row in 7..10 {
             cx.effects.level.map[Cell { row, column }] = 0x60;

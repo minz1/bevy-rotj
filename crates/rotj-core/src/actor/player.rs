@@ -10,7 +10,7 @@ use super::engine::{self, Work, adc_overflows, rom_word, sub_overflows16};
 use super::oam::attr;
 use super::world::{
     Cx, Motion, Player, Projectile, Weapon, attack, busy, hurt, orientation, pose, power_up,
-    set_first_colours, shot_flags, sliding, stage_script,
+    set_first_colours, shot_flags, sliding, sound, stage_script,
 };
 use crate::actor::button::Buttons;
 use crate::actors::STATE_UNTARGETED;
@@ -271,7 +271,7 @@ pub fn step_move(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
     {
         hit!(9);
         player.energy = player.energy.wrapping_sub(work.damage);
-        cx.effects.sound[0] = 0x25;
+        cx.effects.sound[0] = sound::PLAYER_HURT;
         cx.effects.attack &= attack::CHARGEABLE;
         let knock_back = engine::start_hurt(&mut player);
         if player.motion.on_foot() {
@@ -657,7 +657,7 @@ impl Port<'_, '_> {
     /// `$9397`: the death, `$C2` and the music stopped, then `$D274`.
     fn die(&mut self) {
         self.cx.effects.scroll_lock = 0xFF;
-        self.cx.effects.music = 0xFF;
+        self.cx.effects.music = sound::music::STOP;
         self.cx.effects.player = *self.player;
         engine::level_end(self.cx.effects);
         *self.player = self.cx.effects.player;
@@ -1081,10 +1081,10 @@ impl Port<'_, '_> {
         #[cfg(test)]
         super::oracle::seen(handler);
         self.cx.effects.sound[0] = match handler {
-            0x9C06 | 0x9D6F => 0x2F,
-            0x9C2E | 0x9CD9 | 0x9DA0 | 0x9E72 => 0x43,
-            0x9C7E | 0x9E09 => 0x29,
-            _ => 0x2D,
+            0x9C06 | 0x9D6F => sound::SPLITTER_SHOT,
+            0x9C2E | 0x9CD9 | 0x9DA0 | 0x9E72 => sound::WAVE_SHOT,
+            0x9C7E | 0x9E09 => sound::THREE_WAY_SHOT,
+            _ => sound::SHOT,
         };
         if aim_up {
             self.shoot_up(slot, handler);
@@ -1318,7 +1318,7 @@ impl Port<'_, '_> {
         super::oracle::seen(handler);
         match handler {
             0x9A81 => {
-                self.cx.effects.sound[0] = 0x2E;
+                self.cx.effects.sound[0] = sound::CHARGE;
                 let projectile = &mut self.cx.effects.projectiles[slot];
                 charge(projectile);
                 projectile.param = 0;
@@ -1327,7 +1327,7 @@ impl Port<'_, '_> {
                 projectile.vx = i16::from_be_bytes([0, projectile.vx.to_be_bytes()[1]]);
             }
             0x9AA0 => {
-                self.cx.effects.sound[0] = 0x30;
+                self.cx.effects.sound[0] = sound::SPLITTER_ORBIT;
                 let orbit = |projectile: &mut Projectile, n: usize| {
                     charge(projectile);
                     projectile.part = u8::try_from(n).expect("four parts");
@@ -1430,7 +1430,7 @@ impl Port<'_, '_> {
             Motion::from_byte(self.player.pose & pose::SAVED_MOTION).expect("a saved motion");
         self.player.pose &= pose::SHOT;
         if self.player.motion == Motion::Jumping {
-            self.cx.effects.sound[0] = 0x24;
+            self.cx.effects.sound[0] = sound::JUMP;
             if self.jump_blocked() {
                 self.cx.effects.attack &= attack::CHARGEABLE;
                 self.player.pose = pose::LANDING | pose::LONG_LANDING;
@@ -1853,7 +1853,7 @@ impl Port<'_, '_> {
 
     /// `$89A8`: motion 2 + the first pad shoulder (a side-jump).
     fn walking_jump(&mut self) {
-        self.cx.effects.sound[0] = 0x24;
+        self.cx.effects.sound[0] = sound::JUMP;
         if self.player.pose & pose::TURNING != 0 {
             self.player.pose &= !pose::TURNING;
             self.player.facing ^= attr::FLIP_X;
@@ -2139,7 +2139,7 @@ impl Port<'_, '_> {
 
     /// `$8D6D`: the slide's launch: a push and the speed in the facing direction.
     fn slide_launch(&mut self) {
-        self.cx.effects.sound[0] = 0x24;
+        self.cx.effects.sound[0] = sound::JUMP;
         self.player.sliding = sliding::ON;
         let [hi, lo] = self.player.x.to_be_bytes();
         let x = self.player.x.cast_signed();
@@ -2382,12 +2382,12 @@ impl Port<'_, '_> {
             self.player.death_timer = timer.wrapping_add(1);
         } else {
             if timer == 0x2F {
-                self.cx.effects.sound[1] = 0x33;
+                self.cx.effects.sound[1] = sound::PLAYER_DIES;
                 self.player.stage_script = stage_script::FROZEN | stage_script::HIDDEN;
                 self.player.death_flags |= 0x01;
             }
             if timer.is_multiple_of(16) {
-                self.cx.effects.sound[1] = 0x40;
+                self.cx.effects.sound[1] = sound::DEATH_TICK;
             }
             self.set_overflow_from(self.player.death_flags);
             if self.player.death_flags & 0x80 == 0 {
@@ -2454,7 +2454,7 @@ impl Port<'_, '_> {
             0 => {
                 player.entry_timer = player.entry_timer.wrapping_add(1);
                 if player.entry_timer >= 4 {
-                    self.cx.effects.sound[0] = 0x3E;
+                    self.cx.effects.sound[0] = sound::TALLY_TICK;
                     (player.entry_timer, player.tally_digit) = (0, 0);
                     player.entry_step += 1;
                     return;
@@ -2472,7 +2472,7 @@ impl Port<'_, '_> {
                 let (tally, digit) = (self.player.tally, self.player.tally_digit);
                 self.queue_tally(tally, Some(digit));
                 if self.cx.world.frame.is_multiple_of(16) {
-                    self.cx.effects.sound[0] = 0x3E;
+                    self.cx.effects.sound[0] = sound::TALLY_TICK;
                 }
                 let player = &mut *self.player;
                 player.tally_digit += 1;
@@ -2506,7 +2506,7 @@ impl Port<'_, '_> {
                 let player = &mut *self.player;
                 player.entry_timer = player.entry_timer.wrapping_add(1);
                 if player.entry_timer >= 4 {
-                    self.cx.effects.sound[0] = 0x23;
+                    self.cx.effects.sound[0] = sound::EXPLOSION;
                     player.entry_step += 1;
                     player.entry_timer = 0;
                 }
@@ -2522,7 +2522,7 @@ impl Port<'_, '_> {
                     self.entry_pose(self.cx.prg.player.entry_pose_second[held]);
                     return;
                 }
-                self.cx.effects.song = 0x03;
+                self.cx.effects.song = sound::song::BOSS_FIGHT;
                 self.cx.oam.chr[4] = 0xA2;
                 player.motion = Motion::Standing;
                 player.stage_script = 0;

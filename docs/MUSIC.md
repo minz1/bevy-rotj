@@ -257,7 +257,7 @@ writers and confirmed by the traces.
 
 | slot | what the game puts there | evidence |
 | --- | --- | --- |
-| `$0040` | control: `$FF` (reset/silence) or `$FC` (restart with tempo scaling) | all traced `$40` writes are `$FF`; bank 2 `$98C3`/`$92DA`, bank 13 `$BD4D`, bank 2 `$9433`/`$94F7` (`$FC`) |
+| `$0040` | control: `$FF` (reset/silence) or `$FC` (fade out: the driver's `start_fade`, `$81A2`) | all traced `$40` writes are `$FF`; bank 2 `$98C3`/`$92DA`, bank 13 `$BD4D`, bank 2 `$9433`/`$94F7` (`$FC`) |
 | `$0041` | **music** — a song id `0..$1F` | bank 14 `$D973` (stage song); bank 2 `$90BA`=`$08`, `$9465`=`$0E`, `$9A0C`=`$02`; bank 14 `$D159`=`$03`; title routine (below) |
 | `$0042` | **sound effect** — an id `>= $20` | damage `$25` (bank 4 `$82C6`), jump `$24` (bank 4 `$04E8`/`$09A8`), many bank 2/4/5/8 writes |
 | `$0043` | **sound effect** — an id `>= $20` | bank 4 `$90DC`=`$33`, `$90F4`=`$40`; bank 5 `$8A8D`=`$30`, `$9301`=`$2A` |

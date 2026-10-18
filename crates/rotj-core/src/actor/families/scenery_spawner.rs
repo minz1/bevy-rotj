@@ -3,7 +3,7 @@
 use crate::actor::engine::{self, Work};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 use crate::actors::STATE_UNTARGETED;
 
 /// The type `$14` child written at `$8D19`.
@@ -58,7 +58,7 @@ impl State {
         let Some(slot) = engine::free_child_slot(cx.slots) else {
             return;
         };
-        cx.effects.sound[0] = 0x3D;
+        cx.effects.sound[0] = sound::DROP;
         spawn(slot, body.phase, cx);
         body.phase = body.phase.wrapping_add(1);
         if body.phase >= PHASE_COUNT {

@@ -10,7 +10,7 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::Body;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
 /// Metasprites indexed by `$7C30` (bank 11 `$8D0F`, 2-byte entries).
 const METASPRITES: u16 = 0x8D0F;
@@ -76,7 +76,7 @@ fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             body.sprite = 2;
             return;
         }
-        cx.effects.sound[0] = 0x3D;
+        cx.effects.sound[0] = sound::DROP;
         if let Some(slot) = engine::free_child_slot(cx.slots) {
             spawn_child(body, work, slot, cx);
         }

@@ -14,7 +14,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::{Body, Field, hit};
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
 const HOME_BANK: u8 = 11;
 const DRAW_BANK: u8 = 9;
@@ -30,7 +30,6 @@ const DAMAGE: u8 = 2;
 const POOL_DRAIN: u16 = 0x0158;
 /// The kill drops the shell 76 px (`$9BD2`) and requests sound `$22` (`$9BCB`).
 const KILL_DROP: u16 = 0x04C0;
-const KILL_SOUND: u8 = 0x22;
 
 /// Type `$4E` keeps its parent's slot in `anim` and counts its frames up from 0 in
 /// `counter`, whose wrap back to 0 runs the kill.
@@ -76,7 +75,7 @@ impl State {
 
 /// The kill arm (`$9BCB`): sound `$22`, the shell dropped 76 px, the dying flag set.
 fn kill(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-    cx.effects.sound[0] = KILL_SOUND;
+    cx.effects.sound[0] = sound::IMPACT;
     work.y = work.y.wrapping_add(KILL_DROP);
     body.hit = hit::DYING;
     body.dying_timer = 0;

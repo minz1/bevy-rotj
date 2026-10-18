@@ -4,7 +4,7 @@
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
 use crate::actor::slots::hit;
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, sound};
 
 /// The overlay metasprites (bank 8 `$8A64`, by Y = 0 or 2).
 const OVERLAYS: u16 = 0x8A64;
@@ -197,7 +197,7 @@ fn landing(
     }
     body.counter = body.counter.wrapping_sub(1);
     if body.counter == 0 {
-        cx.effects.sound[0] = 0x35;
+        cx.effects.sound[0] = sound::STOMP;
         body.phase = Phase::Stomping.byte();
         body.counter = 0;
         body.anim = cx.prg.families.stomper.anims[usize::from(body.timer)];
