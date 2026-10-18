@@ -13,7 +13,8 @@
 use std::collections::BTreeSet;
 
 use rotj_apu::apu::Apu;
-use rotj_apu::dmc::SampleRom;
+use rotj_apu::dmc::{self, SampleRom};
+use rotj_apu::{STATUS, noise, pulse1, pulse2, triangle};
 
 /// APU ticks per NTSC frame (1,789,773 Hz / 60.0988 Hz).
 const TICKS_PER_FRAME: u32 = 29_781;
@@ -48,12 +49,12 @@ fn families(writes: &[Write]) -> BTreeSet<&'static str> {
     writes
         .iter()
         .filter_map(|write| match write.addr {
-            0x4000..=0x4003 => Some("pulse1"),
-            0x4004..=0x4007 => Some("pulse2"),
-            0x4008 | 0x400a | 0x400b => Some("triangle"),
-            0x400c | 0x400e | 0x400f => Some("noise"),
-            0x4010..=0x4013 => Some("dmc"),
-            0x4015 => Some("enable"),
+            pulse1::CTRL..=pulse1::TIMER_HI => Some("pulse1"),
+            pulse2::CTRL..=pulse2::TIMER_HI => Some("pulse2"),
+            triangle::CTRL | triangle::TIMER_LO | triangle::TIMER_HI => Some("triangle"),
+            noise::CTRL | noise::TIMER | noise::LENGTH => Some("noise"),
+            dmc::CTRL..=dmc::LENGTH => Some("dmc"),
+            STATUS => Some("enable"),
             _ => None,
         })
         .collect()

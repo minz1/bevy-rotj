@@ -26,16 +26,14 @@
 
 use crate::timer::Timer;
 
-/// `$4010` replay control.
-pub const CTRL_ADDR: u16 = 0x4010;
-/// `$4011` output level.
-pub const LEVEL_ADDR: u16 = 0x4011;
-/// `$4012` sample address.
-pub const SAMPLE_ADDR_ADDR: u16 = 0x4012;
-/// `$4013` sample length.
-pub const SAMPLE_LENGTH_ADDR: u16 = 0x4013;
-/// `$4015`-bit 4: DMC enable.
-pub const ENABLE_BIT: u8 = 0x10;
+/// `$4010`: rate, loop and IRQ enable.
+pub const CTRL: u16 = 0x4010;
+/// `$4011`: direct load of the output level.
+pub const LEVEL: u16 = 0x4011;
+/// `$4012`: sample address.
+pub const ADDRESS: u16 = 0x4012;
+/// `$4013`: sample length.
+pub const LENGTH: u16 = 0x4013;
 /// `$4015`-bit 7 (read): DMC IRQ flag, cleared by the access.
 pub const IRQ_FLAG_BIT: u8 = 0x80;
 

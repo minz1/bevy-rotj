@@ -1071,19 +1071,19 @@ mod tests {
         driver.request(request[2]);
         let writes: Vec<(u16, u8)> = driver.tick().iter().map(|w| (w.addr, w.value)).collect();
         assert!(
-            writes.contains(&(0x400C, 0x16)),
+            writes.contains(&(rotj_apu::noise::CTRL, 0x16)),
             "noise volume: {writes:04x?}"
         );
         assert!(
-            writes.contains(&(0x400E, 0x0E)),
+            writes.contains(&(rotj_apu::noise::TIMER, 0x0E)),
             "noise period: {writes:04x?}"
         );
         assert!(
-            writes.contains(&(0x400F, 0x08)),
+            writes.contains(&(rotj_apu::noise::LENGTH, 0x08)),
             "noise length: {writes:04x?}"
         );
         assert!(
-            writes.contains(&(0x4004, 0x10)),
+            writes.contains(&(rotj_apu::pulse2::CTRL, 0x10)),
             "the silent pulse voice: {writes:04x?}"
         );
     }

@@ -10,6 +10,8 @@
 //! The driver reads its *data* tables from PRG bank 10 and its songs from PRG
 //! banks 6/7 of the user's ROM ([`Music::from_prg`]).
 
+use rotj_apu::{STATUS, dmc, noise, pulse1, pulse2, status, triangle};
+
 /// Music channels the driver ticks (`$0605`.., X = 7..0).
 const CHANNELS: usize = 8;
 /// SFX / DMC channels (`$06E5`.., X = 1..0).
@@ -34,10 +36,6 @@ const TRIANGLE_INSTRUMENTS: u16 = 0x8B33;
 /// `[volume][period]`.
 const DRUM_INSTRUMENTS: u16 = 0x8B4B;
 
-/// The triangle voice.
-const TRIANGLE: u8 = 2;
-/// The noise voice.
-const NOISE: u8 = 3;
 /// `$4001` with the sweep unit off (the value the driver idles at).
 const SWEEP_OFF: u8 = 0x08;
 /// `$4003` length-counter bits the driver ORs into every period high byte.
@@ -46,10 +44,6 @@ const LENGTH_LOAD: u8 = 0x08;
 const IN_TUNE: u8 = 0x80;
 /// The envelope step `$ED`/`$F1` set: decay only, never jump to the release.
 const DECAY_ONLY: u8 = 0xFF;
-/// `$4015` value enabling the four tone channels.
-const TONE_CHANNELS: u8 = 0x0F;
-/// `$4015` value enabling the tone channels and the DMC.
-const ALL_CHANNELS: u8 = 0x1F;
 
 /// Stream steps one music channel may take in a frame before the port gives up
 /// on a malformed stream.
@@ -120,14 +114,85 @@ fn unset(pointer: &mut u16) {
     *pointer &= 0x00FF;
 }
 
-/// The volume register value that silences a voice.
-const fn silent_volume(voice: u8) -> u8 {
-    if voice == TRIANGLE { 0x00 } else { 0x10 }
+/// A hardware voice: the APU channel a music or SFX channel drives.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Voice {
+    #[default]
+    Pulse1,
+    Pulse2,
+    Triangle,
+    Noise,
 }
 
-/// The first register (`$4000`/`$4004`/`$4008`/`$400C`) of a voice.
-fn voice_base(voice: u8) -> u16 {
-    0x4000 + (u16::from(voice) << 2)
+/// The registers a voice is written through.
+struct VoiceRegisters {
+    ctrl: u16,
+    /// `None` for the triangle, which has no sweep register.
+    sweep: Option<u16>,
+    timer_lo: u16,
+    /// The timer's high bits; the noise's length load.
+    timer_hi: u16,
+}
+
+impl Voice {
+    /// The voice's slot in [`Music::voices`].
+    const fn index(self) -> usize {
+        self as usize
+    }
+
+    /// The voice's registers (the noise voice's sweep is the ignored `$400D`).
+    const fn registers(self) -> VoiceRegisters {
+        match self {
+            Self::Pulse1 => VoiceRegisters {
+                ctrl: pulse1::CTRL,
+                sweep: Some(pulse1::SWEEP),
+                timer_lo: pulse1::TIMER_LO,
+                timer_hi: pulse1::TIMER_HI,
+            },
+            Self::Pulse2 => VoiceRegisters {
+                ctrl: pulse2::CTRL,
+                sweep: Some(pulse2::SWEEP),
+                timer_lo: pulse2::TIMER_LO,
+                timer_hi: pulse2::TIMER_HI,
+            },
+            Self::Triangle => VoiceRegisters {
+                ctrl: triangle::CTRL,
+                sweep: None,
+                timer_lo: triangle::TIMER_LO,
+                timer_hi: triangle::TIMER_HI,
+            },
+            Self::Noise => VoiceRegisters {
+                ctrl: noise::CTRL,
+                sweep: Some(noise::UNUSED),
+                timer_lo: noise::TIMER,
+                timer_hi: noise::LENGTH,
+            },
+        }
+    }
+
+    /// The volume register value that silences the voice.
+    const fn silent_volume(self) -> u8 {
+        if matches!(self, Self::Triangle) {
+            0x00
+        } else {
+            0x10
+        }
+    }
+}
+
+impl TryFrom<u8> for Voice {
+    type Error = u8;
+
+    /// A header's voice byte, 0-3.
+    fn try_from(byte: u8) -> Result<Self, u8> {
+        match byte {
+            0 => Ok(Self::Pulse1),
+            1 => Ok(Self::Pulse2),
+            2 => Ok(Self::Triangle),
+            3 => Ok(Self::Noise),
+            _ => Err(byte),
+        }
+    }
 }
 
 /// The driver bank and the song banks, read through the CPU windows.
@@ -221,8 +286,8 @@ impl Fade {
     /// `$84DF`: the faded volume register. Triangle voices are cut once the
     /// step reaches 4; envelope-mode pulses/noise switch to constant-volume zero
     /// at 5; constant-volume voices lose one volume step per fade step.
-    fn scale(&self, voice: u8, volume: u8) -> u8 {
-        if voice == TRIANGLE {
+    fn scale(&self, voice: Voice, volume: u8) -> u8 {
+        if voice == Voice::Triangle {
             if self.step >= 4 { 0x00 } else { volume }
         } else if volume & 0x10 == 0 {
             if self.step >= 5 { 0x10 } else { volume }
@@ -270,7 +335,7 @@ struct Channel {
     /// `$060D/$0615`: the stream read pointer.
     stream: u16,
     /// `$061D`: the hardware voice (0-1 pulse, 2 triangle, 3 noise).
-    voice: u8,
+    voice: Voice,
     /// `$0625`: frames left in the current note.
     duration: u8,
     /// `$062D`: a fixed note length from `$F6` (0: each note carries its own).
@@ -319,7 +384,11 @@ struct Channel {
 impl Channel {
     /// The pitch setting with no macro: sweep off, or no triangle slide.
     fn idle_pitch(&self) -> u16 {
-        u16::from(if self.voice == TRIANGLE { 0 } else { SWEEP_OFF })
+        u16::from(if self.voice == Voice::Triangle {
+            0
+        } else {
+            SWEEP_OFF
+        })
     }
 
     /// Reads a command's next operand byte.
@@ -394,7 +463,7 @@ impl Channel {
     fn note(&mut self, banks: &Banks, op: u8, frame: &mut Frame) {
         frame.offset = u16::from(lo(frame.offset + 1));
         let index = op.wrapping_add(self.transpose);
-        self.period = if self.voice == NOISE {
+        self.period = if self.voice == Voice::Noise {
             with_lo(self.period, index)
         } else {
             banks.period(index).wrapping_add(u16::from(self.tuning))
@@ -423,7 +492,7 @@ impl Channel {
     fn instrument_note(&mut self, banks: &Banks, op: u8, frame: &mut Frame) -> Step {
         let offset = lo(frame.offset);
         let record = u16::from(op.wrapping_sub(0xC0)) * 4;
-        if self.voice == TRIANGLE {
+        if self.voice == Voice::Triangle {
             let at = TRIANGLE_INSTRUMENTS + record;
             self.pitch_macro = u16::from(banks.driver_byte(at));
             self.envelope =
@@ -534,7 +603,7 @@ impl Channel {
             }
             0xF1 => {
                 self.envelope_step = DECAY_ONLY;
-                self.volume = silent_volume(self.voice);
+                self.volume = self.voice.silent_volume();
                 return Step::LatchDuration;
             }
             0xF2 => return Step::LatchDuration,
@@ -646,7 +715,7 @@ impl Channel {
                 let low = self.period_offset_macro(banks, lo(self.period));
                 (SWEEP_OFF, with_lo(self.period, low))
             }
-        } else if self.voice == TRIANGLE {
+        } else if self.voice == Voice::Triangle {
             *flags |= flag::PERIOD_MACRO;
             self.slide(flags);
             (0, self.period)
@@ -902,27 +971,31 @@ impl SfxChannel {
 
 /// Writes one music voice's registers (`$846E`). `$4003` restarts the note, so
 /// it is written only on a retrigger.
-fn write_voice(writes: &mut Vec<Write>, voice: u8, volume: u8, sweep: u8, period: u16, flags: u8) {
-    let base = voice_base(voice);
+fn write_voice(
+    writes: &mut Vec<Write>,
+    voice: Voice,
+    volume: u8,
+    sweep: u8,
+    period: u16,
+    flags: u8,
+) {
+    let registers = voice.registers();
     writes.push(Write {
-        addr: base,
+        addr: registers.ctrl,
         value: volume,
     });
-    if voice != TRIANGLE {
-        writes.push(Write {
-            addr: base + 1,
-            value: sweep,
-        });
+    if let Some(addr) = registers.sweep {
+        writes.push(Write { addr, value: sweep });
     }
     if flags & flag::RETRIGGER != 0 && flags & flag::PERIOD_LO_ONLY == 0 {
         writes.push(Write {
-            addr: base + 3,
+            addr: registers.timer_hi,
             value: hi(period) | LENGTH_LOAD,
         });
     }
     if flags & (flag::PERIOD_LO_ONLY | flag::RETRIGGER | flag::PERIOD_MACRO) != 0 {
         writes.push(Write {
-            addr: base + 2,
+            addr: registers.timer_lo,
             value: lo(period),
         });
     }
@@ -986,8 +1059,8 @@ impl Music {
             std::mem::take(&mut self.banks.songs),
         );
         *self = fresh;
-        self.write(0x4015, ALL_CHANNELS);
-        self.write(0x4010, 0x00);
+        self.write(STATUS, status::ALL);
+        self.write(dmc::CTRL, 0x00);
         self.stop_all();
         std::mem::take(&mut self.writes)
     }
@@ -1002,10 +1075,9 @@ impl Music {
 
     /// `$8020`, also reached by the init and by requests `$F8`-`$FB`/`$FF`.
     fn stop_all(&mut self) {
-        self.write(0x4000, 0x10);
-        self.write(0x4004, 0x10);
-        self.write(0x400C, 0x10);
-        self.write(0x4008, 0x00);
+        for voice in [Voice::Pulse1, Voice::Pulse2, Voice::Noise, Voice::Triangle] {
+            self.write(voice.registers().ctrl, voice.silent_volume());
+        }
         self.fade.active = false;
         for channel in &mut self.channels {
             channel.flags = 0;
@@ -1014,7 +1086,7 @@ impl Music {
         for sfx in &mut self.sfx {
             sfx.flags = 0;
         }
-        self.write(0x4015, TONE_CHANNELS);
+        self.write(STATUS, status::TONE);
     }
 
     /// Runs one 60 Hz frame; returns that frame's `$4000-$4017` writes in order.
@@ -1086,7 +1158,7 @@ impl Music {
                 *flags = (*flags | flag::PARKED) & !flag::ACTIVE;
             }
         }
-        self.write(0x4015, TONE_CHANNELS);
+        self.write(STATUS, status::TONE);
     }
 
     /// `$80DE`: select a song's bank, read its header, and set the channels up.
@@ -1135,10 +1207,10 @@ impl Music {
                 unset(&mut sfx.loop_return);
                 continue;
             }
-            let voice = next();
+            let voice = Voice::try_from(next()).expect("a header's voice is 0-3");
             let channel = &mut self.channels[usize::from(index)];
             if voice != channel.voice {
-                self.voices[usize::from(voice)] = VOICE_RETRIGGER;
+                self.voices[voice.index()] = VOICE_RETRIGGER;
             }
             channel.voice = voice;
             let low = next();
@@ -1160,10 +1232,10 @@ impl Music {
 
     /// `$81EC`: silence the voices no channel drove this frame.
     fn silence_untaken_voices(&mut self) {
-        for voice in 0..4_u8 {
-            let state = std::mem::take(&mut self.voices[usize::from(voice)]);
+        for voice in [Voice::Pulse1, Voice::Pulse2, Voice::Triangle, Voice::Noise] {
+            let state = std::mem::take(&mut self.voices[voice.index()]);
             if state & VOICE_TAKEN == 0 {
-                self.write(voice_base(voice), silent_volume(voice));
+                self.write(voice.registers().ctrl, voice.silent_volume());
             }
         }
     }
@@ -1176,8 +1248,8 @@ impl Music {
             return;
         }
         let voice = channel.voice;
-        let voice_before = self.voices[usize::from(voice)];
-        self.voices[usize::from(voice)] = voice_before | VOICE_TAKEN;
+        let voice_before = self.voices[voice.index()];
+        self.voices[voice.index()] = voice_before | VOICE_TAKEN;
         let mut frame = Frame {
             flags: (channel.flags & !flag::RETRIGGER) | (voice_before & VOICE_RETRIGGER),
             offset: 0,
@@ -1222,7 +1294,7 @@ impl Music {
         }
         let taken = voice_before & VOICE_TAKEN != 0;
         match step {
-            Step::Stop if !taken => self.voices[usize::from(voice)] = VOICE_RETRIGGER,
+            Step::Stop if !taken => self.voices[voice.index()] = VOICE_RETRIGGER,
             Step::Registers => {
                 if !taken {
                     let volume = if self.fade.active && channel.fades {
@@ -1272,23 +1344,23 @@ impl Music {
     /// the tone channels enabled.
     fn play_sfx(&mut self, dmc_records: u16, sound: SfxSound, fades: bool) {
         if self.fade.active && fades && self.fade.step >= 2 {
-            self.write(0x4015, TONE_CHANNELS);
-            self.write(0x4015, TONE_CHANNELS);
+            self.write(STATUS, status::TONE);
+            self.write(STATUS, status::TONE);
             return;
         }
         let enable = match sound {
             SfxSound::Sample(note) => {
                 let record = dmc_records + u16::from(note) * 4;
-                for (reg, byte) in (0x4010..=0x4013).zip(0..) {
+                for (reg, byte) in (dmc::CTRL..=dmc::LENGTH).zip(0..) {
                     let value = self.banks.byte(record + byte);
                     self.write(reg, value);
                 }
-                ALL_CHANNELS
+                status::ALL
             }
-            SfxSound::Silence => TONE_CHANNELS,
+            SfxSound::Silence => status::TONE,
         };
-        self.write(0x4015, enable & 0x0F);
-        self.write(0x4015, enable);
+        self.write(STATUS, enable & status::TONE);
+        self.write(STATUS, enable);
     }
 }
 #[cfg(test)]
@@ -1336,11 +1408,14 @@ mod tests {
             return;
         };
         music.load_song(4);
-        let voices: Vec<u8> = music.channels[0..4]
+        let voices: Vec<Voice> = music.channels[0..4]
             .iter()
             .map(|channel| channel.voice)
             .collect();
-        assert_eq!(voices, [0, 1, 2, 3]);
+        assert_eq!(
+            voices,
+            [Voice::Pulse1, Voice::Pulse2, Voice::Triangle, Voice::Noise]
+        );
         assert_eq!(music.channels[0].stream, 0xA8DA);
         assert_eq!(music.sfx[0].flags, 0x80);
         assert_eq!(music.sfx[0].stream, 0xAF15);
@@ -1355,7 +1430,10 @@ mod tests {
             return;
         };
         music.load_song(0x24);
-        assert_eq!((music.channels[4].voice, music.channels[5].voice), (1, 3));
+        assert_eq!(
+            (music.channels[4].voice, music.channels[5].voice),
+            (Voice::Pulse2, Voice::Noise)
+        );
         assert_eq!(music.channels[4].stream, 0x8DF0);
         assert_eq!(music.channels[5].stream, 0x8DF5);
         // The noise stream at `$8DF5` starts `F6 01 EC 16 0E ...`: its first
@@ -1379,7 +1457,7 @@ mod tests {
             .map(|write| (write.addr, write.value))
             .collect();
         assert!(
-            got.contains(&(0x4000, 0x10)) && got.contains(&(0x4008, 0x00)),
+            got.contains(&(pulse1::CTRL, 0x10)) && got.contains(&(triangle::CTRL, 0x00)),
             "got {got:?}"
         );
     }
@@ -1439,8 +1517,8 @@ mod tests {
         assert_eq!(
             music.writes,
             vec![Write {
-                addr: 0x4015,
-                value: 0x0F
+                addr: STATUS,
+                value: status::TONE
             }]
         );
 
@@ -1453,8 +1531,8 @@ mod tests {
         assert_eq!(
             music.writes.last().copied(),
             Some(Write {
-                addr: 0x4015,
-                value: 0x0F
+                addr: STATUS,
+                value: status::TONE
             })
         );
     }
@@ -1467,16 +1545,40 @@ mod tests {
             step: 3,
             ..Fade::default()
         };
-        assert_eq!(fade.scale(0, 0x1F), 0x1C);
-        assert_eq!(fade.scale(0, 0x13), 0x10, "saturates at volume 0");
-        assert_eq!(fade.scale(0, 0x10), 0x10, "envelope mode untouched < 5");
-        assert_eq!(fade.scale(2, 0xFF), 0xFF, "triangle untouched < 4");
+        assert_eq!(fade.scale(Voice::Pulse1, 0x1F), 0x1C);
+        assert_eq!(
+            fade.scale(Voice::Pulse1, 0x13),
+            0x10,
+            "saturates at volume 0"
+        );
+        assert_eq!(
+            fade.scale(Voice::Pulse1, 0x10),
+            0x10,
+            "envelope mode untouched < 5"
+        );
+        assert_eq!(
+            fade.scale(Voice::Triangle, 0xFF),
+            0xFF,
+            "triangle untouched < 4"
+        );
 
         fade.step = 5;
-        assert_eq!(fade.scale(0, 0x1F), 0x1A);
-        assert_eq!(fade.scale(0, 0x13), 0x10, "saturates at volume 0");
-        assert_eq!(fade.scale(0, 0x0F), 0x10, "envelope mode -> constant 0");
-        assert_eq!(fade.scale(2, 0xFF), 0x00, "triangle silenced at 4+");
+        assert_eq!(fade.scale(Voice::Pulse1, 0x1F), 0x1A);
+        assert_eq!(
+            fade.scale(Voice::Pulse1, 0x13),
+            0x10,
+            "saturates at volume 0"
+        );
+        assert_eq!(
+            fade.scale(Voice::Pulse1, 0x0F),
+            0x10,
+            "envelope mode -> constant 0"
+        );
+        assert_eq!(
+            fade.scale(Voice::Triangle, 0xFF),
+            0x00,
+            "triangle silenced at 4+"
+        );
     }
 
     /// The first frame of stage 1-1's song emits the capture's opening writes.
@@ -1497,19 +1599,19 @@ mod tests {
             .collect();
         // From the reference capture, frame 610 (driver writes only).
         let expected: [(u16, u8); 13] = [
-            (0x400C, 0x00),
-            (0x400D, 0x08),
-            (0x400F, 0x08),
-            (0x400E, 0x03),
-            (0x4008, 0xFF),
-            (0x400B, 0x09),
-            (0x400A, 0x62),
-            (0x4004, 0x10),
-            (0x4005, 0x08),
-            (0x4000, 0x10),
-            (0x4001, 0x08),
-            (0x4015, 0x0F),
-            (0x4015, 0x0F),
+            (noise::CTRL, 0x00),
+            (noise::UNUSED, 0x08),
+            (noise::LENGTH, 0x08),
+            (noise::TIMER, 0x03),
+            (triangle::CTRL, 0xFF),
+            (triangle::TIMER_HI, 0x09),
+            (triangle::TIMER_LO, 0x62),
+            (pulse2::CTRL, 0x10),
+            (pulse2::SWEEP, 0x08),
+            (pulse1::CTRL, 0x10),
+            (pulse1::SWEEP, 0x08),
+            (STATUS, status::TONE),
+            (STATUS, status::TONE),
         ];
         assert_eq!(got, expected);
     }
@@ -1535,19 +1637,28 @@ mod tests {
             .iter()
             .map(|write| (write.addr, write.value))
             .collect();
-        assert!(got.contains(&(0x400C, 0x16)), "noise volume, got {got:?}");
         assert!(
-            got.contains(&(0x400E, 0x0E)),
+            got.contains(&(noise::CTRL, 0x16)),
+            "noise volume, got {got:?}"
+        );
+        assert!(
+            got.contains(&(noise::TIMER, 0x0E)),
             "first noise note, got {got:?}"
         );
-        assert!(got.contains(&(0x400F, 0x08)), "noise length, got {got:?}");
-        assert!(got.contains(&(0x4004, 0x10)), "silent pulse 2, got {got:?}");
+        assert!(
+            got.contains(&(noise::LENGTH, 0x08)),
+            "noise length, got {got:?}"
+        );
+        assert!(
+            got.contains(&(pulse2::CTRL, 0x10)),
+            "silent pulse 2, got {got:?}"
+        );
         // The last noise note is at frame 14; by frame 20 it is silent.
         for _ in 0..19 {
             let _ = music.tick();
         }
         for frame in 20..40 {
-            let still = music.tick().iter().any(|write| write.addr == 0x400E);
+            let still = music.tick().iter().any(|write| write.addr == noise::TIMER);
             assert!(!still, "the effect should have ended by frame {frame}");
         }
     }

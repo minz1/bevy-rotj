@@ -127,7 +127,7 @@ fn port_matches_the_driver_through_run1() {
 }
 
 /// Every song-table id, requested over stage 1-1's song, plus the fade-out
-/// followed by a new song (whose DMC channel the fade must not mute).
+/// followed by a new song (whose DMC channel the fade must not mute), and a pause then resume.
 #[test]
 fn port_matches_the_driver_for_every_song_and_effect() {
     const SETTLE: usize = 640;
@@ -140,9 +140,10 @@ fn port_matches_the_driver_for_every_song_and_effect() {
     }
     run.assert_matched("stage start");
     let fade_then_song = [(0, 0xFC), (100, 0x04)];
+    let pause_and_resume = [(0, 0x04), (60, 0xFE), (120, 0xFD)];
     let cases = (0..0x30_u8)
         .map(|id| vec![(0, id)])
-        .chain([fade_then_song.to_vec()]);
+        .chain([fade_then_song.to_vec(), pause_and_resume.to_vec()]);
     for requests in cases {
         let mut case = run.clone();
         for frame in 0..PLAY {

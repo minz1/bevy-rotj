@@ -312,11 +312,11 @@ mod tests {
         };
         let dmc_level_after = |mut apu: rotj_apu::apu::Apu| {
             for (addr, value) in [
-                (0x4011, 0x40),
-                (0x4012, 0x94),
-                (0x4013, 0x3F),
-                (0x4010, 0x0F),
-                (0x4015, 0x10),
+                (rotj_apu::dmc::LEVEL, 0x40),
+                (rotj_apu::dmc::ADDRESS, 0x94),
+                (rotj_apu::dmc::LENGTH, 0x3F),
+                (rotj_apu::dmc::CTRL, 0x0F),
+                (rotj_apu::STATUS, rotj_apu::status::DMC),
             ] {
                 apu.write(addr, value);
             }

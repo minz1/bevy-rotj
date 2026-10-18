@@ -7,6 +7,13 @@
 //! Unlike the pulse channel, the triangle timer ticks at the CPU rate, so
 //! its divider is advanced twice per [caller APU tick](Triangle::tick).
 
+/// Linear counter control and reload value.
+pub const CTRL: u16 = 0x4008;
+/// Timer period, low byte.
+pub const TIMER_LO: u16 = 0x400A;
+/// Length-counter load and timer period, high bits.
+pub const TIMER_HI: u16 = 0x400B;
+
 /// APU triangle channel: linear counter, length counter and the looping
 /// 32-step sequence, clocked by the CPU-rate timer.
 #[derive(Debug, Clone)]

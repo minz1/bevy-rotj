@@ -42,3 +42,50 @@ pub mod triangle;
 mod envelope;
 mod length_counter;
 mod timer;
+
+/// Pulse 1's registers.
+pub mod pulse1 {
+    /// Duty, length halt and volume.
+    pub const CTRL: u16 = 0x4000;
+    /// Sweep unit.
+    pub const SWEEP: u16 = 0x4001;
+    /// Timer period, low byte.
+    pub const TIMER_LO: u16 = 0x4002;
+    /// Length-counter load and timer period, high bits.
+    pub const TIMER_HI: u16 = 0x4003;
+}
+
+/// Pulse 2's registers.
+pub mod pulse2 {
+    /// Duty, length halt and volume.
+    pub const CTRL: u16 = 0x4004;
+    /// Sweep unit.
+    pub const SWEEP: u16 = 0x4005;
+    /// Timer period, low byte.
+    pub const TIMER_LO: u16 = 0x4006;
+    /// Length-counter load and timer period, high bits.
+    pub const TIMER_HI: u16 = 0x4007;
+}
+
+/// Status register: write enables channels, read reports them.
+pub const STATUS: u16 = 0x4015;
+/// Frame counter mode and IRQ inhibit.
+pub const FRAME_COUNTER: u16 = 0x4017;
+
+/// The `$4015` enable bits.
+pub mod status {
+    /// Pulse 1.
+    pub const PULSE1: u8 = 0x01;
+    /// Pulse 2.
+    pub const PULSE2: u8 = 0x02;
+    /// Triangle.
+    pub const TRIANGLE: u8 = 0x04;
+    /// Noise.
+    pub const NOISE: u8 = 0x08;
+    /// DMC.
+    pub const DMC: u8 = 0x10;
+    /// The four tone channels.
+    pub const TONE: u8 = PULSE1 | PULSE2 | TRIANGLE | NOISE;
+    /// The tone channels and the DMC.
+    pub const ALL: u8 = TONE | DMC;
+}

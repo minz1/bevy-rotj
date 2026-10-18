@@ -2,12 +2,13 @@
 //! clocking, so the game's music driver can be replayed from the disassembly
 //! register-for-register.
 
-use crate::dmc::{Dmc, SampleRom};
+use crate::dmc::{self, Dmc, SampleRom};
 use crate::frame_counter::{FrameCounter, FrameEvent};
 use crate::mixer;
-use crate::noise::Noise;
+use crate::noise::{self, Noise};
 use crate::pulse::{Pulse, PulseChannel};
-use crate::triangle::Triangle;
+use crate::triangle::{self, Triangle};
+use crate::{FRAME_COUNTER, STATUS, pulse1, pulse2, status};
 
 /// The whole APU: four channels, the frame sequencer, and the mixer.
 #[derive(Debug, Clone)]
@@ -47,38 +48,38 @@ impl Apu {
     /// `$4000-$4017` is ignored.
     pub fn write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x4000 => self.pulse1.write_ctrl(val),
-            0x4001 => self.pulse1.write_sweep(val),
-            0x4002 => self.pulse1.write_timer_lo(val),
-            0x4003 => self.pulse1.write_timer_hi(val),
-            0x4004 => self.pulse2.write_ctrl(val),
-            0x4005 => self.pulse2.write_sweep(val),
-            0x4006 => self.pulse2.write_timer_lo(val),
-            0x4007 => self.pulse2.write_timer_hi(val),
+            pulse1::CTRL => self.pulse1.write_ctrl(val),
+            pulse1::SWEEP => self.pulse1.write_sweep(val),
+            pulse1::TIMER_LO => self.pulse1.write_timer_lo(val),
+            pulse1::TIMER_HI => self.pulse1.write_timer_hi(val),
+            pulse2::CTRL => self.pulse2.write_ctrl(val),
+            pulse2::SWEEP => self.pulse2.write_sweep(val),
+            pulse2::TIMER_LO => self.pulse2.write_timer_lo(val),
+            pulse2::TIMER_HI => self.pulse2.write_timer_hi(val),
             // $4008-$400B: the triangle has no sweep register.
-            0x4008 => self.triangle.write_ctrl(val),
-            0x400a => self.triangle.write_timer_lo(val),
-            0x400b => self.triangle.write_timer_hi(val),
-            0x400c => self.noise.write_ctrl(val),
-            0x400e => self.noise.write_timer(val),
-            0x400f => self.noise.write_length(val),
-            0x4010 => self.dmc.write_ctrl(val),
-            0x4011 => self.dmc.write_level(val),
-            0x4012 => self.dmc.write_address(val),
-            0x4013 => self.dmc.write_length(val),
-            0x4015 => self.set_enabled(val),
-            0x4017 => self.frame_counter.write(val),
+            triangle::CTRL => self.triangle.write_ctrl(val),
+            triangle::TIMER_LO => self.triangle.write_timer_lo(val),
+            triangle::TIMER_HI => self.triangle.write_timer_hi(val),
+            noise::CTRL => self.noise.write_ctrl(val),
+            noise::TIMER => self.noise.write_timer(val),
+            noise::LENGTH => self.noise.write_length(val),
+            dmc::CTRL => self.dmc.write_ctrl(val),
+            dmc::LEVEL => self.dmc.write_level(val),
+            dmc::ADDRESS => self.dmc.write_address(val),
+            dmc::LENGTH => self.dmc.write_length(val),
+            STATUS => self.set_enabled(val),
+            FRAME_COUNTER => self.frame_counter.write(val),
             _ => {}
         }
     }
 
     /// `$4015` enable bits, in channel order; a cleared bit silences instantly.
     fn set_enabled(&mut self, val: u8) {
-        self.pulse1.set_enabled(val & 0x01 != 0);
-        self.pulse2.set_enabled(val & 0x02 != 0);
-        self.triangle.set_enabled(val & 0x04 != 0);
-        self.noise.set_enabled(val & 0x08 != 0);
-        self.dmc.set_enabled(val & 0x10 != 0);
+        self.pulse1.set_enabled(val & status::PULSE1 != 0);
+        self.pulse2.set_enabled(val & status::PULSE2 != 0);
+        self.triangle.set_enabled(val & status::TRIANGLE != 0);
+        self.noise.set_enabled(val & status::NOISE != 0);
+        self.dmc.set_enabled(val & status::DMC != 0);
     }
 
     /// One APU tick (two CPU cycles), like the hardware's clock.
@@ -167,10 +168,10 @@ mod tests {
     /// Order matters: length-counter loads are ignored while the channel is
     /// disabled (`$4015`), as on the hardware.
     fn playing_pulse1(apu: &mut Apu) {
-        apu.write(0x4015, 0x01); // enable pulse 1
-        apu.write(0x4000, 0xbf); // duty 2, halt, constant volume 15
-        apu.write(0x4002, 0x40); // timer low
-        apu.write(0x4003, 0x08); // length load + timer high
+        apu.write(STATUS, status::PULSE1); // enable pulse 1
+        apu.write(pulse1::CTRL, 0xbf); // duty 2, halt, constant volume 15
+        apu.write(pulse1::TIMER_LO, 0x40); // timer low
+        apu.write(pulse1::TIMER_HI, 0x08); // length load + timer high
     }
 
     /// Highest mixed level seen over `ticks` APU ticks.
@@ -200,17 +201,17 @@ mod tests {
         let mut apu = Apu::new();
         playing_pulse1(&mut apu);
         assert!(peak_after(&mut apu, ONE_SECOND) > 0.0);
-        apu.write(0x4015, 0x00);
+        apu.write(STATUS, 0);
         assert_eq!(apu.output(), 0.0);
     }
 
     #[test]
     fn triangle_plays_and_stays_in_range() {
         let mut apu = Apu::new();
-        apu.write(0x4015, 0x04); // enable triangle before its length load
-        apu.write(0x4008, 0xff); // control flag + linear counter 127
-        apu.write(0x400a, 0x20);
-        apu.write(0x400b, 0x08);
+        apu.write(STATUS, status::TRIANGLE); // enable triangle before its length load
+        apu.write(triangle::CTRL, 0xff); // control flag + linear counter 127
+        apu.write(triangle::TIMER_LO, 0x20);
+        apu.write(triangle::TIMER_HI, 0x08);
         let peak = peak_after(&mut apu, ONE_SECOND);
         assert!(peak > 0.0);
         assert!(peak <= 1.0);
@@ -219,11 +220,11 @@ mod tests {
     #[test]
     fn dmc_reaches_the_mixer_only_when_enabled() {
         let mut apu = Apu::new();
-        apu.write(0x4011, 0x7f); // direct load, full DAC
+        apu.write(dmc::LEVEL, 0x7f); // direct load, full DAC
         assert_eq!(apu.output(), 0.0, "a disabled DMC mixes silence");
-        apu.write(0x4015, 0x10); // $4015 bit 4 enables the DMC
+        apu.write(STATUS, status::DMC); // $4015 bit 4 enables the DMC
         assert!(apu.output() > 0.0, "the DMC level reaches the mixer");
-        apu.write(0x4015, 0x00);
+        apu.write(STATUS, 0);
         assert_eq!(apu.output(), 0.0);
     }
 

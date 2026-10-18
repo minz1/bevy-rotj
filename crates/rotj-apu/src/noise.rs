@@ -4,6 +4,15 @@
 //! `$400C`, [`Noise::write_timer`] for `$400E`, [`Noise::write_length`] for
 //! `$400F`, [`Noise::set_enabled`] for `$4015`.
 
+/// Length halt and volume.
+pub const CTRL: u16 = 0x400C;
+/// The driver's idle sweep write, which the APU ignores.
+pub const UNUSED: u16 = 0x400D;
+/// Period index and mode.
+pub const TIMER: u16 = 0x400E;
+/// Length-counter load.
+pub const LENGTH: u16 = 0x400F;
+
 /// 15-bit LFSR feedback mode: mode 1 XORs bits 0 and 6, mode 0 bits 0 and 1
 /// (nesdev, "APU Noise").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
