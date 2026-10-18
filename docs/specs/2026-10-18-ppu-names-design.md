@@ -2,7 +2,7 @@
 
 Status: approved with changes by the Opus stand-in, 2026-10-18 (applied, and `SHOWN` from the implementation's review: the bits beside
 `render::Line`, not a new module; `Vram::push_palette` instead of a palette const; the nametable
-bits split; every odd mask named; the counts and the missed sites; the tests' policy). The survey
+bits split; every odd mask named; the counts and the missed sites; the tests' policy). Implemented in 1.1.24. The survey
 loop's #4 (MODERNIZE "The survey loop, 2026-10-18"). No behaviour change: constant substitution,
 proven by the lockstep (which compares every frame's 240 lines and the IRQs' register writes).
 

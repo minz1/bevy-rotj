@@ -1,4 +1,4 @@
-# Status — where 1.1.23 stands
+# Status — where 1.1.24 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -47,6 +47,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.21 | **done, tag `1.1.21`** (2026-10-18): level packs, release 1 (`docs/specs/2026-10-18-level-packs-release-1-design.md`, on the owner-approved format and the owner's answers): `rotj_core::levels` holds the Tiled JSON model (maps, layers, objects, typed and list properties, tileset references, the `.world`, `pack.json`, unknown fields kept), the exporter (`rotj export-levels --rom <file> --out <dir>` writes the original game as one world: a stage per area named by its banner, a room per Tiled map, one tileset name per (area, CHR) variant, the stage's page map, actors as objects classed by family with `variant`s and `triggers`, scroll-lock markers, `player-start` with facing and scroll mode and lock) and the importer, which refuses malformed packs by name. Proven against the ROM: `import(export(rom))` equals the game's assets in everything the game reads (terrain, rooms, the 590 spawn records the schedule can name, the schedule's triggers and locks), with three owner questions skipped by name and pinned (two rooms' first spawn column, bit 6 of 24 pending cells, the dropped residue), and `export(import(export(rom)))` is byte-equal file by file. The game does not load packs yet (release 3); nothing it does changed (the Classic suites, a sweep and a 300-branch exploration unchanged, the chain's tape byte-identical) |
 | 1.1.22 | **done, tag `1.1.22`** (2026-10-18): the twenty-second modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The empty slot named (`docs/specs/2026-10-18-empty-slot-design.md`, MODERNIZE #3): `Brain::Unported` and `SecondBrain::Unported` are `Empty`, the empty slot's brain and the fallback for a kind with no handler; `engine::unported`, a far-off despawn standing in for a missing handler since before 1.0.0, is deleted, and the dispatch's `Empty` arm is unreachable (`$CF72` has a handler for every main kind); the loop's test-build assert reads that a live second-class slot's kind has no `$CEC3` entry |
 | 1.1.23 | **done, tag `1.1.23`** (2026-10-18): level packs release 2's engine side, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The stage descriptor (`docs/specs/2026-10-18-stage-descriptor-design.md`): what the engine reads by stage (the song or keep, the banner's and pause's digits, the picture before the banner, the checkpoint's password, what clearing it does) is one `actor::stage::Stage` per stage in `Prg::stages`, read where the game read ten ROM tables and two hard-coded areas; Continue, the pause's letters and the level places all follow one rule (the latest checkpoint at or before a stage; level n is the n-th checkpoint), proven against the ROM's continue and level tables for all 18 stages. Found on the way: the password screen holds a fourteenth password the pause never shows, which starts the last level too |
+| 1.1.24 | **done, tag `1.1.24`** (2026-10-18): the twenty-fourth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The PPU registers named (`docs/specs/2026-10-18-ppu-names-design.md`, the survey loop's #4): `render::ctrl` and `render::mask` name the `$2000`/`$2001` bits beside `render::Line`, replacing the raw masks at about 95 writers and 22 readers (the scripts, the raster handlers, the Classic and Modern pictures, the app), every combination spelled out (`mask::SHOWN` the full picture); `Vram::push_palette` replaces the 22 palette pushes by address |
 
 ## Verified working
 
@@ -106,8 +107,9 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    (2026-10-18). **1.1.19, the probe results typed: tagged `1.1.19`** (2026-10-18). **1.1.20, the
    raster split typed: tagged `1.1.20`** (2026-10-18). **1.1.21, level packs release 1: tagged
    `1.1.21`** (2026-10-18). **1.1.22, the empty slot named: tagged `1.1.22`** (2026-10-18). **1.1.23,
-   the stage descriptor: tagged `1.1.23`** (2026-10-18). Next: the survey loop's list (the PPU
-   names, the projectile's position, ...).
+   the stage descriptor: tagged `1.1.23`** (2026-10-18). **1.1.24, the PPU registers named: tagged
+   `1.1.24`** (2026-10-18). Next: the survey loop's list (the projectile's position, the shots'
+   flight, the ids named, ...).
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and

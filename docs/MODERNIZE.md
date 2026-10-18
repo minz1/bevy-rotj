@@ -288,7 +288,7 @@ of its own, proven by the lockstep, ranked by payoff over risk:
 3. **The raster split typed** (done in 1.1.20): `Scroll::room: [u8; 13]` (`$D0-$DC`), about 137 index sites ->
    `RasterSplit { armed, delay: u16, kind, step, bands }`, the IRQ cycle tables staying Classic's
    rule; header bytes first. Modern's next steps (the `$D3` 4 boss rooms, the band rooms) read it.
-4. **PPU registers and VRAM addresses named**: raw `ppu_ctrl`/`mask` writes (about 64), palette
+4. **PPU registers and VRAM addresses named** (the registers done in 1.1.24; the VRAM addresses stay data): raw `ppu_ctrl`/`mask` writes (about 64), palette
    pushes at `0x3F00` (12), nametable/attribute address arithmetic -> `ppu::ctrl`/`mask` consts,
    `Vram::push_palette`, `tile_addr`/`attribute_addr`.
 5. **`Projectile` positions as `u16`** (`level_x_hi/lo`, about 101 uses) and the homing shot's
