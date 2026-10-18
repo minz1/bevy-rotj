@@ -90,6 +90,11 @@ pub(crate) fn rom_bytes<const N: usize>(prg: &[u8], bank: u8, addr: u16) -> [u8;
     std::array::from_fn(|i| bytes[i])
 }
 
+/// `N` little-endian words of PRG `bank` from a CPU address.
+pub(crate) fn rom_words<const N: usize>(prg: &[u8], bank: u8, addr: u16) -> [u16; N] {
+    std::array::from_fn(|i| rom_word(prg, bank, addr + u16::try_from(2 * i).expect("table fits")))
+}
+
 /// `N` 16-bit values from a table of their high bytes at `hi` and one of their low bytes at `lo`.
 pub(crate) fn rom_split_words<const N: usize>(prg: &[u8], bank: u8, hi: u16, lo: u16) -> [u16; N] {
     let (high, low): ([u8; N], [u8; N]) = (rom_bytes(prg, bank, hi), rom_bytes(prg, bank, lo));
@@ -848,7 +853,7 @@ pub fn queue_counters(value: u16, cx: &mut Cx<'_>) {
         for (i, place) in [10000, 1000, 100, 10, 1].into_iter().enumerate() {
             let digit = rest / place;
             rest %= place;
-            top[i] = rom_byte(cx.prg, 14, 0xD26A + digit);
+            top[i] = cx.prg.digit_tiles[usize::from(digit)];
             bottom[i] = top[i] | 1;
         }
         cx.effects.vram.push(0x2300 | column, 0, &top);

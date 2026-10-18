@@ -6,7 +6,7 @@
 //! `docs/ACTORS.md` §9h.
 
 use super::collision::{self, Probe};
-use super::engine::{self, Work, adc_overflows, rom_byte, rom_word, sub_overflows16};
+use super::engine::{self, Work, adc_overflows, rom_word, sub_overflows16};
 use super::world::{
     Cx, Motion, Player, Projectile, Weapon, attack, busy, hurt, orientation, pose, power_up,
     set_first_colours, sliding, stage_script,
@@ -50,6 +50,158 @@ fn at_source(projectile: &mut Projectile, source: &Projectile) {
     projectile.level_x_lo = source.level_x_lo;
     projectile.level_y_hi = source.level_y_hi;
     projectile.level_y_lo = source.level_y_lo;
+}
+
+/// One `anim`'s per-`anim` properties (bank 4), the tables `$88` apart.
+pub struct Frame {
+    /// The overlay drawn with the shot pose (`$9705`).
+    pub overlay: u8,
+    /// The flash frame drawn with the power-up off (`$97A4`).
+    pub flash: u8,
+    /// The flash frame drawn with the power-up on (`$982C`).
+    pub power_up_flash: u8,
+    /// The contact reach below him (`$989C`).
+    pub reach_y: u8,
+}
+
+/// The player's animation strips (bank 4), each named for the motion it animates.
+pub struct Animations {
+    /// Turning from standing, by `pose_timer >> 1` (0-1) (`$96DB`).
+    pub standing_turn: [u8; 2],
+    /// Turning while walking, by `pose_timer >> 1` (0-2) (`$96DB`).
+    pub walking_turn: [u8; 3],
+    /// The short landing, by `pose_step` (any byte: it carries over from other motions) (`$96DD`).
+    pub landing: [u8; 256],
+    /// The long landing, by `pose_timer >> 1` (0-16) (`$96E0`).
+    pub long_landing: [u8; 0x11],
+    /// Turning while crouched, by `pose_timer >> 1` (0-1) (`$96F1`).
+    pub crouching_turn: [u8; 2],
+    /// Turning in the air, by `step >> 1` (0-7) (`$96F3`).
+    pub jump_turn: [u8; 8],
+    /// The walk cycle, by `pose_timer` (0-7) (`$96FD`).
+    pub walking: [u8; 8],
+    /// The walk-attack frame, by `pose_timer` or the charged attack's slot (0-15 or `$FF`) (`$96FD`).
+    pub melee: [u8; 256],
+    /// The grounded slide's first frames, by `pose_timer >> 1` (0-1) (`$979D`).
+    pub slide_start: [u8; 2],
+    /// The airborne slide's frames, by `pose_timer >> 1` (0-1) (`$979F`).
+    pub slide_air: [u8; 2],
+    /// The standing drift, by `pose_timer >> 1` (0-2) (`$97A1`).
+    pub standing_drift: [u8; 3],
+}
+
+/// The player's constant tables (bank 4, and bank 14's entry poses).
+pub struct Tables {
+    /// The animation strips.
+    pub animations: Animations,
+    /// By `anim` (0-`$87`: the strips, literals up to `$48`, room.rs's `$85`) (`$9705`-`$989C`).
+    pub frames: [Frame; 0x88],
+    /// The shot overlay's frames during the attack, by `overlay - $14` (0-7) (`$978D`).
+    pub attacking_shot_frames: [u8; 8],
+    /// The shot overlay's frames otherwise, by `overlay - $14` (0-7) (`$9795`).
+    pub idle_shot_frames: [u8; 8],
+    /// The muzzle flash's x offset facing right, by `motion` (0-11) (`$966B`).
+    pub muzzle_x_right: [u8; 12],
+    /// The muzzle flash's x offset facing left, by `motion` (0-11) (`$9677`).
+    pub muzzle_x_left: [u8; 12],
+    /// The muzzle flash's y offset, by `motion` (0-11) (`$9683`).
+    pub muzzle_y: [u8; 12],
+    /// The palette set when the power-up's meter empties (`$9662`).
+    pub weapon_palette: [u8; 3],
+    /// The palette set at the death's first beat (`$918D`).
+    pub death_palette: [u8; 4],
+    /// The highest projectile slot each weapon may use, by `weapon` (0-6) (`$9B08`).
+    pub slot_limits: [u8; 7],
+    /// The shot's launch x offset facing right, by `motion` (0-11) (`$9ECD`).
+    pub launch_x_right: [i16; 12],
+    /// The shot's launch x offset facing left, by `motion` (0-11) (`$9EED`).
+    pub launch_x_left: [i16; 12],
+    /// The shot's launch y offset, by `motion` (0-11) (`$9ED5`).
+    pub launch_y: [i16; 12],
+    /// The bolt's launch speed, by side (0 facing left, 1 facing right) (`$9E03`/`$9D48`).
+    pub bolt_launch: [i16; 2],
+    /// The homing shot's launch speed, by side (`$9E03`/`$9D6D`).
+    pub homing_launch: [i16; 2],
+    /// The splitter's launch speed, by side (`$9E03`/`$9D9E`).
+    pub splitter_launch: [i16; 2],
+    /// The wave's launch speed, by side (`$9E03`/`$9E01`).
+    pub wave_launch: [i16; 2],
+    /// The two-part shots' velocity, by part; its high bytes are the `target` (`$9E05`/`$9E07`).
+    pub pair_velocities: [i16; 2],
+    /// The three-way shot's velocity aiming up, by part (`$9CD3`/`$9CD6`).
+    pub threeway_up_velocities: [i16; 3],
+    /// The three-way shot's velocity ahead, by part (`$9E6C`/`$9E6F`).
+    pub threeway_ahead_velocities: [i16; 3],
+    /// The super shot's fan velocity, by `(frame >> 2) & $0F` (0-15) (`$9D0D`/`$9D1D`).
+    pub super_fan_velocities: [i16; 16],
+    /// The projectile's facing attribute, by side (0 facing left, 1 facing right) (`$9DFF`).
+    pub shot_attributes: [u8; 2],
+    /// The dying overlay's attribute, by `((death_timer - $30) & $1E) >> 1` (0-11) (`$91A9`).
+    pub death_attributes: [u8; 12],
+    /// The power-up's facing, by `(frame >> 1) & 1` (`$91D6`).
+    pub power_up_facings: [u8; 2],
+    /// The boss entry's held pose, by `entry_timer >> 2` (0-2) (bank 14 `$D174`).
+    pub entry_poses: [u8; 3],
+    /// The boss entry's held second pose, by `entry_timer >> 2` (0-2) (bank 14 `$D177`).
+    pub entry_pose_second: [u8; 3],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let overlay: [u8; 0x88] = engine::rom_bytes(prg, 4, 0x9705);
+        let flash: [u8; 0x88] = engine::rom_bytes(prg, 4, 0x97A4);
+        let power_up_flash: [u8; 0x88] = engine::rom_bytes(prg, 4, 0x982C);
+        let reach_y: [u8; 0x88] = engine::rom_bytes(prg, 4, 0x989C);
+        Tables {
+            animations: Animations {
+                standing_turn: engine::rom_bytes(prg, 4, 0x96DB),
+                walking_turn: engine::rom_bytes(prg, 4, 0x96DB),
+                landing: engine::rom_bytes(prg, 4, 0x96DD),
+                long_landing: engine::rom_bytes(prg, 4, 0x96E0),
+                crouching_turn: engine::rom_bytes(prg, 4, 0x96F1),
+                jump_turn: engine::rom_bytes(prg, 4, 0x96F3),
+                walking: engine::rom_bytes(prg, 4, 0x96FD),
+                melee: engine::rom_bytes(prg, 4, 0x96FD),
+                slide_start: engine::rom_bytes(prg, 4, 0x979D),
+                slide_air: engine::rom_bytes(prg, 4, 0x979F),
+                standing_drift: engine::rom_bytes(prg, 4, 0x97A1),
+            },
+            frames: std::array::from_fn(|i| Frame {
+                overlay: overlay[i],
+                flash: flash[i],
+                power_up_flash: power_up_flash[i],
+                reach_y: reach_y[i],
+            }),
+            attacking_shot_frames: engine::rom_bytes(prg, 4, 0x978D),
+            idle_shot_frames: engine::rom_bytes(prg, 4, 0x9795),
+            muzzle_x_right: engine::rom_bytes(prg, 4, 0x966B),
+            muzzle_x_left: engine::rom_bytes(prg, 4, 0x9677),
+            muzzle_y: engine::rom_bytes(prg, 4, 0x9683),
+            weapon_palette: engine::rom_bytes(prg, 4, 0x9662),
+            death_palette: engine::rom_bytes(prg, 4, 0x918D),
+            slot_limits: engine::rom_bytes(prg, 4, 0x9B08),
+            launch_x_right: engine::rom_words(prg, 4, 0x9ECD).map(u16::cast_signed),
+            launch_x_left: engine::rom_words(prg, 4, 0x9EED).map(u16::cast_signed),
+            launch_y: engine::rom_words(prg, 4, 0x9ED5).map(u16::cast_signed),
+            bolt_launch: engine::rom_split_words(prg, 4, 0x9E03, 0x9D48).map(u16::cast_signed),
+            homing_launch: engine::rom_split_words(prg, 4, 0x9E03, 0x9D6D).map(u16::cast_signed),
+            splitter_launch: engine::rom_split_words(prg, 4, 0x9E03, 0x9D9E).map(u16::cast_signed),
+            wave_launch: engine::rom_split_words(prg, 4, 0x9E03, 0x9E01).map(u16::cast_signed),
+            pair_velocities: engine::rom_split_words(prg, 4, 0x9E07, 0x9E05).map(u16::cast_signed),
+            threeway_up_velocities: engine::rom_split_words(prg, 4, 0x9CD6, 0x9CD3)
+                .map(u16::cast_signed),
+            threeway_ahead_velocities: engine::rom_split_words(prg, 4, 0x9E6F, 0x9E6C)
+                .map(u16::cast_signed),
+            super_fan_velocities: engine::rom_split_words(prg, 4, 0x9D1D, 0x9D0D)
+                .map(u16::cast_signed),
+            shot_attributes: engine::rom_bytes(prg, 4, 0x9DFF),
+            death_attributes: engine::rom_bytes(prg, 4, 0x91A9),
+            power_up_facings: engine::rom_bytes(prg, 4, 0x91D6),
+            entry_poses: engine::rom_bytes(prg, 14, 0xD174),
+            entry_pose_second: engine::rom_bytes(prg, 14, 0xD177),
+        }
+    }
 }
 
 /// The walk target table (`$84A0` high, `$84A3` low), by direction index:
@@ -460,10 +612,6 @@ struct Port<'a, 'b> {
 }
 
 impl Port<'_, '_> {
-    fn rb(&self, addr: u16) -> u8 {
-        rom_byte(self.cx.prg, 4, addr)
-    }
-
     fn rw(&self, addr: u16) -> u16 {
         rom_word(self.cx.prg, 4, addr)
     }
@@ -635,23 +783,24 @@ impl Port<'_, '_> {
             }
         }
         self.work.attr = self.player.facing;
-        self.player.reach_y = self.rb(0x989C + u16::from(self.player.anim));
         let anim = self.player.anim;
+        let frame = &self.cx.prg.player.frames[usize::from(anim)];
+        self.player.reach_y = frame.reach_y;
+        let overlay = frame.overlay;
         let table = if anim & 0x80 != 0 { 0x9A24 } else { 0x9924 };
         self.work.pointer = self.rw(table + u16::from(anim << 1));
         self.work.chr_slot = 5;
         self.work.tile = 0;
         engine::draw(self.work, 1, self.cx);
-        let overlay = self.rb(0x9705 + u16::from(anim));
         if overlay != 0 {
             let index = if self.player.pose & pose::SHOT != 0 {
-                let x = overlay.wrapping_sub(0x14);
-                let table = if (0x03..0x13).contains(&self.player.attack_timer) {
-                    0x978D
+                let x = usize::from(overlay.wrapping_sub(0x14));
+                let player = &self.cx.prg.player;
+                if (0x03..0x13).contains(&self.player.attack_timer) {
+                    player.attacking_shot_frames[x]
                 } else {
-                    0x9795
-                };
-                self.rb(table + u16::from(x))
+                    player.idle_shot_frames[x]
+                }
             } else {
                 overlay
             };
@@ -683,23 +832,23 @@ impl Port<'_, '_> {
                     for projectile in &mut self.cx.effects.projectiles {
                         projectile.kind = 0;
                     }
+                    let palette = self.cx.prg.player.weapon_palette;
                     for i in 0..3u16 {
-                        self.cx.effects.palette[0x11 + usize::from(i)] = self.rb(0x9662 + i);
+                        self.cx.effects.palette[0x11 + usize::from(i)] = palette[usize::from(i)];
                     }
                     set_first_colours(&mut self.cx.effects.palette, 0x0F);
                     self.cx.effects.palette_dirty = 0x80;
                 }
             }
-            self.flash(0x982C);
+            self.flash(self.cx.prg.player.frames[usize::from(self.player.anim)].power_up_flash);
         } else {
-            self.flash(0x97A4);
+            self.flash(self.cx.prg.player.frames[usize::from(self.player.anim)].flash);
         }
         self.muzzle();
     }
 
-    /// Draws the flash frame `table[anim]` names, when non-zero (`$9591`/`$95B4`).
-    fn flash(&mut self, table: u16) {
-        let value = self.rb(table + u16::from(self.player.anim));
+    /// Draws the flash frame `value` names, when non-zero (`$9591`/`$95B4`).
+    fn flash(&mut self, value: u8) {
         if value == 0 {
             return;
         }
@@ -731,20 +880,20 @@ impl Port<'_, '_> {
             }
             self.work.screen_y = y;
         } else {
-            let motion = u16::from(self.player.motion.byte());
-            let table = if self.player.facing & 0x40 != 0 {
-                0x9677
+            let motion = usize::from(self.player.motion.byte());
+            let player = &self.cx.prg.player;
+            let add = if self.player.facing & 0x40 != 0 {
+                player.muzzle_x_left[motion]
             } else {
-                0x966B
+                player.muzzle_x_right[motion]
             };
-            let add = self.rb(table + motion);
             let (x, carry) = self.work.screen_x.overflowing_add(add);
             self.work.cpu_overflow = adc_overflows(add, self.work.screen_x, false);
             self.work.screen_x = x;
             if carry != (self.player.facing & 0x40 != 0) {
                 return;
             }
-            let add = self.rb(0x9683 + motion);
+            let add = player.muzzle_y[motion];
             self.work.cpu_overflow = adc_overflows(add, self.work.screen_y, false);
             self.work.screen_y = self.work.screen_y.wrapping_add(add);
         }
@@ -865,14 +1014,14 @@ impl Port<'_, '_> {
     /// `$9AF5`: fires the player's projectile into the first free `$7BD0` slot.
     fn spawn_shot(&mut self) {
         let weapon = self.cx.effects.weapon;
-        let start = self.rb(0x9B08 + u16::from(weapon.byte()));
+        let start = self.cx.prg.player.slot_limits[usize::from(weapon.byte())];
         let Some(slot) = (0..=usize::from(start))
             .rev()
             .find(|&slot| self.cx.effects.projectiles[slot].kind == 0)
         else {
             return;
         };
-        let motion = u16::from(self.player.motion.byte());
+        let motion = usize::from(self.player.motion.byte());
         let aim_up = self.player.motion == Motion::AimingUp;
         let face_left = self.player.facing & 0x40 != 0;
         let add = |a_hi: u8, a_lo: u8, b_hi: u8, b_lo: u8| {
@@ -888,20 +1037,14 @@ impl Port<'_, '_> {
                 } else {
                     add(0x00, 0x20, hi, lo)
                 }
-            } else if face_left {
-                add(
-                    self.rb(0x9EEE + motion * 2),
-                    self.rb(0x9EED + motion * 2),
-                    hi,
-                    lo,
-                )
             } else {
-                add(
-                    self.rb(0x9ECE + motion * 2),
-                    self.rb(0x9ECD + motion * 2),
-                    hi,
-                    lo,
-                )
+                let offset = if face_left {
+                    self.cx.prg.player.launch_x_left[motion]
+                } else {
+                    self.cx.prg.player.launch_x_right[motion]
+                };
+                let [off_hi, off_lo] = offset.to_be_bytes();
+                add(off_hi, off_lo, hi, lo)
             }
         };
         let (y_hi, y_lo, y_adc) = {
@@ -909,12 +1052,8 @@ impl Port<'_, '_> {
             if aim_up {
                 add(0xFB, 0xF0, hi, lo)
             } else {
-                add(
-                    self.rb(0x9ED6 + motion * 2),
-                    self.rb(0x9ED5 + motion * 2),
-                    hi,
-                    lo,
-                )
+                let [off_hi, off_lo] = self.cx.prg.player.launch_y[motion].to_be_bytes();
+                add(off_hi, off_lo, hi, lo)
             }
         };
         let (a_hi, b_hi, carry) = if aim_up { y_adc } else { x_adc };
@@ -956,8 +1095,7 @@ impl Port<'_, '_> {
 
     /// The upward projectile handlers `$9EB5[$0476]` (`$9BCE`-`$9D0C`).
     fn shoot_up(&mut self, slot: usize, handler: u16) {
-        let word = |port: &Self, hi: u16, lo: u16| i16::from_be_bytes([port.rb(hi), port.rb(lo)]);
-        let fan = u16::from((self.cx.world.frame >> 2) & 0x0F);
+        let fan = usize::from((self.cx.world.frame >> 2) & 0x0F);
         match handler {
             0x9BCE => self.shot_up(slot, -0x40, 1),
             0x9BF5 => {
@@ -966,8 +1104,8 @@ impl Port<'_, '_> {
             }
             0x9C06 => self.shot_up(slot, -0x10, 2),
             0x9C2E => {
-                let vx = [word(self, 0x9E07, 0x9E05), word(self, 0x9E08, 0x9E06)];
-                let target = [self.rb(0x9E07), self.rb(0x9E08)];
+                let vx = self.cx.prg.player.pair_velocities;
+                let target = vx.map(|v| v.to_be_bytes()[0]);
                 let part = |projectile: &mut Projectile, y: usize| {
                     projectile.vy = -0x40;
                     projectile.timer = 0xFF;
@@ -986,7 +1124,7 @@ impl Port<'_, '_> {
                 });
             }
             0x9C7E => {
-                let vx = [0, 1, 2].map(|n| word(self, 0x9CD6 + n, 0x9CD3 + n));
+                let vx = self.cx.prg.player.threeway_up_velocities;
                 let part = |projectile: &mut Projectile, n: usize| {
                     projectile.vy = -0x40;
                     projectile.vx = vx[n];
@@ -1005,7 +1143,7 @@ impl Port<'_, '_> {
                 });
             }
             0x9CD9 => {
-                let vx = word(self, 0x9D1D + fan, 0x9D0D + fan);
+                let vx = self.cx.prg.player.super_fan_velocities[fan];
                 let projectile = &mut self.cx.effects.projectiles[slot];
                 projectile.vy = -0x40;
                 projectile.vx = vx;
@@ -1020,15 +1158,14 @@ impl Port<'_, '_> {
 
     /// The forward projectile handlers `$9EC1[$0476]` (`$9D2D`-`$9EB4`).
     fn shoot_ahead(&mut self, slot: usize, handler: u16, face_left: bool) {
-        let right = u16::from(!face_left);
-        let left = u16::from(face_left);
-        let word = |port: &Self, hi: u16, lo: u16| i16::from_be_bytes([port.rb(hi), port.rb(lo)]);
-        let fan = u16::from((self.cx.world.frame >> 2) & 0x0F);
+        let right = usize::from(!face_left);
+        let left = usize::from(face_left);
+        let fan = usize::from((self.cx.world.frame >> 2) & 0x0F);
         match handler {
             0x9D2D => {
                 let (attr, vx) = (
-                    self.rb(0x9DFF + right),
-                    word(self, 0x9E03 + right, 0x9D48 + right),
+                    self.cx.prg.player.shot_attributes[right],
+                    self.cx.prg.player.bolt_launch[right],
                 );
                 let projectile = &mut self.cx.effects.projectiles[slot];
                 projectile.attr = attr;
@@ -1036,7 +1173,7 @@ impl Port<'_, '_> {
                 shot_ahead(projectile, 1);
             }
             0x9D4A => {
-                let vx = word(self, 0x9E03 + right, 0x9D6D + right);
+                let vx = self.cx.prg.player.homing_launch[right];
                 let target = self.target();
                 let projectile = &mut self.cx.effects.projectiles[slot];
                 projectile.vx = vx;
@@ -1045,8 +1182,8 @@ impl Port<'_, '_> {
             }
             0x9D6F => {
                 let (attr, vx) = (
-                    self.rb(0x9DFF + right),
-                    word(self, 0x9E03 + right, 0x9D9E + right),
+                    self.cx.prg.player.shot_attributes[right],
+                    self.cx.prg.player.splitter_launch[right],
                 );
                 let projectile = &mut self.cx.effects.projectiles[slot];
                 projectile.attr = attr;
@@ -1054,11 +1191,11 @@ impl Port<'_, '_> {
                 shot_ahead(projectile, 2);
             }
             0x9DA0 => {
-                let vy = [word(self, 0x9E07, 0x9E05), word(self, 0x9E08, 0x9E06)];
-                let target = [self.rb(0x9E07), self.rb(0x9E08)];
+                let vy = self.cx.prg.player.pair_velocities;
+                let target = vy.map(|v| v.to_be_bytes()[0]);
                 let (attr, vx) = (
-                    self.rb(0x9DFF + right),
-                    word(self, 0x9E03 + right, 0x9E01 + right),
+                    self.cx.prg.player.shot_attributes[right],
+                    self.cx.prg.player.wave_launch[right],
                 );
                 let part = |projectile: &mut Projectile, y: usize| {
                     projectile.vy = vy[y];
@@ -1080,10 +1217,10 @@ impl Port<'_, '_> {
             }
             0x9E09 => {
                 let (attr, vx) = (
-                    self.rb(0x9DFF + left),
-                    word(self, 0x9E07 + left, 0x9E05 + left),
+                    self.cx.prg.player.shot_attributes[left],
+                    self.cx.prg.player.pair_velocities[left],
                 );
-                let vy = [0, 1, 2].map(|n| word(self, 0x9E6F + n, 0x9E6C + n));
+                let vy = self.cx.prg.player.threeway_ahead_velocities;
                 let part = |projectile: &mut Projectile, n: usize| {
                     projectile.vx = vx;
                     projectile.attr = attr;
@@ -1102,10 +1239,10 @@ impl Port<'_, '_> {
                 });
             }
             0x9E72 => {
-                let vy = word(self, 0x9D1D + fan, 0x9D0D + fan);
+                let vy = self.cx.prg.player.super_fan_velocities[fan];
                 let (attr, vx) = (
-                    self.rb(0x9DFF + left),
-                    word(self, 0x9E07 + left, 0x9E05 + left),
+                    self.cx.prg.player.shot_attributes[left],
+                    self.cx.prg.player.pair_velocities[left],
                 );
                 let projectile = &mut self.cx.effects.projectiles[slot];
                 projectile.vy = vy;
@@ -1395,7 +1532,7 @@ impl Port<'_, '_> {
         self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
         let x = u16::from(self.player.pose_timer >> 1);
         if x < 2 {
-            self.player.anim = self.rb(0x96DB + x);
+            self.player.anim = self.cx.prg.player.animations.standing_turn[usize::from(x)];
             return;
         }
         self.player.pose = if self.player.pose & pose::SHOT != 0 {
@@ -1416,17 +1553,19 @@ impl Port<'_, '_> {
             if pose_bits & pose::LONG_LANDING != 0 {
                 let x = u16::from(self.player.pose_timer >> 1);
                 if x < 0x11 {
-                    self.player.anim = self.rb(0x96E0 + x);
+                    self.player.anim = self.cx.prg.player.animations.long_landing[usize::from(x)];
                     return;
                 }
             } else if self.player.pose_timer < 0x05 {
-                self.player.anim = self.rb(0x96DD + u16::from(self.player.pose_step));
+                self.player.anim =
+                    self.cx.prg.player.animations.landing[usize::from(self.player.pose_step)];
                 return;
             } else {
                 self.player.pose_timer = 0;
                 self.player.pose_step = self.player.pose_step.wrapping_add(1);
                 if self.player.pose_step < 0x03 {
-                    self.player.anim = self.rb(0x96DD + u16::from(self.player.pose_step));
+                    self.player.anim =
+                        self.cx.prg.player.animations.landing[usize::from(self.player.pose_step)];
                     return;
                 }
             }
@@ -1441,7 +1580,7 @@ impl Port<'_, '_> {
         self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
         let x = u16::from(self.player.pose_timer >> 1);
         if x < 3 {
-            self.player.anim = self.rb(0x97A1 + x);
+            self.player.anim = self.cx.prg.player.animations.standing_drift[usize::from(x)];
             return;
         }
         self.player.pose_timer = self.player.pose_timer.wrapping_sub(1);
@@ -1543,7 +1682,7 @@ impl Port<'_, '_> {
             self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
             let x = u16::from(self.player.pose_timer >> 1);
             if x < 2 {
-                self.player.anim = self.rb(0x96F1 + x);
+                self.player.anim = self.cx.prg.player.animations.crouching_turn[usize::from(x)];
                 return;
             }
             self.player.pose &= pose::SHOT;
@@ -1783,7 +1922,7 @@ impl Port<'_, '_> {
         self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
         let x = u16::from(self.player.pose_timer >> 1);
         if x < 3 {
-            self.player.anim = self.rb(0x96DB + x);
+            self.player.anim = self.cx.prg.player.animations.walking_turn[usize::from(x)];
             return;
         }
         self.player.facing ^= 0x40;
@@ -1797,14 +1936,16 @@ impl Port<'_, '_> {
     fn walking_pose(&mut self) {
         self.bit(self.player.pose);
         if self.player.pose & pose::SHOT == 0 {
-            self.player.anim = self.rb(0x96FD + u16::from(self.player.pose_timer));
+            self.player.anim =
+                self.cx.prg.player.animations.walking[usize::from(self.player.pose_timer)];
             return;
         }
         self.bit(self.player.power_up);
         if self.player.power_up & power_up::ON != 0 {
             self.fire();
             self.player.attack_timer = 0x10;
-            self.player.anim = self.rb(0x96FD + u16::from(self.player.pose_timer));
+            self.player.anim =
+                self.cx.prg.player.animations.walking[usize::from(self.player.pose_timer)];
             return;
         }
         self.player.attack_timer = self.player.attack_timer.wrapping_add(1);
@@ -1819,7 +1960,7 @@ impl Port<'_, '_> {
         if self.player.attack_timer >= 0x16 {
             self.player.pose &= !pose::SHOT;
         }
-        self.player.anim = self.rb(0x96FD + u16::from(x));
+        self.player.anim = self.cx.prg.player.animations.melee[usize::from(x)];
     }
 
     /// `$8B78`: jumping, the held jump's lift on odd frames.
@@ -1879,7 +2020,7 @@ impl Port<'_, '_> {
             }
             let x = u16::from(step >> 1);
             if x < 8 {
-                self.player.anim = self.rb(0x96F3 + x);
+                self.player.anim = self.cx.prg.player.animations.jump_turn[usize::from(x)];
                 return;
             }
         }
@@ -1937,7 +2078,7 @@ impl Port<'_, '_> {
         self.player.sliding = 0;
         let x = u16::from(self.player.pose_timer >> 1);
         if x < 2 {
-            self.player.anim = self.rb(0x979F + x);
+            self.player.anim = self.cx.prg.player.animations.slide_air[usize::from(x)];
             self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
             return;
         }
@@ -1988,7 +2129,7 @@ impl Port<'_, '_> {
         } else {
             x = 0;
         }
-        self.player.anim = self.rb(0x979D + x);
+        self.player.anim = self.cx.prg.player.animations.slide_start[usize::from(x)];
         self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
     }
 
@@ -2231,7 +2372,7 @@ impl Port<'_, '_> {
             if timer < 0x48 {
                 let frame = (timer - 0x30) & 0x1E;
                 self.work.pointer = self.rw(0x9191 + u16::from(frame));
-                self.work.attr = self.rb(0x91A9 + u16::from(frame >> 1));
+                self.work.attr = self.cx.prg.player.death_attributes[usize::from(frame >> 1)];
                 self.overlay(5);
             }
             self.player.death_timer = timer.wrapping_add(1);
@@ -2253,8 +2394,9 @@ impl Port<'_, '_> {
             self.player.death_timer = timer.wrapping_add(1);
             let mut beat = self.player.death_timer;
             if beat == 4 {
+                let palette = self.cx.prg.player.death_palette;
                 for i in 0..4u8 {
-                    self.cx.effects.palette[16 + usize::from(i)] = self.rb(0x918D + u16::from(i));
+                    self.cx.effects.palette[16 + usize::from(i)] = palette[usize::from(i)];
                 }
                 self.cx.effects.palette_dirty = 0x80;
                 beat = 0x80;
@@ -2366,14 +2508,14 @@ impl Port<'_, '_> {
                 }
             }
             _ => {
-                let held = u16::from(player.entry_timer >> 2);
+                let held = usize::from(player.entry_timer >> 2);
                 self.work.chr_slot = 5;
-                self.entry_pose(rom_byte(self.cx.prg, 14, 0xD174 + held));
+                self.entry_pose(self.cx.prg.player.entry_poses[held]);
                 self.work.chr_slot = 4;
                 let player = &mut *self.player;
                 player.entry_timer = player.entry_timer.wrapping_add(1);
                 if player.entry_timer < 0x0C {
-                    self.entry_pose(rom_byte(self.cx.prg, 14, 0xD177 + held));
+                    self.entry_pose(self.cx.prg.player.entry_pose_second[held]);
                     return;
                 }
                 self.cx.effects.song = 0x03;
@@ -2419,7 +2561,7 @@ impl Port<'_, '_> {
             }
             let mut top = [0x0A; 6];
             for (tile, digit) in top.iter_mut().zip(digits) {
-                *tile = rom_byte(prg, 14, 0xD26A + u16::from(digit));
+                *tile = prg.digit_tiles[usize::from(digit)];
             }
             let mut bottom = top.map(|tile| tile | 1);
             bottom[5] = 0x0B;
@@ -2443,7 +2585,8 @@ impl Port<'_, '_> {
         } else {
             self.player.stage_script = stage_script::FROZEN;
             let x = u16::from((self.cx.world.frame >> 1) & 0x01);
-            self.player.facing = (self.player.facing & 0xFC) | self.rb(0x91D6 + x);
+            self.player.facing =
+                (self.player.facing & 0xFC) | self.cx.prg.player.power_up_facings[usize::from(x)];
         }
     }
 
@@ -2498,6 +2641,52 @@ mod tests {
     use crate::collision::map_offset;
 
     use super::{draw_player, step_draw, step_move};
+
+    /// Every `anim` a strip or `flight_steer`'s `walk_frames` gives indexes `frames`.
+    #[test]
+    fn every_anim_is_in_the_tables() {
+        let Some(prg) = crate::prg::for_test() else {
+            return;
+        };
+        let tables = &prg.player;
+        let animations = &tables.animations;
+        for strip in [
+            &animations.standing_turn[..],
+            &animations.walking_turn[..],
+            &animations.landing[..],
+            &animations.long_landing[..],
+            &animations.crouching_turn[..],
+            &animations.jump_turn[..],
+            &animations.walking[..],
+            &animations.melee[..],
+            &animations.slide_start[..],
+            &animations.slide_air[..],
+            &animations.standing_drift[..],
+            &prg.families.flight_steer.walk_frames[..],
+        ] {
+            assert!(
+                strip
+                    .iter()
+                    .all(|&anim| usize::from(anim) < tables.frames.len()),
+                "a strip value is not below $88"
+            );
+        }
+    }
+
+    /// Every nonzero overlay picks a shot frame inside the window's 8 entries.
+    #[test]
+    fn the_shot_overlay_frames_are_in_range() {
+        let Some(prg) = crate::prg::for_test() else {
+            return;
+        };
+        let tables = &prg.player;
+        for (anim, frame) in tables.frames.iter().enumerate() {
+            if frame.overlay != 0 {
+                let x = usize::from(frame.overlay.wrapping_sub(0x14));
+                assert!(x < tables.attacking_shot_frames.len(), "anim {anim}");
+            }
+        }
+    }
 
     /// Runs `step_draw` on `r`'s lifted state, returning the masked pads.
     fn run_step_draw(r: &mut Routine<'_>) -> (u8, u8) {

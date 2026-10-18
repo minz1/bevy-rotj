@@ -222,6 +222,11 @@ New candidates, each to be classified (state, flags, table index) before it chan
   `from_fn(|i| u16::from_be_bytes([hi[i], lo[i]]))` over two `rom_bytes` columns
   (`final_boss::split_words` is one local copy); one `engine` helper for split hi/lo words (and
   one for 4-byte pair records) would make each a line.
+  **A lead (slice 3):** the splitter orbit's turn steps (`$8C71/$8C79`, `$8C81/$8C89`, by
+  `part + 0/4`) stay ROM reads: type `$80` is shared by every weapon's charge, the `$9AE3` charge
+  never writes `part`, and the Super-to-stored weapon switches (`next_area_gate::transition`,
+  `room.rs`, `player.rs`) don't free the slots, so a stale slot could reach `splitter_orbit`
+  with any `part`. An oracle probe of whether the game ever does would settle the table's size.
 - **The overflow flag carried between routines**: `Work::cpu_overflow` mirrors the 6502's V
   for one reader, `$9790` (weapon 5's charge waits while V is set), which sees whatever
   the last V-setting routine left (`bit`'s 52 callers in `player.rs`, the OAM draw, the

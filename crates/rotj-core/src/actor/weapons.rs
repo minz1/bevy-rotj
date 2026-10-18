@@ -72,6 +72,120 @@ mod super_stage {
     pub const CENTRE: u8 = 0x84;
 }
 
+/// The weapons' constant tables (bank 5).
+pub struct Tables {
+    /// The homing charge's x launch velocity, by pad direction (0-3) (`$8881`, `$8885`).
+    pub launch_vx: [i16; 4],
+    /// The homing charge's y launch velocity, by pad direction (0-3) (`$8889`, `$888D`).
+    pub launch_vy: [i16; 4],
+    /// The homing charge's x offset in front, facing right, by `motion` (0-11) (`$8726`, `$8732`).
+    pub front_right_dx: [u16; 12],
+    /// The homing charge's x offset in front, facing left, by `motion` (0-11) (`$873E`, `$874A`).
+    pub front_left_dx: [u16; 12],
+    /// The homing charge's y offset in front, by `motion` (0-11) (`$8756`, `$8762`).
+    pub front_dy: [u16; 12],
+    /// The homing shot's draw attribute, by heading (0-19) (`$8437`).
+    pub homing_attributes: [u8; 20],
+    /// The circled parts' (x, y) offsets by `param & $3F`, past 31 the next tables' bytes (`$87FC`).
+    pub circle_offsets: [(u16, u16); 64],
+    /// The circled parts' starting angles, by spawn count (0-2) (`$887C`).
+    pub circle_angles: [u8; 3],
+    /// The power-up piece's x velocity step, by corner `param` (0-3) (`$9E00`, `$9E04`).
+    pub piece_step_x: [i16; 4],
+    /// The power-up piece's y velocity step, by corner `param` (0-3) (`$9E08`, `$9E0C`).
+    pub piece_step_y: [i16; 4],
+    /// The power-up piece's sprite frame, by `part` (0-7) (`$9DF0`).
+    pub piece_frames: [u8; 8],
+    /// The power-up's sprite palette (`$9E10`).
+    pub piece_palette: [u8; 3],
+    /// The super orbiter's sprite palette on odd frames (`$9D19`).
+    pub orbiter_palette_odd: [u8; 4],
+    /// The super orbiter's sprite palette on even frames (`$9D1D`).
+    pub orbiter_palette_even: [u8; 4],
+    /// The sprite palette restored when the super attack ends (`$9D21`).
+    pub super_palette: [u8; 3],
+    /// A split part's x velocity, by `part` (0-3) (`$8A2F`, `$8A33`).
+    pub split_vx: [i16; 4],
+    /// A split part's y velocity, by `part` (0-3) (`$8A37`, `$8A3B`).
+    pub split_vy: [i16; 4],
+    /// A split part's bounce byte, by `part` (0-3) (`$8A3F`).
+    pub split_bounce: [u8; 4],
+    /// A split part's x offset, facing right, by `motion` (0-11) (`$8CF1`, `$8CFD`).
+    pub split_right_dx: [u16; 12],
+    /// A split part's x offset, facing left, by `motion` (0-11) (`$8D09`, `$8D15`).
+    pub split_left_dx: [u16; 12],
+    /// A split part's y offset, by `motion` (0-11) (`$8D21`, `$8D2D`).
+    pub split_dy: [u16; 12],
+    /// The wave's x offset, facing right, by `motion` (0-11) (`$914A`, `$9156`).
+    pub wave_right_dx: [u16; 12],
+    /// The wave's x offset, facing left, by `motion` (0-11) (`$9162`, `$9168`).
+    pub wave_left_dx: [u16; 12],
+    /// The wave charge's y offset, by `motion` (0-11) (`$916E`, `$917A`).
+    pub wave_charge_dy: [u16; 12],
+    /// The wave spread's y offset, by `motion` (0-11) (`$916E`, `$9186`).
+    pub wave_spread_dy: [u16; 12],
+    /// The wave spread's shot speed, by `part` (0-15) (`$9192`, `$91A2`).
+    pub spread_vx: [i16; 16],
+    /// The three-way charge's x offset ahead, facing right, by `motion` (0-11) (`$9F07`, `$9F13`).
+    pub ahead_right_dx: [u16; 12],
+    /// The three-way charge's x offset ahead, facing left, by `motion` (0-11) (`$9F1F`, `$9F2B`).
+    pub ahead_left_dx: [u16; 12],
+    /// The three-way charge's y offset, by `motion` (0-11) (`$9F37`, `$9F43`).
+    pub ahead_dy: [u16; 12],
+    /// The three-way bubble's x velocity, by `pick` (0-5) (`$9EEF`, `$9EF5`).
+    pub three_way_vx: [i16; 6],
+    /// The three-way bubble's y velocity, by `pick` (0-5) (`$9EFB`, `$9F01`).
+    pub three_way_vy: [i16; 6],
+    /// The bubble's draw attribute, by `$F1` bit 3 (`$9637`).
+    pub bubble_palette: [u8; 2],
+}
+
+impl Tables {
+    /// Reads the tables from the PRG.
+    pub(crate) fn import(prg: &[u8]) -> Tables {
+        let circle = engine::rom_bytes::<256>(prg, 5, 0x87FC);
+        Tables {
+            launch_vx: engine::rom_split_words(prg, 5, 0x8885, 0x8881).map(u16::cast_signed),
+            launch_vy: engine::rom_split_words(prg, 5, 0x888D, 0x8889).map(u16::cast_signed),
+            front_right_dx: engine::rom_split_words(prg, 5, 0x8732, 0x8726),
+            front_left_dx: engine::rom_split_words(prg, 5, 0x874A, 0x873E),
+            front_dy: engine::rom_split_words(prg, 5, 0x8762, 0x8756),
+            homing_attributes: engine::rom_bytes(prg, 5, 0x8437),
+            circle_offsets: std::array::from_fn(|i| {
+                (
+                    u16::from_be_bytes([circle[4 * i], circle[4 * i + 1]]),
+                    u16::from_be_bytes([circle[4 * i + 2], circle[4 * i + 3]]),
+                )
+            }),
+            circle_angles: engine::rom_bytes(prg, 5, 0x887C),
+            piece_step_x: engine::rom_split_words(prg, 5, 0x9E04, 0x9E00).map(u16::cast_signed),
+            piece_step_y: engine::rom_split_words(prg, 5, 0x9E0C, 0x9E08).map(u16::cast_signed),
+            piece_frames: engine::rom_bytes(prg, 5, 0x9DF0),
+            piece_palette: engine::rom_bytes(prg, 5, 0x9E10),
+            orbiter_palette_odd: engine::rom_bytes(prg, 5, 0x9D19),
+            orbiter_palette_even: engine::rom_bytes(prg, 5, 0x9D1D),
+            super_palette: engine::rom_bytes(prg, 5, 0x9D21),
+            split_vx: engine::rom_split_words(prg, 5, 0x8A2F, 0x8A33).map(u16::cast_signed),
+            split_vy: engine::rom_split_words(prg, 5, 0x8A37, 0x8A3B).map(u16::cast_signed),
+            split_bounce: engine::rom_bytes(prg, 5, 0x8A3F),
+            split_right_dx: engine::rom_split_words(prg, 5, 0x8CFD, 0x8CF1),
+            split_left_dx: engine::rom_split_words(prg, 5, 0x8D15, 0x8D09),
+            split_dy: engine::rom_split_words(prg, 5, 0x8D2D, 0x8D21),
+            wave_right_dx: engine::rom_split_words(prg, 5, 0x9156, 0x914A),
+            wave_left_dx: engine::rom_split_words(prg, 5, 0x9168, 0x9162),
+            wave_charge_dy: engine::rom_split_words(prg, 5, 0x917A, 0x916E),
+            wave_spread_dy: engine::rom_split_words(prg, 5, 0x9186, 0x916E),
+            spread_vx: engine::rom_split_words(prg, 5, 0x91A2, 0x9192).map(u16::cast_signed),
+            ahead_right_dx: engine::rom_split_words(prg, 5, 0x9F13, 0x9F07),
+            ahead_left_dx: engine::rom_split_words(prg, 5, 0x9F2B, 0x9F1F),
+            ahead_dy: engine::rom_split_words(prg, 5, 0x9F43, 0x9F37),
+            three_way_vx: engine::rom_split_words(prg, 5, 0x9EF5, 0x9EEF).map(u16::cast_signed),
+            three_way_vy: engine::rom_split_words(prg, 5, 0x9F01, 0x9EFB).map(u16::cast_signed),
+            bubble_palette: engine::rom_bytes(prg, 5, 0x9637),
+        }
+    }
+}
+
 /// One call of the bank-5 weapons routine (`$D444` -> `$D447`).
 pub fn step(work: &mut Work, cx: &mut Cx<'_>) {
     // The handlers below take the scroll directly; lend it out of the context.
@@ -102,23 +216,16 @@ fn power_up_pieces(work: &mut Work, cx: &mut Cx<'_>) {
         }
         advance(slot, work, cx);
         if project_keep(slot, work, cx) {
-            let frame = rom_byte(
-                cx.prg,
-                5,
-                0x9DF0 + u16::from(cx.effects.projectiles[slot].part),
-            );
+            let frame = cx.prg.weapons.piece_frames[usize::from(cx.effects.projectiles[slot].part)];
             work.pointer = rom_word(cx.prg, 5, 0x9DF8 + u16::from(frame));
             draw(work, cx);
         }
         let prg = cx.prg;
         let effects = &mut *cx.effects;
         let piece = &mut effects.projectiles[slot];
-        let corner = u16::from(piece.param);
-        let step = |hi: u16, lo: u16| {
-            u16::from_be_bytes([rom_byte(prg, 5, hi + corner), rom_byte(prg, 5, lo + corner)])
-        };
-        piece.vx = piece.vx.wrapping_add_unsigned(step(0x9E04, 0x9E00));
-        piece.vy = piece.vy.wrapping_add_unsigned(step(0x9E0C, 0x9E08));
+        let corner = usize::from(piece.param);
+        piece.vx = piece.vx.wrapping_add(prg.weapons.piece_step_x[corner]);
+        piece.vy = piece.vy.wrapping_add(prg.weapons.piece_step_y[corner]);
         piece.part = piece.part.wrapping_add(1);
         if piece.part < 8 {
             continue;
@@ -138,9 +245,7 @@ fn power_up_pieces(work: &mut Work, cx: &mut Cx<'_>) {
         player.motion =
             Motion::from_byte(effects.stage_args[1]).expect("the motion the power-up saved");
         if lit {
-            for i in 0..3u8 {
-                effects.palette[17 + usize::from(i)] = rom_byte(prg, 5, 0x9E10 + u16::from(i));
-            }
+            effects.palette[17..20].copy_from_slice(&prg.weapons.piece_palette);
             effects.palette_dirty = 0x80;
         }
     }
@@ -343,7 +448,7 @@ fn homing_steer(slot: usize, cx: &mut Cx<'_>) -> u16 {
         }
     };
     let heading = u16::try_from(heading).expect("20 headings");
-    cx.effects.projectiles[slot].attr = rom_byte(cx.prg, 5, 0x8437 + heading);
+    cx.effects.projectiles[slot].attr = cx.prg.weapons.homing_attributes[usize::from(heading)];
     let pointer = rom_word(cx.prg, 5, 0x844B + heading * 2);
     let actor = |cx: &Cx<'_>, target: u8, array: u16| {
         slots::read(cx.slots, &cx.effects.projectiles, array + u16::from(target))
@@ -515,7 +620,7 @@ fn homing_spawn_circlers(source: usize, cx: &mut Cx<'_>) -> bool {
         let index = usize::try_from(at).expect("non-negative");
         let kind = cx.effects.projectiles[index].kind;
         if (over_shots && kind < 0x80) || kind == 0 {
-            let angle = rom_byte(cx.prg, 5, 0x887C + u16::try_from(count).expect("< 3"));
+            let angle = cx.prg.weapons.circle_angles[count];
             let projectile = &mut cx.effects.projectiles[index];
             projectile.kind = homing_stage::CIRCLING;
             projectile.damage = 1;
@@ -551,17 +656,10 @@ fn homing_draw_circlers(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     ] {
         let part = usize::from(part);
         cx.effects.projectiles[part].flags = 0x60;
-        let at = u16::from(cx.effects.projectiles[part].param << 2);
-        work.x = u16::from_be_bytes([centre.level_x_hi, centre.level_x_lo]).wrapping_add(word(
-            cx,
-            0x87FC + at,
-            0x87FD + at,
-        ));
-        work.y = u16::from_be_bytes([centre.level_y_hi, centre.level_y_lo]).wrapping_add(word(
-            cx,
-            0x87FE + at,
-            0x87FF + at,
-        ));
+        let (dx, dy) =
+            cx.prg.weapons.circle_offsets[usize::from(cx.effects.projectiles[part].param & 0x3F)];
+        work.x = u16::from_be_bytes([centre.level_x_hi, centre.level_x_lo]).wrapping_add(dx);
+        work.y = u16::from_be_bytes([centre.level_y_hi, centre.level_y_lo]).wrapping_add(dy);
         let projectile = &mut cx.effects.projectiles[part];
         projectile.param = projectile.param.wrapping_add(1);
         if projectile.param >= 0x20 {
@@ -598,11 +696,13 @@ fn homing_launch(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     } else {
         u16::from(!pad.contains(Buttons::RIGHT))
     };
-    let vx = word(cx, 0x8885 + direction, 0x8881 + direction);
-    let vy = word(cx, 0x888D + direction, 0x8889 + direction);
+    let (vx, vy) = (
+        cx.prg.weapons.launch_vx[usize::from(direction)],
+        cx.prg.weapons.launch_vy[usize::from(direction)],
+    );
     let projectile = &mut cx.effects.projectiles[slot];
-    projectile.vx = vx.cast_signed();
-    projectile.vy = vy.cast_signed();
+    projectile.vx = vx;
+    projectile.vy = vy;
     projectile.kind = homing_stage::THROWN;
     homing_in_front(slot, work, cx);
 }
@@ -623,16 +723,16 @@ fn homing_thrown(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
 /// `$86A5`: puts the charge in front of the player (`$9EA7` when aiming up, else
 /// the `$8726`-`$8762` offsets by motion), in its slot and the working position.
 fn homing_in_front(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
-    let motion = u16::from(cx.effects.player.motion.byte());
+    let motion = usize::from(cx.effects.player.motion.byte());
     let (x, y) = if cx.effects.player.motion == Motion::AimingUp {
         above_player(cx)
     } else {
         let dx = if faces_left(cx) {
-            word(cx, 0x874A + motion, 0x873E + motion)
+            cx.prg.weapons.front_left_dx[motion]
         } else {
-            word(cx, 0x8732 + motion, 0x8726 + motion)
+            cx.prg.weapons.front_right_dx[motion]
         };
-        beside_player(cx, dx, word(cx, 0x8762 + motion, 0x8756 + motion))
+        beside_player(cx, dx, cx.prg.weapons.front_dy[motion])
     };
     let projectile = &mut cx.effects.projectiles[slot];
     [projectile.level_x_hi, projectile.level_x_lo] = x.to_be_bytes();
@@ -734,12 +834,8 @@ fn super_unleash(slot: usize, work: &Work, cx: &mut Cx<'_>, scroll: &mut Scroll)
         super::oracle::seen(0x97F9);
         above_player(cx)
     } else {
-        let motion = u16::from(cx.effects.player.motion.byte());
-        beside_player(
-            cx,
-            ahead(cx, motion),
-            word(cx, 0x9F43 + motion, 0x9F37 + motion),
-        )
+        let motion = usize::from(cx.effects.player.motion.byte());
+        beside_player(cx, ahead(cx, motion), cx.prg.weapons.ahead_dy[motion])
     };
     let projectile = &mut cx.effects.projectiles[slot];
     [projectile.level_x_hi, projectile.level_x_lo] = x.to_be_bytes();
@@ -886,10 +982,12 @@ fn super_spring(slot: usize, centre: usize, cx: &mut Cx<'_>) {
 /// `$9D1D` on even ones, every palette's first colour `$30` each eighth frame and
 /// `$0F` otherwise.
 fn super_flash(slot: usize, cx: &mut Cx<'_>) {
-    let table = if cx.world.frame_odd { 0x9D19 } else { 0x9D1D };
-    for i in 0..4u16 {
-        cx.effects.palette[16 + usize::from(i)] = rom_byte(cx.prg, 5, table + i);
-    }
+    let table = if cx.world.frame_odd {
+        cx.prg.weapons.orbiter_palette_odd
+    } else {
+        cx.prg.weapons.orbiter_palette_even
+    };
+    cx.effects.palette[16..20].copy_from_slice(&table);
     let first = if cx.effects.projectiles[slot].param.trailing_zeros() >= 3 {
         0x30
     } else {
@@ -915,9 +1013,7 @@ fn super_end_attack(slot: usize, cx: &mut Cx<'_>, scroll: &mut Scroll) {
     } else {
         0x80
     };
-    for i in 0..3u16 {
-        effects.palette[17 + usize::from(i)] = rom_byte(cx.prg, 5, 0x9D21 + i);
-    }
+    effects.palette[17..20].copy_from_slice(&cx.prg.weapons.super_palette);
     effects.scroll_lock = effects.projectiles[slot].timer;
     set_first_colours(&mut effects.palette, 0x0F);
     effects.palette_dirty = 0x80;
@@ -1115,16 +1211,12 @@ fn splitter_split(source: usize, cx: &mut Cx<'_>) {
 /// Writes one split part at `source`'s position (`$89D7`).
 fn splitter_part(slot: usize, part: usize, source: usize, cx: &mut Cx<'_>) {
     let src = cx.effects.projectiles[source];
-    let at = u16::try_from(part).expect("part < 4");
-    let vx = i16::from_be_bytes([
-        rom_byte(cx.prg, 5, 0x8A2F + at),
-        rom_byte(cx.prg, 5, 0x8A33 + at),
-    ]);
-    let vy = i16::from_be_bytes([
-        rom_byte(cx.prg, 5, 0x8A37 + at),
-        rom_byte(cx.prg, 5, 0x8A3B + at),
-    ]);
-    let bounce = rom_byte(cx.prg, 5, 0x8A3F + at);
+    let tables = &cx.prg.weapons;
+    let (vx, vy, bounce) = (
+        tables.split_vx[part],
+        tables.split_vy[part],
+        tables.split_bounce[part],
+    );
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.vx = vx;
     projectile.vy = vy;
@@ -1210,12 +1302,14 @@ fn three_way(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
             if timer & 0x80 != 0 {
                 #[cfg(test)]
                 super::oracle::seen(0x9268);
-                let pick = u16::from(cx.world.rng[0] & 0x02 | 0x01);
-                let vx = word(cx, 0x9EF5 + pick, 0x9EEF + pick);
-                let vy = word(cx, 0x9F01 + pick, 0x9EFB + pick);
+                let pick = usize::from(cx.world.rng[0] & 0x02 | 0x01);
+                let (vx, vy) = (
+                    cx.prg.weapons.three_way_vx[pick],
+                    cx.prg.weapons.three_way_vy[pick],
+                );
                 let projectile = &mut cx.effects.projectiles[slot];
-                projectile.vx = vx.cast_signed();
-                projectile.vy = vy.cast_signed();
+                projectile.vx = vx;
+                projectile.vy = vy;
                 projectile.state = 0x80;
                 projectile.attr = 0;
                 projectile.timer = 0x04;
@@ -1268,12 +1362,8 @@ fn three_way_brew(slot: usize, cx: &mut Cx<'_>) {
     let (x, y) = if cx.effects.player.motion == Motion::AimingUp {
         above_player(cx)
     } else {
-        let motion = u16::from(cx.effects.player.motion.byte());
-        beside_player(
-            cx,
-            ahead(cx, motion),
-            word(cx, 0x9F43 + motion, 0x9F37 + motion),
-        )
+        let motion = usize::from(cx.effects.player.motion.byte());
+        beside_player(cx, ahead(cx, motion), cx.prg.weapons.ahead_dy[motion])
     };
     let [random, sign] = cx.world.rng;
     let drift = random >> 4;
@@ -1289,18 +1379,18 @@ fn three_way_brew(slot: usize, cx: &mut Cx<'_>) {
 }
 
 /// The `$9F07`-`$9F2B` x offset ahead of the player for `motion`.
-fn ahead(cx: &Cx<'_>, motion: u16) -> u16 {
+fn ahead(cx: &Cx<'_>, motion: usize) -> u16 {
     if faces_left(cx) {
-        word(cx, 0x9F2B + motion, 0x9F1F + motion)
+        cx.prg.weapons.ahead_left_dx[motion]
     } else {
-        word(cx, 0x9F13 + motion, 0x9F07 + motion)
+        cx.prg.weapons.ahead_right_dx[motion]
     }
 }
 
 /// `$9489`/`$959F`'s shared part: `slot` becomes a type `$81` bubble with x
 /// velocity `vx`, rising at `$FF:($F9 | $E0)`, its palette `$9637` by `$F1` bit 3.
 fn three_way_blow(slot: usize, vx: i16, cx: &mut Cx<'_>) {
-    let attr = rom_byte(cx.prg, 5, 0x9637 + u16::from(cx.world.frame & 0x08 != 0));
+    let attr = cx.prg.weapons.bubble_palette[usize::from(cx.world.frame & 0x08 != 0)];
     let rise = cx.world.rng[0] | 0xE0;
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.kind = three_way_stage::BUBBLE;
@@ -1316,16 +1406,18 @@ fn three_way_blow(slot: usize, vx: i16, cx: &mut Cx<'_>) {
 /// offset from the player: ahead of him (velocity `$9ED6[4/5]`) or, aiming up,
 /// `$FD70` above him (`$9ED6[3]`, `$7F60` bit 7 marking it vertical).
 fn three_way_let_go(slot: usize, cx: &mut Cx<'_>) {
-    let motion = u16::from(cx.effects.player.motion.byte());
+    let motion = usize::from(cx.effects.player.motion.byte());
     let (aim_up, left) = (cx.effects.player.motion == Motion::AimingUp, faces_left(cx));
     let (x, y, pick) = if aim_up {
         (0, 0xFD70, 3)
     } else {
-        let y = word(cx, 0x9F43 + motion, 0x9F37 + motion).wrapping_add(0x0180);
+        let y = cx.prg.weapons.ahead_dy[motion].wrapping_add(0x0180);
         (ahead(cx, motion), y, if left { 4 } else { 5 })
     };
-    let vx = word(cx, 0x9EF5 + pick, 0x9EEF + pick);
-    let vy = word(cx, 0x9F01 + pick, 0x9EFB + pick);
+    let (vx, vy) = (
+        cx.prg.weapons.three_way_vx[pick],
+        cx.prg.weapons.three_way_vy[pick],
+    );
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.kind = three_way_stage::TETHER;
     projectile.damage = 1;
@@ -1334,8 +1426,8 @@ fn three_way_let_go(slot: usize, cx: &mut Cx<'_>) {
     projectile.part = 0;
     projectile.flags = 0x60;
     projectile.part_timer = if aim_up { 0x80 } else { 0 };
-    projectile.vx = vx.cast_signed();
-    projectile.vy = vy.cast_signed();
+    projectile.vx = vx;
+    projectile.vy = vy;
     [projectile.level_x_hi, projectile.level_x_lo] = x.to_be_bytes();
     [projectile.level_y_hi, projectile.level_y_lo] = y.to_be_bytes();
 }
@@ -1488,7 +1580,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     let (back_lo, carry) = (!lo).overflowing_add(1);
     let (back_hi, round) = (!hi).overflowing_add(u8::from(carry));
     let back = u16::from_be_bytes([back_hi, back_lo]);
-    let motion = u16::from(cx.effects.player.motion.byte());
+    let motion = usize::from(cx.effects.player.motion.byte());
     (work.x, work.y) = if cx.effects.player.motion == Motion::AimingUp {
         #[cfg(test)]
         super::oracle::seen(0x8AFF);
@@ -1498,16 +1590,16 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     } else if faces_left(cx) {
         let (x, y) = beside_player(
             cx,
-            word(cx, 0x8D15 + motion, 0x8D09 + motion),
-            word(cx, 0x8D2D + motion, 0x8D21 + motion),
+            cx.prg.weapons.split_left_dx[motion],
+            cx.prg.weapons.split_dy[motion],
         );
         let x = x.wrapping_add(back).wrapping_add(u16::from(round));
         (x, y.wrapping_add(vy))
     } else {
         let (x, y) = beside_player(
             cx,
-            word(cx, 0x8CFD + motion, 0x8CF1 + motion),
-            word(cx, 0x8D2D + motion, 0x8D21 + motion),
+            cx.prg.weapons.split_right_dx[motion],
+            cx.prg.weapons.split_dy[motion],
         );
         (x.wrapping_add(vx), y.wrapping_add(vy))
     };
@@ -1571,7 +1663,7 @@ fn wave_charge(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
         cx.effects.projectiles[slot].kind = 0;
         return true;
     }
-    let motion = u16::from(cx.effects.player.motion.byte());
+    let motion = usize::from(cx.effects.player.motion.byte());
     (work.x, work.y) = if cx.effects.player.motion == Motion::AimingUp {
         #[cfg(test)]
         super::oracle::seen(0x8F16);
@@ -1579,11 +1671,11 @@ fn wave_charge(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
         beside_player(cx, dx, 0xFDF0)
     } else {
         let dx = if faces_left(cx) {
-            word(cx, 0x9168 + motion, 0x9162 + motion)
+            cx.prg.weapons.wave_left_dx[motion]
         } else {
-            word(cx, 0x9156 + motion, 0x914A + motion)
+            cx.prg.weapons.wave_right_dx[motion]
         };
-        beside_player(cx, dx, word(cx, 0x917A + motion, 0x916E + motion))
+        beside_player(cx, dx, cx.prg.weapons.wave_charge_dy[motion])
     };
     if project_keep(slot, work, cx) && !cx.world.frame_odd {
         let frame = cx.effects.projectiles[slot].part_timer & 0x02;
@@ -1629,9 +1721,9 @@ fn wave_spread(slot: usize, cx: &mut Cx<'_>) -> bool {
         return true;
     };
     let source = cx.effects.projectiles[slot];
-    let angle = u16::from(source.part);
-    let along = word(cx, 0x91A2 + angle, 0x9192 + angle).cast_signed();
-    let motion = u16::from(cx.effects.player.motion.byte());
+    let angle = usize::from(source.part);
+    let along = cx.prg.weapons.spread_vx[angle];
+    let motion = usize::from(cx.effects.player.motion.byte());
     let left = faces_left(cx);
     let (x, y) = if cx.effects.player.motion == Motion::AimingUp {
         #[cfg(test)]
@@ -1639,11 +1731,11 @@ fn wave_spread(slot: usize, cx: &mut Cx<'_>) -> bool {
         beside_player(cx, if left { 0xFFE0 } else { 0x0020 }, 0xFBF0)
     } else {
         let dx = if left {
-            word(cx, 0x9168 + motion, 0x9162 + motion)
+            cx.prg.weapons.wave_left_dx[motion]
         } else {
-            word(cx, 0x9156 + motion, 0x914A + motion)
+            cx.prg.weapons.wave_right_dx[motion]
         };
-        beside_player(cx, dx, word(cx, 0x9186 + motion, 0x916E + motion))
+        beside_player(cx, dx, cx.prg.weapons.wave_spread_dy[motion])
     };
     let projectile = &mut cx.effects.projectiles[free];
     projectile.part = (source.part_timer & 0x04) >> 1;
