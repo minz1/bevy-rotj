@@ -5,7 +5,7 @@ in two, these ids first and the spawned kinds after them, `docs/specs/2026-10-18
 `$45` added; the guessed names replaced by names from the call sites and ACTORS.md; the songs
 `$03`, `$0A`, `$3A`, `$44` named from their sites; `$FC` is the driver's fade-out; the module says
 the four slots share one id space; the per-family `*_SOUND` consts folded in; the counts; the
-off-lockstep guard). No behaviour change: constant substitution, proven by the lockstep.
+off-lockstep guard). Implemented in 1.1.27. No behaviour change: constant substitution, proven by the lockstep.
 
 ## What is there
 
