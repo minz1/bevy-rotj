@@ -5,7 +5,7 @@
 //! `$C99D`/`$CAFE`/`$CD5F`/`$C93B`), applies gravity and writes him back. See
 //! `docs/ACTORS.md` §9h.
 
-use super::collision::{self, Probe};
+use super::collision::{self, Probe, probe};
 use super::engine::{self, Work, adc_overflows, rom_word, sub_overflows16};
 use super::oam::attr;
 use super::world::{
@@ -243,7 +243,7 @@ pub fn step_move(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
     if falling {
         // `$8135`: land on the floor at the feet.
         probe.y = work.y;
-        if floor(&mut player, work, probe, cx) < 0x80 {
+        if floor(&mut player, work, probe, cx) {
             work.probe_flags |= 0x40;
         }
     } else {
@@ -312,20 +312,20 @@ fn wall_ahead(player: &mut Player, work: &mut Work, probe: &mut Probe, cx: &mut 
     }
     let direction = if work.step_x < 0 {
         probe.x = work.x.wrapping_sub(0xA0);
-        2
+        probe::LEFTWARD
     } else {
         probe.x = work.x.wrapping_add(0xA0);
-        1
+        probe::RIGHTWARD
     };
     probe.y = work.y.wrapping_sub(0x0140);
-    let mut blocked = wall(player, work, probe, direction, cx) < 0x80;
+    let mut blocked = wall(player, work, probe, direction, cx);
     if !blocked {
         probe.y = work.y.wrapping_sub(0x80);
-        blocked = wall(player, work, probe, direction, cx) < 0x80;
+        blocked = wall(player, work, probe, direction, cx);
     }
     if !blocked && player.motion != Motion::Sliding && player.motion != Motion::Crouching {
         probe.y = work.y.wrapping_sub(0x0220);
-        blocked = wall(player, work, probe, direction, cx) < 0x80;
+        blocked = wall(player, work, probe, direction, cx);
     }
     if blocked {
         hit!(2);
@@ -349,10 +349,10 @@ fn ground_or_ride(
         probe.y = work.y;
         if !grounded {
             probe.x = work.x.wrapping_add(0xA0);
-            grounded = floor(player, work, probe, cx) < 0x80;
+            grounded = floor(player, work, probe, cx);
             if !grounded {
                 probe.x = work.x.wrapping_sub(0xA0);
-                grounded = floor(player, work, probe, cx) < 0x80;
+                grounded = floor(player, work, probe, cx);
             }
         }
         if grounded {
@@ -372,10 +372,10 @@ fn ground_or_ride(
     } else if !grounded {
         probe.y = work.y.wrapping_sub(0x02B0);
         probe.x = work.x.wrapping_add(0xA0);
-        grounded = wall(player, work, probe, 0x08, cx) < 0x80;
+        grounded = wall(player, work, probe, 0x08, cx);
         if !grounded {
             probe.x = work.x.wrapping_sub(0xA0);
-            grounded = wall(player, work, probe, 0x08, cx) < 0x80;
+            grounded = wall(player, work, probe, 0x08, cx);
         }
         if grounded {
             work.probe_flags |= 0x40;
@@ -395,13 +395,20 @@ fn with_player<R>(player: &mut Player, cx: &mut Cx<'_>, f: impl FnOnce(&mut Cx<'
 }
 
 /// `$C99D` on the player's working copy, which the spike response (`$CAA9`) reads
-/// (`$B9`) and writes (`$A8`, `$0472`).
-fn wall(player: &mut Player, work: &mut Work, probe: &mut Probe, flags: u8, cx: &mut Cx<'_>) -> u8 {
+/// (`$B9`) and writes (`$A8`, `$0472`); true when a wall blocked.
+fn wall(
+    player: &mut Player,
+    work: &mut Work,
+    probe: &mut Probe,
+    flags: u8,
+    cx: &mut Cx<'_>,
+) -> bool {
     with_player(player, cx, |cx| collision::wall(work, probe, flags, cx))
 }
 
-/// `$CAFE` on the player's working copy, as [`wall`] (spikes underfoot, `$CD09`).
-fn floor(player: &mut Player, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
+/// `$CAFE` on the player's working copy, as [`wall`] (spikes underfoot, `$CD09`); true
+/// when it landed.
+fn floor(player: &mut Player, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
     with_player(player, cx, |cx| collision::floor(work, probe, cx))
 }
 
@@ -529,8 +536,8 @@ fn slide_off_ledge(player: &mut Player, work: &mut Work, probe: &mut Probe, cx: 
     player.sliding = 0;
     probe.x = work.x;
     probe.y = work.y.wrapping_add(0x0100);
-    let solid = collision::solid(probe, 0x84, cx);
-    player.pose_step = if solid & 0x80 != 0 { 0xC0 } else { 0x80 };
+    let solid = collision::solid(probe, 0x80 | probe::FLOORS_SOLID, cx);
+    player.pose_step = if solid { 0xC0 } else { 0x80 };
     player.pose_timer = 0;
     work.y = probe.y;
     player.anim = 0x3C;
@@ -636,8 +643,9 @@ impl Port<'_, '_> {
         self.overflow = value & 0x40 != 0;
     }
 
-    /// `$C93B`'s probe, which leaves `BIT $DD`'s overflow flag (the vertical-room bit).
-    fn solid_at(&mut self, flags: u8) -> u8 {
+    /// `$C93B`'s probe, which leaves `BIT $DD`'s overflow flag (the vertical-room bit);
+    /// true when solid.
+    fn solid_at(&mut self, flags: u8) -> bool {
         self.overflow = self.cx.world.orientation & orientation::VERTICAL != 0;
         collision::solid(&mut self.probe, flags, self.cx)
     }
@@ -646,7 +654,7 @@ impl Port<'_, '_> {
     fn solid_x(&mut self, x: u16, y_hi: u8) -> bool {
         self.probe.x = u16::from(x.to_be_bytes()[0]) << 8;
         self.probe.y = u16::from(y_hi) << 8;
-        self.solid_at(0x80) & 0x80 != 0
+        self.solid_at(0x80)
     }
 
     /// `$9397`: the death, `$C2` and the music stopped, then `$D274`.
@@ -768,7 +776,7 @@ impl Port<'_, '_> {
         ys.into_iter().any(|y| {
             self.probe.x = u16::from(x_hi) << 8;
             self.probe.y = u16::from(y) << 8;
-            self.solid_at(0x80) & 0x80 != 0
+            self.solid_at(0x80)
         })
     }
 

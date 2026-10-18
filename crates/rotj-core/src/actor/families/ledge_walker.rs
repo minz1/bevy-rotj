@@ -63,16 +63,16 @@ impl State {
         engine::integrate(body, work);
         let mut probe = Probe::default();
         let mut flags = 0u8;
-        if collision::feet(work, &mut probe, cx) & 0x80 == 0 {
+        if collision::feet(work, &mut probe, cx) {
             flags |= GROUND;
         }
         collision::head(work, &mut probe, cx);
-        if collision::ahead(work, &mut probe, 0xFF, cx) & 0x80 == 0 {
+        if collision::ahead(work, &mut probe, 0xFF, cx) {
             flags |= WALL;
         }
         if work.vy >= 0 && flags & GROUND == 0 {
             // The game passes rise = Y:A; `corners` only uses it while rising.
-            if collision::corners(work, &mut probe, 0, 0x00C0, cx) & 0x80 == 0 {
+            if collision::corners(work, &mut probe, 0, 0x00C0, cx) {
                 flags |= AIRBORNE_FLOOR;
             }
         }
@@ -98,7 +98,7 @@ fn walking(body: &mut Body, work: &mut Work, flags: u8, probe: &mut Probe, cx: &
             work.x.wrapping_add(LEDGE_REACH)
         };
         probe.y = work.y.wrapping_add(6);
-        collision::solid(probe, 0x84, cx) & 0x80 == 0
+        !collision::solid(probe, 0x80 | collision::probe::FLOORS_SOLID, cx)
     };
     if at_edge {
         body.phase = Phase::Turning.byte();

@@ -37,7 +37,7 @@ impl State {
                 if body.y.to_be_bytes()[0] >= FLOOR_ROW {
                     body.sprite = 1;
                     let mut probe = Probe::default();
-                    if collision::feet(work, &mut probe, cx) == 0 {
+                    if collision::feet(work, &mut probe, cx) {
                         body.vx_drift = 0;
                         body.phase = Phase::Warping.byte();
                     }

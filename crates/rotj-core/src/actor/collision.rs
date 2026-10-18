@@ -5,6 +5,16 @@ use super::oam::attr;
 use super::world::{Cx, orientation, power_up};
 use crate::collision::Surface;
 
+/// The probe flag bits (`$24`) the ported handlers read; the other bits are the game's own.
+pub mod probe {
+    /// The probe looks rightward: a wall pushes back left.
+    pub const RIGHTWARD: u8 = 0x01;
+    /// The probe looks leftward: a wall pushes back right.
+    pub const LEFTWARD: u8 = 0x02;
+    /// One-way, one-way-behind, crumbling and spike tiles count as solid.
+    pub const FLOORS_SOLID: u8 = 0x04;
+}
+
 /// A collision probe: point `$20-$23`, flags `$24`, landing bytes `$27/$28`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Probe {
@@ -51,10 +61,11 @@ fn class_at(probe: Probe, cx: &Cx<'_>) -> u8 {
 }
 
 /// Is the probe's metatile solid for these flags (`$C93B`)?
-pub fn solid(probe: &mut Probe, flags: u8, cx: &Cx<'_>) -> u8 {
+/// True when solid.
+pub fn solid(probe: &mut Probe, flags: u8, cx: &Cx<'_>) -> bool {
     probe.flags = flags;
     let stored = class_at(*probe, cx);
-    let by_flags = if flags & 0x04 == 0 { 0 } else { 0x80 };
+    let by_flags = flags & probe::FLOORS_SOLID != 0;
     match Surface::from_stored(stored) {
         Some(
             Surface::Solid
@@ -62,15 +73,17 @@ pub fn solid(probe: &mut Probe, flags: u8, cx: &Cx<'_>) -> u8 {
             | Surface::BeltLeft
             | Surface::SolidHazard
             | Surface::Slippery,
-        ) => 0x80,
-        Some(Surface::HazardBehind | Surface::Behind | Surface::Open | Surface::SolidToBodies) => 0,
+        ) => true,
+        Some(Surface::HazardBehind | Surface::Behind | Surface::Open | Surface::SolidToBodies) => {
+            false
+        }
         Some(Surface::Crumbling | Surface::OneWay | Surface::OneWayBehind | Surface::Spikes) => {
             by_flags
         }
         None => {
             let stored = u16::from(stored);
             if rom_byte(cx.prg, 14, 0xC97D + stored) & 0x80 == 0 {
-                rom_byte(cx.prg, 14, 0xC97E + stored)
+                rom_byte(cx.prg, 14, 0xC97E + stored) & 0x80 != 0
             } else {
                 by_flags
             }
@@ -79,7 +92,8 @@ pub fn solid(probe: &mut Probe, flags: u8, cx: &Cx<'_>) -> u8 {
 }
 
 /// Checks a wall at the probe and pushes the working position out of it (`$C99D`).
-pub fn wall(work: &mut Work, probe: &mut Probe, flags: u8, cx: &mut Cx<'_>) -> u8 {
+/// True when a wall blocked.
+pub fn wall(work: &mut Work, probe: &mut Probe, flags: u8, cx: &mut Cx<'_>) -> bool {
     probe.flags = flags;
     let stored = class_at(*probe, cx);
     let surface = Surface::from_stored(stored)
@@ -93,7 +107,7 @@ pub fn wall(work: &mut Work, probe: &mut Probe, flags: u8, cx: &mut Cx<'_>) -> u
         Surface::HazardBehind => {
             damage(work, 2, cx);
             work.attr |= attr::BEHIND;
-            0x80
+            false
         }
         Surface::SolidHazard => {
             damage(work, 2, cx);
@@ -101,9 +115,9 @@ pub fn wall(work: &mut Work, probe: &mut Probe, flags: u8, cx: &mut Cx<'_>) -> u
         }
         Surface::Behind | Surface::OneWayBehind => {
             work.attr |= attr::BEHIND;
-            0x80
+            false
         }
-        Surface::Open | Surface::Crumbling | Surface::OneWay => 0x80,
+        Surface::Open | Surface::Crumbling | Surface::OneWay => false,
         Surface::Spikes => {
             spikes(work, cx);
             push(work, *probe)
@@ -137,16 +151,16 @@ fn damage(work: &mut Work, amount: u8, cx: &Cx<'_>) {
     }
 }
 
-/// Pushes out of a wall along the probe's direction (`$C9DA`).
-fn push(work: &mut Work, probe: Probe) -> u8 {
-    if probe.flags & 0x01 != 0 {
+/// Pushes out of a wall along the probe's direction (`$C9DA`); always true (blocked).
+fn push(work: &mut Work, probe: Probe) -> bool {
+    if probe.flags & probe::RIGHTWARD != 0 {
         let (a, _) = adc(lo(probe.x), 0x0F, true);
         let (a, carry) = adc(!a, 1, false);
         let (x_lo, carry) = adc(a, lo(work.x), carry);
         let (x_hi, _) = adc(0xFF, hi(work.x), carry);
         work.x = word(x_hi, x_lo | 0x0F);
         stop(work)
-    } else if probe.flags & 0x02 != 0 {
+    } else if probe.flags & probe::LEFTWARD != 0 {
         let (a, carry) = adc(!lo(probe.x), 0, true);
         let (x_lo, carry) = adc(a, lo(work.x), carry);
         work.x = word(hi(work.x).wrapping_add(u8::from(carry)), x_lo);
@@ -156,19 +170,20 @@ fn push(work: &mut Work, probe: Probe) -> u8 {
         let (y_lo, carry) = adc(a, lo(work.y), carry);
         work.y = word(hi(work.y).wrapping_add(u8::from(carry)), y_lo);
         work.vy = 0;
-        0
+        true
     }
 }
 
-/// Stops the x motion against a wall (`$CA1D`).
-fn stop(work: &mut Work) -> u8 {
+/// Stops the x motion against a wall (`$CA1D`); always true (blocked).
+fn stop(work: &mut Work) -> bool {
     work.ax = work.ref_vx;
     work.step_x = 0;
-    0
+    true
 }
 
 /// Checks the floor at the probe and lands the working position on it (`$CAFE`).
-pub fn floor(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
+/// True when it landed.
+pub fn floor(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
     let stored = class_at(*probe, cx);
     let surface = Surface::from_stored(stored)
         .unwrap_or_else(|| panic!("floor class byte {stored:02X} is not ported"));
@@ -179,7 +194,7 @@ pub fn floor(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
         Surface::HazardBehind => {
             damage(work, 2, cx);
             work.attr |= attr::BEHIND;
-            0x80
+            false
         }
         Surface::SolidHazard => {
             damage(work, 2, cx);
@@ -195,9 +210,9 @@ pub fn floor(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
         }
         Surface::Behind => {
             work.attr |= attr::BEHIND;
-            0x80
+            false
         }
-        Surface::Open => 0x80,
+        Surface::Open => false,
         Surface::Crumbling => crumble(work, probe, cx),
         Surface::Spikes => {
             spikes(work, cx);
@@ -205,7 +220,7 @@ pub fn floor(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
         }
         Surface::OneWay | Surface::OneWayBehind => {
             if lo(probe.y) >= lo(work.vy.cast_unsigned()) {
-                0x80
+                false
             } else {
                 land(work, probe, [0x00, 0x00])
             }
@@ -215,9 +230,10 @@ pub fn floor(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
 
 /// Lands on a crumbling block from its upper half and starts it falling: second-class
 /// type `$06` at the block, unless `$B9` bit 7 is set or slots 24-31 are full (`$CC6D`).
-fn crumble(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
+/// True when it landed.
+fn crumble(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
     if lo(probe.y) & 0x80 != 0 {
-        return 0x80;
+        return false;
     }
     bounce(work);
     let free = cx.slots.second.iter_mut().find(|second| second.kind == 0);
@@ -235,8 +251,9 @@ fn crumble(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
     settle(work, probe, [0x00, 0x00])
 }
 
-/// Lands on the metatile above the probe, bouncing off a hard landing (`$CB39-$CB7F`).
-fn land(work: &mut Work, probe: &mut Probe, landing: [u8; 2]) -> u8 {
+/// Lands on the metatile above the probe, bouncing off a hard landing (`$CB39-$CB7F`);
+/// always true (landed).
+fn land(work: &mut Work, probe: &mut Probe, landing: [u8; 2]) -> bool {
     bounce(work);
     settle(work, probe, landing)
 }
@@ -251,12 +268,13 @@ fn bounce(work: &mut Work) {
     }
 }
 
-/// Puts the working position on the metatile above the probe (`$CB68-$CB7F`).
-fn settle(work: &mut Work, probe: &mut Probe, landing: [u8; 2]) -> u8 {
+/// Puts the working position on the metatile above the probe (`$CB68-$CB7F`); always
+/// true (landed).
+fn settle(work: &mut Work, probe: &mut Probe, landing: [u8; 2]) -> bool {
     probe.landing = landing;
     work.y = word(hi(work.y).wrapping_sub(1), 0xFF);
     work.vy = 0;
-    0
+    true
 }
 
 /// Lands on a second-class actor just under the working position (`$CD5F`); true when
@@ -316,51 +334,54 @@ fn stand_on_screen(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool 
     true
 }
 
-/// The floor under the working position (`$A7DD`).
-pub fn feet(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
+/// The floor under the working position (`$A7DD`); true when it landed.
+pub fn feet(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
     probe.x = work.x;
     probe.y = work.y;
     floor(work, probe, cx)
 }
 
-/// The wall half a metatile above the working position (`$A7F0`).
-pub fn head(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
+/// The wall half a metatile above the working position (`$A7F0`); true when it blocked.
+pub fn head(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
     probe.x = work.x;
     probe.y = work.y.wrapping_sub(0x80);
     wall(work, probe, 0xC0, cx)
 }
 
 /// The wall `gap` ahead in the direction of the x step (`$A80A`), probing as `column` does.
-pub fn ahead(work: &mut Work, probe: &mut Probe, gap: u8, cx: &mut Cx<'_>) -> u8 {
+/// True when a wall blocked.
+pub fn ahead(work: &mut Work, probe: &mut Probe, gap: u8, cx: &mut Cx<'_>) -> bool {
     if work.step_x == 0 {
-        return 0x80;
+        return false;
     }
     let direction = if work.step_x < 0 {
         probe.x = probe.x.wrapping_sub(u16::from(gap));
-        2
+        probe::LEFTWARD
     } else {
         probe.x = probe.x.wrapping_add(u16::from(gap));
-        1
+        probe::RIGHTWARD
     };
     column(work, probe, direction, cx)
 }
 
 /// The wall at the probe, then one and two units higher (`$A837`, direction in `$2E`).
-pub fn column(work: &mut Work, probe: &mut Probe, direction: u8, cx: &mut Cx<'_>) -> u8 {
+/// True when a wall blocked.
+pub fn column(work: &mut Work, probe: &mut Probe, direction: u8, cx: &mut Cx<'_>) -> bool {
     for raise in 0..3 {
         if raise > 0 {
             probe.y = word(hi(probe.y), lo(probe.y).wrapping_sub(1));
         }
-        let result = wall(work, probe, direction, cx);
-        if result & 0x80 == 0 || raise == 2 {
-            return result;
+        let blocked = wall(work, probe, direction, cx);
+        if blocked || raise == 2 {
+            return blocked;
         }
     }
     unreachable!("the third probe returns")
 }
 
 /// The floor at both feet when falling, else the ceiling at both shoulders (`$A95E`).
-pub fn corners(work: &mut Work, probe: &mut Probe, rise: u16, half: u16, cx: &mut Cx<'_>) -> u8 {
+/// True when one landed or blocked.
+pub fn corners(work: &mut Work, probe: &mut Probe, rise: u16, half: u16, cx: &mut Cx<'_>) -> bool {
     let falling = work.vy >= 0;
     probe.y = if falling {
         work.y
@@ -369,23 +390,23 @@ pub fn corners(work: &mut Work, probe: &mut Probe, rise: u16, half: u16, cx: &mu
     };
     for x in [work.x.wrapping_add(half), work.x.wrapping_sub(half)] {
         probe.x = x;
-        let result = if falling {
+        let hit = if falling {
             floor(work, probe, cx)
         } else {
             wall(work, probe, 0x08, cx)
         };
-        if result & 0x80 == 0 || x == work.x.wrapping_sub(half) {
-            return result;
+        if hit || x == work.x.wrapping_sub(half) {
+            return hit;
         }
     }
     unreachable!("the second probe returns")
 }
 
-/// Is the metatile 6/16 px below the working position solid (`$AF7D`)?
-pub fn below(work: &Work, probe: &mut Probe, cx: &Cx<'_>) -> u8 {
+/// Is the metatile 6/16 px below the working position solid (`$AF7D`)? True when solid.
+pub fn below(work: &Work, probe: &mut Probe, cx: &Cx<'_>) -> bool {
     probe.x = work.x;
     probe.y = work.y.wrapping_add(6);
-    solid(probe, 0x84, cx)
+    solid(probe, 0x80 | probe::FLOORS_SOLID, cx)
 }
 
 /// Rides second-class actors at the working position (`$AF6A`).
@@ -433,8 +454,14 @@ mod tests {
     const WALL_EXITS: [u16; 6] = [0xC9F6, 0xCA2B, 0xCA9F, 0xCAA2, 0xCAA5, 0xCAA8];
     const FLOOR_EXITS: [u16; 4] = [0xCB7F, 0xCC69, 0xCC6C, 0xCD08];
     enum Answer {
-        A(u8),
+        Hit(bool),
+        Solid(bool),
         Riding(bool),
+    }
+
+    /// The ROM's A for a hit probe's result: 0 when it hit, else `$80`.
+    fn hit_byte(hit: bool) -> u8 {
+        if hit { 0 } else { 0x80 }
     }
 
     const RIDE_EXITS: [u16; 5] = [0xCD6D, 0xCD93, 0xCDE6, 0xCE1A, 0xCE3D];
@@ -467,7 +494,8 @@ mod tests {
             assert_routine(&mut scene, frames, (entry, bank), exits, |r| {
                 let mut probe = Probe::lift(&r.begin.ram);
                 match port(r, &mut probe) {
-                    Answer::A(a) => r.a = Some(a),
+                    Answer::Hit(hit) => r.a = Some(hit_byte(hit)),
+                    Answer::Solid(solid) => r.negative = Some(solid),
                     Answer::Riding(riding) => r.negative = Some(!riding),
                 }
                 r.writes = probe.writes();
@@ -483,7 +511,7 @@ mod tests {
     fn solid_matches_c93b() {
         tour((0xC93B, 14), &[0xC973, 0xC97C], 100, |r, probe| {
             let flags = r.begin.cpu.a;
-            Answer::A(r.in_slot(|_, _, cx| solid(probe, flags, cx)))
+            Answer::Solid(r.in_slot(|_, _, cx| solid(probe, flags, cx)))
         });
     }
 
@@ -491,14 +519,14 @@ mod tests {
     fn wall_matches_c99d() {
         tour((0xC99D, 14), &WALL_EXITS, 1000, |r, probe| {
             let flags = r.begin.cpu.a;
-            Answer::A(r.in_slot(|_, work, cx| wall(work, probe, flags, cx)))
+            Answer::Hit(r.in_slot(|_, work, cx| wall(work, probe, flags, cx)))
         });
     }
 
     #[test]
     fn floor_matches_cafe() {
         tour((0xCAFE, 14), &FLOOR_EXITS, 500, |r, probe| {
-            Answer::A(r.in_slot(|_, work, cx| floor(work, probe, cx)))
+            Answer::Hit(r.in_slot(|_, work, cx| floor(work, probe, cx)))
         });
     }
 
@@ -512,14 +540,14 @@ mod tests {
     #[test]
     fn feet_matches_a7dd() {
         tour((0xA7DD, 13), &FLOOR_EXITS, 100, |r, probe| {
-            Answer::A(r.in_slot(|_, work, cx| feet(work, probe, cx)))
+            Answer::Hit(r.in_slot(|_, work, cx| feet(work, probe, cx)))
         });
     }
 
     #[test]
     fn head_matches_a7f0() {
         tour((0xA7F0, 13), &WALL_EXITS, 50, |r, probe| {
-            Answer::A(r.in_slot(|_, work, cx| head(work, probe, cx)))
+            Answer::Hit(r.in_slot(|_, work, cx| head(work, probe, cx)))
         });
     }
 
@@ -527,7 +555,7 @@ mod tests {
     fn ahead_matches_a80a() {
         tour((0xA80A, 13), &[0xA84E, 0xA851], 50, |r, probe| {
             let gap = r.begin.cpu.a;
-            Answer::A(r.in_slot(|_, work, cx| ahead(work, probe, gap, cx)))
+            Answer::Hit(r.in_slot(|_, work, cx| ahead(work, probe, gap, cx)))
         });
     }
 
@@ -535,7 +563,7 @@ mod tests {
     fn column_matches_a837() {
         tour((0xA837, 13), &[0xA84E], 10, |r, probe| {
             let direction = r.begin.ram[0x2E];
-            Answer::A(r.in_slot(|_, work, cx| column(work, probe, direction, cx)))
+            Answer::Hit(r.in_slot(|_, work, cx| column(work, probe, direction, cx)))
         });
     }
 
@@ -544,7 +572,7 @@ mod tests {
         tour((0xA95E, 13), &[0x96C1, 0x991F, 0x963D], 30, |r, probe| {
             let rise = u16::from_be_bytes([r.begin.cpu.y, r.begin.cpu.a]);
             let half = u16::from_be_bytes([r.begin.ram[0x31], r.begin.ram[0x30]]);
-            Answer::A(r.in_slot(|_, work, cx| corners(work, probe, rise, half, cx)))
+            Answer::Hit(r.in_slot(|_, work, cx| corners(work, probe, rise, half, cx)))
         });
     }
 
@@ -555,8 +583,7 @@ mod tests {
         };
         let checked = assert_routine(&mut scene, 100, (0xAF7D, 13), &[0xC973, 0xC97C], |r| {
             let mut probe = Probe::lift(&r.begin.ram);
-            let a = r.in_slot(|_, work, cx| below(work, &mut probe, cx));
-            r.a = Some(a);
+            r.negative = Some(r.in_slot(|_, work, cx| below(work, &mut probe, cx)));
             r.writes = probe.writes();
         });
         assert!(checked >= 1, "{checked} calls");
@@ -584,7 +611,10 @@ mod tests {
         let checked = assert_routine(&mut scene, 120, (0xC99D, 14), &WALL_EXITS, |r| {
             let mut probe = Probe::lift(&r.begin.ram);
             let flags = r.begin.cpu.a;
-            r.a = Some(r.in_slot(|_, work, cx| wall(work, &mut probe, flags, cx)));
+            r.a = Some(hit_byte(
+                r.in_slot(|_, work, cx| wall(work, &mut probe, flags, cx)),
+            ));
+
             r.writes = probe.writes();
         });
         assert!(checked > 10, "{checked} calls");

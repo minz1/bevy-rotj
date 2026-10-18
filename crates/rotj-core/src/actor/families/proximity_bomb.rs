@@ -53,7 +53,7 @@ impl State {
                 return;
             }
             let mut probe = Probe::default();
-            if collision::feet(work, &mut probe, cx) & 0x80 == 0 {
+            if collision::feet(work, &mut probe, cx) {
                 explode(kind, body, work, cx);
                 return;
             }

@@ -93,11 +93,7 @@ impl State {
         }
         engine::integrate(body, work);
         let mut probe = Probe::default();
-        let grounded = if collision::feet(work, &mut probe, cx) & 0x80 == 0 {
-            true
-        } else {
-            side_ground(work, &mut probe, cx) & 0x80 == 0
-        };
+        let grounded = collision::feet(work, &mut probe, cx) || side_ground(work, &mut probe, cx);
         let hi = work.x.to_be_bytes()[0];
         if hi < 0x02 {
             work.x = 0x0200;
@@ -120,14 +116,14 @@ impl State {
     }
 }
 
-/// `$9CE0`: probe the floor at both sides, one `$C0` away.
-fn side_ground(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
+/// `$9CE0`: probe the floor at both sides, one `$C0` away; true when one landed.
+fn side_ground(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
     probe.x = work.x.wrapping_add(0xC0);
     probe.y = work.y;
-    let floor = collision::floor(work, probe, cx);
-    if floor & 0x80 == 0 {
-        return floor;
+    if collision::floor(work, probe, cx) {
+        return true;
     }
+
     probe.x = work.x.wrapping_sub(0xC0);
     probe.y = work.y;
     collision::floor(work, probe, cx)

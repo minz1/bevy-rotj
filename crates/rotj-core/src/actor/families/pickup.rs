@@ -40,16 +40,16 @@ impl State {
         }
         engine::integrate(body, work);
         let mut probe = Probe::default();
-        let feet = collision::feet(work, &mut probe, cx);
-        if feet & 0x80 != 0 {
+        if collision::feet(work, &mut probe, cx) {
+            body.vx_drift = drift(probe);
+        } else {
             probe.x = work.x;
             probe.y = work.y;
             if collision::ride(work, &mut probe, cx) {
                 body.vx_drift = drift(probe);
             }
-        } else {
-            body.vx_drift = drift(probe);
         }
+
         if engine::on_screen(work, cx.world) != Visibility::On {
             *kind = 0;
             return;

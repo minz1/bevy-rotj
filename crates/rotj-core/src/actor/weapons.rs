@@ -381,14 +381,15 @@ fn draw(work: &mut Work, cx: &mut Cx<'_>) -> bool {
     engine::draw(work, bank, cx)
 }
 
-/// Is the metatile at the working position solid (`$C93B`)?
+/// Is the metatile at the working position solid (`$C93B`)? Callers pass `phase << 1`, so
+/// the phase's bit 1 lands on [`collision::probe::FLOORS_SOLID`].
 fn solid(work: &Work, flags: u8, cx: &Cx<'_>) -> bool {
     let mut probe = Probe {
         x: work.x,
         y: work.y,
         ..Probe::default()
     };
-    collision::solid(&mut probe, flags, cx) & 0x80 != 0
+    collision::solid(&mut probe, flags, cx)
 }
 
 /// Draws only on every other frame (`LDA $10; EOR $F1; LSR; BCS`); the overflow flag the

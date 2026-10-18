@@ -1,6 +1,6 @@
 //! Second-class type `$08`, the platform that sinks under the player (bank 8 `$8ED5`).
 
-use crate::actor::collision::{Probe, solid};
+use crate::actor::collision::{Probe, probe, solid};
 use crate::actor::engine::Work;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
@@ -40,7 +40,7 @@ impl State {
             y: body.y,
             ..Probe::default()
         };
-        if solid(&mut probe, 0x84, cx) & 0x80 != 0 {
+        if solid(&mut probe, 0x80 | probe::FLOORS_SOLID, cx) {
             body.y = body.y.wrapping_sub(STEP);
         }
         cx.slots.set_pressed(index, 0);

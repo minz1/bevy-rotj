@@ -72,7 +72,7 @@ impl State {
                     };
                     let left = body.subtype.wrapping_sub(1);
                     body.subtype = left;
-                    if left == 0 || collision::solid(&mut probe, 0, cx) & 0x80 != 0 {
+                    if left == 0 || collision::solid(&mut probe, 0, cx) {
                         death(body);
                     }
                 }

@@ -47,7 +47,7 @@ impl State {
             y: work.y,
             ..Probe::default()
         };
-        if collision::solid(&mut probe, 0x84, cx) & 0x80 != 0 {
+        if collision::solid(&mut probe, 0x80 | collision::probe::FLOORS_SOLID, cx) {
             *kind = 0;
             return;
         }

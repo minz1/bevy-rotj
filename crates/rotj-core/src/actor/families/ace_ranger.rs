@@ -94,7 +94,7 @@ impl State {
         work.attr |= body.flags;
         engine::integrate(body, work);
         let mut probe = Probe::default();
-        let grounded = collision::feet(work, &mut probe, cx) & 0x80 == 0;
+        let grounded = collision::feet(work, &mut probe, cx);
         let hi = work.x.to_be_bytes()[0];
         if hi < 0x02 {
             work.x = 0x0200;

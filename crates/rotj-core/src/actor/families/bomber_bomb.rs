@@ -67,7 +67,7 @@ impl State {
 /// `$8529`: solid ground just below, or a second-class platform to stand on.
 fn landed(work: &mut Work, cx: &mut Cx<'_>) -> bool {
     let mut probe = Probe::default();
-    collision::below(work, &mut probe, cx) & 0x80 != 0 || collision::ride_here(work, &mut probe, cx)
+    collision::below(work, &mut probe, cx) || collision::ride_here(work, &mut probe, cx)
 }
 
 #[cfg(test)]

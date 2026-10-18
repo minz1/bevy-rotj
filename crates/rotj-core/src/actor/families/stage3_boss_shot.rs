@@ -16,7 +16,7 @@ const DRAW_BANK: u8 = 9;
 /// One metasprite per direction mod 5 (`$9E81`).
 const METASPRITES: u16 = 0x9E81;
 const DIRECTIONS: u8 = 5;
-const SOLID_FLAGS: u8 = 0x84;
+const SOLID_FLAGS: u8 = 0x80 | collision::probe::FLOORS_SOLID;
 const WALL_SOUND: u8 = 0x23;
 /// Directions below this burst on a wall (`$9E35`).
 const BURSTING: u8 = 2;
@@ -67,7 +67,7 @@ impl State {
             ..Probe::default()
         };
         let frame = body.phase % DIRECTIONS;
-        if collision::solid(&mut probe, SOLID_FLAGS, cx) & 0x80 != 0 {
+        if collision::solid(&mut probe, SOLID_FLAGS, cx) {
             cx.effects.sound[1] = WALL_SOUND;
             if frame < BURSTING {
                 burst(work, cx);

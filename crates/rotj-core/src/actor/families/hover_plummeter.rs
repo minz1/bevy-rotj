@@ -74,7 +74,7 @@ impl State {
                     return;
                 }
                 let mut probe = Probe::default();
-                if collision::feet(work, &mut probe, cx) & 0x80 == 0 && body.timer & 0x80 == 0 {
+                if collision::feet(work, &mut probe, cx) && body.timer & 0x80 == 0 {
                     cx.effects.sound[0] = BURST_SOUND;
                     body.timer = 0x80;
                     work.y = work.y.wrapping_add(BURST_OFFSET);

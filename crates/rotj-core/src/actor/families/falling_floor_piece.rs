@@ -15,7 +15,7 @@ impl State {
     /// One frame (`$94C3`): fall until a wall probe finds the level or it passes row 16.
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         if let Some(mut probe) = fall(body)
-            && (body.y >= 0x1000 || wall(work, &mut probe, 0x80, cx) & 0x80 == 0)
+            && (body.y >= 0x1000 || wall(work, &mut probe, 0x80, cx))
         {
             *kind = 0;
         }

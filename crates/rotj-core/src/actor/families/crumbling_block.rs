@@ -29,7 +29,7 @@ impl State {
             return;
         }
         if let Some(mut probe) = fall(body)
-            && wall(work, &mut probe, 0x80, cx) & 0x80 == 0
+            && wall(work, &mut probe, 0x80, cx)
         {
             *kind = 0;
         }

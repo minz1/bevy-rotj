@@ -130,7 +130,7 @@ fn rising(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         return;
     }
     let mut probe = Probe::default();
-    if collision::feet(work, &mut probe, cx) & 0x80 == 0 {
+    if collision::feet(work, &mut probe, cx) {
         body.vy = 0;
         body.anim = 0;
         body.phase = Phase::Swinging.byte();
@@ -166,7 +166,7 @@ fn falling(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     let mut probe = Probe::default();
     let below = collision::below(work, &mut probe, cx);
     work.y = work.y.wrapping_sub(0x40);
-    if below & 0x80 != 0 {
+    if below {
         body.vy = cx.prg.families.spinner.falling_vy[usize::from(cx.world.frame & 0x07)];
         body.vx_drift = if body.behaviour & 0x01 == 0 {
             i16::from_be_bytes([0xFF, 0xF0])

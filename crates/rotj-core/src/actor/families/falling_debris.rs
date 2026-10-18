@@ -44,7 +44,7 @@ impl State {
             return;
         }
         let mut probe = Probe::default();
-        if collision::feet(work, &mut probe, cx) & 0x80 == 0 {
+        if collision::feet(work, &mut probe, cx) {
             cx.effects.sound[0] = LANDING_SOUND;
             body.y = body.y.wrapping_add(LANDING_DROP);
             body.hit = hit::DYING;

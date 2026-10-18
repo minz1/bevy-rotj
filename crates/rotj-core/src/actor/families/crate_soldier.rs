@@ -71,7 +71,7 @@ impl State {
 
 /// `$A7DD` then `$AF6A`: whether the feet probe or a platform landed the actor.
 fn on_ground(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
-    collision::feet(work, probe, cx) & 0x80 == 0 || collision::ride_here(work, probe, cx)
+    collision::feet(work, probe, cx) || collision::ride_here(work, probe, cx)
 }
 
 /// Falling (`$957E`): fall until the feet find ground, then idle.
@@ -150,14 +150,12 @@ fn firing(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
 fn recoiling(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
     let mut flags = 0u8;
     work.ax = 0;
-    let feet = collision::feet(work, probe, cx);
-    if feet & 0x80 == 0 {
+    if collision::feet(work, probe, cx) {
         flags |= 0x40;
     } else if work.vy >= 0 {
         // The game passes rise = Y:A; Y is residue the port cannot see, but
         // `corners` only uses it while rising and here vy >= 0.
-        let corners = collision::corners(work, probe, 0, 0x0070, cx);
-        if corners & 0x80 == 0 {
+        if collision::corners(work, probe, 0, 0x0070, cx) {
             flags |= 0x40;
         }
     }

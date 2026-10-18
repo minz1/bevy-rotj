@@ -60,17 +60,17 @@ impl State {
         engine::integrate(body, work);
         let mut probe = Probe::default();
         let mut flags = 0u8;
-        if collision::feet(work, &mut probe, cx) & 0x80 == 0 {
+        if collision::feet(work, &mut probe, cx) {
             flags |= 0x40;
         }
         collision::head(work, &mut probe, cx);
-        if collision::ahead(work, &mut probe, 0xC0, cx) & 0x80 == 0 {
+        if collision::ahead(work, &mut probe, 0xC0, cx) {
             flags |= 0x80;
         }
         if work.vy >= 0 && flags & 0x40 == 0 {
             // The game passes rise = Y:A; Y is residue the port cannot see, but
             // `corners` only uses it while rising and here vy >= 0.
-            if collision::corners(work, &mut probe, 0, 0x00C0, cx) & 0x80 == 0
+            if collision::corners(work, &mut probe, 0, 0x00C0, cx)
                 || collision::ride_here(work, &mut probe, cx)
             {
                 flags |= 0x20;
@@ -125,7 +125,7 @@ fn walking(body: &mut Body, work: &mut Work, probe: &mut Probe, flags: u8, cx: &
         return;
     }
     face(work, dx);
-    if flags & 0x80 == 0 && collision::below(work, probe, cx) & 0x80 != 0 {
+    if flags & 0x80 == 0 && collision::below(work, probe, cx) {
         body.ref_vx = walk(work.attr, &cx.prg.families.patrol_walker);
         if cx.world.frame.is_multiple_of(8) {
             body.sprite = body.sprite.wrapping_add(1);
