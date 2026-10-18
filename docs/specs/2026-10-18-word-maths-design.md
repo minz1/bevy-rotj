@@ -4,7 +4,7 @@ Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: collisi
 `settle` are not plain adds; the launch offset's V flag is the signed word overflow; the muzzle is
 8-bit maths, out; `move_by_velocity` and the burst parts converted; two engine sites named exactly;
 the splitter's negate converted with its carry named; `word` and weapons' ROM `word` deleted; four
-exhaustive tests instead of six; one release in four commits). The survey loop's #8 (MODERNIZE
+exhaustive tests instead of six; one release in four commits). Implemented in 1.1.29. The survey loop's #8 (MODERNIZE
 "The survey loop, 2026-10-18"). No behaviour change: each converted form is checked exhaustively
 against the byte-wise code it replaces, and the lockstep proves the whole.
 

@@ -297,7 +297,7 @@ of its own, proven by the lockstep, ranked by payoff over risk:
 6. **`Projectile` state bits named and the shot flight once** (done in 1.1.26): the flight preamble copied in
    `flying_shot`, `splitter`, `wave`, `three_way`; "count down, free on wrap" 8 times.
 7. **Ids named** (the sound, music and song ids done in 1.1.27, the spawned kinds in 1.1.28): sound effects (46 raw writes), songs (about 35), spawned kinds by literal (16).
-8. **Byte-wise 16-bit arithmetic** in `player.rs` (37 carry pairs), `weapons.rs` (25),
+8. **Byte-wise 16-bit arithmetic** (done in 1.1.29 for the four files; about 45 `overflowing_*` lines in 29 others remain) in `player.rs` (37 carry pairs), `weapons.rs` (25),
    `engine.rs` (16), `collision.rs` (12) -> `u16` maths with an equivalence test per site, as
    1.1.6 did for the families; one `hi`/`lo`/`word` helper instead of four.
 9. **The remaining flag bytes named**: `Body.contact`, `probe_flags`, `work.anchor`, `pose_step`,
