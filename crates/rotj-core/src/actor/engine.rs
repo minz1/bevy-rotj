@@ -360,7 +360,8 @@ pub fn queue_block(block: &TileBlock<'_>, cx: &mut Cx<'_>) {
         let [hi, lo] = addr.to_be_bytes();
         if hi & 0x23 == 0x23 && lo >= 0xC0 {
             if world.orientation & orientation::VERTICAL != 0 {
-                addr = u16::from_be_bytes([hi & 0x24, lo.wrapping_add(0x40)]);
+                // Rows 30-31 wrap to rows 0-1.
+                addr &= 0x243F;
                 if let Some(attributes) = attributes.as_mut() {
                     attributes.rows = attributes.rows.wrapping_add(1);
                 }
@@ -370,6 +371,7 @@ pub fn queue_block(block: &TileBlock<'_>, cx: &mut Cx<'_>) {
                 } else {
                     hi
                 };
+                // Adds to the low byte only, as the ROM does.
                 addr = u16::from_be_bytes([hi, lo.wrapping_add(0x20)]);
             }
         }
@@ -419,10 +421,8 @@ fn place(block: &TileBlock<'_>, world: &World, origin: u16) -> Option<(u16, u8, 
             (delta >> 2, 0)
         };
         let mut addr = addr.wrapping_add(origin);
-        let [hi, lo] = addr.to_be_bytes();
-        if hi >= 0x24 || (hi == 0x23 && lo >= 0xC0) {
-            let (lo, carry) = lo.overflowing_add(0x40);
-            addr = u16::from_be_bytes([hi.wrapping_add(u8::from(carry)) & 0x23, lo]);
+        if addr >= 0x23C0 {
+            addr = addr.wrapping_add(0x40) & 0x23FF;
         }
         let far_page = block.column & 0x10 != 0;
         if world.orientation & orientation::TWO_PAGES != 0 && far_page {
@@ -490,7 +490,7 @@ impl Attributes {
         let mirror = 0x7500 + u16::from(quad) + if low_table { 0x30 } else { 0x70 };
         let span = right.wrapping_sub(left);
         Attributes {
-            addr: u16::from_be_bytes([hi | 3, quad.wrapping_add(0xC0)]),
+            addr: u16::from_be_bytes([hi | 3, quad | 0xC0]),
             count: if lo & 1 != 0 {
                 span >> 1
             } else {
@@ -918,16 +918,18 @@ pub fn spawn_parts(variant: u8, work: &Work, cx: &mut Cx<'_>) -> Option<usize> {
     let groups = rom_word(cx.prg, 13, 0xADD8);
     let parts = rom_word(cx.prg, 13, 0xACC6 + 2 * u16::from(variant));
     let slot = &mut cx.slots.main[index];
-    let [x_hi, x_lo] = work.x.to_be_bytes();
-    let [y_hi, y_lo] = work.y.to_be_bytes();
     for part in 0..4u16 {
         let data = rom_word(cx.prg, 13, parts + 2 * part);
         let byte = |i: u16| rom_byte(cx.prg, 13, data + i);
         let array = |i: u16| rom_word(cx.prg, 13, groups + 12 * part + 2 * i);
-        let (x_lo, carry) = x_lo.overflowing_add(byte(0));
-        let x_hi = x_hi.wrapping_add(byte(1)).wrapping_add(u8::from(carry));
-        let (y_lo, carry) = y_lo.overflowing_add(byte(2));
-        let y_hi = y_hi.wrapping_add(byte(3)).wrapping_add(u8::from(carry));
+        let [x_hi, x_lo] = work
+            .x
+            .wrapping_add(rom_word(cx.prg, 13, data))
+            .to_be_bytes();
+        let [y_hi, y_lo] = work
+            .y
+            .wrapping_add(rom_word(cx.prg, 13, data + 2))
+            .to_be_bytes();
         for (i, value) in [x_lo, x_hi, y_lo, y_hi, byte(4), byte(5)]
             .into_iter()
             .enumerate()
@@ -1216,21 +1218,78 @@ pub fn move_by_velocity(body: &mut Body, lo: u16, hi: u16, velocity: u16) -> u16
         Field::from_array(array).expect("the four-part bursts' tables name Body arrays")
     };
     let (lo, hi, velocity) = (field(lo), field(hi), field(velocity));
-    let velocity = body.get(velocity);
-    let (low, carry) = body.get(lo).overflowing_add(velocity);
+    let velocity = i16::from(body.get(velocity).cast_signed());
+    let moved = u16::from_be_bytes([body.get(hi), body.get(lo)]).wrapping_add_signed(velocity);
+    let [high, low] = moved.to_be_bytes();
     body.set(lo, low);
-    let high = body
-        .get(hi)
-        .wrapping_add(if velocity & 0x80 != 0 { 0xFF } else { 0 })
-        .wrapping_add(u8::from(carry));
     body.set(hi, high);
-    u16::from_be_bytes([high, low])
+    moved
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::oracle::{Routine, Scene, assert_routine};
     use super::*;
+
+    #[test]
+    fn byte_carry_is_word_maths() {
+        for hi in [0x00, 0x7F, 0x80, 0xFF] {
+            for lo in 0..=0xFFu8 {
+                let w = u16::from_be_bytes([hi, lo]);
+                for b in 0..=0xFFu8 {
+                    let (sum, carry) = lo.overflowing_add(b);
+                    let (diff, borrow) = lo.overflowing_sub(b);
+                    let sign = if b & 0x80 != 0 { 0xFF } else { 0 };
+                    let add = u16::from_be_bytes([hi.wrapping_add(u8::from(carry)), sum]);
+                    let sub = u16::from_be_bytes([hi.wrapping_sub(u8::from(borrow)), diff]);
+                    let signed = u16::from_be_bytes([
+                        hi.wrapping_add(sign).wrapping_add(u8::from(carry)),
+                        sum,
+                    ]);
+                    let minus = u16::from_be_bytes([
+                        hi.wrapping_add(0xFF).wrapping_add(u8::from(carry)),
+                        sum,
+                    ]);
+                    assert_eq!(w.wrapping_add(u16::from(b)), add);
+                    assert_eq!(w.wrapping_sub(u16::from(b)), sub);
+                    assert_eq!(w.wrapping_add_signed(i16::from(b.cast_signed())), signed);
+                    assert_eq!(w.wrapping_add(0xFF00 | u16::from(b)), minus);
+                }
+            }
+        }
+        for a_hi in 0..=0xFFu8 {
+            for b_hi in 0..=0xFFu8 {
+                for (a_lo, b_lo) in [(0x00u8, 0x00u8), (0xFF, 0x01), (0x80, 0x80)] {
+                    let (lo, carry) = a_lo.overflowing_add(b_lo);
+                    let hi = a_hi.wrapping_add(b_hi).wrapping_add(u8::from(carry));
+                    let v = adc_overflows(a_hi, b_hi, carry);
+                    let a = u16::from_be_bytes([a_hi, a_lo]).cast_signed();
+                    let b = u16::from_be_bytes([b_hi, b_lo]).cast_signed();
+                    let (word, overflow) = a.overflowing_add(b);
+                    assert_eq!(word.cast_unsigned(), u16::from_be_bytes([hi, lo]));
+                    assert_eq!(overflow, v);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn nametable_steps_are_word_maths() {
+        for addr in 0..=0xFFFFu16 {
+            let [hi, lo] = addr.to_be_bytes();
+            let (lo_next, carry) = lo.overflowing_add(0x40);
+            let step = u16::from_be_bytes([hi.wrapping_add(u8::from(carry)) & 0x23, lo_next]);
+            assert_eq!(addr.wrapping_add(0x40) & 0x23FF, step);
+            assert_eq!(addr >= 0x23C0, hi >= 0x24 || (hi == 0x23 && lo >= 0xC0));
+            if hi & 0x23 == 0x23 && lo >= 0xC0 {
+                let wrap = u16::from_be_bytes([hi & 0x24, lo.wrapping_add(0x40)]);
+                assert_eq!(addr & 0x243F, wrap);
+            }
+        }
+        for quad in 0..=0x3Fu8 {
+            assert_eq!(quad | 0xC0, quad.wrapping_add(0xC0));
+        }
+    }
 
     /// Bank 14's `$C5F2`/`$C6F2` pair is `x << 4`, which its readers compute instead.
     #[test]
