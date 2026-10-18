@@ -123,14 +123,6 @@ enum ScriptFrame {
     PastPauseCheck,
 }
 
-/// A routine [`Game::frame`] does not run itself and hands to its caller.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Outside {
-    /// The second-class update (bank 14 `$CE7F`) when a live second-class type is unported;
-    /// the ported ones have already run.
-    SecondClass,
-}
-
 impl Game {
     /// The handler context over this state, and the working registers beside it.
     pub fn parts<'a>(&'a mut self, prg: &'a Prg) -> (Cx<'a>, &'a mut Work) {
@@ -153,7 +145,7 @@ impl Game {
     ///
     /// # Panics
     /// On a `$BA` past the dispatch table's seven entries (`$D60D`).
-    pub fn frame(&mut self, prg: &Prg, chr: &[u8], outside: &mut impl FnMut(Outside, &mut Game)) {
+    pub fn frame(&mut self, prg: &Prg, chr: &[u8]) {
         if self.oam.hung {
             return;
         }
@@ -166,7 +158,7 @@ impl Game {
             }
             ScriptFrame::AtPauseCheck | ScriptFrame::PastPauseCheck => {}
         }
-        self.loop_body(prg, outside);
+        self.loop_body(prg);
     }
 
     /// The script's part of the frame: a running script's step, a finished one's end, or
@@ -229,12 +221,17 @@ impl Game {
     }
 
     /// The gameplay loop `$D3F9`, one step a line.
-    fn loop_body(&mut self, prg: &Prg, outside: &mut impl FnMut(Outside, &mut Game)) {
+    fn loop_body(&mut self, prg: &Prg) {
         self.oam.marking = oam::Mark::Hud;
         frame::draw_hud(self, prg);
         self.oam.marking = oam::Mark::Scene;
         step_second(prg, self);
-        self.report_unported_second(outside);
+        #[cfg(test)]
+        assert!(
+            !self.slots.second.iter().any(|second| second.kind != 0
+                && matches!(second.brain, families::SecondBrain::Unported)),
+            "a live second-class slot's type is unported"
+        );
         self.move_player(prg);
         scroll::speed(self, prg);
         scroll::step(self, prg);
@@ -250,17 +247,6 @@ impl Game {
         self.oam.finish();
         frame::animate_chr(self);
         frame::queue_palette(self);
-    }
-
-    /// Hands the second-class update to the caller when a live second-class type is
-    /// unported ([`Outside::SecondClass`]).
-    fn report_unported_second(&mut self, outside: &mut impl FnMut(Outside, &mut Game)) {
-        let unported = |second: &slots::Second| {
-            second.kind != 0 && matches!(second.brain, families::SecondBrain::Unported)
-        };
-        if self.slots.second.iter().any(unported) {
-            outside(Outside::SecondClass, self);
-        }
     }
 
     /// Batman's move (bank 4 `$8000`), then the pads cleared while a stage script holds
@@ -516,14 +502,13 @@ mod tests {
     }
 
     /// The chain's counts, which its tape's replay reproduces.
-    fn chain_counts(run: &GameRun) -> (usize, usize, usize, usize, usize, usize, usize) {
+    fn chain_counts(run: &GameRun) -> (usize, usize, usize, usize, usize, usize) {
         (
             run.frames,
             run.room_changes,
             run.stage_ends,
             run.next_area,
             run.script_frames,
-            run.relifted,
             run.endings,
         )
     }
@@ -548,11 +533,7 @@ mod tests {
             return;
         };
         let (run, tape) = assert_game_recording(scene, 47676);
-        assert_eq!(
-            chain_counts(&run),
-            (35299, 12, 1, 17, 8901, 0, 1),
-            "{run:?}"
-        );
+        assert_eq!(chain_counts(&run), (35299, 12, 1, 17, 8901, 1), "{run:?}");
         let pictures = run.pictures;
         assert_eq!(
             (
@@ -599,11 +580,7 @@ mod tests {
             return;
         };
         let run = replay_chain(&tape, rom);
-        assert_eq!(
-            chain_counts(&run),
-            (35299, 12, 1, 17, 8901, 0, 1),
-            "{run:?}"
-        );
+        assert_eq!(chain_counts(&run), (35299, 12, 1, 17, 8901, 1), "{run:?}");
         assert!(run.injected.is_empty(), "{run:?}");
     }
 
@@ -689,11 +666,7 @@ mod tests {
         };
         let at = checks(&tape)[9];
         let frame = tape.events[at].0;
-        let extra = Event::Outside {
-            kind: 0,
-            waited: false,
-            writes: Vec::new(),
-        };
+        let extra = Event::Nmi(Vec::new());
         tape.events.insert(at, (frame, extra));
         let message = rejection(&tape, rom);
         assert!(message.contains("stale"), "{message}");
@@ -716,39 +689,6 @@ mod tests {
         };
         let frame = tape.events.last().expect("the tape ends").0;
         tape.events.push((frame, Event::End));
-        let message = rejection(&tape, rom);
-        assert!(message.contains("stale"), "{message}");
-    }
-
-    #[test]
-    fn an_outside_of_the_wrong_kind_is_rejected() {
-        let Some((recorded, rom)) = local_tape() else {
-            return;
-        };
-        let (frame, mut start) = (recorded.events[0].0, recorded.events[0].1.clone());
-        // Make the start hold an unported second-class actor (`$7CC0 + 24..32`, the WRAM
-        // offsets `0x1CD8..0x1CE0`) so the port asks for an `Outside` on its first frame;
-        // the tape answers with the wrong kind. The rest is the run's own first frame.
-        let Event::Start(snapshot) = &mut start else {
-            unreachable!()
-        };
-        snapshot[0x800 + 0x1CD8..0x800 + 0x1CE0].fill(0x01);
-        let tape = Tape {
-            events: vec![
-                (frame, start),
-                (frame, Event::Irq(Vec::new())),
-                (frame, Event::Nmi(Vec::new())),
-                (frame, Event::Irq(Vec::new())),
-                (
-                    frame,
-                    Event::Outside {
-                        kind: 1,
-                        waited: false,
-                        writes: Vec::new(),
-                    },
-                ),
-            ],
-        };
         let message = rejection(&tape, rom);
         assert!(message.contains("stale"), "{message}");
     }
@@ -778,14 +718,8 @@ mod tests {
         start.work = lifted.work;
         let run = assert_game_from(scene, 1800, Some(start));
         assert_eq!(
-            (
-                run.frames,
-                run.room_changes,
-                run.stage_ends,
-                run.next_area,
-                run.relifted
-            ),
-            (1550, 2, 1, 1, 0),
+            (run.frames, run.room_changes, run.stage_ends, run.next_area),
+            (1550, 2, 1, 1),
             "{run:?}"
         );
     }
@@ -797,11 +731,7 @@ mod tests {
         };
         scene.script(1500, |_| 0);
         let run = assert_game(scene, 1500);
-        assert_eq!(
-            (run.frames, run.next_area, run.relifted),
-            (1135, 2, 0),
-            "{run:?}"
-        );
+        assert_eq!((run.frames, run.next_area), (1135, 2), "{run:?}");
         assert_eq!(run.injected.len(), 1, "{run:?}");
     }
 
@@ -812,11 +742,7 @@ mod tests {
         };
         scene.script(2700, |i| if (2250..2254).contains(&i) { 0x08 } else { 0 });
         let run = assert_game(scene, 2700);
-        assert_eq!(
-            (run.frames, run.next_area, run.relifted),
-            (1909, 3, 0),
-            "{run:?}"
-        );
+        assert_eq!((run.frames, run.next_area), (1909, 3), "{run:?}");
     }
 
     #[test]
@@ -844,8 +770,8 @@ mod tests {
         });
         let run = assert_game(scene, 400);
         assert_eq!(
-            (run.frames, run.pauses, run.script_frames, run.relifted),
-            (168, 2, 229, 0),
+            (run.frames, run.pauses, run.script_frames),
+            (168, 2, 229),
             "{run:?}"
         );
     }
@@ -858,11 +784,7 @@ mod tests {
         scene.machine.bus.trace.pokes.push((0xD45C, 0xBA, 5));
         scene.script(400, |i| if i >= 120 && i % 16 < 2 { 0x02 } else { 0 });
         let run = assert_game(scene, 400);
-        assert_eq!(
-            (run.frames, run.power_ups, run.relifted),
-            (361, 1, 0),
-            "{run:?}"
-        );
+        assert_eq!((run.frames, run.power_ups), (361, 1), "{run:?}");
         assert!(super::oracle::was_seen(0x9668), "no weapon 5 shot flew");
     }
 
@@ -875,11 +797,7 @@ mod tests {
             scene.machine.bus.trace.pokes.push((0xD45C, addr, value));
         }
         let run = assert_game(scene, 400);
-        assert_eq!(
-            (run.frames, run.next_area, run.relifted),
-            (263, 1, 0),
-            "{run:?}"
-        );
+        assert_eq!((run.frames, run.next_area), (263, 1), "{run:?}");
     }
 
     /// Seeded random pads in the oracle's bit order: each held 2-21 frames, mostly
@@ -1994,7 +1912,7 @@ mod tests {
             alone.oam.clear();
             alone.oam.marking = super::oam::Mark::Hud;
             super::frame::draw_hud(&mut alone, prg);
-            game.frame(prg, &rom.chr, &mut |_, _| {});
+            game.frame(prg, &rom.chr);
             for mark in [super::oam::Mark::Hud, super::oam::Mark::Label] {
                 assert_eq!(
                     marked(&game.oam, mark),

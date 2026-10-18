@@ -93,11 +93,11 @@ impl Play {
     /// with rendering off) and the lines the frame after `registers`' NMI is drawn with.
     fn run_frame(&mut self, registers: raster::Registers) {
         let mut registers = registers;
-        self.game.frame(&self.prg, &self.chr, &mut |_, _| {});
+        self.game.frame(&self.prg, &self.chr);
         if self.game.reset() {
             self.game = Game::power_on(self.forced);
             self.raster = false;
-            self.game.frame(&self.prg, &self.chr, &mut |_, _| {});
+            self.game.frame(&self.prg, &self.chr);
             registers = raster::Registers::of(&self.game);
         }
         let direct = std::mem::take(&mut self.game.effects.vram.direct);

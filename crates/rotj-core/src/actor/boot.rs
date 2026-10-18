@@ -1329,7 +1329,7 @@ mod tests {
         let mut game = super::Game::power_on(None);
         let mut raster = false;
         for (wait, oracle) in waits.iter().enumerate() {
-            game.frame(&prg, &chr, &mut |_, _| {});
+            game.frame(&prg, &chr);
             assert_eq!(
                 game.scroll.room[..],
                 oracle.ram[0xD0..0xDD],

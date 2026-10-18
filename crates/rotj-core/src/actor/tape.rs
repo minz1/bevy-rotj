@@ -16,18 +16,10 @@ pub(crate) type Writes = Vec<(u16, u8)>;
 pub(crate) enum Event {
     /// The first lift: the oracle's RAM+WRAM.
     Start(Box<[u8; MEMORY]>),
-    /// A lift after an injected routine waited for the NMI itself.
-    Relift(Box<[u8; MEMORY]>),
     /// The interrupt bytes kept since the last injection, before the `$0181` filter.
     Irq(Writes),
     /// The bytes the NMI wait changed.
     Nmi(Writes),
-    /// The bytes an [`super::Outside`] routine changed, and whether it waited for the NMI.
-    Outside {
-        kind: u8,
-        waited: bool,
-        writes: Writes,
-    },
     /// [`script_hash`] of a script frame.
     ScriptCheck(u64),
     /// [`loop_hash`] of a loop frame.
@@ -73,10 +65,8 @@ impl Event {
     fn tag_and_name(&self) -> (u8, &'static str) {
         match self {
             Event::Start(_) => (0, "Start"),
-            Event::Relift(_) => (1, "Relift"),
             Event::Irq(_) => (2, "Irq"),
             Event::Nmi(_) => (3, "Nmi"),
-            Event::Outside { .. } => (4, "Outside"),
             Event::ScriptCheck(_) => (5, "ScriptCheck"),
             Event::Check(_) => (6, "Check"),
             Event::Reset => (7, "Reset"),
@@ -113,16 +103,8 @@ impl Tape {
             out.push(event.tag());
             out.extend(frame.to_le_bytes());
             match event {
-                Event::Start(memory) | Event::Relift(memory) => out.extend_from_slice(&memory[..]),
+                Event::Start(memory) => out.extend_from_slice(&memory[..]),
                 Event::Irq(writes) | Event::Nmi(writes) => put_writes(&mut out, writes),
-                Event::Outside {
-                    kind,
-                    waited,
-                    writes,
-                } => {
-                    out.extend([*kind, u8::from(*waited)]);
-                    put_writes(&mut out, writes);
-                }
                 Event::ScriptCheck(hash) | Event::Check(hash) => out.extend(hash.to_le_bytes()),
                 Event::Reset | Event::Hung | Event::End => {}
             }
@@ -148,17 +130,8 @@ impl Tape {
             let frame = u64::from_le_bytes(reader.array()?);
             let event = match tag {
                 0 => Event::Start(Box::new(reader.array()?)),
-                1 => Event::Relift(Box::new(reader.array()?)),
                 2 => Event::Irq(reader.writes()?),
                 3 => Event::Nmi(reader.writes()?),
-                4 => {
-                    let [kind, waited] = reader.array()?;
-                    Event::Outside {
-                        kind,
-                        waited: waited != 0,
-                        writes: reader.writes()?,
-                    }
-                }
                 5 => Event::ScriptCheck(u64::from_le_bytes(reader.array()?)),
                 6 => Event::Check(u64::from_le_bytes(reader.array()?)),
                 7 => Event::Reset,
@@ -218,16 +191,7 @@ mod tests {
                 (351, Event::Start(snapshot(1))),
                 (352, Event::Irq(writes.clone())),
                 (353, Event::Irq(Vec::new())),
-                (354, Event::Nmi(writes.clone())),
-                (
-                    355,
-                    Event::Outside {
-                        kind: 0,
-                        waited: true,
-                        writes,
-                    },
-                ),
-                (356, Event::Relift(snapshot(2))),
+                (354, Event::Nmi(writes)),
                 (357, Event::ScriptCheck(0x0123_4567_89AB_CDEF)),
                 (358, Event::Check(u64::MAX)),
                 (359, Event::Reset),
@@ -280,19 +244,25 @@ mod tests {
         let short = &bytes[..bytes.len() - 1];
         assert!(Tape::decode(short).is_err_and(|e| e.contains("truncated")));
         let mut unfinished = every_event();
-        unfinished.events.truncate(7);
+        unfinished.events.truncate(6);
         let unfinished = unfinished.encode();
         assert!(Tape::decode(&unfinished).is_err_and(|e| e.contains("truncated")));
     }
 
+    /// 1 and 4 were the retired `Relift` and `Outside`; 10 was never a tag.
     #[test]
     fn decode_rejects_an_unknown_tag() {
-        let mut bytes = Vec::new();
-        bytes.extend(MAGIC.to_le_bytes());
-        bytes.extend(VERSION.to_le_bytes());
-        bytes.push(10); // no such tag
-        bytes.extend(0u64.to_le_bytes());
-        assert!(Tape::decode(&bytes).is_err_and(|e| e.contains("unknown tag")));
+        for tag in [1, 4, 10] {
+            let mut bytes = Vec::new();
+            bytes.extend(MAGIC.to_le_bytes());
+            bytes.extend(VERSION.to_le_bytes());
+            bytes.push(tag);
+            bytes.extend(0u64.to_le_bytes());
+            assert!(
+                Tape::decode(&bytes).is_err_and(|e| e.contains("unknown tag")),
+                "tag {tag}"
+            );
+        }
     }
 
     #[test]

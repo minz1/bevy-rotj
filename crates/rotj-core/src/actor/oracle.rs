@@ -560,19 +560,6 @@ const WOKE: u16 = 0xC23F;
 /// The reset vector's target (`$E2E6`), which GAME OVER jumps to.
 const RESET: u16 = 0xE2E6;
 
-/// The brackets of the routines [`Game::frame`](super::Game::frame) hands out, injected from the oracle.
-fn outside_bracket(outside: super::Outside) -> (u16, u16) {
-    use super::Outside;
-    match outside {
-        Outside::SecondClass => SECOND,
-    }
-}
-
-/// The second-class update's call in the loop (`JSR $CE7F`) and the instruction after it.
-const SECOND: (u16, u16) = (0xD3FC, 0xD3FF);
-/// Peeks the lockstep passes over unless an [`super::Outside`] bracket asks for them.
-const ON_DEMAND: [u16; 2] = [SECOND.0, SECOND.1];
-
 /// The port's whole memory between frames: what its systems project, and the bytes no
 /// system holds, which only injections and lifts write.
 struct Memory {
@@ -737,12 +724,6 @@ pub(crate) trait Environment {
     fn check_script(&mut self, game: &State, checked: usize);
     /// Writes the NMI's bytes over `game` (`$C232` to `$C23F`).
     fn nmi(&mut self, game: &mut State);
-    /// Runs a routine the port does not on `game`.
-    fn outside(&mut self, game: &mut State, outside: super::Outside);
-    /// Whether an outside routine waited for the NMI itself since the last call.
-    fn waited(&mut self) -> bool;
-    /// The next loop frame, lifted.
-    fn relift(&mut self) -> State;
     /// GAME OVER's reset (`$E2E6`).
     fn reset(&mut self);
     /// The port's draw hung; the game must hang too.
@@ -766,12 +747,8 @@ struct Lockstep {
     events: std::collections::VecDeque<PeekEvent>,
     memory: Memory,
     injected: BTreeMap<&'static str, usize>,
-    /// An injected routine waited for an NMI itself, so the port's frame is not the oracle's.
-    waited: bool,
-    /// An [`super::Outside`] bracket is being read, so the [`ON_DEMAND`] peeks count.
-    on_demand: bool,
     /// The bytes the IRQ handler (`$E2A9-$E2A8`), or an NMI outside the wait, changed
-    /// since they were last injected; an injected bracket covers the ones inside it.
+    /// since they were last injected.
     irq_writes: Writes,
     /// Which interrupts `irq_writes` holds: the raster IRQs', a lag frame's NMI's.
     irq_kinds: (bool, bool),
@@ -834,7 +811,7 @@ fn ppu_of(peek: &PeekEvent) -> Ppu {
 }
 
 impl Lockstep {
-    const PEEKS: [u16; 12] = [
+    const PEEKS: [u16; 10] = [
         LOOP_WAIT,
         WAIT,
         WOKE,
@@ -842,8 +819,6 @@ impl Lockstep {
         IRQ.1,
         NMI,
         RESET,
-        SECOND.0,
-        SECOND.1,
         AFTER_PLAYER_DRAW,
         AFTER_SECOND_CLASS_DRAW,
         WEAPON5_CHARGE,
@@ -863,8 +838,6 @@ impl Lockstep {
             events: std::collections::VecDeque::new(),
             memory: Memory::zeroed(),
             injected: BTreeMap::new(),
-            waited: false,
-            on_demand: false,
             irq_writes: Vec::new(),
             irq_kinds: (false, false),
             irq_at_nmi: None,
@@ -1094,9 +1067,6 @@ impl Lockstep {
                 if event.pc != WEAPON5_CHARGE || event.bank == Some(5) {
                     self.overflow.push((event.pc, event.cpu.p & 0x40 != 0));
                 }
-                continue;
-            }
-            if !self.on_demand && ON_DEMAND.contains(&event.pc) {
                 continue;
             }
             if [IRQ.0, NMI].contains(&event.pc) {
@@ -1357,43 +1327,6 @@ impl Environment for Lockstep {
         );
     }
 
-    fn outside(&mut self, game: &mut State, outside: super::Outside) {
-        let (entry, exit) = outside_bracket(outside);
-        self.on_demand = true;
-        let begin = self.expect(entry);
-        self.inject_irqs_at(game, &begin);
-        let mut waited = false;
-        let mut end = self.next();
-        while end.pc != exit {
-            waited |= end.pc == WAIT;
-            end = self.next();
-        }
-        self.on_demand = false;
-        self.irq_writes.clear();
-        self.irq_at_nmi = None;
-        self.early_irq.clear();
-        self.irq_kinds = (false, false);
-        self.waited |= waited;
-        let writes = changes(&begin, &end);
-        self.memory.inject(game, &writes);
-        self.record(Event::Outside {
-            kind: outside as u8,
-            waited,
-            writes,
-        });
-        *self.injected.entry(name(outside)).or_default() += 1;
-    }
-
-    fn waited(&mut self) -> bool {
-        std::mem::take(&mut self.waited)
-    }
-
-    fn relift(&mut self) -> State {
-        let game = self.lift_next();
-        self.record(Event::Relift(self.memory.snapshot()));
-        game
-    }
-
     fn reset(&mut self) {
         self.expect(RESET);
         self.record(Event::Reset);
@@ -1459,8 +1392,6 @@ struct TapePlayer<'a> {
     /// The index of the next event.
     next: usize,
     memory: Memory,
-    injected: BTreeMap<&'static str, usize>,
-    waited: bool,
 }
 
 impl<'a> TapePlayer<'a> {
@@ -1550,36 +1481,6 @@ impl Environment for TapePlayer<'_> {
         }
     }
 
-    fn outside(&mut self, game: &mut State, outside: super::Outside) {
-        self.inject_irqs(game);
-        match self.take() {
-            Event::Outside {
-                kind,
-                waited,
-                writes,
-            } if *kind == outside as u8 => {
-                self.waited |= waited;
-                self.memory.inject(game, writes);
-            }
-            other => self.stale(name(outside), other),
-        }
-        *self.injected.entry(name(outside)).or_default() += 1;
-    }
-
-    fn waited(&mut self) -> bool {
-        std::mem::take(&mut self.waited)
-    }
-
-    fn relift(&mut self) -> State {
-        match self.take() {
-            Event::Relift(snapshot) => {
-                self.memory = Memory::restore(snapshot);
-                self.memory.lift()
-            }
-            other => self.stale("Relift", other),
-        }
-    }
-
     fn reset(&mut self) {
         match self.take() {
             Event::Reset => {}
@@ -1608,21 +1509,19 @@ impl Environment for TapePlayer<'_> {
     }
 
     fn injected(&mut self) -> BTreeMap<&'static str, usize> {
-        std::mem::take(&mut self.injected)
+        BTreeMap::new()
     }
 }
 
 /// Replays the tape `name` through the port alone: the game [`assert_game`] recorded it
 /// from, checked at every compare. The interrupts' counts are not on the tape, so
-/// `injected` holds only the [`super::Outside`] routines.
+/// `injected` is empty.
 pub(crate) fn replay(name: &str, tape: &Tape, prg: &Prg, chr: &[u8]) -> GameRun {
     let mut player = TapePlayer {
         name,
         tape,
         next: 0,
         memory: Memory::zeroed(),
-        injected: BTreeMap::new(),
-        waited: false,
     };
     let run = run_game(&mut player, prg, chr);
     if let Some((frame, event)) = tape.events.get(player.next) {
@@ -1634,13 +1533,6 @@ pub(crate) fn replay(name: &str, tape: &Tape, prg: &Prg, chr: &[u8]) -> GameRun 
         );
     }
     run
-}
-
-fn name(outside: super::Outside) -> &'static str {
-    use super::Outside;
-    match outside {
-        Outside::SecondClass => "unported second-class update $CE7F",
-    }
 }
 
 /// Which script a [`Start`] follows.
@@ -1684,8 +1576,6 @@ pub(crate) struct GameRun {
     /// Frames of the cutscene (`$98BD`), the pause and the ending whose RAM was compared
     /// at their NMI wait.
     pub script_frames: usize,
-    /// Frames re-lifted because an injected routine waited for an NMI itself.
-    pub relifted: usize,
     /// Routines injected from the oracle, by name, with their call counts.
     pub injected: BTreeMap<&'static str, usize>,
     /// The port reset the game after GAME OVER, at the oracle's own reset; the run ends there.
@@ -1860,8 +1750,8 @@ pub(crate) struct Pictures {
 
 /// Runs the port's [`Game::frame`](super::Game::frame) chained from one lift at the
 /// loop's NMI wait, `frames` oracle frames on: every loop frame's RAM and WRAM must
-/// equal the oracle's at `$D45C` (scratch aside). The NMI's writes and the routines
-/// in [`super::Outside`] are injected; a [`super::Script`] is compared once, at the
+/// equal the oracle's at `$D45C` (scratch aside). The NMI's and the interrupts' writes are
+/// injected; a [`super::Script`] is compared once, at the
 /// next loop frame. The scene's pokes apply once, at the lift.
 pub(crate) fn assert_game(scene: Scene, frames: u64) -> GameRun {
     assert_game_scene(scene, frames).0
@@ -2039,7 +1929,7 @@ pub(crate) fn run_game(env: &mut impl Environment, prg: &Prg, chr: &[u8]) -> Gam
         let mut oam = game.oam.clone();
         (oam.records, oam.shown) = (Vec::new(), Vec::new());
         let drawers = slot_drawers(&game);
-        game.frame(prg, chr, &mut |outside, game| env.outside(game, outside));
+        game.frame(prg, chr);
         if game.reset() {
             env.reset();
             run.reset = true;
@@ -2049,11 +1939,6 @@ pub(crate) fn run_game(env: &mut impl Environment, prg: &Prg, chr: &[u8]) -> Gam
             env.hung();
             run.hung = true;
             break;
-        }
-        if env.waited() {
-            run.relifted += 1;
-            game = env.relift();
-            continue;
         }
         if let Some(script) = &game.script {
             if !scripted {

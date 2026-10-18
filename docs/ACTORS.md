@@ -1482,9 +1482,9 @@ script's last frame ends at its own wait, so the next call resumes the loop at
 the pause check, as the game does. The stage-end script itself runs inside the
 dispatch every frame (9l). The player move is `player::step_move`, with
 `Game::probe` carrying the probe bytes `$20-$28` it reads back between frames.
-The only routine it hands to `outside` is the second-class update `$CE7F`
-(`Outside::SecondClass`) when a live second-class type is unported, after the
-ported ones ran; the pause is a script (9p). `$BA = 4` is the next area's script
+It runs every routine itself: since 1.1.15 no `Outside` callback hands one to
+the oracle, and a test build asserts no live second-class type is unported; the
+pause is a script (9p). `$BA = 4` is the next area's script
 restarting the area (9m), 5 the power-up (9l), 6 the ending (`$D967`, 9r). The player draw `$84AB` runs in the port every loop frame,
 and the room change draws
 Batman with `player::draw_player` (`$94A6`). `Game::nmi(pad)` is the NMI wait
@@ -1497,7 +1497,7 @@ and the sound requests `$40-$43`, which the driver takes and clears.
 `assert_game(scene, frames)` lifts once at a `$D45C` peek and then only chains:
 before each call it injects the bytes the oracle's NMI changed (`$C232` ->
 `$C23F`: frame counters, pads, RNG spins, the queue drain, the sound driver),
-each `Outside` call injects its bracket's changed bytes, and after every loop
+and after every loop
 frame the port's whole memory (its state projected over the bytes it does not
 model, which only injections change) must equal the oracle's at `$D45C`,
 scratch aside. A script is compared once, at the next loop frame. Area 2 runs
@@ -1514,7 +1514,7 @@ sound driver, which took and cleared the loop's request in `$42`. The port runs
 one loop per NMI, so the lockstep keeps that NMI's changed bytes like an IRQ's
 (seeded play in the boss fight, pad seed 180518: seven of them, the first at
 frame 6953 with two weapon 4 tethers blowing bubbles; `$0042` port 3F, oracle 00
-without it). The lockstep starts inside the wait, and a relift drops the
+without it). The lockstep starts inside the wait, and its lift drops the
 interrupt bytes kept before it.
 
 **Seeded random play.** `random_play_in_stage_1_1_matches_the_oracle`, `..._in_stage_1_2_...` and
@@ -1575,9 +1575,9 @@ dispatch silently skips an unported second-class type) and the trigger `$0E`.
 **State tapes** (`actor/tape.rs`, spec `docs/specs/2026-10-15-state-tape-design.md`).
 `run_game` is the loop's only copy; it asks an `Environment` for every injection
 and compare. `Lockstep` is the oracle above, and `assert_game_recording` also
-records each step into a `Tape`: the start and relift snapshots (RAM then WRAM),
+records each step into a `Tape`: the start snapshot (RAM then WRAM),
 every IRQ injection (lag-frame NMIs included, empty ones too, before the `$0181`
-filter), each NMI's and `Outside` bracket's changed bytes, an FNV-1a 64 hash of
+filter), each NMI's changed bytes, an FNV-1a 64 hash of
 every compare (loop frames: RAM and WRAM, scratch zeroed; script frames: RAM,
 scratch and `$FE` zeroed), and how the run ended (`End`, `Reset`, `Hung`), each
 with its TAS frame. `TapePlayer` feeds those back through the same `Memory`
@@ -1594,8 +1594,9 @@ first event the replay did not ask for, or did ask for and the tape lacked. The
 release lockstep chain writes the tape on every run (`ROTJ_REQUIRE_ROM=1 cargo test --release
 -p rotj-core the_loop_matches_the_tas -- --ignored`, which `gates.sh` runs before the debug
 tests); without it the replay tests skip, or fail under `ROTJ_REQUIRE_ROM` (the lockstep chain is `#[ignore]`: 8-10 min
-in a debug build, 19 s in release). The replay's `injected` lists only `Outside` routines,
-since the tape does not count interrupts.
+in a debug build, 19 s in release). The replay's `injected` is empty, since the tape does not
+count interrupts. The tags of the retired `Relift` and `Outside` events (1 and 4, 1.1.15) stay
+unused, so the remaining events kept their encoding and a tape without them their bytes.
 
 ### 9l. The stage end and the next area (`actor/stage.rs`)
 
