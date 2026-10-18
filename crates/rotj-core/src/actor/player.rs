@@ -567,8 +567,14 @@ fn gravity(player: &mut Player, work: &Work) {
 /// `pressed`/`pad` are `$F5`/`$F6`, which the stun routine (`$92E8`) masks in
 /// place; the caller gets the masked values back. `work` is the zero-page set
 /// `$90-$A6`; `probe` reproduces the `$20-$28` working area.
-pub fn step_draw(pressed: &mut Buttons, pad: &mut Buttons, work: &mut Work, cx: &mut Cx<'_>) {
+pub fn step_draw(
+    pressed: &mut Buttons,
+    pad: &mut Buttons,
+    work: &mut Work,
+    cx: &mut Cx<'_>,
+) -> bool {
     let mut player = cx.effects.player;
+    let overflow;
     {
         let mut port = Port {
             player: &mut player,
@@ -577,12 +583,15 @@ pub fn step_draw(pressed: &mut Buttons, pad: &mut Buttons, work: &mut Work, cx: 
             probe: Probe::default(),
             pressed: *pressed,
             pad: *pad,
+            overflow: false,
         };
         port.run();
         *pressed = port.pressed;
         *pad = port.pad;
+        overflow = port.overflow;
     }
     cx.effects.player = player;
+    overflow
 }
 
 /// Batman's draw alone (`$94A6`), which the room change calls through `$D6FA`.
@@ -596,6 +605,7 @@ pub fn draw_player(work: &mut Work, cx: &mut Cx<'_>) {
             probe: Probe::default(),
             pressed: Buttons::NONE,
             pad: Buttons::NONE,
+            overflow: false,
         };
         port.draw();
     }
@@ -609,6 +619,8 @@ struct Port<'a, 'b> {
     probe: Probe,
     pressed: Buttons,
     pad: Buttons,
+    /// The 6502 overflow flag as the code so far left it (weapon 5's charge reads it).
+    overflow: bool,
 }
 
 impl Port<'_, '_> {
@@ -627,14 +639,14 @@ impl Port<'_, '_> {
         (x.wrapping_sub(self.cx.world.camera_x) >> 4).to_le_bytes()[0]
     }
 
-    /// `BIT`: the overflow flag takes bit 6 of `value`.
-    fn bit(&mut self, value: u8) {
-        self.work.cpu_overflow = value & 0x40 != 0;
+    /// `BIT`'s overflow: the flag takes bit 6 of `value`.
+    fn set_overflow_from(&mut self, value: u8) {
+        self.overflow = value & 0x40 != 0;
     }
 
     /// `$C93B`'s probe, which leaves `BIT $DD`'s overflow flag (the vertical-room bit).
     fn solid_at(&mut self, flags: u8) -> u8 {
-        self.work.cpu_overflow = self.cx.world.orientation & orientation::VERTICAL != 0;
+        self.overflow = self.cx.world.orientation & orientation::VERTICAL != 0;
         collision::solid(&mut self.probe, flags, self.cx)
     }
 
@@ -683,7 +695,7 @@ impl Port<'_, '_> {
 
     /// `$93A0`: projects the player onto the screen and falls into the draw.
     fn project(&mut self) {
-        self.bit(self.player.stage_script);
+        self.set_overflow_from(self.player.stage_script);
         if self.player.stage_script & stage_script::HIDDEN != 0 {
             return;
         }
@@ -733,7 +745,7 @@ impl Port<'_, '_> {
         let dy_hi = yhi
             .wrapping_sub(camy.to_be_bytes()[0])
             .wrapping_sub(u8::from(borrow));
-        self.work.cpu_overflow = sub_overflows16(self.player.y, camy);
+        self.overflow = sub_overflows16(self.player.y, camy);
         if dy_hi >= 0x0F {
             self.die();
             self.player.stage_script = stage_script::FROZEN | stage_script::HIDDEN;
@@ -741,7 +753,7 @@ impl Port<'_, '_> {
             return;
         }
         let mut sy = (dy_lo >> 4) | (dy_hi << 4);
-        self.work.cpu_overflow = adc_overflows(sy, 0, dy_lo & 0x01 != 0);
+        self.overflow = adc_overflows(sy, 0, dy_lo & 0x01 != 0);
         if dy_lo & 0x01 != 0 {
             sy = sy.wrapping_add(1);
         }
@@ -770,13 +782,13 @@ impl Port<'_, '_> {
 
     /// `$94A6`: the draw, its overlay and the hurt flash.
     fn draw(&mut self) {
-        self.bit(self.player.hurt);
+        self.set_overflow_from(self.player.hurt);
         if self.player.hurt & hurt::STUNNED == 0 && self.player.hurt & hurt::INVULNERABLE != 0 {
             self.player.hurt_timer = self.player.hurt_timer.wrapping_sub(1);
             if self.player.hurt_timer == 0 {
                 self.player.hurt &= !(hurt::STUNNED | hurt::INVULNERABLE);
             } else {
-                self.work.cpu_overflow = false;
+                self.overflow = false;
                 if self.cx.world.frame_odd {
                     return;
                 }
@@ -791,7 +803,7 @@ impl Port<'_, '_> {
         self.work.pointer = self.rw(table + u16::from(anim << 1));
         self.work.chr_slot = 5;
         self.work.tile = 0;
-        engine::draw(self.work, 1, self.cx);
+        self.overflow = engine::draw(self.work, 1, self.cx);
         if overlay != 0 {
             let index = if self.player.pose & pose::SHOT != 0 {
                 let x = usize::from(overlay.wrapping_sub(0x14));
@@ -805,18 +817,18 @@ impl Port<'_, '_> {
                 overlay
             };
             self.work.pointer = self.rw(0x9924 + u16::from(index) * 2);
-            engine::draw(self.work, 1, self.cx);
+            self.overflow = engine::draw(self.work, 1, self.cx);
         }
         self.drain_power_up();
     }
 
     /// `$9535`: the power-up's meter drain and its end, then the flash and muzzle overlays.
     fn drain_power_up(&mut self) {
-        self.bit(self.player.power_up);
+        self.set_overflow_from(self.player.power_up);
         if self.player.power_up & power_up::ON != 0 {
             self.player.flash_timer = self.player.flash_timer.wrapping_add(1);
             if self.player.flash_timer.trailing_zeros() >= 6 {
-                self.work.cpu_overflow = adc_overflows(self.cx.effects.meter, !2, true);
+                self.overflow = adc_overflows(self.cx.effects.meter, !2, true);
                 self.cx.effects.meter = self.cx.effects.meter.wrapping_sub(2);
                 if self.cx.effects.meter & 0x80 != 0 {
                     let weapon = self.cx.effects.stored_weapon;
@@ -853,7 +865,7 @@ impl Port<'_, '_> {
             return;
         }
         self.work.pointer = self.rw(0x9924 + u16::from(value) * 2);
-        engine::draw(self.work, 1, self.cx);
+        self.overflow = engine::draw(self.work, 1, self.cx);
     }
 
     /// `$95E4`: the muzzle flash the draw adds over the projectile pose.
@@ -861,7 +873,7 @@ impl Port<'_, '_> {
         if self.cx.effects.attack & (attack::CHARGING | attack::CHARGED) == 0 {
             return;
         }
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & (pose::TURNING | pose::SHOT) != pose::SHOT {
             return;
         }
@@ -874,7 +886,7 @@ impl Port<'_, '_> {
             };
             self.work.screen_x = self.work.screen_x.wrapping_add(add);
             let (y, carry) = self.work.screen_y.overflowing_add(0xBF);
-            self.work.cpu_overflow = adc_overflows(0xBF, self.work.screen_y, false);
+            self.overflow = adc_overflows(0xBF, self.work.screen_y, false);
             if !carry {
                 return;
             }
@@ -888,13 +900,13 @@ impl Port<'_, '_> {
                 player.muzzle_x_right[motion]
             };
             let (x, carry) = self.work.screen_x.overflowing_add(add);
-            self.work.cpu_overflow = adc_overflows(add, self.work.screen_x, false);
+            self.overflow = adc_overflows(add, self.work.screen_x, false);
             self.work.screen_x = x;
             if carry != (self.player.facing & 0x40 != 0) {
                 return;
             }
             let add = player.muzzle_y[motion];
-            self.work.cpu_overflow = adc_overflows(add, self.work.screen_y, false);
+            self.overflow = adc_overflows(add, self.work.screen_y, false);
             self.work.screen_y = self.work.screen_y.wrapping_add(add);
         }
         if self.cx.effects.attack & attack::CHARGED == 0 {
@@ -903,7 +915,7 @@ impl Port<'_, '_> {
         self.work.pointer = self.rw(0x9A38 + u16::from(self.cx.world.frame & 0x06));
         self.work.anchor = 0;
         self.work.tile = 0;
-        engine::draw(self.work, 1, self.cx);
+        self.overflow = engine::draw(self.work, 1, self.cx);
     }
 
     /// `$925D`: the hurt/death state.
@@ -911,7 +923,7 @@ impl Port<'_, '_> {
         self.player.walk_gate = Buttons::NONE;
         self.player.hurt_timer = self.player.hurt_timer.wrapping_sub(1);
         if self.player.hurt_timer & 0x80 != 0 {
-            self.bit(self.player.energy);
+            self.set_overflow_from(self.player.energy);
             if self.player.energy & 0x80 != 0 {
                 self.die();
                 return;
@@ -972,7 +984,7 @@ impl Port<'_, '_> {
 
     /// `$92B4`: down pressed: the crouch pose, which the next frame turns into crouching.
     fn start_crouch(&mut self) {
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::TURNING != 0 {
             self.player.facing ^= 0x40;
         }
@@ -1057,7 +1069,7 @@ impl Port<'_, '_> {
             }
         };
         let (a_hi, b_hi, carry) = if aim_up { y_adc } else { x_adc };
-        self.work.cpu_overflow = adc_overflows(a_hi, b_hi, carry);
+        self.overflow = adc_overflows(a_hi, b_hi, carry);
         let projectile = &mut self.cx.effects.projectiles[slot];
         projectile.kind = (weapon.byte() + 1) << 1;
         projectile.level_x_hi = x_hi;
@@ -1087,7 +1099,7 @@ impl Port<'_, '_> {
         } else {
             // The `$9DA0`/`$9E09`/`$9E72` handlers test the facing with `BIT $046F`.
             if matches!(handler, 0x9DA0 | 0x9E09 | 0x9E72) {
-                self.bit(self.player.facing);
+                self.set_overflow_from(self.player.facing);
             }
             self.shoot_ahead(slot, handler, face_left);
         }
@@ -1372,7 +1384,7 @@ impl Port<'_, '_> {
         }
         if self.cx.effects.attack & attack::CHARGING != 0 {
             let held = self.pad.contains(Buttons::B);
-            self.bit(self.pad.bits());
+            self.set_overflow_from(self.pad.bits());
             if self.cx.effects.attack & attack::CHARGED != 0 {
                 if held {
                     return;
@@ -1388,7 +1400,7 @@ impl Port<'_, '_> {
             }
             self.cx.effects.attack = attack::CHARGEABLE;
         }
-        self.bit(self.pressed.bits());
+        self.set_overflow_from(self.pressed.bits());
         if self.pressed.contains(Buttons::B) {
             self.cx.effects.attack = attack::CHARGEABLE | attack::CHARGING;
             self.player.charge_timer = 0;
@@ -1406,7 +1418,7 @@ impl Port<'_, '_> {
 
     /// `$84D1`: motion 0, standing.
     fn standing(&mut self) {
-        self.bit(self.player.hurt);
+        self.set_overflow_from(self.player.hurt);
         if self.player.hurt & hurt::STUNNED != 0 {
             self.hurt();
             return;
@@ -1433,7 +1445,7 @@ impl Port<'_, '_> {
             } else {
                 self.player.vy = i16::from_be_bytes([0xFF, 0xD4]);
                 self.set_vx_from_pad();
-                self.bit(self.player.pose);
+                self.set_overflow_from(self.player.pose);
                 if self.player.pose & pose::SHOT != 0 {
                     self.player.anim = 0x27;
                 }
@@ -1445,7 +1457,7 @@ impl Port<'_, '_> {
 
     /// `$857F`: standing with no saved state.
     fn standing_input(&mut self) {
-        self.bit(self.pressed.bits());
+        self.set_overflow_from(self.pressed.bits());
         if !self.pressed.contains(Buttons::A) && self.pad.contains(Buttons::UP) {
             self.player.motion = Motion::AimingUp;
             self.player.pose &= pose::SHOT;
@@ -1463,7 +1475,7 @@ impl Port<'_, '_> {
         } else if self.pad.contains(Buttons::DOWN) {
             self.start_crouch();
         } else {
-            self.bit(self.player.pose);
+            self.set_overflow_from(self.player.pose);
             if self.player.pose & pose::TURNING != 0 {
                 self.standing_turn();
             } else if self.player.pose & pose::SHOT == 0 {
@@ -1476,7 +1488,7 @@ impl Port<'_, '_> {
 
     /// `$862F`: A while standing: the jump starts next frame (the resume flag, motion 3).
     fn standing_jump(&mut self) {
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::TURNING != 0 {
             self.player.facing ^= 0x40;
         }
@@ -1494,7 +1506,7 @@ impl Port<'_, '_> {
             self.player.pose &= !pose::TURNING;
             self.player.facing ^= 0x40;
         }
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::SHOT != 0 {
             self.reset_and_shoot();
             self.player.attack_timer = 2;
@@ -1589,7 +1601,7 @@ impl Port<'_, '_> {
 
     /// `$8710`: the standing attack (the pose's attack flag set).
     fn standing_attack(&mut self) {
-        self.bit(self.player.power_up);
+        self.set_overflow_from(self.player.power_up);
         if self.player.power_up & power_up::ON != 0 {
             self.fire();
             self.player.anim = 0x25;
@@ -1614,7 +1626,7 @@ impl Port<'_, '_> {
             }
             _ => {}
         }
-        self.bit(self.cx.effects.attack);
+        self.set_overflow_from(self.cx.effects.attack);
         if self.cx.effects.attack & attack::CHARGING != 0 {
             self.melee_block();
             if self.player.attack_timer >= 0x14 {
@@ -1638,7 +1650,7 @@ impl Port<'_, '_> {
         if self.cx.effects.attack & attack::CHARGING == 0 {
             return None;
         }
-        self.bit(self.pad.bits());
+        self.set_overflow_from(self.pad.bits());
         if !self.pad.contains(Buttons::B) {
             self.cx.effects.attack = attack::CHARGEABLE;
             return None;
@@ -1659,7 +1671,7 @@ impl Port<'_, '_> {
     fn crouching(&mut self) {
         self.stun();
         self.player.walk_gate = Buttons::NONE;
-        self.bit(self.pressed.bits());
+        self.set_overflow_from(self.pressed.bits());
         if self.pressed.contains(Buttons::A) {
             if self.pad.contains(Buttons::DOWN) {
                 self.crouching_slide();
@@ -1677,7 +1689,7 @@ impl Port<'_, '_> {
 
     /// `$87A9`/`$87AE`: the down-held direction and turn handling.
     fn crouching_held(&mut self) {
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::TURNING != 0 {
             self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
             let x = u16::from(self.player.pose_timer >> 1);
@@ -1698,19 +1710,19 @@ impl Port<'_, '_> {
 
     /// `$8819`: crouching's attack.
     fn crouching_attack(&mut self) {
-        self.bit(self.player.power_up);
+        self.set_overflow_from(self.player.power_up);
         if self.player.power_up & power_up::ON != 0 {
             self.fire();
             self.player.anim = 0x26;
             return;
         }
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::SHOT == 0 {
             self.player.anim = 0x04;
             return;
         }
         self.player.attack_timer = self.player.attack_timer.wrapping_add(1);
-        self.bit(self.cx.effects.attack);
+        self.set_overflow_from(self.cx.effects.attack);
         if self.cx.effects.attack & attack::CHARGING != 0 {
             self.melee_block();
             if self.player.attack_timer >= 0x14 {
@@ -1742,7 +1754,7 @@ impl Port<'_, '_> {
             self.crouching_held();
             return;
         }
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::TURNING != 0 {
             self.player.facing ^= 0x40;
         }
@@ -1758,7 +1770,7 @@ impl Port<'_, '_> {
 
     /// `$889A`: motion 1 + the second pad shoulder.
     fn crouching_shot(&mut self) {
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::TURNING != 0 {
             self.player.facing ^= 0x40;
         }
@@ -1770,7 +1782,7 @@ impl Port<'_, '_> {
 
     /// `$88D3`: motion 1 + the first pad shoulder + down.
     fn crouching_slide(&mut self) {
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::TURNING != 0 {
             self.player.facing ^= 0x40;
         }
@@ -1784,7 +1796,7 @@ impl Port<'_, '_> {
 
     /// `$88FC`: motion 2.
     fn walking(&mut self) {
-        self.bit(self.player.hurt);
+        self.set_overflow_from(self.player.hurt);
         if self.player.hurt & hurt::STUNNED != 0 {
             self.hurt();
             return;
@@ -1803,7 +1815,7 @@ impl Port<'_, '_> {
 
     /// `$892E`: the walk's pad: aim up, jump, fire, attack, walk on or stop.
     fn walking_input(&mut self) {
-        self.bit(self.pressed.bits());
+        self.set_overflow_from(self.pressed.bits());
         if !self.pressed.contains(Buttons::A) && self.pad.contains(Buttons::UP) {
             self.player.motion = Motion::AimingUp;
             self.player.pose &= pose::SHOT;
@@ -1827,7 +1839,7 @@ impl Port<'_, '_> {
 
     /// `$8968`: motion 2 with no direction held.
     fn walking_stop(&mut self) {
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::TURNING != 0 {
             self.player.facing ^= 0x40;
         }
@@ -1879,7 +1891,7 @@ impl Port<'_, '_> {
             self.player.facing ^= 0x40;
         }
         self.reset_and_shoot();
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::SHOT != 0 {
             self.player.attack_timer = 4;
             return;
@@ -1912,7 +1924,7 @@ impl Port<'_, '_> {
             self.walking_pose();
             return;
         }
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::TURNING == 0 {
             self.player.pose = (self.player.pose & pose::SHOT) | pose::TURNING;
             self.player.pose_timer = 0;
@@ -1934,13 +1946,13 @@ impl Port<'_, '_> {
 
     /// `$8AC8`: walking's walking tail and its attack.
     fn walking_pose(&mut self) {
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::SHOT == 0 {
             self.player.anim =
                 self.cx.prg.player.animations.walking[usize::from(self.player.pose_timer)];
             return;
         }
-        self.bit(self.player.power_up);
+        self.set_overflow_from(self.player.power_up);
         if self.player.power_up & power_up::ON != 0 {
             self.fire();
             self.player.attack_timer = 0x10;
@@ -1950,7 +1962,7 @@ impl Port<'_, '_> {
         }
         self.player.attack_timer = self.player.attack_timer.wrapping_add(1);
         let mut x = self.player.pose_timer;
-        self.bit(self.cx.effects.attack);
+        self.set_overflow_from(self.cx.effects.attack);
         if self.cx.effects.attack & attack::CHARGING != 0 {
             x = self.melee_block().unwrap_or(x);
             if self.player.attack_timer >= 0x13 {
@@ -1995,12 +2007,12 @@ impl Port<'_, '_> {
 
     /// `$8BBC`: the jump's controls: fire, turn.
     fn jumping_input(&mut self) {
-        self.bit(self.pressed.bits());
+        self.set_overflow_from(self.pressed.bits());
         if self.pressed.contains(Buttons::B) {
             self.jumping_shot();
             return;
         }
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.pad.intersects(Buttons::SIDEWAYS)
             && !self.faces_press()
             && self.player.pose & pose::TURNING == 0
@@ -2036,7 +2048,7 @@ impl Port<'_, '_> {
             return;
         }
         self.player.attack_timer = self.player.attack_timer.wrapping_add(1);
-        self.bit(self.cx.effects.attack);
+        self.set_overflow_from(self.cx.effects.attack);
         if self.cx.effects.attack & attack::CHARGING != 0 {
             self.melee_block();
             if self.player.attack_timer >= 0x13 {
@@ -2069,7 +2081,7 @@ impl Port<'_, '_> {
     fn sliding(&mut self) {
         self.stun();
         self.player.walk_gate = Buttons::NONE;
-        self.bit(self.player.pose_step);
+        self.set_overflow_from(self.player.pose_step);
         if self.player.pose_step & 0x80 == 0 {
             self.slide_on_ground();
             return;
@@ -2091,7 +2103,7 @@ impl Port<'_, '_> {
             return;
         }
         let [hi, lo] = self.player.y.to_be_bytes();
-        self.work.cpu_overflow = adc_overflows(lo, !0x20, true);
+        self.overflow = adc_overflows(lo, !0x20, true);
         let (lo, borrow) = lo.overflowing_sub(0x20);
         self.player.y = u16::from_be_bytes([hi.wrapping_sub(u8::from(borrow)), lo]);
         self.player.pose = pose::LANDING | pose::LONG_LANDING;
@@ -2104,7 +2116,7 @@ impl Port<'_, '_> {
 
     /// `$8D38`: the slide on the ground (no landing flag).
     fn slide_on_ground(&mut self) {
-        self.bit(self.player.pose_timer);
+        self.set_overflow_from(self.player.pose_timer);
         if self.player.pose_timer & 0x80 != 0 {
             self.slide_glide();
             return;
@@ -2139,7 +2151,7 @@ impl Port<'_, '_> {
         self.player.sliding = sliding::ON;
         let [hi, lo] = self.player.x.to_be_bytes();
         let x = self.player.x.cast_signed();
-        self.work.cpu_overflow = if self.player.facing & 0x40 == 0 {
+        self.overflow = if self.player.facing & 0x40 == 0 {
             x.overflowing_add(0x80).1
         } else {
             x.overflowing_sub(0x80).1
@@ -2161,7 +2173,7 @@ impl Port<'_, '_> {
     fn slide_glide(&mut self) {
         self.player.anim = 0x3A;
         let cam = self.cx.world.camera_x;
-        self.work.cpu_overflow = sub_overflows16(self.player.x, cam);
+        self.overflow = sub_overflows16(self.player.x, cam);
         let [xhi, xlo] = self.player.x.to_be_bytes();
         let (_, borrow) = xlo.overflowing_sub(cam.to_be_bytes()[1]);
         let hi = xhi
@@ -2184,7 +2196,7 @@ impl Port<'_, '_> {
         let (ylo, yhi) = self.y();
         let py = yhi.wrapping_sub(u8::from(ylo < 0x80));
         let dx = self.screen_x(self.player.x);
-        self.work.cpu_overflow = sub_overflows16(self.player.x, self.cx.world.camera_x);
+        self.overflow = sub_overflows16(self.player.x, self.cx.world.camera_x);
         let solid = if self.player.facing & 0x40 == 0 {
             dx >= 0xD0 || self.solid_x(self.player.x.wrapping_add(0x180), py)
         } else {
@@ -2227,7 +2239,7 @@ impl Port<'_, '_> {
     /// `$8EB1`: motion 5.
     fn falling(&mut self) {
         self.player.walk_gate = Buttons::SIDEWAYS;
-        self.bit(self.pressed.bits());
+        self.set_overflow_from(self.pressed.bits());
         if self.pressed.contains(Buttons::B) {
             self.player.pose = pose::SHOT | pose::RESUME;
             self.player.attack_timer = 0;
@@ -2249,14 +2261,14 @@ impl Port<'_, '_> {
 
     /// `$8F01`: motion 6, aiming up.
     fn aiming_up(&mut self) {
-        self.bit(self.player.hurt);
+        self.set_overflow_from(self.player.hurt);
         if self.player.hurt & hurt::STUNNED != 0 {
             self.hurt();
             return;
         }
         self.player.walk_gate = Buttons::NONE;
         if self.pad.contains(Buttons::UP) {
-            self.bit(self.pressed.bits());
+            self.set_overflow_from(self.pressed.bits());
             if self.pressed.contains(Buttons::A) {
                 self.aiming_up_jump();
             } else if self.pressed.contains(Buttons::B) {
@@ -2268,7 +2280,7 @@ impl Port<'_, '_> {
             }
             return;
         }
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::SHOT != 0 {
             self.player.pose = pose::SHOT;
             self.player.pose_timer = 0;
@@ -2303,7 +2315,7 @@ impl Port<'_, '_> {
 
     /// `$8FFA`: motion 6 + the second pad shoulder.
     fn aiming_up_shot(&mut self) {
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::SHOT == 0 {
             self.player.attack_timer = 0;
             self.player.pose = (self.player.pose & !pose::TURNING) | pose::SHOT;
@@ -2324,7 +2336,7 @@ impl Port<'_, '_> {
 
     /// `$8F60`: aiming up's attack.
     fn aiming_up_attack(&mut self) {
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::SHOT == 0 {
             self.player.anim = 0x46;
             return;
@@ -2335,7 +2347,7 @@ impl Port<'_, '_> {
             return;
         }
         self.player.attack_timer = self.player.attack_timer.wrapping_add(1);
-        self.bit(self.cx.effects.attack);
+        self.set_overflow_from(self.cx.effects.attack);
         if self.cx.effects.attack & attack::CHARGING != 0 {
             self.melee_block();
             if self.player.attack_timer >= 0x13 {
@@ -2385,7 +2397,7 @@ impl Port<'_, '_> {
             if timer.is_multiple_of(16) {
                 self.cx.effects.sound[1] = 0x40;
             }
-            self.bit(self.player.death_flags);
+            self.set_overflow_from(self.player.death_flags);
             if self.player.death_flags & 0x80 == 0 {
                 self.work.pointer = self.rw(0x9A40 + u16::from(timer & 0x06));
                 self.work.attr = self.player.facing & 0x03;
@@ -2408,7 +2420,7 @@ impl Port<'_, '_> {
         if self.player.death_timer < 0xC0 {
             return;
         }
-        self.bit(self.cx.effects.hud);
+        self.set_overflow_from(self.cx.effects.hud);
         let effects = &mut *self.cx.effects;
         effects.transition = 4;
         self.player.energy = 0x0E;
@@ -2434,9 +2446,9 @@ impl Port<'_, '_> {
         self.work.chr_slot = chr_slot;
         self.work.screen_x = self.player.screen_x;
         self.work.screen_y = self.player.screen_y;
-        self.bit(self.player.death_flags);
+        self.set_overflow_from(self.player.death_flags);
         if self.player.death_flags & 0x80 == 0 {
-            engine::draw(self.work, 1, self.cx);
+            self.overflow = engine::draw(self.work, 1, self.cx);
         }
     }
 
@@ -2489,7 +2501,7 @@ impl Port<'_, '_> {
                 let effects = &mut *self.cx.effects;
                 effects.vram.push(0x3F00, 0, &effects.palette);
                 // `$C34B` -> `$C0C6`: its `ADC #$00` on the return address's high byte ($C3).
-                self.work.cpu_overflow = false;
+                self.overflow = false;
             }
             2 => {
                 if player.entry_timer == 0 {
@@ -2535,7 +2547,7 @@ impl Port<'_, '_> {
         self.work.screen_x = 0x3E;
         self.work.screen_y = 0xB0;
         self.work.pointer = rom_word(self.cx.prg, 14, 0xD1A4 + 2 * u16::from(pose));
-        engine::draw(self.work, 1, self.cx);
+        self.overflow = engine::draw(self.work, 1, self.cx);
     }
 
     /// `$D1B0`: the line above him, frame `line` (`$D1D8`), at (`$3E`, `$78`).
@@ -2545,7 +2557,7 @@ impl Port<'_, '_> {
         self.work.chr_slot = 4;
         self.work.screen_x = 0x3E;
         self.work.screen_y = 0x78;
-        engine::draw(self.work, 1, self.cx);
+        self.overflow = engine::draw(self.work, 1, self.cx);
     }
 
     /// `$D1E0`/`$D1F5` and `$D200`: queues `tally` at `$2348` (its last two digits
@@ -2579,7 +2591,7 @@ impl Port<'_, '_> {
 
     /// `$91B5`: motion 8, held while the power-up's pieces close in: hidden on odd frames.
     fn powering_up(&mut self) {
-        self.work.cpu_overflow = false;
+        self.overflow = false;
         if self.cx.world.frame_odd {
             self.player.stage_script = stage_script::FROZEN | stage_script::HIDDEN;
         } else {
@@ -2594,7 +2606,7 @@ impl Port<'_, '_> {
     fn flying(&mut self) {
         self.player.walk_gate = Buttons::DPAD;
         self.stun();
-        self.bit(self.pressed.bits());
+        self.set_overflow_from(self.pressed.bits());
         if self.pressed.contains(Buttons::B) {
             self.cx.effects.attack = if self.cx.effects.attack & attack::CHARGEABLE != 0 {
                 attack::CHARGEABLE | attack::CHARGING
@@ -2607,14 +2619,14 @@ impl Port<'_, '_> {
             self.player.pose |= pose::SHOT;
             return;
         }
-        self.bit(self.player.pose);
+        self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::SHOT == 0 {
             self.player.pose &= pose::RESUME;
             self.player.pose_timer = 0;
             return;
         }
         self.player.attack_timer = self.player.attack_timer.wrapping_add(1);
-        self.bit(self.cx.effects.attack);
+        self.set_overflow_from(self.cx.effects.attack);
         if self.cx.effects.attack & attack::CHARGING != 0 {
             self.melee_block();
             if self.player.attack_timer >= 0x13 {

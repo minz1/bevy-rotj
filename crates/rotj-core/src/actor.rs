@@ -235,14 +235,21 @@ impl Game {
         self.move_player(prg);
         scroll::speed(self, prg);
         scroll::step(self, prg);
-        self.draw_player(prg, true);
+        let overflow = self.draw_player(prg, true);
         #[cfg(test)]
-        oracle::overflow_at(0xD42F, self.work.cpu_overflow);
-        draw_second(prg, &self.world, &self.slots, &mut self.oam, &mut self.work);
+        oracle::overflow_at(0xD42F, overflow);
+        let overflow = draw_second(
+            prg,
+            &self.world,
+            &self.slots,
+            &mut self.oam,
+            &mut self.work,
+            overflow,
+        );
         #[cfg(test)]
-        oracle::overflow_at(0xD43B, self.work.cpu_overflow);
+        oracle::overflow_at(0xD43B, overflow);
         let (mut cx, work) = self.parts(prg);
-        weapons::step(work, &mut cx);
+        weapons::step(work, &mut cx, overflow);
         step_actors(prg, self);
         self.oam.finish();
         frame::animate_chr(self);
@@ -274,18 +281,22 @@ impl Game {
         }
     }
 
-    /// Batman's animate-and-draw (bank 4 `$84AB`), or the draw alone (`$94A6`).
-    pub fn draw_player(&mut self, prg: &Prg, animate: bool) {
+    /// Batman's animate-and-draw (bank 4 `$84AB`), or the draw alone (`$94A6`); the
+    /// 6502 overflow flag the animation leaves for weapon 5's charge, `false` for the draw
+    /// alone, whose flag nothing reads (the room change's next loop frame runs `$84AB`).
+    pub fn draw_player(&mut self, prg: &Prg, animate: bool) -> bool {
         let (mut pressed, mut pad) = (self.world.pressed, self.world.pad);
         let marking = std::mem::replace(&mut self.oam.marking, oam::Mark::Player);
         let (mut cx, work) = self.parts(prg);
-        if animate {
-            player::step_draw(&mut pressed, &mut pad, work, &mut cx);
+        let overflow = if animate {
+            player::step_draw(&mut pressed, &mut pad, work, &mut cx)
         } else {
             player::draw_player(work, &mut cx);
-        }
+            false
+        };
         self.oam.marking = marking;
         (self.world.pressed, self.world.pad) = (pressed, pad);
+        overflow
     }
 
     /// The NMI wait and the NMI (`$C232`, bank 15 `$E1D0`): the random bytes spun
@@ -382,14 +393,16 @@ pub fn step_second(prg: &Prg, game: &mut Game) {
     }
 }
 
-/// Draws the second-class actors, slots 31 down to 24 (bank 14 `$DC87`).
+/// Draws the second-class actors, slots 31 down to 24 (bank 14 `$DC87`); the 6502
+/// overflow flag its last live slot leaves, `overflow` when none is live.
 pub fn draw_second(
     prg: &[u8],
     world: &World,
     slots: &Slots,
     oam: &mut OamBuilder,
     work: &mut Work,
-) {
+    mut overflow: bool,
+) -> bool {
     let camera_x = world.camera_x.wrapping_add(8) & 0xFFF0;
     let camera_y = world.camera_y.wrapping_add(8);
     let marking = oam.marking;
@@ -398,16 +411,16 @@ pub fn draw_second(
         if second.kind == 0 {
             continue;
         }
-        work.cpu_overflow = world.camera_x.cast_signed().overflowing_add(8).1;
+        overflow = world.camera_x.cast_signed().overflowing_add(8).1;
         if body.anim & 0x80 != 0 {
             continue;
         }
-        work.cpu_overflow = engine::sub_overflows16(body.x, camera_x);
+        overflow = engine::sub_overflows16(body.x, camera_x);
         let Some(dx) = body.x.checked_sub(camera_x).filter(|&d| d < 0x1000) else {
             continue;
         };
         work.screen_x = (dx >> 4).to_le_bytes()[0];
-        work.cpu_overflow = engine::sub_overflows16(body.y, camera_y);
+        overflow = engine::sub_overflows16(body.y, camera_y);
         let Some(dy) = body.y.checked_sub(camera_y).filter(|&d| d < 0x1000) else {
             continue;
         };
@@ -428,9 +441,10 @@ pub fn draw_second(
             bottom: work.anchor & 0x40 != 0,
         };
         oam.marking = oam::Mark::Second(u8::try_from(index).expect("8 second-class slots"));
-        work.cpu_overflow = oam.draw(&sprite, call, world.frame_odd);
+        overflow = oam.draw(&sprite, call, world.frame_odd);
     }
     oam.marking = marking;
+    overflow
 }
 
 #[cfg(test)]
@@ -499,6 +513,18 @@ mod tests {
             crate::prg::for_test().expect("the test ROM"),
             &rom.chr,
         )
+    }
+
+    /// With no live second-class actor the overflow flag passes through `$DC87` untouched.
+    #[test]
+    fn draw_second_with_no_live_slot_keeps_the_overflow_flag() {
+        let mut oam = super::oam::OamBuilder::new();
+        let mut work = super::engine::Work::default();
+        let (world, slots) = (super::World::default(), super::slots::Slots::default());
+        for overflow in [false, true] {
+            let kept = super::draw_second(&[], &world, &slots, &mut oam, &mut work, overflow);
+            assert_eq!(kept, overflow);
+        }
     }
 
     /// The chain's counts, which its tape's replay reproduces.

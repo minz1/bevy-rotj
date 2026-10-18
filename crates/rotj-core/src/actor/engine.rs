@@ -49,11 +49,6 @@ pub struct Work {
     pub damage: u8,
     /// The running slot's index, set by the actor loop (`$10`).
     pub slot: u8,
-    /// The 6502 overflow flag as the last instruction that sets it left it; weapon 5's
-    /// charge (`$9790`) reads it from the routines that ran before. A `BIT $F7` always
-    /// clears it: `$F7` bit 6 is never set (only the reset and the NMI's `EOR #$80`
-    /// write `$F7`).
-    pub cpu_overflow: bool,
 }
 
 /// Where an actor is relative to the view (`$A852`'s result).
@@ -565,13 +560,13 @@ pub fn sub_overflows16(a: u16, b: u16) -> bool {
 }
 
 /// Draws the metasprite at [`Work::pointer`] from `bank` (`$C247`; `$8FC4` uses bank 1).
-pub fn draw(work: &mut Work, bank: u8, cx: &mut Cx<'_>) {
+pub fn draw(work: &mut Work, bank: u8, cx: &mut Cx<'_>) -> bool {
     let sprite = Metasprite::from_rom(cx.prg, bank, work.pointer).expect("metasprite");
-    draw_metasprite(work, &sprite, cx);
+    draw_metasprite(work, &sprite, cx)
 }
 
-/// Draws `sprite` where [`Work`] places it (`$C247`).
-pub fn draw_metasprite(work: &mut Work, sprite: &Metasprite, cx: &mut Cx<'_>) {
+/// Draws `sprite` where [`Work`] places it (`$C247`); the overflow flag it leaves.
+pub fn draw_metasprite(work: &mut Work, sprite: &Metasprite, cx: &mut Cx<'_>) -> bool {
     let call = DrawCall {
         x: i16::from(work.screen_x),
         y: i16::from(work.screen_y),
@@ -580,7 +575,7 @@ pub fn draw_metasprite(work: &mut Work, sprite: &Metasprite, cx: &mut Cx<'_>) {
         chr_slot: work.chr_slot,
         bottom: work.anchor & 0x40 != 0,
     };
-    work.cpu_overflow = cx.oam.draw(sprite, call, cx.world.frame_odd);
+    cx.oam.draw(sprite, call, cx.world.frame_odd)
 }
 
 fn overlaps(work: &Work, player: &Player, hitbox: Hitbox) -> bool {
@@ -1175,7 +1170,6 @@ mod layout {
                 age: ram[0xA6],
                 damage: ram[0xA7],
                 slot: ram[0x10],
-                cpu_overflow: false,
             }
         }
 

@@ -187,14 +187,15 @@ impl Tables {
     }
 }
 
-/// One call of the bank-5 weapons routine (`$D444` -> `$D447`).
-pub fn step(work: &mut Work, cx: &mut Cx<'_>) {
+/// One call of the bank-5 weapons routine (`$D444` -> `$D447`), `overflow` the 6502
+/// overflow flag the loop leaves before it (weapon 5's charge reads it).
+pub fn step(work: &mut Work, cx: &mut Cx<'_>, overflow: bool) {
     // The handlers below take the scroll directly; lend it out of the context.
     let mut scroll = std::mem::take(cx.scroll);
     let marking = cx.oam.marking;
     match cx.effects.weapon {
         Weapon::PowerUpPieces => power_up_pieces(work, cx),
-        weapon => each_projectile(work, cx, &mut scroll, weapon),
+        weapon => each_projectile(work, cx, &mut scroll, weapon, overflow),
     }
     cx.oam.marking = marking;
     *cx.scroll = scroll;
@@ -255,8 +256,15 @@ fn power_up_pieces(work: &mut Work, cx: &mut Cx<'_>) {
     }
 }
 
-/// The shared slot scan (`$8037`): `$9A`/`$A4`/`$98` reset, then slots 15 down to 0.
-fn each_projectile(work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scroll, weapon: Weapon) {
+/// The shared slot scan (`$8037`): `$9A`/`$A4`/`$98` reset, then slots 15 down to 0, the
+/// overflow flag carried from slot to slot for weapon 5's charge.
+fn each_projectile(
+    work: &mut Work,
+    cx: &mut Cx<'_>,
+    scroll: &mut Scroll,
+    weapon: Weapon,
+    mut overflow: bool,
+) {
     work.anchor = 0;
     work.tile = 0;
     work.chr_slot = 4;
@@ -272,7 +280,7 @@ fn each_projectile(work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scroll, weapon
                 Weapon::Splitter => splitter(slot, work, cx),
                 Weapon::ThreeWay => three_way(slot, work, cx),
                 Weapon::Super => {
-                    if !super_weapon(slot, work, cx, scroll) {
+                    if !super_weapon(slot, work, cx, scroll, &mut overflow) {
                         return;
                     }
                 }
@@ -336,8 +344,6 @@ fn project_keep(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
 /// `$9E46`: on the screen writes `$94/$95` and `$7B80/$7B90`.
 fn project_to_screen(slot: usize, work: &mut Work, cx: &mut Cx<'_>, keep: bool) -> bool {
     let (camera_x, camera_y) = (cx.world.camera_x, cx.world.camera_y);
-    // Off the screen the last `BIT $30` (`A` is `$00` or `$80`) clears the overflow flag.
-    work.cpu_overflow = false;
     let dx = work.x.wrapping_sub(camera_x);
     if work.x < camera_x || dx.to_be_bytes()[0] >= 0x10 {
         if !keep {
@@ -356,7 +362,6 @@ fn project_to_screen(slot: usize, work: &mut Work, cx: &mut Cx<'_>, keep: bool) 
         return false;
     }
     work.screen_y = (dy >> 4).to_le_bytes()[0];
-    work.cpu_overflow = engine::sub_overflows16(work.y, camera_y);
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.screen_y = work.screen_y;
     projectile.screen_x = work.screen_x;
@@ -365,7 +370,7 @@ fn project_to_screen(slot: usize, work: &mut Work, cx: &mut Cx<'_>, keep: bool) 
 
 /// Draws [`Work::pointer`] from the window its address falls in (`$C247`); a stale
 /// timer can point past the sprite tables, into the loop's own bank 14 or bank 15.
-fn draw(work: &mut Work, cx: &mut Cx<'_>) {
+fn draw(work: &mut Work, cx: &mut Cx<'_>) -> bool {
     let bank = match work.pointer {
         0x8000..=0x9FFF => 5,
         0xA000..=0xBFFF => 1,
@@ -373,7 +378,7 @@ fn draw(work: &mut Work, cx: &mut Cx<'_>) {
         0xE000..=0xFFFF => 15,
         other => panic!("projectile metasprite ${other:04X} is below the PRG windows"),
     };
-    engine::draw(work, bank, cx);
+    engine::draw(work, bank, cx)
 }
 
 /// Is the metatile at the working position solid (`$C93B`)?
@@ -386,11 +391,16 @@ fn solid(work: &Work, flags: u8, cx: &Cx<'_>) -> bool {
     collision::solid(&mut probe, flags, cx) & 0x80 != 0
 }
 
-/// Draws only on every other frame (`LDA $10; EOR $F1; LSR; BCS`).
-fn draw_alternate_frames(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
-    if (u8::try_from(slot).expect("slot < 16") ^ cx.world.frame) & 1 == 0 {
-        draw(work, cx);
-    }
+/// Draws only on every other frame (`LDA $10; EOR $F1; LSR; BCS`); the overflow flag the
+/// draw leaves, if it drew.
+fn draw_alternate_frames(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> Option<bool> {
+    ((u8::try_from(slot).expect("slot < 16") ^ cx.world.frame) & 1 == 0).then(|| draw(work, cx))
+}
+
+/// The overflow flag `$9E46`'s projection leaves: off the screen its last `BIT $30` (`A`
+/// `$00` or `$80`) clears it, on the screen the y subtraction sets it.
+fn projection_overflow(on_screen: bool, work: &Work, cx: &Cx<'_>) -> bool {
+    on_screen && engine::sub_overflows16(work.y, cx.world.camera_y)
 }
 
 /// Handler `$8029` (`$0476` 0): the fired projectile.
@@ -763,13 +773,19 @@ fn sprite_by_timer(slot: usize, sprites: [u16; 2]) -> impl FnOnce(&mut Cx<'_>) -
 /// Handler `$9647` (`$0476` 5, the power-up's weapon): handler 0's flight and wall
 /// bounce with its own sprites (`$9771`, `$9779`, the spent `$977B`); types `$80`
 /// and up are its super attack. False when the handler returns before the other slots.
-fn super_weapon(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scroll) -> bool {
+fn super_weapon(
+    slot: usize,
+    work: &mut Work,
+    cx: &mut Cx<'_>,
+    scroll: &mut Scroll,
+    overflow: &mut bool,
+) -> bool {
     if cx.effects.projectiles[slot].kind >= 0x80 {
-        return super_attack(slot, work, cx, scroll);
+        return super_attack(slot, work, cx, scroll, overflow);
     }
     #[cfg(test)]
     super::oracle::seen(0x9668);
-    flying_shot(
+    *overflow = flying_shot(
         slot,
         work,
         cx,
@@ -781,10 +797,19 @@ fn super_weapon(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scro
 
 /// Handler 5's types `$80` and up (`$9781`, dispatch `$9D24`), the power-up's
 /// super attack; false when the handler returns before the other slots.
-fn super_attack(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scroll) -> bool {
+fn super_attack(
+    slot: usize,
+    work: &mut Work,
+    cx: &mut Cx<'_>,
+    scroll: &mut Scroll,
+    overflow: &mut bool,
+) -> bool {
     match cx.effects.projectiles[slot].kind {
-        super_stage::UNLEASH => super_unleash(slot, work, cx, scroll),
-        super_stage::ORBITER => super_orbiter(slot, work, cx, scroll),
+        super_stage::UNLEASH => super_unleash(slot, cx, scroll, *overflow),
+        super_stage::ORBITER => {
+            *overflow = false;
+            super_orbiter(slot, work, cx, scroll)
+        }
         super_stage::PAIRS => {
             super_pairs(slot, cx);
             true
@@ -797,13 +822,18 @@ fn super_attack(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scro
 /// Type `$80` (`$9790`): with the meter at 2 or more, the charge claims every
 /// other slot (type `$83`), stops the scroll and the player (`$0481` bit 7) and
 /// becomes the type `$82` that releases the orbiting pairs; with less it is
-/// dropped and the handler returns. It waits while the overflow flag is set:
-/// the game tests `LDA $B8; BVC`, and `LDA` leaves V as the code before left it
-/// (`docs/ACTORS.md` §9g).
-fn super_unleash(slot: usize, work: &Work, cx: &mut Cx<'_>, scroll: &mut Scroll) -> bool {
+/// dropped and the handler returns.
+///
+/// Classic's rule: the charge waits while `overflow`, the 6502's overflow flag, is set.
+/// The game tests `LDA $B8; BVC`, and `LDA` leaves V as the code before left it
+/// (`docs/ACTORS.md` §9g): the last writer among Batman's frame (`$84AB`: set while B is
+/// held, while he stands invulnerable, or turning mid-jump or rising from a crouch), the
+/// last live second-class actor's projection and draw (which usually clear it), and a shot
+/// in a higher slot.
+fn super_unleash(slot: usize, cx: &mut Cx<'_>, scroll: &mut Scroll, overflow: bool) -> bool {
     #[cfg(test)]
-    super::oracle::overflow_at(0x9790, work.cpu_overflow);
-    if work.cpu_overflow {
+    super::oracle::overflow_at(0x9790, overflow);
+    if overflow {
         return true;
     }
     if cx.effects.meter < 2 {
@@ -947,7 +977,6 @@ fn super_orbiter(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scr
         return false;
     }
     super_spring(slot, centre, cx);
-    work.cpu_overflow = false;
     if cx.effects.projectiles[slot].part & 0x80 != 0 {
         super_flash(slot, cx);
     }
@@ -1055,24 +1084,25 @@ fn super_smite(cx: &mut Cx<'_>) {
 }
 
 /// A shot's flight, wall bounce and draw: `flight` picks the sprite in flight
-/// (and may change `$7C20`), `spent` is the spent sprites' pointer table.
+/// (and may change `$7C20`), `spent` is the spent sprites' pointer table. The overflow
+/// flag it leaves: gravity's, the projection's or the draw's.
 fn flying_shot(
     slot: usize,
     work: &mut Work,
     cx: &mut Cx<'_>,
     flight: impl FnOnce(&mut Cx<'_>) -> u16,
     spent: u16,
-) {
+) -> bool {
     advance(slot, work, cx);
     let phase = cx.effects.projectiles[slot].state;
     if phase & 0x80 == 0 {
         if phase & 0x40 != 0 {
             let projectile = &mut cx.effects.projectiles[slot];
-            work.cpu_overflow = gravity(projectile);
+            let overflow = gravity(projectile);
             projectile.timer = projectile.timer.wrapping_sub(1);
             if projectile.timer & 0x80 != 0 {
                 projectile.kind = 0;
-                return;
+                return overflow;
             }
         } else if solid(work, phase << 1, cx) {
             let timer = cx.effects.projectiles[slot].timer;
@@ -1080,8 +1110,8 @@ fn flying_shot(
                 #[cfg(test)]
                 super::oracle::seen(0x80CD);
                 cx.effects.projectiles[slot].timer = timer | 1;
-                project_or_free(slot, work, cx);
-                return;
+                let on_screen = project_or_free(slot, work, cx);
+                return projection_overflow(on_screen, work, cx);
             }
             #[cfg(test)]
             super::oracle::seen(0x80DA);
@@ -1089,8 +1119,10 @@ fn flying_shot(
             bounce_off_wall(slot, cx, positive);
         }
     }
-    if !project_or_free(slot, work, cx) {
-        return;
+    let on_screen = project_or_free(slot, work, cx);
+    let projected = projection_overflow(on_screen, work, cx);
+    if !on_screen {
+        return projected;
     }
     let (phase, timer) = {
         let projectile = &cx.effects.projectiles[slot];
@@ -1107,7 +1139,7 @@ fn flying_shot(
         }
     }
     work.attr = cx.effects.projectiles[slot].attr;
-    draw_alternate_frames(slot, work, cx);
+    draw_alternate_frames(slot, work, cx).unwrap_or(projected)
 }
 
 /// Handler `$8891` (`$0476` 2): the splitter, which flies on, pushing its speed toward a
@@ -1919,6 +1951,40 @@ mod tests {
     use super::super::oracle::{Scene, assert_game, assert_routine, was_seen};
     use super::super::world::Cx;
 
+    /// Stage 1-1 with the power-up's weapon and its charge (type `$80`) in slot 14, the
+    /// meter at 2, after one weapons call with `overflow` coming in and, if `shot_above`, a
+    /// shot flying off the screen in slot 15; the charge's type after it.
+    fn charge_after(overflow: bool, shot_above: bool) -> Option<u8> {
+        let rom = rotj_rom::for_test()?;
+        let prg = crate::prg::for_test()?;
+        let mut game = super::super::room::start(prg, &rom.chr, 0);
+        game.effects.weapon = super::Weapon::Super;
+        game.effects.meter = 2;
+        game.effects.projectiles[14].kind = super::super_stage::UNLEASH;
+        if shot_above {
+            let shot = &mut game.effects.projectiles[15];
+            shot.kind = 1;
+            shot.state = 0x40;
+            shot.timer = 0x10;
+            shot.level_x_hi = game.world.camera_x.to_be_bytes()[0].wrapping_add(0x20);
+        }
+        let (mut cx, work) = game.parts(prg);
+        super::step(work, &mut cx, overflow);
+        Some(game.effects.projectiles[14].kind)
+    }
+
+    /// Classic's rule: the charge waits while the overflow flag coming in is set, unless a
+    /// shot in a higher slot leaves it clear (an off-screen projection clears it).
+    #[test]
+    fn the_charge_waits_on_the_overflow_flag_the_slots_above_leave() {
+        let Some(waiting) = charge_after(true, false) else {
+            return;
+        };
+        assert_eq!(waiting, super::super_stage::UNLEASH);
+        assert_eq!(charge_after(false, false), Some(super::super_stage::PAIRS));
+        assert_eq!(charge_after(true, true), Some(super::super_stage::PAIRS));
+    }
+
     /// Diffs the port against every `$D444` call of `scene`; returns `(calls, live)`.
     fn diff(scene: Option<Scene>, frames: u64) -> (usize, usize) {
         let Some(mut scene) = scene else {
@@ -1943,7 +2009,7 @@ mod tests {
                 scroll: &mut r.state.scroll,
                 oam: &mut r.state.oam,
             };
-            super::step(&mut r.state.work, &mut cx);
+            super::step(&mut r.state.work, &mut cx, r.begin.cpu.p & 0x40 != 0);
         });
         (checked, live)
     }

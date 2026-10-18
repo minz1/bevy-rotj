@@ -1258,8 +1258,9 @@ in 12, `$857F`, `$84D1`, `$88FC`, `$892E`), the draw `$C247`'s `ADC $94`
 (`$C288`, 8), the second-class draw's `SBC $31` (`$DCDF`, 5) and the solid
 probe's `BIT $DD` (`$C93D`, 2).
 
-The port now carries the flag: `Work::cpu_overflow` holds what the last
-V-setting instruction left, and `unleash` branches on it. Which instructions can
+The port carries the flag as data (since 1.1.16; `docs/specs/2026-10-18-overflow-flow-design.md`):
+`$84AB`'s port returns the V it leaves, `draw_second` takes and returns it, and
+`weapons::step` threads it slot to slot to `super_unleash`, which branches on it. Which instructions can
 be last was found statically, by a reaching-definitions pass over the
 disassembly from each entry to its `RTS` (calls summarised, the jump tables
 `$96C3`, `$9A75`, `$9EB5`, `$9EC1`, `$9D24` and `$D16C` expanded): 78 in `$84AB`,
@@ -1286,6 +1287,9 @@ weapon 5 runs of the sweep above (2000 frames each) match.
 `weapon_5s_charge_waits_on_the_overflow_flag` pins four seeded runs whose
 `$9790` V differs from `$B8` bit 6 (left by `$C288`, `$DCDF`, `$85A4` and
 `$C93D`); with the old `$B8` bit 6 test the first diverges in RAM.
+`the_charge_waits_on_the_overflow_flag_the_slots_above_leave` (weapons) pins the
+threading: the charge waits on the flag coming in, and a shot in a higher slot
+that goes off the screen clears it.
 
 Let go with the meter `$0477` below 2, the charge is dropped, `$B8` keeps bit 7 and the handler returns (`$979E`). Otherwise
 (`$97AC`): `$AF = $80`, effect `$47`, `$0481` bit 7 (the pads cleared, 9m), the

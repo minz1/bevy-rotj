@@ -123,9 +123,7 @@ pub(crate) type State = super::Game;
 
 impl State {
     pub(crate) fn lift(peek: &PeekEvent) -> State {
-        let mut state = State::lift_memory(&peek.ram, &peek.wram);
-        state.work.cpu_overflow = peek.cpu.p & 0x40 != 0;
-        state
+        State::lift_memory(&peek.ram, &peek.wram)
     }
 
     pub(crate) fn lift_memory(ram: &[u8; 2048], wram: &[u8; 8192]) -> State {
@@ -2156,6 +2154,7 @@ pub(crate) fn assert_second_phases(mut scene: Scene, frames: u64, kinds: &[u8]) 
                     &state.slots,
                     &mut state.oam,
                     &mut state.work,
+                    begin.cpu.p & 0x40 != 0,
                 );
             }
             let (ram, wram) = state.project(&begin);
