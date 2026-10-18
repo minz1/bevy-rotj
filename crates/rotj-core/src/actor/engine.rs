@@ -876,19 +876,23 @@ pub fn hurt_player(effects: &mut Effects) {
     effects.sound[0] = 0x25;
     effects.attack &= attack::CHARGEABLE;
     let player = &mut effects.player;
+    let knock_back = start_hurt(player);
+    if player.motion.on_foot() || player.motion == Motion::AimingUp {
+        player.vx = knock_back;
+    }
+}
+
+/// The hurt's start, the same for a damage tile (`$82B9`) and an actor (`$B17F`): the shot
+/// pose dropped, stunned and invulnerable for 32 frames, a fall turned into a jump; the
+/// knock-back speed, away from where Batman faces. The callers add the sound and drop a charge.
+pub fn start_hurt(player: &mut Player) -> i16 {
     player.pose &= !pose::SHOT;
     player.hurt_timer = 0x20;
     player.hurt = hurt::STUNNED | hurt::INVULNERABLE;
     if player.motion == Motion::Falling {
         player.motion = Motion::Jumping;
     }
-    if player.motion.on_foot() || player.motion == Motion::AimingUp {
-        player.vx = if player.facing & 0x40 == 0 {
-            -0x20
-        } else {
-            0x20
-        };
-    }
+    if player.facing & 0x40 == 0 { -0x20 } else { 0x20 }
 }
 
 /// Spawns type `$08`'s four parts around the working position (`$AC16`); the slot used.

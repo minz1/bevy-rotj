@@ -272,21 +272,12 @@ pub fn step_move(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
         && player.energy & 0x80 == 0
     {
         hit!(9);
-        player.pose &= !pose::SHOT;
         player.energy = player.energy.wrapping_sub(work.damage);
         cx.effects.sound[0] = 0x25;
-        player.hurt = hurt::STUNNED | hurt::INVULNERABLE;
         cx.effects.attack &= attack::CHARGEABLE;
-        player.hurt_timer = 0x20;
-        if player.motion == Motion::Falling {
-            player.motion = Motion::Jumping;
-        }
+        let knock_back = engine::start_hurt(&mut player);
         if player.motion.on_foot() {
-            work.ax = if player.facing & 0x40 == 0 {
-                i16::from_be_bytes([0xFF, 0xE0])
-            } else {
-                i16::from_be_bytes([0x00, 0x20])
-            };
+            work.ax = knock_back;
         }
     }
 
@@ -953,8 +944,9 @@ impl Port<'_, '_> {
         self.player.facing = x;
     }
 
-    /// `$92E8`: the invulnerability stun, which masks `$F5`/`$F6` in place.
-    fn stun(&mut self) {
+    /// `$92E8`: the frame Batman spends stunned while knocked back, which masks `$F5`/`$F6`
+    /// in place.
+    fn stunned(&mut self) {
         if self.player.hurt & hurt::STUNNED == 0 {
             return;
         }
@@ -1669,7 +1661,7 @@ impl Port<'_, '_> {
 
     /// `$8795`: motion 1.
     fn crouching(&mut self) {
-        self.stun();
+        self.stunned();
         self.player.walk_gate = Buttons::NONE;
         self.set_overflow_from(self.pressed.bits());
         if self.pressed.contains(Buttons::A) {
@@ -1978,7 +1970,7 @@ impl Port<'_, '_> {
     /// `$8B78`: jumping, the held jump's lift on odd frames.
     fn jumping(&mut self) {
         self.player.walk_gate = Buttons::SIDEWAYS;
-        self.stun();
+        self.stunned();
         if self.player.pose & pose::RESUME == 0 && self.cx.world.frame_odd {
             if self.pad.contains(Buttons::A) {
                 self.player.pose_step = self.player.pose_step.wrapping_add(1);
@@ -2079,7 +2071,7 @@ impl Port<'_, '_> {
 
     /// `$8CC6`: sliding.
     fn sliding(&mut self) {
-        self.stun();
+        self.stunned();
         self.player.walk_gate = Buttons::NONE;
         self.set_overflow_from(self.player.pose_step);
         if self.player.pose_step & 0x80 == 0 {
@@ -2605,7 +2597,7 @@ impl Port<'_, '_> {
     /// `$91DB`: motion 11.
     fn flying(&mut self) {
         self.player.walk_gate = Buttons::DPAD;
-        self.stun();
+        self.stunned();
         self.set_overflow_from(self.pressed.bits());
         if self.pressed.contains(Buttons::B) {
             self.cx.effects.attack = if self.cx.effects.attack & attack::CHARGEABLE != 0 {
