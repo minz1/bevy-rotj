@@ -74,11 +74,9 @@ impl Snapshot {
                 second.body.y,
             )
         });
-        let projectiles = (0u8..).zip(&game.effects.projectiles).map(|(index, shot)| {
-            let x = u16::from_be_bytes([shot.level_x_hi, shot.level_x_lo]);
-            let y = u16::from_be_bytes([shot.level_y_hi, shot.level_y_lo]);
-            slot(Mark::Projectile(index), shot.kind, x, y)
-        });
+        let projectiles = (0u8..)
+            .zip(&game.effects.projectiles)
+            .map(|(index, shot)| slot(Mark::Projectile(index), shot.kind, shot.x, shot.y));
         let player = &game.effects.player;
         let batman = DrawerState {
             drawer: Mark::Player,
@@ -228,11 +226,9 @@ mod tests {
         for (index, shot) in (0u8..).zip(&game.effects.projectiles) {
             let shot_state = state(Mark::Projectile(index));
             assert_eq!(shot_state.kind, Some(shot.kind));
-            let x = u16::from_be_bytes([shot.level_x_hi, shot.level_x_lo]);
-            let y = u16::from_be_bytes([shot.level_y_hi, shot.level_y_lo]);
             assert_eq!(
                 shot_state.position * 16.0,
-                Vec2::new(f32::from(x), f32::from(y))
+                Vec2::new(f32::from(shot.x), f32::from(shot.y))
             );
         }
         let player = &game.effects.player;

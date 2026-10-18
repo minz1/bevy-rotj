@@ -47,10 +47,7 @@ fn shot_ahead(projectile: &mut Projectile, damage: u8) {
 
 /// A part's start at its source's level position (`$9F5B`).
 fn at_source(projectile: &mut Projectile, source: &Projectile) {
-    projectile.level_x_hi = source.level_x_hi;
-    projectile.level_x_lo = source.level_x_lo;
-    projectile.level_y_hi = source.level_y_hi;
-    projectile.level_y_lo = source.level_y_lo;
+    (projectile.x, projectile.y) = (source.x, source.y);
 }
 
 /// One `anim`'s per-`anim` properties (bank 4), the tables `$88` apart.
@@ -1069,10 +1066,8 @@ impl Port<'_, '_> {
         self.overflow = adc_overflows(a_hi, b_hi, carry);
         let projectile = &mut self.cx.effects.projectiles[slot];
         projectile.kind = (weapon.byte() + 1) << 1;
-        projectile.level_x_hi = x_hi;
-        projectile.level_x_lo = x_lo;
-        projectile.level_y_hi = y_hi;
-        projectile.level_y_lo = y_lo;
+        projectile.x = u16::from_be_bytes([x_hi, x_lo]);
+        projectile.y = u16::from_be_bytes([y_hi, y_lo]);
         if aim_up {
             projectile.attr = 0;
         }

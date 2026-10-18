@@ -10,7 +10,7 @@ use super::collision::{self, Probe};
 use super::engine::{self, Work, rom_byte, rom_word};
 use super::oam::{Mark, attr};
 use super::scroll::Scroll;
-use super::slots::{self, hit};
+use super::slots::{Field, hit};
 use super::world::{
     Cx, Motion, Projectile, Weapon, attack, busy, power_up, set_first_colours, stage_script,
 };
@@ -308,26 +308,9 @@ fn gravity(projectile: &mut Projectile) -> bool {
 /// Integrates the projectile's level position by its velocity (`$9E13`).
 fn advance(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     let projectile = &mut cx.effects.projectiles[slot];
-    let (x_lo, carry) = projectile
-        .level_x_lo
-        .overflowing_add(projectile.vx.to_be_bytes()[1]);
-    let x_hi = projectile
-        .level_x_hi
-        .wrapping_add(projectile.vx.to_be_bytes()[0])
-        .wrapping_add(u8::from(carry));
-    projectile.level_x_lo = x_lo;
-    projectile.level_x_hi = x_hi;
-    let (y_lo, carry) = projectile
-        .level_y_lo
-        .overflowing_add(projectile.vy.to_be_bytes()[1]);
-    let y_hi = projectile
-        .level_y_hi
-        .wrapping_add(projectile.vy.to_be_bytes()[0])
-        .wrapping_add(u8::from(carry));
-    projectile.level_y_lo = y_lo;
-    projectile.level_y_hi = y_hi;
-    work.x = u16::from_be_bytes([x_hi, x_lo]);
-    work.y = u16::from_be_bytes([y_hi, y_lo]);
+    projectile.x = projectile.x.wrapping_add(projectile.vx.cast_unsigned());
+    projectile.y = projectile.y.wrapping_add(projectile.vy.cast_unsigned());
+    (work.x, work.y) = (projectile.x, projectile.y);
 }
 
 /// Projects the working position onto the screen, freeing the slot when off it (`$9E46`, `A = 0`).
@@ -466,9 +449,7 @@ fn homing_steer(slot: usize, cx: &mut Cx<'_>) -> u16 {
     let heading = u16::try_from(heading).expect("20 headings");
     cx.effects.projectiles[slot].attr = cx.prg.weapons.homing_attributes[usize::from(heading)];
     let pointer = rom_word(cx.prg, 5, 0x844B + heading * 2);
-    let actor = |cx: &Cx<'_>, target: u8, array: u16| {
-        slots::read(cx.slots, &cx.effects.projectiles, array + u16::from(target))
-    };
+    let actor = |cx: &Cx<'_>, target: u8, array: u16| cx.byte(array + u16::from(target));
     let mut target = projectile.param;
     if target & 0x80 != 0 || actor(cx, target, 0x7CC0) == 0 {
         target = homing_retarget(slot, cx);
@@ -485,14 +466,8 @@ fn homing_steer(slot: usize, cx: &mut Cx<'_>) -> u16 {
         u16::from_be_bytes([actor(cx, target, hi), actor(cx, target, lo)])
     };
     let projectile = &cx.effects.projectiles[slot];
-    let dy = position(cx, 0x7B40, 0x7B60).wrapping_sub(u16::from_be_bytes([
-        projectile.level_y_hi,
-        projectile.level_y_lo,
-    ]));
-    let dx = position(cx, 0x7B00, 0x7B20).wrapping_sub(u16::from_be_bytes([
-        projectile.level_x_hi,
-        projectile.level_x_lo,
-    ]));
+    let dy = position(cx, 0x7B40, 0x7B60).wrapping_sub(projectile.y);
+    let dx = position(cx, 0x7B00, 0x7B20).wrapping_sub(projectile.x);
     let (left, up) = (dx & 0x8000 != 0, dy & 0x8000 != 0);
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.vx = steer_axis(projectile.vx, left);
@@ -581,15 +556,18 @@ fn homing_gather(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         let projectile = &mut cx.effects.projectiles[slot];
         projectile.vx = i16::from_be_bytes([step, projectile.vx.to_be_bytes()[1]]);
         if step >= 7 {
-            let mut reset = slot;
+            let mut spawned = true;
             if cx.effects.projectiles[slot].param & 0x80 == 0 {
                 cx.effects.projectiles[slot].param = 0x80;
-                if !homing_spawn_circlers(slot, cx) {
-                    reset = 0xFF;
-                }
+                spawned = homing_spawn_circlers(slot, cx);
             }
-            let at = 0x7D00 + u16::try_from(reset).expect("a byte");
-            slots::write(cx.slots, &mut cx.effects.projectiles, at, 0);
+            if spawned {
+                let projectile = &mut cx.effects.projectiles[slot];
+                projectile.vx = i16::from_be_bytes([0, projectile.vx.to_be_bytes()[1]]);
+            } else {
+                // The ROM's `STA $7D00,X` with X = $FF.
+                cx.set(15, Field::Timer, 0);
+            }
         }
     }
     work.y = work.y.wrapping_add(0x0380);
@@ -624,6 +602,8 @@ fn homing_spawn_circlers(source: usize, cx: &mut Cx<'_>) -> bool {
     loop {
         if at < 0 {
             if over_shots {
+                #[cfg(test)]
+                super::oracle::seen(0x8617);
                 for projectile in &mut cx.effects.projectiles {
                     projectile.kind = 0;
                 }
@@ -674,8 +654,8 @@ fn homing_draw_circlers(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         cx.effects.projectiles[part].flags = 0x60;
         let (dx, dy) =
             cx.prg.weapons.circle_offsets[usize::from(cx.effects.projectiles[part].param & 0x3F)];
-        work.x = u16::from_be_bytes([centre.level_x_hi, centre.level_x_lo]).wrapping_add(dx);
-        work.y = u16::from_be_bytes([centre.level_y_hi, centre.level_y_lo]).wrapping_add(dy);
+        work.x = centre.x.wrapping_add(dx);
+        work.y = centre.y.wrapping_add(dy);
         let projectile = &mut cx.effects.projectiles[part];
         projectile.param = projectile.param.wrapping_add(1);
         if projectile.param >= 0x20 {
@@ -751,8 +731,8 @@ fn homing_in_front(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         beside_player(cx, dx, cx.prg.weapons.front_dy[motion])
     };
     let projectile = &mut cx.effects.projectiles[slot];
-    [projectile.level_x_hi, projectile.level_x_lo] = x.to_be_bytes();
-    [projectile.level_y_hi, projectile.level_y_lo] = y.to_be_bytes();
+    projectile.x = x;
+    projectile.y = y;
     (work.x, work.y) = (x, y);
 }
 
@@ -882,8 +862,8 @@ fn super_unleash(slot: usize, cx: &mut Cx<'_>, scroll: &mut Scroll, overflow: bo
         beside_player(cx, ahead(cx, motion), cx.prg.weapons.ahead_dy[motion])
     };
     let projectile = &mut cx.effects.projectiles[slot];
-    [projectile.level_x_hi, projectile.level_x_lo] = x.to_be_bytes();
-    [projectile.level_y_hi, projectile.level_y_lo] = y.to_be_bytes();
+    projectile.x = x;
+    projectile.y = y;
     true
 }
 
@@ -911,12 +891,7 @@ fn super_pairs(slot: usize, cx: &mut Cx<'_>) {
     cx.effects.projectiles[centre].kind = super_stage::CENTRE;
     let source = cx.effects.projectiles[slot];
     let orbiter_weapon = &mut cx.effects.projectiles[orbiter];
-    [
-        orbiter_weapon.level_x_hi,
-        orbiter_weapon.level_x_lo,
-        orbiter_weapon.level_y_hi,
-        orbiter_weapon.level_y_lo,
-    ] = [1, 0, 0, 0];
+    (orbiter_weapon.x, orbiter_weapon.y) = (0x0100, 0);
     orbiter_weapon.flags = 0xE0;
     orbiter_weapon.param = 0;
     orbiter_weapon.part = if source.part_timer == 0 { 0x80 } else { 0 };
@@ -926,8 +901,8 @@ fn super_pairs(slot: usize, cx: &mut Cx<'_>) {
     orbiter_weapon.state = source.state;
     orbiter_weapon.part_timer = u8::try_from(centre).expect("slot < 16");
     let centre_weapon = &mut cx.effects.projectiles[centre];
-    [centre_weapon.level_x_hi, centre_weapon.level_x_lo] = [source.level_x_hi, source.level_x_lo];
-    [centre_weapon.level_y_hi, centre_weapon.level_y_lo] = [source.level_y_hi, source.level_y_lo];
+    centre_weapon.x = source.x;
+    centre_weapon.y = source.y;
     centre_weapon.vy = 0x0080;
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.part_timer += 1;
@@ -962,12 +937,10 @@ fn super_orbiter(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scr
     cx.effects.palette_dirty = 0x80;
     let centre = usize::from(cx.effects.projectiles[slot].part_timer);
     let centre_weapon = cx.effects.projectiles[centre];
-    work.x = u16::from_be_bytes([centre_weapon.level_x_hi, centre_weapon.level_x_lo])
-        .wrapping_add(dx.cast_unsigned());
-    work.y = u16::from_be_bytes([centre_weapon.level_y_hi, centre_weapon.level_y_lo])
-        .wrapping_add(dy.cast_unsigned());
+    work.x = centre_weapon.x.wrapping_add(dx.cast_unsigned());
+    work.y = centre_weapon.y.wrapping_add(dy.cast_unsigned());
     if project_keep(slot, work, cx) {
-        let hi = cx.effects.projectiles[slot].level_x_hi;
+        let hi = cx.effects.projectiles[slot].x.to_be_bytes()[0];
         let (table, step) = if hi & 0x80 != 0 {
             (0x9C99, !hi & 0x0F)
         } else {
@@ -999,7 +972,7 @@ fn super_orbiter(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scr
 fn super_spring(slot: usize, centre: usize, cx: &mut Cx<'_>) {
     let kept = cx.effects.projectiles[centre].vy;
     let projectile = &mut cx.effects.projectiles[slot];
-    let above = projectile.level_y_hi & 0x80 != 0;
+    let above = projectile.y & 0x8000 != 0;
     projectile.vy = if above {
         projectile.vy.wrapping_add(0x3C)
     } else {
@@ -1010,11 +983,11 @@ fn super_spring(slot: usize, centre: usize, cx: &mut Cx<'_>) {
     }
     if above {
         projectile.vx = (!projectile.vx).wrapping_sub(0x0C);
-        [projectile.level_y_hi, projectile.level_y_lo] = [0, 0];
+        projectile.y = 0;
         projectile.vy = projectile.vy.wrapping_add(0x30);
     } else {
         projectile.vx = (!projectile.vx).wrapping_add(0x0C);
-        [projectile.level_y_hi, projectile.level_y_lo] = [0xFF, 0xFF];
+        projectile.y = 0xFFFF;
         projectile.vy = projectile.vy.wrapping_sub(0x30);
     }
     let vy = projectile.vy;
@@ -1271,10 +1244,7 @@ fn splitter_part(slot: usize, part: usize, source: usize, cx: &mut Cx<'_>) {
     projectile.state = 0x80;
     projectile.attr = 0;
     projectile.timer = 0;
-    projectile.level_x_hi = src.level_x_hi;
-    projectile.level_x_lo = src.level_x_lo;
-    projectile.level_y_hi = src.level_y_hi;
-    projectile.level_y_lo = src.level_y_lo;
+    (projectile.x, projectile.y) = (src.x, src.y);
     projectile.flags = 0x60;
     projectile.damage = 0x02;
 }
@@ -1419,8 +1389,8 @@ fn three_way_brew(slot: usize, cx: &mut Cx<'_>) {
         i16::from_be_bytes([0, drift & 0x03])
     };
     let projectile = &mut cx.effects.projectiles[free];
-    [projectile.level_x_hi, projectile.level_x_lo] = x.to_be_bytes();
-    [projectile.level_y_hi, projectile.level_y_lo] = y.to_be_bytes();
+    projectile.x = x;
+    projectile.y = y;
     three_way_blow(free, vx, cx);
 }
 
@@ -1475,8 +1445,8 @@ fn three_way_let_go(slot: usize, cx: &mut Cx<'_>) {
     projectile.part_timer = if aim_up { 0x80 } else { 0 };
     projectile.vx = vx;
     projectile.vy = vy;
-    [projectile.level_x_hi, projectile.level_x_lo] = x.to_be_bytes();
-    [projectile.level_y_hi, projectile.level_y_lo] = y.to_be_bytes();
+    projectile.x = x;
+    projectile.y = y;
 }
 
 /// Type `$81` (`$930B`): a bubble rising for 48 frames, slowing by 1 a frame.
@@ -1526,18 +1496,14 @@ fn three_way_tether(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     if projectile.part_timer & 0x80 != 0 {
         #[cfg(test)]
         super::oracle::seen(0x93BA);
-        projectile.vy =
-            three_way_pull(projectile.vy, projectile.level_y_hi & 0x80 != 0, 0x50, 0xB0);
+        projectile.vy = three_way_pull(projectile.vy, projectile.y & 0x8000 != 0, 0x50, 0xB0);
     } else {
-        projectile.vx =
-            three_way_pull(projectile.vx, projectile.level_x_hi & 0x80 != 0, 0x40, 0xC0);
+        projectile.vx = three_way_pull(projectile.vx, projectile.x & 0x8000 != 0, 0x40, 0xC0);
     }
-    let x = u16::from_be_bytes([projectile.level_x_hi, projectile.level_x_lo])
-        .wrapping_add(projectile.vx.cast_unsigned());
-    let y = u16::from_be_bytes([projectile.level_y_hi, projectile.level_y_lo])
-        .wrapping_add(projectile.vy.cast_unsigned());
-    [projectile.level_x_hi, projectile.level_x_lo] = x.to_be_bytes();
-    [projectile.level_y_hi, projectile.level_y_lo] = y.to_be_bytes();
+    let x = projectile.x.wrapping_add(projectile.vx.cast_unsigned());
+    let y = projectile.y.wrapping_add(projectile.vy.cast_unsigned());
+    projectile.x = x;
+    projectile.y = y;
     let count = projectile.part;
     (work.x, work.y) = beside_player(cx, x, y.wrapping_sub(0x0180));
     if count.trailing_zeros() >= 3
@@ -1545,8 +1511,8 @@ fn three_way_tether(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     {
         cx.effects.sound[0] = 0x3F;
         let projectile = &mut cx.effects.projectiles[free];
-        [projectile.level_x_hi, projectile.level_x_lo] = work.x.to_be_bytes();
-        [projectile.level_y_hi, projectile.level_y_lo] = work.y.to_be_bytes();
+        projectile.x = work.x;
+        projectile.y = work.y;
         let vx = cx.effects.projectiles[slot].vx;
         three_way_blow(free, vx, cx);
     }
@@ -1662,8 +1628,8 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     let (aim_up, left) = (player.motion == Motion::AimingUp, player.faces_left());
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.kind = splitter_stage::THROWN;
-    [projectile.level_x_hi, projectile.level_x_lo] = work.x.to_be_bytes();
-    [projectile.level_y_hi, projectile.level_y_lo] = work.y.to_be_bytes();
+    projectile.x = work.x;
+    projectile.y = work.y;
     projectile.flags = 0;
     projectile.attr = 0;
     projectile.damage = 2;
@@ -1791,8 +1757,8 @@ fn wave_spread(slot: usize, cx: &mut Cx<'_>) -> bool {
     projectile.part_timer = 0;
     projectile.damage = 1;
     projectile.flags = 0xE0;
-    [projectile.level_x_hi, projectile.level_x_lo] = x.to_be_bytes();
-    [projectile.level_y_hi, projectile.level_y_lo] = y.to_be_bytes();
+    projectile.x = x;
+    projectile.y = y;
     if cx.effects.player.motion == Motion::AimingUp {
         projectile.vx = along;
         projectile.vy = -0x50;
@@ -1977,7 +1943,9 @@ mod tests {
             shot.kind = 1;
             shot.state = 0x40;
             shot.timer = 0x10;
-            shot.level_x_hi = game.world.camera_x.to_be_bytes()[0].wrapping_add(0x20);
+            let [_, low] = shot.x.to_be_bytes();
+            let high = game.world.camera_x.to_be_bytes()[0].wrapping_add(0x20);
+            shot.x = u16::from_be_bytes([high, low]);
         }
         let (mut cx, work) = game.parts(prg);
         super::step(work, &mut cx, overflow);
@@ -1994,6 +1962,35 @@ mod tests {
         assert_eq!(waiting, super::super_stage::UNLEASH);
         assert_eq!(charge_after(false, false), Some(super::super_stage::PAIRS));
         assert_eq!(charge_after(true, true), Some(super::super_stage::PAIRS));
+    }
+
+    /// A finished gather with no free slots frees them all and, with X = `$FF` after
+    /// `$8617`, the ROM's reset write lands on main slot 15's timer.
+    #[test]
+    fn a_gather_that_finds_no_slots_clears_main_slot_15s_timer() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let Some(prg) = crate::prg::for_test() else {
+            return;
+        };
+        let mut game = super::super::room::start(prg, &rom.chr, 0);
+        game.effects.weapon = super::Weapon::Homing;
+        game.effects.attack = super::attack::CHARGING;
+        game.world.frame_odd = false;
+        for shot in &mut game.effects.projectiles {
+            shot.kind = super::homing_stage::CIRCLING;
+        }
+        let gather = &mut game.effects.projectiles[0];
+        gather.kind = super::homing_stage::GATHER;
+        gather.param = 0;
+        gather.vx = 6 << 8;
+        game.slots.main[15].body.timer = 0x55;
+        let (mut cx, work) = game.parts(prg);
+        super::step(work, &mut cx, false);
+        assert_eq!(game.slots.main[15].body.timer, 0);
+        assert!(game.effects.projectiles.iter().all(|shot| shot.kind == 0));
+        assert_eq!(game.effects.projectiles[0].vx.to_be_bytes()[0], 7);
     }
 
     /// Diffs the port against every `$D444` call of `scene`; returns `(calls, live)`.

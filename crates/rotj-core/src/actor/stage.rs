@@ -330,8 +330,6 @@ impl PowerUp {
         for (index, piece) in (0..4u16).zip(effects.projectiles.iter_mut()) {
             let byte = |table: u16| rom_byte(prg, 14, table + index);
             let word = |hi: u16, lo: u16| u16::from_be_bytes([byte(hi), byte(lo)]);
-            let [x_hi, x_lo] = x.wrapping_add(word(0xD6B3, 0xD6AF)).to_be_bytes();
-            let [y_hi, y_lo] = y.wrapping_add(word(0xD6BB, 0xD6B7)).to_be_bytes();
             *piece = super::world::Projectile {
                 kind: 6,
                 flags: 0xE0,
@@ -341,10 +339,8 @@ impl PowerUp {
                 param: u8::try_from(index).expect("< 4"),
                 part: 0,
                 part_timer: byte(0xD6CF),
-                level_x_hi: x_hi,
-                level_x_lo: x_lo,
-                level_y_hi: y_hi,
-                level_y_lo: y_lo,
+                x: x.wrapping_add(word(0xD6B3, 0xD6AF)),
+                y: y.wrapping_add(word(0xD6BB, 0xD6B7)),
                 ..*piece
             };
         }

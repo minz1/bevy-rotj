@@ -572,14 +572,10 @@ pub struct Projectile {
     pub part: u8,
     /// A charged attack's frame counter (`$7F60`).
     pub part_timer: u8,
-    /// The projectile's level-x high byte (`$7BB0`, also slots 16-23's `$7BA0`).
-    pub level_x_hi: u8,
-    /// `$7BC0`, the projectile's level-x low byte.
-    pub level_x_lo: u8,
-    /// `$7C60`, the projectile's level-y high byte.
-    pub level_y_hi: u8,
-    /// `$7C70`, the projectile's level-y low byte.
-    pub level_y_lo: u8,
+    /// The level x in 1/16 px: the high byte is `$7BB0` (also slots 16-23's `$7BA0`), the low `$7BC0`.
+    pub x: u16,
+    /// The level y in 1/16 px: the high byte is `$7C60`, the low `$7C70`.
+    pub y: u16,
 }
 
 /// The projectile arrays, 16 wide each.
@@ -610,10 +606,10 @@ impl Projectile {
             0x7F40 => self.param,
             0x7F50 => self.part,
             0x7F60 => self.part_timer,
-            0x7BB0 => self.level_x_hi,
-            0x7BC0 => self.level_x_lo,
-            0x7C60 => self.level_y_hi,
-            0x7C70 => self.level_y_lo,
+            0x7BB0 => self.x.to_be_bytes()[0],
+            0x7BC0 => self.x.to_be_bytes()[1],
+            0x7C60 => self.y.to_be_bytes()[0],
+            0x7C70 => self.y.to_be_bytes()[1],
             other => panic!("${other:04X} is not a weapon array"),
         }
     }
@@ -638,10 +634,10 @@ impl Projectile {
             0x7F40 => self.param = value,
             0x7F50 => self.part = value,
             0x7F60 => self.part_timer = value,
-            0x7BB0 => self.level_x_hi = value,
-            0x7BC0 => self.level_x_lo = value,
-            0x7C60 => self.level_y_hi = value,
-            0x7C70 => self.level_y_lo = value,
+            0x7BB0 => self.x = u16::from_be_bytes([value, self.x.to_be_bytes()[1]]),
+            0x7BC0 => self.x = u16::from_be_bytes([self.x.to_be_bytes()[0], value]),
+            0x7C60 => self.y = u16::from_be_bytes([value, self.y.to_be_bytes()[1]]),
+            0x7C70 => self.y = u16::from_be_bytes([self.y.to_be_bytes()[0], value]),
             other => panic!("${other:04X} is not a weapon array"),
         }
     }
