@@ -1,4 +1,4 @@
-# Status — where 1.1.9 stands
+# Status — where 1.1.10 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -33,6 +33,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.7 | **done, tag `1.1.7`** (2026-10-17): the seventh modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The player's flag bytes named (`docs/specs/2026-10-17-player-flags-design.md`): `stage_script` (`FROZEN`, `HIDDEN`, `KEEP_PADS`), `busy::SCRIPTED`, `attack` (`CHARGEABLE`, `CHARGING`, `CHARGED`), and the three unrelated bytes that were `flags[0..3]` split into `power_up`, `sliding` and `hurt` (`STUNNED`, `INVULNERABLE`); `solid_below` (it probes above) is `headroom_blocked`, `draw_flash` is `drain_power_up`; `collision::damage`'s doc no longer calls the power-up "already hurt" |
 | 1.1.8 | **done, tag `1.1.8`** (2026-10-17): the eighth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The behaviour tables' storage decided (`docs/specs/2026-10-17-behaviour-tables-design.md`): `prg::Prg` owns the PRG image and the tables imported from it once, and derefs to the bytes, so only the path to `Cx` takes it; slice 1, the hitboxes, is `engine::Hitboxes` (the actors', the bosses', `touch`'s hazards, the room exits' reach and the second-class platforms' widths), every index's range read from its writes |
 | 1.1.9 | **done, tag `1.1.9`** (2026-10-17): the ninth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The behaviour tables' slice 2 (`docs/specs/2026-10-17-family-tables-design.md`): 38 families' constant tables (velocities, offsets, timers, turn and knockback tables, spawn positions, CHR and palette bytes) are typed `Tables` on `prg.families`, lo/hi pairs merged into 16-bit values, every index's range proven (silent tests for indexes read from the ROM or spawn records); bank 14's `$C5F2/$C6F2` table is `x << 4` and became a shift |
+| 1.1.10 | **done, tag `1.1.10`** (2026-10-18): the tenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The behaviour tables' slice 3 (`docs/specs/2026-10-17-player-tables-design.md`): the player's tables (`player::Tables`: the animation strips by motion, one `Frame` record per `anim`, the muzzle and launch offsets by motion, the slot limits by weapon, the palettes) and the weapons' (`weapons::Tables`) are typed on `Prg`, with `prg.digit_tiles` for the HUD; `engine::rom_split_words` reads split hi/lo tables. Phase C's spec is written and waits for the owner |
 
 ## Verified working
 
@@ -80,9 +81,9 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    `1.1.3`** (2026-10-17). **1.1.4, the fourth: tagged `1.1.4`** (2026-10-17). **1.1.5,
    the fifth: tagged `1.1.5`** (2026-10-17). **1.1.6, the sixth: tagged `1.1.6`**
    (2026-10-17). **1.1.7, the seventh: tagged `1.1.7`** (2026-10-17). **1.1.8, the eighth: tagged
-   `1.1.8`** (2026-10-17). **1.1.9, the ninth: tagged `1.1.9`** (2026-10-17). Next: the
-   behaviour tables' slice 3 (the player and weapons, `docs/specs/2026-10-17-player-tables-design.md`),
-   then Phase C's spec (the mirror, the draw-call record, rendering from it).
+   `1.1.8`** (2026-10-17). **1.1.9, the ninth: tagged `1.1.9`** (2026-10-17). **1.1.10, the tenth: tagged
+   `1.1.10`** (2026-10-18). Next: the owner's answers to Phase C's spec
+   (`docs/specs/2026-10-18-phase-c-mirror-design.md`), then C1, the draw-call record.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
