@@ -115,6 +115,7 @@ with no reader, is folded into C3: nothing would read its entities until then.)
 Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: no `Visibility` or
 hidden rule; each position's source named; the axes stated; records, not positions, place
 sprites; one capture helper beside the page copy; tests against the game, not the snapshot).
+Implemented in 1.1.12.
 
 - **The frame on screen.** `Play` copies the OAM page and marks just after the NMI, before the
   next frame runs (`Play::step`, and `Play::running` at construction); one helper does that copy

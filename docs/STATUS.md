@@ -1,4 +1,4 @@
-# Status — where 1.1.11 stands
+# Status — where 1.1.12 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -35,6 +35,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.9 | **done, tag `1.1.9`** (2026-10-17): the ninth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The behaviour tables' slice 2 (`docs/specs/2026-10-17-family-tables-design.md`): 38 families' constant tables (velocities, offsets, timers, turn and knockback tables, spawn positions, CHR and palette bytes) are typed `Tables` on `prg.families`, lo/hi pairs merged into 16-bit values, every index's range proven (silent tests for indexes read from the ROM or spawn records); bank 14's `$C5F2/$C6F2` table is `x << 4` and became a shift |
 | 1.1.10 | **done, tag `1.1.10`** (2026-10-18): the tenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). The behaviour tables' slice 3 (`docs/specs/2026-10-17-player-tables-design.md`): the player's tables (`player::Tables`: the animation strips by motion, one `Frame` record per `anim`, the muzzle and launch offsets by motion, the slot limits by weapon, the palettes) and the weapons' (`weapons::Tables`) are typed on `Prg`, with `prg.digit_tiles` for the HUD; `engine::rom_split_words` reads split hi/lo tables. Phase C's spec is written and waits for the owner |
 | 1.1.11 | **done, tag `1.1.11`** (2026-10-18): the eleventh modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). Phase C's C1, the draw-call record (`docs/specs/2026-10-18-phase-c-mirror-design.md`): every draw the OAM builder takes is kept as an `oam::DrawRecord` (who drew it, the call, the decoded metasprite) before any piece becomes an OAM byte; `Mark` names the drawer down to the slot (`Actor`, `Second`, `Player`, `Projectile`) and `Mark::is_ui` picks the game's own UI drawers; `finish` moves the frame's records to `shown`, beside the page. Not RAM: the tapes are unchanged. Every lockstep loop frame (the chain, the sweep, the explorer, the tape replay) replays its records on the builder it started from and gets its page and marks back, its records come in the loop's draw order, and every actor and second-class drawer's slot was occupied at the frame's start or end |
+| 1.1.12 | **done, tag `1.1.12`** (2026-10-18): the twelfth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). Phase C's C2, the read-only mirror (`docs/specs/2026-10-18-phase-c-mirror-design.md`, "C2"): `crates/app/src/mirror.rs` keeps 49 entities for the game's drawers (24 actor, 8 second-class and 16 projectile slots, Batman), each with `Drawer(Mark)`, `LevelPosition` in level pixels and its `Draws` for the frame on screen, the slots also their `Kind`, plus `MirrorCamera` and `OtherDraws`; `Play` takes a `mirror::Snapshot` with the page it shows, so records, page and positions are the same frame's, and the copy reads `Play` only and writes on change. Tested against the game (kinds and positions, a shot's included) and over a level's first 300 frames in a headless app (every mirrored sprite shown has its drawer's records; the records split add up); a snapshot taken a frame late fails it |
 
 ## Verified working
 
@@ -84,8 +85,9 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    (2026-10-17). **1.1.7, the seventh: tagged `1.1.7`** (2026-10-17). **1.1.8, the eighth: tagged
    `1.1.8`** (2026-10-17). **1.1.9, the ninth: tagged `1.1.9`** (2026-10-17). **1.1.10, the tenth: tagged
    `1.1.10`** (2026-10-18). **1.1.11, C1 the draw-call record: tagged `1.1.11`** (2026-10-18).
-   Next: C2, the read-only mirror (`docs/specs/2026-10-18-phase-c-mirror-design.md`), then the
-   level's live map typed, then C3, the `Modern` picture.
+   **1.1.12, C2 the mirror: tagged `1.1.12`** (2026-10-18). Next: the level's live map typed
+   (`docs/specs/2026-10-18-live-map-design.md`), then C3, the `Modern` picture
+   (`docs/specs/2026-10-18-modern-picture-design.md`).
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
