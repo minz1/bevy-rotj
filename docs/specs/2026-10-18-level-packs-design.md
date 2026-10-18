@@ -152,3 +152,45 @@ my-world/                       the pack, what people share
 
 The Modern engine; the in-game editor itself; the overworld menu; art beyond the game's CHR;
 typed per-family actor properties (a later format version).
+
+## Release 1: what the approved schema can't carry (survey, 2026-10-18)
+
+Before writing release 1, every field of the game's level assets was mapped onto the approved
+format and each "derived by the importer" rule checked against the ROM's 36 rooms in 18 areas.
+`import(export(rom))` can't equal the assets field by field without owner decisions; release 1
+waits for them (the schema is the owner's).
+
+- **What maps cleanly or derives exactly**: the terrain, palettes as named presets, arrival and
+  orientation, the player and camera starts (the exporter always writes `camera-start`: camera
+  from the player fits 3 of 36 rooms), `ring_y` (36/36), mirroring (35/36), the first spawn
+  column (32/36), actors' positions and properties with Tiled's object ids as record ids, the
+  raster and fixed rows through `hud_split` resolved per area (each area has at most one split).
+- **CHR banks**: "the banks the area's tileset was rendered with" fits 25/36; the others are the
+  same metatiles in other banks. Exact with one generated tileset per (area, CHR) variant (27,
+  e.g. `area-06-b.tsj`), which changes the local tileset list, not the pack.
+- **Not derivable, needs the schema**:
+  1. *The physical page order*: an area's 16 pages in an arbitrary order that actors hard-code
+     (`page_table_tail_set`, `page_table_pair_patch`, `cell_painter`, `column_eraser`), pages
+     no room shows, and pages past the stream's reach (whatever WRAM held). Derived by first
+     appearance it fits 11 of 36 rooms.
+  2. *The spawn schedule*: trigger cells sit apart from where the actor appears (175 of 803
+     pending cells at the actor's column), 316 records have several triggers, and 398 cells are
+     scroll locks; plus residue the game never reads.
+  3. *The start's `scroll_mode`, `scroll_lock` and `facing`*: no rule fits (20/36 and 19/36 for
+     the best).
+- **Proof scope**: the game reads a record only through a pending cell and `raised_page_count`
+  only in the two two-page horizontal rooms; comparing only what the game reads would drop the
+  unreferenced spawn records and that byte elsewhere.
+
+### Questions for the owner
+
+1. May the schema carry an area's physical page order (a room property, or a stage-level map of
+   the area's pages)?
+2. May actors carry their trigger columns (e.g. a `triggers` list property) and rooms a
+   `scroll-lock` marker; and should schedule residue the game never reads be dropped?
+3. May `player-start` carry `facing`, `scroll_mode` and `scroll_lock`?
+4. May the equivalence proof cover only what the game reads (unreferenced spawn records,
+   `raised_page_count` outside the two-page rooms)?
+5. Are per-CHR-variant tilesets (27 instead of 18) fine; is `<stage>-<n>` with stages named by
+   their banner ("3-2", so `rooms/3-2-1.tmj`) the naming; and which class names should
+   `spike_probe`'s two kinds and the four unported kinds get?
