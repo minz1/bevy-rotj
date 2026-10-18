@@ -228,9 +228,13 @@ impl Game {
         step_second(prg, self);
         #[cfg(test)]
         assert!(
-            !self.slots.second.iter().any(|second| second.kind != 0
-                && matches!(second.brain, families::SecondBrain::Unported)),
-            "a live second-class slot's type is unported"
+            !self
+                .slots
+                .second
+                .iter()
+                .any(|second| second.kind != 0
+                    && matches!(second.brain, families::SecondBrain::Empty)),
+            "a live second-class slot's kind has no $CEC3 entry"
         );
         self.move_player(prg);
         scroll::speed(self, prg);

@@ -42,12 +42,6 @@ impl Prg {
             bytes,
         }
     }
-
-    /// A zeroed image, for tests that run without a ROM.
-    #[cfg(test)]
-    pub(crate) fn empty() -> Prg {
-        Prg::new(vec![0; PRG_SIZE])
-    }
 }
 
 impl Deref for Prg {

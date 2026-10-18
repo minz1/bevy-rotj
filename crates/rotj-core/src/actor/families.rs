@@ -298,9 +298,9 @@ macro_rules! families {
         /// A handler family's own state.
         #[derive(Debug, Clone, Default, PartialEq, Eq)]
         pub enum Brain {
-            /// A type the port does not run yet.
+            /// An empty slot (or the one the actor loop took out to run), or a kind with no handler.
             #[default]
-            Unported,
+            Empty,
             $(
                 #[doc = concat!("Kind `", stringify!($($main_kind)|+), "`.")]
                 $(#[$main_meta])*
@@ -311,9 +311,9 @@ macro_rules! families {
         /// A second-class handler family's own state (slots 24-31).
         #[derive(Debug, Clone, Default, PartialEq, Eq)]
         pub enum SecondBrain {
-            /// A type the port does not run yet.
+            /// An empty slot, or a kind with no `$CEC3` entry.
             #[default]
-            Unported,
+            Empty,
             $(
                 #[doc = concat!("Kind `", stringify!($($second_kind)|+), "`.")]
                 $(#[$second_meta])*
@@ -328,7 +328,7 @@ macro_rules! families {
             pub fn new(kind: u8) -> Brain {
                 match kind {
                     $($($main_kind)|+ => Brain::$main($main_module::State),)+
-                    _ => Brain::Unported,
+                    _ => Brain::Empty,
                 }
             }
         }
@@ -340,7 +340,7 @@ macro_rules! families {
             pub fn new(kind: u8) -> SecondBrain {
                 match kind {
                     $($($second_kind)|+ => SecondBrain::$second($second_module::State),)+
-                    _ => SecondBrain::Unported,
+                    _ => SecondBrain::Empty,
                 }
             }
         }
@@ -349,9 +349,7 @@ macro_rules! families {
         pub(crate) fn step(slot: &mut Slot, work: &mut Work, cx: &mut Cx<'_>) {
             slot.brain.follow(slot.kind);
             match &mut slot.brain {
-                Brain::Unported => {
-                    crate::actor::engine::unported(&mut slot.kind, &slot.body, work, cx);
-                }
+                Brain::Empty => unreachable!("kind {:02X} has no $CF72 handler", slot.kind),
                 $(Brain::$main(state) => state.step(&mut slot.kind, &mut slot.body, work, cx),)+
             }
         }
@@ -491,7 +489,7 @@ pub(crate) fn step_second(index: usize, second: &mut Second, work: &mut Work, cx
         SecondBrain::FallingPlatform(state) => {
             state.step(index, &mut second.kind, &mut second.body, cx);
         }
-        SecondBrain::Unported => {}
+        SecondBrain::Empty => {}
     }
 }
 

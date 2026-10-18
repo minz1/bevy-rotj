@@ -3,7 +3,7 @@
 Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: no `Inert` family, the
 ROM has no handler for those kinds; the 1.1.15 assert kept, reworded; `engine::unported` deleted,
 the `Empty` arm unreachable; the level packs' `inert_platform` renamed `no_handler`; whether user
-packs may name it deferred to the owner). MODERNIZE #3 (`Brain::Unported`), approved for the survey
+packs may name it deferred to the owner). Implemented in 1.1.22. MODERNIZE #3 (`Brain::Unported`), approved for the survey
 loop by the owner's review (2026-10-18). No behaviour change in the game.
 
 ## What is there

@@ -169,12 +169,12 @@ const NO_HANDLER: (&str, &[u8]) = ("no_handler", &[0x4A, 0x88, 0xE0]);
 
 /// Each class of a slot class, with its kinds.
 fn classes(second_class: bool) -> impl Iterator<Item = (&'static str, &'static [u8])> {
-    let (ported, unported) = if second_class {
+    let (handled, unhandled) = if second_class {
         (SECOND, NO_HANDLER)
     } else {
         (MAIN, NO_ACTOR)
     };
-    ported.iter().copied().chain([unported])
+    handled.iter().copied().chain([unhandled])
 }
 
 /// The class a record of `kind` is written as, and its `variant` when the class has

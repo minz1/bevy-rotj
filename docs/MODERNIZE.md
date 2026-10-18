@@ -18,7 +18,7 @@ sound cannot change Classic. Items I could not close are marked **lead**.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `weapons.rs` routine dispatch (`step`→`run`→`zero`…`five`) → one enum state machine | 1 collapse | player as a character | high (2225 lines) | high | weapons oracle tests (`weapons.rs` §tests) + lockstep | verified shape |
 | 2 | player motion byte → `Port::m0..m11` (player.rs:502–2520) → an explicit enum state machine | 1 collapse | player as a character | high | high | `player.rs` tests + chain lockstep | verified shape |
-| 3 | `Brain::Unported` + `engine::unported`: dead as a handler, but `Unported` is also the `#[default]` empty-slot brain | 1 collapse | actors (family dispatch) | ~30 lines removed | low | chain tape has no `Outside` (`actor.rs:536`); retarget 3 test predicates | verified (lead: test edits) |
+| 3 | `Brain::Unported` + `engine::unported`: dead as a handler, but `Unported` is also the `#[default]` empty-slot brain | 1 collapse | actors (family dispatch) | ~30 lines removed | low | the Classic suites, a sweep and an exploration; tapes byte-identical (`docs/specs/2026-10-18-empty-slot-design.md`) | done in 1.1.22 |
 | 4 | `Outside` bracket enum + callback plumbing | 1 collapse | actors (family dispatch) | moderate | medium (tape format) | the tags retired, the chain's tape byte-identical (`docs/specs/2026-10-18-outside-removal-design.md`) | done in 1.1.15 |
 | 5 | Bevy tilemaps/sprites replace the software compositor (`render.rs`, `play::compose`/`split`, `screen.rs`) | 2 replace | presentation and UI | high (~700 lines) | medium-high (picture tests read `Frame`) | keep `Frame` as the headless reference; add screenshot diff | lead (`bevy_ecs_tilemap` is Bevy 0.19; `bevy_simple_tilemap` 0.21.0 is Bevy 0.20, unevaluated) |
 | 6 | HUD/pause/title/password → Bevy UI | 2 replace | presentation and UI | moderate | medium | HUD state is RAM (lockstep); picture tests | verified shape |
@@ -42,17 +42,12 @@ riskiest, so they belong to the pilot the PLAN schedules after 1.0.1.
 
 ### 1.1 Actor family dispatch (PLAN: actors family by family)
 
-- **`Brain::Unported` / `engine::unported` (families.rs:115–118, 433, 449,
-  478–479; engine.rs:1010)** — dead as a *handler* (the arm at 478 never runs), but
-  the variant is also the `#[default]` brain of an empty slot and the `_` result of
-  `SecondBrain::new` (`SecondBrain::Unported` for kind 0 and unknown second-class kinds;
-  `step_second` ignores it). So a blanket `panic!` in `Brain::new` or `SecondBrain::new` is wrong: replace it with an
-  explicit `Empty` (or `Option<Brain>`) and panic only for a non-zero unknown main kind. **Lead** on that split. All 100 handler types are
-  ported (`docs/STATUS.md` 1.0.0 row), and the chain's tape replays with an
-  empty `injected` list (`actor.rs:536`, `the_tape_replays_the_chain_without_the_rom`),
-  and since 1.1.15 there is no `Outside` request at all. Before/after: the dispatch arm and the `unported` body gone (not the variant, see above). Three test predicates reference the variant (k4c.rs:72,
-  oracle.rs:1690, oracle.rs:1728); retarget them to a kind-based check. **Lead**
-  on those edits, otherwise verified.
+- **`Brain::Unported` / `engine::unported`**: named in 1.1.22
+  (`docs/specs/2026-10-18-empty-slot-design.md`): `Empty` in both enums is the empty slot's brain
+  and the fallback for a kind with no handler; the missing-handler stand-in is deleted and the
+  dispatch's `Empty` arm is `unreachable!` (`$CF72` has a handler for every main kind). The
+  families' oracle-test docs still say "unported" where they mean a child or parent the isolated
+  scene does not run: a doc-only rewording, site by site, is a later patch.
 - **`Outside`**: removed in 1.1.15 with `Relift`, the tape tags retired
   (`docs/specs/2026-10-18-outside-removal-design.md`).
 - **Duplicate `integrate` (k08.rs:57, k92.rs:66, byte-identical)** and the
@@ -318,7 +313,7 @@ of its own, proven by the lockstep, ranked by payoff over risk:
 ### The owner's review of the passed-on candidates (2026-10-18)
 
 To do, in the survey loop's order after #1-#3 above, level packs release 1 alongside:
-- **#3 `Brain::Unported`**: the empty slot as an explicit `Empty`/`Option<Brain>`.
+- **#3 `Brain::Unported`**: the empty slot as an explicit `Empty`/`Option<Brain>` (done in 1.1.22).
 - **#8 the remaining script step machines** (the next-area load, the continue screen, the
   room-change slide, the sound test) as data on the shared runner, proven by the script hashes.
 - **#14 `bevy_asset_loader`**: with level packs release 3 (the game loading through `Levels`).

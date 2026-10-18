@@ -2104,7 +2104,7 @@ pub(crate) fn assert_actor_phases(mut scene: Scene, frames: u64, kinds: &[u8]) -
             .filter(|slot| kinds.contains(&slot.kind))
             .collect();
         for slot in &owned {
-            assert_ne!(slot.brain, Brain::Unported, "frame {}", begin.frame);
+            assert_ne!(slot.brain, Brain::Empty, "frame {}", begin.frame);
             *coverage.phases.entry(slot.body.phase).or_default() += 1;
         }
         coverage.occupied += usize::from(!owned.is_empty());
@@ -2142,7 +2142,7 @@ pub(crate) fn assert_second_phases(mut scene: Scene, frames: u64, kinds: &[u8]) 
                 coverage.frames += 1;
                 coverage.occupied += usize::from(!owned.is_empty());
                 for slot in &owned {
-                    assert_ne!(slot.brain, SecondBrain::Unported, "frame {}", begin.frame);
+                    assert_ne!(slot.brain, SecondBrain::Empty, "frame {}", begin.frame);
                     *coverage.phases.entry(slot.body.phase).or_default() += 1;
                 }
                 super::step_second(&prg, &mut state);

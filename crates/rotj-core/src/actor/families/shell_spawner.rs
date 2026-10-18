@@ -86,7 +86,7 @@ fn own_slot(cx: &Cx<'_>) -> u8 {
         .slots
         .main
         .iter()
-        .position(|slot| slot.kind == KIND && slot.brain == Brain::Unported)
+        .position(|slot| slot.kind == KIND && slot.brain == Brain::Empty)
         .expect("the running $4C slot");
     u8::try_from(index).expect("slot < 24")
 }

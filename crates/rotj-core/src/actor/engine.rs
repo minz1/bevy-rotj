@@ -6,7 +6,7 @@ use super::world::{
     Cx, Effects, Level, Motion, Player, Schedule, Weapon, World, attack, busy, hurt, orientation,
     pose, power_up, sliding, stage_script,
 };
-use crate::actors::{CELL_PENDING, STATE_DROPS_PICKUP, bank_slice};
+use crate::actors::{STATE_DROPS_PICKUP, bank_slice};
 use crate::levelmap::Cell;
 
 /// The zero-page working set `$90-$A6`, carried from slot to slot as the game's is.
@@ -1105,14 +1105,6 @@ pub fn collect(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
     *kind = 0;
 }
 
-/// Stands in for a missing handler: despawns when far off screen, as `$823C` does.
-pub fn unported(kind: &mut u8, body: &Body, work: &mut Work, cx: &mut Cx<'_>) {
-    load(body, work);
-    if on_screen(work, cx.world) == Visibility::Far {
-        despawn(kind, body, CELL_PENDING, cx.schedule);
-    }
-}
-
 /// Gravity and the x velocity at the end of a handler, then the store (`$A8E4`).
 pub fn end_frame(body: &mut Body, work: &mut Work) {
     let [hi, lo] = work.vy.wrapping_add(6).to_be_bytes();
@@ -1766,43 +1758,6 @@ mod tests {
         assert_eq!(at(800).0, Visibility::Far);
         assert_eq!(at(1300).0, Visibility::Near);
         assert_eq!(at(1700).0, Visibility::Far);
-    }
-
-    #[test]
-    fn unported_actors_despawn_far_off_screen() {
-        let world = world();
-        let mut schedule = Schedule {
-            cells: [0; 256],
-            page_columns: [0; 32],
-        };
-        let (mut slots, mut effects, mut oam) = (
-            super::super::slots::Slots::default(),
-            super::super::world::Effects::default(),
-            super::super::oam::OamBuilder::new(),
-        );
-        let mut scroll = super::super::scroll::Scroll::default();
-        let mut cx = Cx {
-            prg: &crate::prg::Prg::empty(),
-            world: &world,
-            slots: &mut slots,
-            schedule: &mut schedule,
-            effects: &mut effects,
-            scroll: &mut scroll,
-            oam: &mut oam,
-        };
-        let mut work = Work::default();
-        for (x, kind) in [(1100, 6), (999, 6), (800, 0)] {
-            let body = Body {
-                x: x * 16,
-                y: 100 * 16,
-                cell: 5,
-                ..Body::default()
-            };
-            let mut slot_kind = 6;
-            unported(&mut slot_kind, &body, &mut work, &mut cx);
-            assert_eq!(slot_kind, kind, "x {x}");
-        }
-        assert_eq!(schedule.cells[5], CELL_PENDING);
     }
 
     #[test]
