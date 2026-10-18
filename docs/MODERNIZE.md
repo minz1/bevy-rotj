@@ -248,6 +248,8 @@ New candidates, each to be classified (state, flags, table index) before it chan
   (`docs/specs/2026-10-17-family-fields-design.md`): slot links as locals, flags as value
   consts, 16-bit pairs as named `u16`/`i16` values, the dropper's payload layout in its
   own `arm`; the `hit` byte's engine bits (`slots::hit`).
+- Released as 1.1.11: Phase C's C1, the draw-call record (`oam::DrawRecord`, `Mark`'s slot
+  drawers, `OamBuilder::shown`; `docs/specs/2026-10-18-phase-c-mirror-design.md`).
 - **Resolved (2026-10-17):** `stun`'s `held = (attack & $80) << 1` was always 0, and so
   is the ROM's (`$92E8`: `AND #$80`, `ASL`, `STA $047F`, `STA $0470`); the port now writes
   the zeros plainly.

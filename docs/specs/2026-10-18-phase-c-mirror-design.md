@@ -7,6 +7,13 @@ records; the mirror folds into C3; C3's gate is set equality, not a second raste
 owner questions recommend). **The owner answered (2026-10-18)**: C3 lands late in 1.1.x as
 groundwork; its background is a tilemap from the level data, so the level's live map is typed
 first; the setting is `picture: Classic | Modern`; the mirror is its own release right after C1.
+**C1 implemented in 1.1.11**, with one change to the field list: a record holds the `DrawCall`
+and the whole decoded `Metasprite` (`mark`, `call`, `sprite`), so an endless metasprite replays
+exactly; the replay test runs in every lockstep's loop frames, from the builder the frame began with.
+The right-drawer test became two: the records come in the loop's draw order (the HUD, Batman, the
+second class, the weapons, the actors, each from the highest slot down), and an actor or
+second-class drawer's slot is occupied at the frame's start or end (a projectile can be fired by
+Batman's draw step and freed by its handler in one frame, so its slot can be empty at both).
 Phase C of `docs/specs/2026-10-16-modernisation-roadmap-design.md`, with the owner's mirror
 decision (`docs/specs/2026-10-17-actors-as-entities-decision.md`): `rotj-core` stays plain
 Rust; the ECS is a one-way, read-only mirror in the app.
@@ -102,6 +109,41 @@ with no reader, is folded into C3: nothing would read its entities until then.)
 - **The mirror is its own release right after C1** (C2 again), so the inspector and editor can
   start against it; its tests are its own (entities match the occupied slots, records split by
   drawer add up to the frame's).
+
+## C2, the mirror: the details C3's text left open (2026-10-18)
+
+Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: no `Visibility` or
+hidden rule; each position's source named; the axes stated; records, not positions, place
+sprites; one capture helper beside the page copy; tests against the game, not the snapshot).
+
+- **The frame on screen.** `Play` copies the OAM page and marks just after the NMI, before the
+  next frame runs (`Play::step`, and `Play::running` at construction); one helper does that copy
+  and, beside it, takes a `mirror::Snapshot` of the game: `oam.shown` (that page's records), each
+  slot's kind and level position, the player's level position and the camera. The records are the
+  picture's truth: C3 places sprites from them. Positions and the camera are the game's state at
+  the end of that frame (an actor that moved after drawing is not where its sprite is); they serve
+  interpolation and the inspector, and no gate is built on them.
+- **Entities** (`crates/app/src/mirror.rs`, `MirrorPlugin`): 49, spawned at `Startup` and never
+  despawned, each with `Drawer(Mark)` as its identity (`Actor(0..24)`, `Second(0..8)`,
+  `Projectile(0..16)`, `Player`), `LevelPosition(Vec2)` and `Draws(Vec<DrawRecord>)` (this frame's
+  records by that drawer, in draw order); the slot entities also carry `Kind(u8)` (the slot's type
+  byte, 0 for empty). No `Visibility` or `Transform` yet: C3 adds them when it parents sprites.
+- **Positions** are level pixels, y down, the game's 1/16 px words divided by 16: `Body::x/y` for
+  actor and second-class slots, `Projectile::level_x_hi:lo`/`level_y_hi:lo` for projectiles,
+  `Player::x/y` for Batman. Flipping to Bevy's y-up is C3's job.
+- **Resources**: `MirrorCamera(Vec2)` (`World::camera_x/y`, the view's top-left, the same units)
+  and `OtherDraws(Vec<DrawRecord>)`, the records whose drawer is no entity (`Scene`, `Hud`,
+  `Label`, `Pause`, `Title`, `Password`).
+- **The system** `mirror::copy` runs in `Update` after `Step::Game` and before `Step::Picture`,
+  reading `Option<Res<Play>>` only; it writes components and the two resources, nothing else.
+- **Tests** (app, with the ROM):
+  - *Capture*: on `Play::start`'s game, every slot's `Kind` equals the game's kind bytes and each
+    position the game's word / 16, a projectile's included (a frame with a shot out).
+  - *Timing*: over a level's first frames in a headless `App` with the plugin, every visible page
+    entry `Play` shows whose mark is a slot drawer or `Player` has a non-empty `Draws` on that
+    entity, which a one-frame skew between page and mirror breaks.
+  - *Split*: the records over the entities and `OtherDraws` add up, in draw order per drawer, to
+    `oam.shown` as `Play` copied it.
 
 ## The questions as asked
 

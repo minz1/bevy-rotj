@@ -11,9 +11,9 @@ license.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-rotj-rom = { version = "1.1.10", path = "../rotj-rom" }
+rotj-rom = { version = "1.1.11", path = "../rotj-rom" }
 flate2 = "1.1.10"
-rotj-oracle = { version = "1.1.10", path = "../../tools/rotj-oracle" }
+rotj-oracle = { version = "1.1.11", path = "../../tools/rotj-oracle" }
 
 [lints]
 workspace = true
