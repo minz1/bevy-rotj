@@ -1,4 +1,4 @@
-# Status — where 1.1.18 stands
+# Status — where 1.1.19 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -42,6 +42,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.16 | **done, tag `1.1.16`** (2026-10-18): the sixteenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). Weapon 5's charge and the 6502 overflow flag as data flow (`docs/specs/2026-10-18-overflow-flow-design.md`): a trace over a sweep, an exploration and a held-B probe found the charge waits, in play, on the flag Batman's frame leaves (B held about 90% of the time, invulnerable standing, a mid-jump turn or a crouch release), which a live second-class actor's draw usually clears; so `Work::cpu_overflow` is gone, `player::step_draw` returns the flag `$84AB` leaves, `draw_second` and `weapons::step` take it and thread it slot to slot, and `super_unleash` takes it with the Classic rule written on it; `bit` is `set_overflow_from`. New tests pin the threading (the charge waits on the incoming flag; a shot above that goes off the screen clears it; `draw_second` with no live actor passes it through) |
 | 1.1.17 | **done, tag `1.1.17`** (2026-10-18): the seventeenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The hurt written once (`docs/specs/2026-10-18-hurt-once-design.md`): the damage tile's response and `engine::hurt_player` share `engine::start_hurt` (the shot pose dropped, stunned and invulnerable for 32 frames, a fall turned into a jump; the knock-back speed away from where Batman faces), each keeping its own rule for where the speed goes; the stunned frame's handler is `stunned` |
 | 1.1.18 | **done, tag `1.1.18`** (2026-10-18): the eighteenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The sprite attribute bits named (`docs/specs/2026-10-18-attribute-bits-design.md`, the survey loop's first item): `oam::attr` (`FLIP_X`, `FLIP_Y`, `BEHIND`, `PALETTE`) replaces the raw masks on the attribute bytes in 31 files, the Classic and Modern pictures decoding the byte with the same names; `Player::faces_left` serves every facing test; `breakable_block::KEEPS_PALETTES` names that family's own switch; the landing's turn test is named as the Classic rule it is (the ROM at `$8427` reads only the facing byte's bit 7, never the pad) |
+| 1.1.19 | **done, tag `1.1.19`** (2026-10-18): the nineteenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The collision probes' results typed (`docs/specs/2026-10-18-probe-results-design.md`, the survey loop's #2): the hit probes (`wall`, `floor`, `feet`, `head`, `ahead`, `column`, `corners`) return true when they hit and `solid`/`below` true when solid, where both had answered in bit 7 with opposite meanings; `collision::probe` names the flag bits the handlers read (`RIGHTWARD`, `LEFTWARD`, `FLOORS_SOLID`); the probes' oracle tests still compare the ROM's exact answer (the A byte for the hit probes, the N flag for `solid`) |
 
 ## Verified working
 
@@ -98,8 +99,9 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    flow: tagged `1.1.16`** (2026-10-18). `Body`'s typed per-family state is deferred
    (`docs/specs/2026-10-18-family-fields-views-design.md`). **1.1.17, the hurt written once:
    tagged `1.1.17`** (2026-10-18). **1.1.18, the attribute bits named: tagged `1.1.18`**
-   (2026-10-18). Next: the survey loop's list in MODERNIZE (the probe results typed, the raster
-   split typed, ...), level packs release 1 alongside.
+   (2026-10-18). **1.1.19, the probe results typed: tagged `1.1.19`** (2026-10-18). Next: the
+   raster split typed (`docs/specs/2026-10-18-raster-split-design.md`) and level packs release 1
+   (`docs/specs/2026-10-18-level-packs-release-1-design.md`).
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
@@ -124,7 +126,14 @@ from the game's own requests.
 
 ## Owner decisions pending
 
-None open.
+- **Level packs, `first_spawn_column` in two rooms** (`docs/specs/2026-10-18-level-packs-release-1-design.md`):
+  area 11 rooms 2 and 3 (`rooms/5-1-3.tmj`, `5-1-4.tmj`) start their spawn schedule at a column
+  no approved field carries and no rule derives (the rule fits the other 34 rooms). Release 1 ships
+  with the derived value and its proof skips those two fields by name; release 3 (the game loading
+  packs) waits for the answer: a `player-start` property, or accept the derived column there.
+- **Level packs, the schedule residue in release 3**: dropping the residue (the owner's answer)
+  changes WRAM bytes the lockstep compares (`$7410-$750F`); release 3's spec will propose how the
+  proof treats them.
 
 ## Owner decisions made
 

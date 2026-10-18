@@ -285,7 +285,7 @@ of its own, proven by the lockstep, ranked by payoff over risk:
    sites in 25 files (`facing ^= 0x40` 20 times in `player.rs`) -> an `oam::attr` module and
    `turn_around`/`faces_left`; constant substitution. `facing` also holds palette bits: it is
    really the player's attribute byte (a naming call).
-2. **Collision probe results typed**: bit 7 means "clear" for the hit probes (`wall`, `floor`,
+2. **Collision probe results typed** (done in 1.1.19): bit 7 means "clear" for the hit probes (`wall`, `floor`,
    `feet`, `head`, `ahead`, `column`, `corners`) and "solid" for `solid`/`below`, tested `& 0x80`
    at 25 sites -> `solid() -> bool`, a `Blocked`/`Clear` result, named probe flags; `solid`'s
    `None` arm returns a ROM byte (`$C97E`) whose bit 7 alone is read (pin it). The probe API new

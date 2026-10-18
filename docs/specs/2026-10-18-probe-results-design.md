@@ -2,7 +2,7 @@
 
 Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: the oracle tests'
 mapping; no "by construction" test; `weapons.rs`'s computed flags; the `$04` name; the polarity in
-each doc). The survey loop's #2 (MODERNIZE "The survey loop, 2026-10-18"). No
+each doc). Implemented in 1.1.19. The survey loop's #2 (MODERNIZE "The survey loop, 2026-10-18"). No
 behaviour change: the probes' oracle tests and the lockstep prove it.
 
 ## What is there

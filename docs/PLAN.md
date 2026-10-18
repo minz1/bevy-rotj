@@ -1,6 +1,6 @@
 # Port plan — Batman: Return of the Joker → Rust/Bevy
 
-Status: **1.1.18 tagged** (the whole game byte-exact against the oracle, boot to ending, built with the user's own ROM, every frame's picture checked line by line; `docs/STATUS.md`
+Status: **1.1.19 tagged** (the whole game byte-exact against the oracle, boot to ending, built with the user's own ROM, every frame's picture checked line by line; `docs/STATUS.md`
 is the source of truth). **1.0 means full-game parity** (all 7 stages, 5 bosses,
 every actor behaviour, the complete soundtrack). Intermediate minor checkpoints are
 tagged as they land. After 1.0.0 only Classic Mode is bound by parity
