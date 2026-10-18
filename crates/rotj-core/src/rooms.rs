@@ -177,7 +177,6 @@ impl Room {
 
 /// Every room the per-area tables list, as `(area, room)`: the tables (bank 14 from `$DA18`)
 /// are contiguous, so each area's rooms run to the next table, the last to the first record.
-#[cfg(test)]
 pub(crate) fn listed_rooms(prg: &[u8]) -> Vec<(u8, u8)> {
     let word = |addr: u16| {
         let bytes = bank_slice(prg, 14, addr & 0x1FFF).expect("bank 14");

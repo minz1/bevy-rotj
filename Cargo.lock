@@ -5363,6 +5363,8 @@ dependencies = [
  "flate2",
  "rotj-oracle",
  "rotj-rom",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 

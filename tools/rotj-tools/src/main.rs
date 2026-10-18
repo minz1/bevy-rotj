@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
-use color_eyre::eyre::{Context, Result, bail};
+use color_eyre::eyre::{Context, Result, bail, eyre};
 use rotj_core::ines::FME7_PRG_BANK_SIZE;
 use rotj_core::{GRAY_PREVIEW_PALETTE, InesRom, TILES_PER_BANK, WriteList};
 
@@ -189,6 +189,16 @@ enum Cmd {
         #[arg(long)]
         verify: bool,
     },
+    /// Write the original game's levels as a level pack (`pack.json`, `world.world` and
+    /// `rooms/`); the pack is ROM-derived, so keep it out of the repository.
+    ExportLevels {
+        /// Path to the .nes ROM file.
+        #[arg(short, long)]
+        rom: PathBuf,
+        /// The pack's folder.
+        #[arg(short, long)]
+        out: PathBuf,
+    },
     /// Decode the sound driver's DMC record tables and extract the samples.
     Dmc {
         /// Path to the .nes ROM file.
@@ -263,8 +273,30 @@ impl Cli {
             Cmd::Sublevel { dump, frame, out } => sublevels::extract(&dump, frame, &out),
             Cmd::Dmc { rom, out } => dmc_extract(&rom, &out),
             Cmd::Music { rom, out } => music::extract(&rom, &out),
+            Cmd::ExportLevels { rom, out } => export_levels(&rom, &out),
         }
     }
+}
+
+fn export_levels(rom: &Path, out: &Path) -> Result<()> {
+    let rom = rotj_rom::Rom::load(Some(rom)).map_err(|error| eyre!(error))?;
+    let files = rotj_core::levels::export(&rom.prg, &rom.chr)
+        .ok_or_else(|| eyre!("the ROM's levels do not import"))?;
+    write_pack(&files, out)?;
+    println!("{} ({} files)", out.display(), files.len());
+    Ok(())
+}
+
+/// Writes each of a pack's files under `out`.
+fn write_pack(files: &rotj_core::levels::PackFiles, out: &Path) -> Result<()> {
+    for (path, text) in files {
+        let file = out.join(path);
+        if let Some(dir) = file.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(&file, text).wrap_err_with(|| format!("writing {}", file.display()))?;
+    }
+    Ok(())
 }
 
 /// Read and parse the ROM.
@@ -526,4 +558,28 @@ fn dmc_extract(path: &Path, out: &Path) -> Result<()> {
 fn main() -> Result<()> {
     color_eyre::install()?;
     Cli::parse().run()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pack lands in a temporary folder, its rooms under `rooms/`, and is removed.
+    #[test]
+    fn export_levels_writes_the_pack_under_its_folder() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let files = rotj_core::levels::export(&rom.prg, &rom.chr).expect("the ROM exports");
+        let out = std::env::temp_dir().join(format!("rotj-export-levels-{}", std::process::id()));
+        write_pack(&files, &out).expect("writes");
+        let rooms = std::fs::read_dir(out.join("rooms"))
+            .expect("rooms/")
+            .count();
+        let pack = std::fs::read_to_string(out.join("pack.json")).expect("pack.json");
+        let world = out.join("world.world").exists();
+        std::fs::remove_dir_all(&out).expect("removes the pack");
+        assert_eq!((rooms, world), (36, true));
+        assert!(pack == files["pack.json"], "pack.json differs");
+    }
 }

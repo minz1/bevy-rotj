@@ -289,6 +289,12 @@ macro_rules! families {
             $($(#[$second_meta:meta])* $($second_kind:literal)|+ => $second:ident($second_module:ident),)+
         }
     ) => {
+        /// Each main family's module name and kinds.
+        pub const MAIN: &[(&str, &[u8])] = &[$((stringify!($main_module), &[$($main_kind),+]),)+];
+
+        /// Each second-class family's module name and kinds.
+        pub const SECOND: &[(&str, &[u8])] = &[$((stringify!($second_module), &[$($second_kind),+]),)+];
+
         /// A handler family's own state.
         #[derive(Debug, Clone, Default, PartialEq, Eq)]
         pub enum Brain {

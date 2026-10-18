@@ -9,6 +9,7 @@ pub mod digest;
 pub mod ines;
 pub mod level;
 pub mod levelmap;
+pub mod levels;
 pub mod palette;
 pub mod ppulist;
 pub mod prg;
