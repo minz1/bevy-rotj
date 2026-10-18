@@ -19,7 +19,7 @@ sound cannot change Classic. Items I could not close are marked **lead**.
 | 1 | `weapons.rs` routine dispatch (`step`→`run`→`zero`…`five`) → one enum state machine | 1 collapse | player as a character | high (2225 lines) | high | weapons oracle tests (`weapons.rs` §tests) + lockstep | verified shape |
 | 2 | player motion byte → `Port::m0..m11` (player.rs:502–2520) → an explicit enum state machine | 1 collapse | player as a character | high | high | `player.rs` tests + chain lockstep | verified shape |
 | 3 | `Brain::Unported` + `engine::unported`: dead as a handler, but `Unported` is also the `#[default]` empty-slot brain | 1 collapse | actors (family dispatch) | ~30 lines removed | low | chain tape has no `Outside` (`actor.rs:536`); retarget 3 test predicates | verified (lead: test edits) |
-| 4 | `Outside` bracket enum + callback plumbing | 1 collapse | actors (family dispatch) | moderate | medium (tape format) | remove the last `Event::Outside` kind; PLAN says steps keep tapes unchanged, so a re-record needs the owner's yes | lead |
+| 4 | `Outside` bracket enum + callback plumbing | 1 collapse | actors (family dispatch) | moderate | medium (tape format) | the tags retired, the chain's tape byte-identical (`docs/specs/2026-10-18-outside-removal-design.md`) | done in 1.1.15 |
 | 5 | Bevy tilemaps/sprites replace the software compositor (`render.rs`, `play::compose`/`split`, `screen.rs`) | 2 replace | presentation and UI | high (~700 lines) | medium-high (picture tests read `Frame`) | keep `Frame` as the headless reference; add screenshot diff | lead (`bevy_ecs_tilemap` is Bevy 0.19; `bevy_simple_tilemap` 0.21.0 is Bevy 0.20, unevaluated) |
 | 6 | HUD/pause/title/password → Bevy UI | 2 replace | presentation and UI | moderate | medium | HUD state is RAM (lockstep); picture tests | verified shape |
 | 7 | `frame::animate_chr` → Bevy texture-atlas animation | 2 replace | presentation and UI | small | low-medium | `$0C00-$0FFF` bank check; picture | verified shape |
@@ -50,15 +50,11 @@ riskiest, so they belong to the pilot the PLAN schedules after 1.0.1.
   explicit `Empty` (or `Option<Brain>`) and panic only for a non-zero unknown main kind. **Lead** on that split. All 100 handler types are
   ported (`docs/STATUS.md` 1.0.0 row), and the chain's tape replays with an
   empty `injected` list (`actor.rs:536`, `the_tape_replays_the_chain_without_the_rom`),
-  so the `Outside::SecondClass` request never fires. Before/after: the dispatch arm and the `unported` body gone (not the variant, see above). Three test predicates reference the variant (k4c.rs:72,
+  and since 1.1.15 there is no `Outside` request at all. Before/after: the dispatch arm and the `unported` body gone (not the variant, see above). Three test predicates reference the variant (k4c.rs:72,
   oracle.rs:1690, oracle.rs:1728); retarget them to a kind-based check. **Lead**
   on those edits, otherwise verified.
-- **`Outside` (actor.rs:111–115, 139, 188–193; oracle.rs:491–500, 629, 654,
-  1017, 1203, 1289; tape.rs:24–25, 85, 124, 162, 230)** — the callback and the
-  `Event::Outside` tape kind exist to hand the oracle a routine the port does
-  not run. With #1.1 landed there is no such routine, so the whole bracket is
-  dead. Removing it changes the tape encoding (a version bump), so it is a
-  **lead**: fold it into the #1.1 commit once the tape is re-recorded.
+- **`Outside`**: removed in 1.1.15 with `Relift`, the tape tags retired
+  (`docs/specs/2026-10-18-outside-removal-design.md`).
 - **Duplicate `integrate` (k08.rs:57, k92.rs:66, byte-identical)** and the
   four-part-per-frame walk around it (k08.rs:34–47, k92.rs:39–56). Before/after:
   two copies → one `engine::integrate_part(body, lo, hi, velocity) -> u16`.
@@ -316,7 +312,7 @@ New candidates, each to be classified (state, flags, table index) before it chan
 - **Compositor swap (#5):** the well-known tilemap crates are Bevy 0.19 (only `bevy_simple_tilemap` 0.21.0 targets 0.20, unevaluated), and the picture
   tests read the port's `Frame`; a screenshot-readback comparison is needed before
   the swap is provable. The rest of #5 is read from source only.
-- **`Outside` removal (#4):** depends on the tape format change and a
-  re-record; not attempted.
+- **`Outside` removal (#4):** done in 1.1.15, with `Relift`; their tape tags retired, so the
+  chain's tape kept its bytes and nothing was re-recorded.
 - **`bevy_inspector_egui` 0.37.0** is Bevy 0.19 (blocked) and `iyes_perf_ui` is
   stale (0.5.0, 2025) — no dev-overlay candidate for 0.20 was found.

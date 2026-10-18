@@ -3,7 +3,7 @@
 Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: `Relift` and the rest
 of the bracket mechanism go too; the tests that build or count those events; the assertion in
 `loop_body` under `cfg(test)`; the docs; the proof's wording). HANDOFF item 6, approved by the
-owner as its own release; MODERNIZE #4.
+owner as its own release; MODERNIZE #4. Implemented in 1.1.15.
 
 ## What it is
 

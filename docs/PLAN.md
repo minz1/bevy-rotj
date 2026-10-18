@@ -1,6 +1,6 @@
 # Port plan — Batman: Return of the Joker → Rust/Bevy
 
-Status: **1.1.14 tagged** (the whole game byte-exact against the oracle, boot to ending, built with the user's own ROM, every frame's picture checked line by line; `docs/STATUS.md`
+Status: **1.1.15 tagged** (the whole game byte-exact against the oracle, boot to ending, built with the user's own ROM, every frame's picture checked line by line; `docs/STATUS.md`
 is the source of truth). **1.0 means full-game parity** (all 7 stages, 5 bosses,
 every actor behaviour, the complete soundtrack). Intermediate minor checkpoints are
 tagged as they land. After 1.0.0 only Classic Mode is bound by parity
@@ -91,8 +91,8 @@ The ranked survey with file:line, risk and the Classic proof for each item is
 - Title, HUD and pause screen -> Bevy UI with NES styling.
 - The 32 actor slots as fixed arrays (`Slots`) -> a read-only entity mirror for the
   renderer, inspector and editor; `Slots` stays the Classic simulation (owner, 2026-10-17).
-- `Outside` brackets and routine-shaped modules mirroring the 6502 listing -> systems
-  named for what they do.
+- Routine-shaped modules mirroring the 6502 listing -> systems named for what they do (the
+  `Outside` brackets went in 1.1.15).
 - Settings passed as one value into the core (`docs/specs/2026-10-15-classic-and-enhanced-modes-design.md`).
 - Frame pacing (owner, 2026-10-15, a 170 Hz display): the 60 Hz `FixedUpdate` tick is
   not aligned with the display, so input waits 0-1 game frames unevenly and motion
