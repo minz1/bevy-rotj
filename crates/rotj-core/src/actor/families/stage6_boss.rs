@@ -10,6 +10,11 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion, sound};
 
+/// The `stage6_boss_part` kind.
+const PART: u8 = 0xA8;
+/// The `stage6_boss_death_part` kind.
+const DEATH_PART: u8 = 0xAA;
+
 /// Primary metasprite pointers (`$87C1`), by `$F1` bit 2.
 const METASPRITES: u16 = 0x87C1;
 /// Second-draw metasprite pointers (`$87E0`), by `$7C30 * 2` (`0` when bit 7 set).
@@ -225,7 +230,7 @@ fn spawn_a8(work: &Work, cx: &mut Cx<'_>) -> u8 {
         part_body.x = work.x;
         part_body.y = work.y.wrapping_sub(0x0100);
         part_body.state = 0;
-        child.kind = 0xA8;
+        child.kind = PART;
         part = part.wrapping_sub(1);
         if part & 0x80 != 0 {
             return spawn_index;
@@ -244,7 +249,7 @@ fn spawn_aa(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     let part = &mut child.body;
     (part.sprite, part.phase, part.counter, part.anim) = (0, 0, 0, 0);
     (part.x, part.y) = (work.x, work.y);
-    child.kind = 0xAA;
+    child.kind = DEATH_PART;
 }
 
 /// `$86CB`: project, draw the flash and both metasprites, and contact the player.

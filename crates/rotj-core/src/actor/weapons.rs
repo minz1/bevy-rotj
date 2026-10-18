@@ -1259,7 +1259,7 @@ fn splitter_part(slot: usize, part: usize, source: usize, cx: &mut Cx<'_>) {
     projectile.vx = vx;
     projectile.vy = vy;
     projectile.param = bounce;
-    projectile.kind = 0x06;
+    projectile.kind = Weapon::Splitter.shot_kind();
     projectile.state = shot_state::SPENT;
     projectile.attr = 0;
     projectile.timer = 0;

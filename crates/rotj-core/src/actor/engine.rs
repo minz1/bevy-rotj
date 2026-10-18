@@ -62,6 +62,13 @@ pub enum Visibility {
     Far,
 }
 
+/// The boss-defeated script's kind (`boss_defeated_script` family).
+const DEFEAT_SCRIPT: u8 = 0x50;
+/// The harmless burst's kind (`harmless_burst` family).
+const BURST: u8 = 0x08;
+/// The pickup's kind (`pickup` family), a dying drop's successor.
+const PICKUP: u8 = 0x10;
+
 const MARGIN: i32 = 128 * 16;
 const BOTTOM_BAND: i32 = 80 * 16;
 const FAR_BELOW: i32 = 384 * 16;
@@ -832,8 +839,8 @@ pub fn boss_defeated(timer: u8, cx: &mut Cx<'_>) {
     slot.body.counter = 0;
     slot.body.anim = 1;
     slot.body.timer = timer;
-    slot.kind = 0x50;
-    slot.brain = super::families::Brain::new(0x50);
+    slot.kind = DEFEAT_SCRIPT;
+    slot.brain = super::families::Brain::new(DEFEAT_SCRIPT);
 }
 
 /// Queues the status bar's two 5-digit counters: `value` and the boss's hit points (`$D1F5`).
@@ -921,8 +928,8 @@ pub fn spawn_parts(variant: u8, work: &Work, cx: &mut Cx<'_>) -> Option<usize> {
         }
     }
     slot.body.flags = rom_byte(cx.prg, 13, 0xACBD + u16::from(variant));
-    slot.kind = 0x08;
-    slot.brain = super::families::Brain::new(0x08);
+    slot.kind = BURST;
+    slot.brain = super::families::Brain::new(BURST);
     slot.body.set(Field::RefVxHigh, 0x20);
     slot.body.contact = 0x48;
     Some(index)
@@ -1046,7 +1053,7 @@ pub fn dying(
         *kind = 0;
         return true;
     }
-    *kind = 0x10;
+    *kind = PICKUP;
     body.phase = 0;
     body.flags = 0;
     body.vx_drift = 0;

@@ -1,7 +1,10 @@
 # The spawned kinds named
 
 Status: approved by the Opus stand-in, 2026-10-18, as the second half of the survey loop's #7
-(the first, `docs/specs/2026-10-18-sound-ids-design.md`). No behaviour change: constant
+(the first, `docs/specs/2026-10-18-sound-ids-design.md`). Changed in the implementation's review:
+the projectile kinds are not charged-attack stages but each weapon's plain-shot tag, so they are
+`Weapon::shot_kind` (`(weapon + 1) << 1`, the player's launch already computed it), and a paired
+shot's second part, `kind` 1, is `player.rs`'s `PARTNER`. No behaviour change: constant
 substitution, proven by the lockstep.
 
 ## What is there
@@ -20,8 +23,9 @@ their child kinds with a local `CHILD`/`*_KIND` const.
   - `stage6_boss.rs`: `PART`, `DEATH_PART`; `ace_ranger.rs`: `PART = 0x3A`, `SHELL = 0x3C`
     (`ace_ranger_shot`'s own words);
   - the rest by the same rule.
-- The projectile kinds go beside `weapons.rs`'s `homing_stage`/`super_stage` modules
-  (`splitter_stage::PART`, `three_way_stage::PART` or the existing modules' names where one fits).
+- The projectile kinds: `Weapon::shot_kind`, the `kind` a weapon's plain shot is spawned with (the
+  loop flies a shot by the current weapon, not its kind), for the launch, the splitter's part and
+  the three-way's parts; `PARTNER` for a paired shot's second part.
 - `bomber_bomb.rs`'s test literal stays (test data).
 - Out of scope: renaming the `spawn_3a`/`spawn_b8` functions after the consts (a later naming pass).
 

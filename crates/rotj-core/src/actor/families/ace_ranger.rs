@@ -11,6 +11,11 @@ use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion, sound};
 
+/// The `$3A` part (`ace_ranger_shot` family), spawned by `$8FB9`.
+const PART: u8 = 0x3A;
+/// The `$3C` part (`ace_ranger_shot` family), spawned by `$909B`.
+const SHELL: u8 = 0x3C;
+
 /// Metasprite pointers (`$90E7`), indexed by `$7C30`.
 const METASPRITES: u16 = 0x90E7;
 /// Metasprite pointers for the `$7E10` bit-6 second draw (`$9136`).
@@ -314,14 +319,14 @@ fn spawn_3a(body: &Body, work: &Work, cx: &mut Cx<'_>) {
     };
     let y = work.y.wrapping_sub(dy);
     let part = &mut cx.slots.main[slot];
-    part.kind = 0x3A;
+    part.kind = PART;
     part.body.flags = work.attr;
     (part.body.x, part.body.y) = (x, y);
     part.body.phase = phase;
     part.body.sprite = frame;
     part.body.chr_slot = body.chr_slot;
     part.body.state = 0;
-    part.brain = Brain::new(0x3A);
+    part.brain = Brain::new(PART);
 }
 
 /// `$909B`: spawn up to three type `$3C` parts into the highest free slots 0-15.
@@ -334,13 +339,13 @@ fn spawn_3c(cx: &mut Cx<'_>) {
         let x = cx.prg.families.ace_ranger.spawn_x[usize::from(count)];
         let y = cx.prg.families.ace_ranger.spawn_y[usize::from(count)];
         let part = &mut cx.slots.main[slot];
-        part.kind = 0x3C;
+        part.kind = SHELL;
         part.body.x = u16::from_be_bytes([x, 0]);
         part.body.y = u16::from_be_bytes([y, 0]);
         (part.body.state, part.body.hit, part.body.health) = (0, 0, 0x0008);
         (part.body.timer, part.body.counter) = (0, 0);
         part.body.contact = 0x10;
-        part.brain = Brain::new(0x3C);
+        part.brain = Brain::new(SHELL);
         if count == 0 {
             break;
         }

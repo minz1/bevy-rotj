@@ -202,6 +202,9 @@ impl Tables {
     }
 }
 
+/// The `kind` of a paired shot's second part (`$9C2E`, `$9DA0`).
+const PARTNER: u8 = 1;
+
 /// The walk target table (`$84A0` high, `$84A3` low), by direction index:
 /// right, left, no direction.
 const WALK_TARGET: [i16; 3] = [0x0022, -0x0022, 0];
@@ -1065,7 +1068,7 @@ impl Port<'_, '_> {
         let (a_hi, b_hi, carry) = if aim_up { y_adc } else { x_adc };
         self.overflow = adc_overflows(a_hi, b_hi, carry);
         let projectile = &mut self.cx.effects.projectiles[slot];
-        projectile.kind = (weapon.byte() + 1) << 1;
+        projectile.kind = weapon.shot_kind();
         projectile.x = u16::from_be_bytes([x_hi, x_lo]);
         projectile.y = u16::from_be_bytes([y_hi, y_lo]);
         if aim_up {
@@ -1123,7 +1126,7 @@ impl Port<'_, '_> {
                 let source = self.cx.effects.projectiles[slot];
                 self.spawn_parts(1, |projectile, _| {
                     part(projectile, 0);
-                    projectile.kind = 1;
+                    projectile.kind = PARTNER;
                     at_source(projectile, &source);
                 });
             }
@@ -1136,7 +1139,7 @@ impl Port<'_, '_> {
                     projectile.state = 0;
                     projectile.attr = 0;
                     projectile.flags = 0;
-                    projectile.kind = 0x0A;
+                    projectile.kind = Weapon::ThreeWay.shot_kind();
                     projectile.damage = 1;
                 };
                 part(&mut self.cx.effects.projectiles[slot], 2);
@@ -1215,7 +1218,7 @@ impl Port<'_, '_> {
                 let source = self.cx.effects.projectiles[slot];
                 self.spawn_parts(1, |projectile, _| {
                     part(projectile, 0);
-                    projectile.kind = 1;
+                    projectile.kind = PARTNER;
                     at_source(projectile, &source);
                 });
             }
@@ -1228,7 +1231,7 @@ impl Port<'_, '_> {
                 let part = |projectile: &mut Projectile, n: usize| {
                     projectile.vx = vx;
                     projectile.attr = attr;
-                    projectile.kind = 0x0A;
+                    projectile.kind = Weapon::ThreeWay.shot_kind();
                     projectile.vy = vy[n];
                     projectile.timer = 0x80;
                     projectile.state = 0;

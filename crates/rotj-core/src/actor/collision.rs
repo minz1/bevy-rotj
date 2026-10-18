@@ -228,6 +228,9 @@ pub fn floor(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
     }
 }
 
+/// The falling block's second-class kind (`crumbling_block` family).
+const CRUMBLING_BLOCK: u8 = 0x06;
+
 /// Lands on a crumbling block from its upper half and starts it falling: second-class
 /// type `$06` at the block, unless `$B9` bit 7 is set or slots 24-31 are full (`$CC6D`).
 /// True when it landed.
@@ -238,8 +241,8 @@ fn crumble(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
     bounce(work);
     let free = cx.slots.second.iter_mut().find(|second| second.kind == 0);
     if let Some(second) = free.filter(|_| cx.effects.player.moved & 0x80 == 0) {
-        second.kind = 0x06;
-        second.brain = super::families::SecondBrain::new(0x06);
+        second.kind = CRUMBLING_BLOCK;
+        second.brain = super::families::SecondBrain::new(CRUMBLING_BLOCK);
         let body = &mut second.body;
         body.x = word(hi(probe.x) & 0xFE, 0xF0);
         body.anim = 0xF0;

@@ -13,6 +13,17 @@ use crate::actor::engine::{self, Work};
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion, set_first_colours, sound};
 
+/// The `final_boss_defeat` kind (`$8F37`).
+const DEFEAT: u8 = 0xB8;
+/// The `final_boss_falling_shot` kind (`$8F55`).
+const FALLING_SHOT: u8 = 0xBC;
+/// The `final_boss_falling_part` kind.
+const FALLING_PART: u8 = 0xBE;
+/// The `final_boss_bouncer` kind.
+const BOUNCER: u8 = 0xC0;
+/// The `explosion` family's kind.
+const EXPLOSION: u8 = 0x52;
+
 /// The single body draw's metasprite pointers (`$910E`), by `$F1` bits 2-3.
 const BODY_DRAW: u16 = 0x910E;
 /// The `$E2 == $68` draw's pointers (`$911E`), by `$7C30`.
@@ -346,7 +357,7 @@ fn spawn_b8(body: &mut Body, cx: &mut Cx<'_>) {
     let Some(slot) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0) else {
         return;
     };
-    cx.slots.main[slot].kind = 0xB8;
+    cx.slots.main[slot].kind = DEFEAT;
     body.counter = 0;
     body.anim = 0;
 }
@@ -357,7 +368,7 @@ fn spawn_bc(cx: &mut Cx<'_>) {
         return;
     };
     let child = &mut cx.slots.main[slot];
-    child.kind = 0xBC;
+    child.kind = FALLING_SHOT;
     let body = &mut child.body;
     (body.x, body.y) = (0x0800, 0x0580);
     (body.state, body.subtype, body.phase) = (0, 0, 0);
@@ -379,7 +390,7 @@ fn spawn_be(body: &Body, cx: &mut Cx<'_>) {
             (if count < 2 { 0x28 } else { 0x10 }, 0)
         };
         let child = &mut cx.slots.main[slot];
-        child.kind = 0xBE;
+        child.kind = FALLING_PART;
         let part = &mut child.body;
         (part.x, part.y) = (x, y);
         (part.state, part.timer, part.counter, part.anim) = (0, 0, 0, 0);
@@ -404,7 +415,7 @@ fn spawn_c0(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
             (count, 0xE0, 0xFF)
         };
         let child = &mut cx.slots.main[slot];
-        child.kind = 0xC0;
+        child.kind = BOUNCER;
         let part = &mut child.body;
         (part.x, part.y) = (0x0800, 0x0580);
         (part.state, part.anim, part.chr_slot, part.cell) = (0, 0, 0, 0);
@@ -426,7 +437,7 @@ fn spawn_52(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
         && let Some(slot) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0)
     {
         let part = &mut cx.slots.main[slot];
-        part.kind = 0x52;
+        part.kind = EXPLOSION;
         part.body.chr_slot = 0x06;
         part.body.x = x;
         part.body.y = y;

@@ -73,6 +73,12 @@ impl Weapon {
         self as u8
     }
 
+    /// The `kind` its plain shot is spawned with; the loop flies it by the weapon, not the kind.
+    #[must_use]
+    pub const fn shot_kind(self) -> u8 {
+        (self.byte() + 1) << 1
+    }
+
     /// The weapon a RAM value holds, if it is one.
     #[must_use]
     pub fn from_byte(byte: u8) -> Option<Weapon> {
