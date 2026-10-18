@@ -180,8 +180,9 @@ the-original-game/
   - `breakable_block`: `type-04`, `type-06`
   - `ace_ranger_shot`: `type-3a`, `type-3c`
   - `spike_probe`: `type-58`, `type-5a`
-  - `inert_platform` (second-class `$4A`, `$88`, `$E0`, which the `$CEC3` table runs no handler
-    for): `type-4a`, `type-88`, `type-e0`
+  - `no_handler` (second-class `$4A`, `$88`, `$E0`: record ids past area 17 room 0's table, which
+    `$CEC3` has no entry for and play never reaches; renamed from `inert_platform` by
+    `docs/specs/2026-10-18-empty-slot-design.md`): `type-4a`, `type-88`, `type-e0`
 
   `no_actor` (main `$00`: the cell clears and nothing spawns) has one kind and no `variant`.
 

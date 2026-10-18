@@ -290,7 +290,7 @@ of its own, proven by the lockstep, ranked by payoff over risk:
    at 25 sites -> `solid() -> bool`, a `Blocked`/`Clear` result, named probe flags; `solid`'s
    `None` arm returns a ROM byte (`$C97E`) whose bit 7 alone is read (pin it). The probe API new
    surfaces and kaizo tiles go through.
-3. **The raster split typed**: `Scroll::room: [u8; 13]` (`$D0-$DC`), about 137 index sites ->
+3. **The raster split typed** (done in 1.1.20): `Scroll::room: [u8; 13]` (`$D0-$DC`), about 137 index sites ->
    `RasterSplit { armed, delay: u16, kind, step, bands }`, the IRQ cycle tables staying Classic's
    rule; header bytes first. Modern's next steps (the `$D3` 4 boss rooms, the band rooms) read it.
 4. **PPU registers and VRAM addresses named**: raw `ppu_ctrl`/`mask` writes (about 64), palette

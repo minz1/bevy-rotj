@@ -3,7 +3,8 @@
 Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: `rooms::Raster` reused
 for the header; no new `chain`/`step` names; the lift's `$D0` assert; the delay's byte order and
 the handlers' delay constants as words; `bands` from 0 with the literal indexes listed; the boot
-test through the projection; the chains the proof reaches). The survey loop's #3 (MODERNIZE "The survey loop, 2026-10-18"). No
+test through the projection; the chains the proof reaches). Implemented in 1.1.20: the chain reaches every handler chain but
+`$09` (the intro, its own oracle test) and `$0B` (checked by hand). The survey loop's #3 (MODERNIZE "The survey loop, 2026-10-18"). No
 behaviour change: the lockstep (which compares every frame's 240 lines and the IRQs' RAM) proves
 it.
 

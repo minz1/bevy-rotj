@@ -1,4 +1,4 @@
-# Status — where 1.1.19 stands
+# Status — where 1.1.20 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -43,6 +43,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.17 | **done, tag `1.1.17`** (2026-10-18): the seventeenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The hurt written once (`docs/specs/2026-10-18-hurt-once-design.md`): the damage tile's response and `engine::hurt_player` share `engine::start_hurt` (the shot pose dropped, stunned and invulnerable for 32 frames, a fall turned into a jump; the knock-back speed away from where Batman faces), each keeping its own rule for where the speed goes; the stunned frame's handler is `stunned` |
 | 1.1.18 | **done, tag `1.1.18`** (2026-10-18): the eighteenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The sprite attribute bits named (`docs/specs/2026-10-18-attribute-bits-design.md`, the survey loop's first item): `oam::attr` (`FLIP_X`, `FLIP_Y`, `BEHIND`, `PALETTE`) replaces the raw masks on the attribute bytes in 31 files, the Classic and Modern pictures decoding the byte with the same names; `Player::faces_left` serves every facing test; `breakable_block::KEEPS_PALETTES` names that family's own switch; the landing's turn test is named as the Classic rule it is (the ROM at `$8427` reads only the facing byte's bit 7, never the pad) |
 | 1.1.19 | **done, tag `1.1.19`** (2026-10-18): the nineteenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The collision probes' results typed (`docs/specs/2026-10-18-probe-results-design.md`, the survey loop's #2): the hit probes (`wall`, `floor`, `feet`, `head`, `ahead`, `column`, `corners`) return true when they hit and `solid`/`below` true when solid, where both had answered in bit 7 with opposite meanings; `collision::probe` names the flag bits the handlers read (`RIGHTWARD`, `LEFTWARD`, `FLOORS_SOLID`); the probes' oracle tests still compare the ROM's exact answer (the A byte for the hit probes, the N flag for `solid`) |
+| 1.1.20 | **done, tag `1.1.20`** (2026-10-18): the twentieth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The raster split typed (`docs/specs/2026-10-18-raster-split-design.md`, the survey loop's #3): `Scroll::room`'s 13 raw bytes (`$D0-$DC`) are `Scroll::split`, the `rooms::Raster` header a room's screen record already used (armed, the first IRQ's delay as a word, the handler chain, the next IRQ's index), and `Scroll::bands` (`$D5-$DC`), the chain's own bytes; the handlers' delays are words; the chain lockstep reaches every handler chain but the intro's (`$09`, proven by its own oracle test) and `$0B` (checked by hand) |
 
 ## Verified working
 
@@ -99,9 +100,9 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    flow: tagged `1.1.16`** (2026-10-18). `Body`'s typed per-family state is deferred
    (`docs/specs/2026-10-18-family-fields-views-design.md`). **1.1.17, the hurt written once:
    tagged `1.1.17`** (2026-10-18). **1.1.18, the attribute bits named: tagged `1.1.18`**
-   (2026-10-18). **1.1.19, the probe results typed: tagged `1.1.19`** (2026-10-18). Next: the
-   raster split typed (`docs/specs/2026-10-18-raster-split-design.md`) and level packs release 1
-   (`docs/specs/2026-10-18-level-packs-release-1-design.md`).
+   (2026-10-18). **1.1.19, the probe results typed: tagged `1.1.19`** (2026-10-18). **1.1.20, the
+   raster split typed: tagged `1.1.20`** (2026-10-18). Next: level packs release 1
+   (`docs/specs/2026-10-18-level-packs-release-1-design.md`), then the survey loop's list.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
@@ -131,6 +132,14 @@ from the game's own requests.
   no approved field carries and no rule derives (the rule fits the other 34 rooms). Release 1 ships
   with the derived value and its proof skips those two fields by name; release 3 (the game loading
   packs) waits for the answer: a `player-start` property, or accept the derived column there.
+- **Level packs, bit 6 of 24 pending schedule cells** (stage 7-2, area 17): they read `$C0|id`;
+  the format carries the trigger, not that bit, so they import as `$80|id`. The spawner reads
+  only bit 7 and the id, so play is the same; release 3's lockstep would see the byte at
+  `$7410`. Release 1's proof compares those cells on bit 7 and the id and pins the count.
+- **Level packs, `no_handler` in user packs** (`docs/specs/2026-10-18-empty-slot-design.md`): the
+  original game's pack names three second-class kinds the ROM has no handler for (ids past area 17
+  room 0's records, never reached in play); should the importer refuse them in other packs, since
+  placing one would stop the game once it loads packs?
 - **Level packs, the schedule residue in release 3**: dropping the residue (the owner's answer)
   changes WRAM bytes the lockstep compares (`$7410-$750F`); release 3's spec will propose how the
   proof treats them.
