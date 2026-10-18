@@ -6,7 +6,7 @@
 //! `docs/ACTORS.md` §9h.
 
 use super::collision::{self, Probe, probe};
-use super::engine::{self, Work, adc_overflows, rom_word, sub_overflows16};
+use super::engine::{self, Work, adc_overflows, hi, lo, rom_word, sub_overflows16};
 use super::oam::attr;
 use super::world::{
     Cx, Motion, Player, Projectile, Weapon, attack, busy, hurt, orientation, pose, power_up,
@@ -256,9 +256,7 @@ pub fn step_move(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
             // Above `$2B0` (`$8112`): snap to the next `..B0` line and stop.
             hit!(1);
             let add = below.to_le_bytes()[0].wrapping_neg();
-            let [hi, lo] = work.y.to_be_bytes();
-            let (lo, carry) = lo.overflowing_add(add);
-            work.y = u16::from_be_bytes([hi.wrapping_add(u8::from(carry)), lo]);
+            work.y = work.y.wrapping_add(u16::from(add));
             work.vy = 0;
         }
     }
@@ -364,7 +362,7 @@ fn ground_or_ride(
             if stood {
                 hit!(5);
             }
-            player.carrier = i16::from_be_bytes([probe.landing[1], probe.landing[0]]);
+            player.carrier = i16::from_le_bytes(probe.landing);
             landing_response(pad, player);
         } else if air_state(player, work, probe, cx) {
             player.carrier = 0;
@@ -545,9 +543,7 @@ fn slide_off_ledge(player: &mut Player, work: &mut Work, probe: &mut Probe, cx: 
 
 /// Gravity on the working y velocity (`$8311-$8339`), written back to the player.
 fn gravity(player: &mut Player, work: &Work) {
-    let [hi, lo] = work.vy.to_be_bytes();
-    let (lo, carry) = lo.overflowing_add(6);
-    let hi = hi.wrapping_add(u8::from(carry));
+    let [hi, lo] = work.vy.wrapping_add(6).to_be_bytes();
     let (hi, lo) = if hi & 0x80 != 0 {
         (0xFF, if lo & 0x80 != 0 { lo } else { 0x80 })
     } else {
@@ -627,12 +623,6 @@ impl Port<'_, '_> {
         rom_word(self.cx.prg, 4, addr)
     }
 
-    /// The player's level y, low and high bytes.
-    fn y(&self) -> (u8, u8) {
-        let [hi, lo] = self.player.y.to_be_bytes();
-        (lo, hi)
-    }
-
     /// `$8E1F`-style screen x: the low byte of the projected `x - camera`.
     fn screen_x(&self, x: u16) -> u8 {
         (x.wrapping_sub(self.cx.world.camera_x) >> 4).to_le_bytes()[0]
@@ -699,52 +689,41 @@ impl Port<'_, '_> {
         if self.player.stage_script & stage_script::HIDDEN != 0 {
             return;
         }
-        let cam = self.cx.world.camera_x;
-        let [xhi, xlo] = self.player.x.to_be_bytes();
-        let (low, borrow) = xlo.overflowing_sub(cam.to_be_bytes()[1]);
-        let hi = xhi
-            .wrapping_sub(cam.to_be_bytes()[0])
-            .wrapping_sub(u8::from(borrow));
-        let mut sx = (low >> 4) | (hi << 4);
-        if low & 0x08 != 0 {
+        let [screen_hi, screen_lo] = self
+            .player
+            .x
+            .wrapping_sub(self.cx.world.camera_x)
+            .to_be_bytes();
+        let mut sx = (screen_lo >> 4) | (screen_hi << 4);
+        if screen_lo & 0x08 != 0 {
             sx = sx.wrapping_add(1);
         }
         self.player.screen_x = sx;
         self.work.screen_x = sx;
         if sx < 0x14 {
             let push = (0x14u8.wrapping_sub(sx)).wrapping_mul(16);
-            let [hi0, lo0] = self.player.x.to_be_bytes();
-            let (lo, carry) = lo0.overflowing_add(push);
-            self.player.x = u16::from_be_bytes([hi0.wrapping_add(u8::from(carry)), lo]);
+            self.player.x = self.player.x.wrapping_add(u16::from(push));
             self.player.screen_x = 0x14;
             self.work.screen_x = 0x14;
-            let [hi1, lo1] = self.player.x.to_be_bytes();
-            let (_, carry) = lo1.overflowing_add(0x0C);
-            if self.crush(hi1.wrapping_add(u8::from(carry))) {
+            if self.crush(hi(self.player.x.wrapping_add(0x0C))) {
                 self.die();
                 self.player.anim = 0x40;
             }
         } else if sx >= 0xE8 {
             let mag = sx.wrapping_sub(0xE7).wrapping_mul(16);
-            let [hi0, lo0] = self.player.x.to_be_bytes();
-            let (lo, carry) = lo0.overflowing_add(mag.wrapping_neg());
-            self.player.x =
-                u16::from_be_bytes([hi0.wrapping_add(0xFF).wrapping_add(u8::from(carry)), lo]);
+            self.player.x = self
+                .player
+                .x
+                .wrapping_add(0xFF00 | u16::from(mag.wrapping_neg()));
             self.player.screen_x = 0xE7;
             self.work.screen_x = 0xE7;
-            let [hi1, lo1] = self.player.x.to_be_bytes();
-            let (_, borrow) = lo1.overflowing_sub(0xC0);
-            if self.crush(hi1.wrapping_sub(u8::from(borrow))) {
+            if self.crush(hi(self.player.x.wrapping_sub(0xC0))) {
                 self.die();
                 self.player.anim = 0x40;
             }
         }
-        let (ylo, yhi) = self.y();
         let camy = self.cx.world.camera_y;
-        let (dy_lo, borrow) = ylo.overflowing_sub(camy.to_be_bytes()[1]);
-        let dy_hi = yhi
-            .wrapping_sub(camy.to_be_bytes()[0])
-            .wrapping_sub(u8::from(borrow));
+        let [dy_hi, dy_lo] = self.player.y.wrapping_sub(camy).to_be_bytes();
         self.overflow = sub_overflows16(self.player.y, camy);
         if dy_hi >= 0x0F {
             self.die();
@@ -767,11 +746,11 @@ impl Port<'_, '_> {
     /// `y-0x140`, `y-0x80` and `y-0x200`.
     fn crush(&mut self, x_hi: u8) -> bool {
         self.player.vx = 0;
-        let (ylo, yhi) = self.y();
+        let y = self.player.y;
         let ys = [
-            yhi.wrapping_sub(1).wrapping_sub(u8::from(ylo < 0x40)),
-            yhi.wrapping_sub(u8::from(ylo < 0x80)),
-            yhi.wrapping_sub(2),
+            hi(y.wrapping_sub(0x140)),
+            hi(y.wrapping_sub(0x80)),
+            hi(y.wrapping_sub(0x200)),
         ];
         ys.into_iter().any(|y| {
             self.probe.x = u16::from(x_hi) << 8;
@@ -993,8 +972,7 @@ impl Port<'_, '_> {
     /// `$92D1`: the solid probe two rows above the player, the headroom check for standing
     /// from a crouch or slide.
     fn headroom_blocked(&mut self) -> bool {
-        let (ylo, yhi) = self.y();
-        let y = yhi.wrapping_sub(2).wrapping_sub(u8::from(ylo < 0x80));
+        let y = hi(self.player.y.wrapping_sub(0x280));
         let x_hi = self.player.x.to_be_bytes()[0];
         self.solid_x(u16::from(x_hi) << 8, y)
     }
@@ -1033,44 +1011,20 @@ impl Port<'_, '_> {
         let motion = usize::from(self.player.motion.byte());
         let aim_up = self.player.motion == Motion::AimingUp;
         let face_left = self.player.faces_left();
-        let add = |a_hi: u8, a_lo: u8, b_hi: u8, b_lo: u8| {
-            let (lo, carry) = a_lo.overflowing_add(b_lo);
-            let hi = a_hi.wrapping_add(b_hi).wrapping_add(u8::from(carry));
-            (hi, lo, (a_hi, b_hi, carry))
+        let launch = &self.cx.prg.player;
+        let (x_offset, y_offset) = match (aim_up, face_left) {
+            (true, true) => (-0x20, -0x410),
+            (true, false) => (0x20, -0x410),
+            (false, true) => (launch.launch_x_left[motion], launch.launch_y[motion]),
+            (false, false) => (launch.launch_x_right[motion], launch.launch_y[motion]),
         };
-        let (x_hi, x_lo, x_adc) = {
-            let [hi, lo] = self.player.x.to_be_bytes();
-            if aim_up {
-                if face_left {
-                    add(0xFF, 0xE0, hi, lo)
-                } else {
-                    add(0x00, 0x20, hi, lo)
-                }
-            } else {
-                let offset = if face_left {
-                    self.cx.prg.player.launch_x_left[motion]
-                } else {
-                    self.cx.prg.player.launch_x_right[motion]
-                };
-                let [off_hi, off_lo] = offset.to_be_bytes();
-                add(off_hi, off_lo, hi, lo)
-            }
-        };
-        let (y_hi, y_lo, y_adc) = {
-            let [hi, lo] = self.player.y.to_be_bytes();
-            if aim_up {
-                add(0xFB, 0xF0, hi, lo)
-            } else {
-                let [off_hi, off_lo] = self.cx.prg.player.launch_y[motion].to_be_bytes();
-                add(off_hi, off_lo, hi, lo)
-            }
-        };
-        let (a_hi, b_hi, carry) = if aim_up { y_adc } else { x_adc };
-        self.overflow = adc_overflows(a_hi, b_hi, carry);
+        let (x, x_overflow) = x_offset.overflowing_add(self.player.x.cast_signed());
+        let (y, y_overflow) = y_offset.overflowing_add(self.player.y.cast_signed());
+        self.overflow = if aim_up { y_overflow } else { x_overflow };
         let projectile = &mut self.cx.effects.projectiles[slot];
         projectile.kind = weapon.shot_kind();
-        projectile.x = u16::from_be_bytes([x_hi, x_lo]);
-        projectile.y = u16::from_be_bytes([y_hi, y_lo]);
+        projectile.x = x.cast_unsigned();
+        projectile.y = y.cast_unsigned();
         if aim_up {
             projectile.attr = 0;
         }
@@ -1404,8 +1358,7 @@ impl Port<'_, '_> {
 
     /// `$8508`: whether a solid tile blocks the jump's launch (probes at x, x+$A0, x-$40).
     fn jump_blocked(&mut self) -> bool {
-        let (ylo, yhi) = self.y();
-        let y = yhi.wrapping_sub(3).wrapping_sub(u8::from(ylo < 0x80));
+        let y = hi(self.player.y.wrapping_sub(0x380));
         let x1 = self.player.x.wrapping_add(0xA0);
         let x2 = x1.wrapping_sub(0x0140);
         self.solid_x(self.player.x, y) || self.solid_x(x1, y) || self.solid_x(x2, y)
@@ -1995,9 +1948,7 @@ impl Port<'_, '_> {
 
     /// `$8B99`: the held-jump y velocity trim.
     fn jump_boost(&mut self) {
-        let [hi, lo] = self.player.vy.to_be_bytes();
-        let (lo, borrow) = lo.overflowing_sub(0x16);
-        self.player.vy = i16::from_be_bytes([hi.wrapping_sub(u8::from(borrow)), lo]);
+        self.player.vy = self.player.vy.wrapping_sub(0x16);
     }
 
     /// `$8BBC`: the jump's controls: fire, turn.
@@ -2097,10 +2048,8 @@ impl Port<'_, '_> {
             self.player.anim = 0x1F;
             return;
         }
-        let [hi, lo] = self.player.y.to_be_bytes();
-        self.overflow = adc_overflows(lo, !0x20, true);
-        let (lo, borrow) = lo.overflowing_sub(0x20);
-        self.player.y = u16::from_be_bytes([hi.wrapping_sub(u8::from(borrow)), lo]);
+        self.overflow = adc_overflows(lo(self.player.y), !0x20, true);
+        self.player.y = self.player.y.wrapping_sub(0x20);
         self.player.pose = pose::LANDING | pose::LONG_LANDING;
         self.player.vy = i16::from_be_bytes([0x00, 0x40]);
         self.player.motion = Motion::Standing;
@@ -2144,7 +2093,6 @@ impl Port<'_, '_> {
     fn slide_launch(&mut self) {
         self.cx.effects.sound[0] = sound::JUMP;
         self.player.sliding = sliding::ON;
-        let [hi, lo] = self.player.x.to_be_bytes();
         let x = self.player.x.cast_signed();
         self.overflow = if self.player.faces_left() {
             x.overflowing_sub(0x80).1
@@ -2152,12 +2100,10 @@ impl Port<'_, '_> {
             x.overflowing_add(0x80).1
         };
         if self.player.faces_left() {
-            let (lo, borrow) = lo.overflowing_sub(0x80);
-            self.player.x = u16::from_be_bytes([hi.wrapping_sub(u8::from(borrow)), lo]);
+            self.player.x = self.player.x.wrapping_sub(0x80);
             self.player.vx = i16::from_be_bytes([0xFF, 0x70]);
         } else {
-            let (lo, carry) = lo.overflowing_add(0x80);
-            self.player.x = u16::from_be_bytes([hi.wrapping_add(u8::from(carry)), lo]);
+            self.player.x = self.player.x.wrapping_add(0x80);
             self.player.vx = i16::from_be_bytes([0x00, 0x90]);
         }
         self.player.anim = 0x3A;
@@ -2169,16 +2115,12 @@ impl Port<'_, '_> {
         self.player.anim = 0x3A;
         let cam = self.cx.world.camera_x;
         self.overflow = sub_overflows16(self.player.x, cam);
-        let [xhi, xlo] = self.player.x.to_be_bytes();
-        let (_, borrow) = xlo.overflowing_sub(cam.to_be_bytes()[1]);
-        let hi = xhi
-            .wrapping_sub(cam.to_be_bytes()[0])
-            .wrapping_sub(u8::from(borrow));
+        let dx_hi = hi(self.player.x.wrapping_sub(cam));
         let vx_lo = self.player.vx.to_be_bytes()[1];
         let end = if self.player.vx < 0 {
-            hi < 0x02 || vx_lo >= 0xF0
+            dx_hi < 0x02 || vx_lo >= 0xF0
         } else {
-            hi >= 0x0D || vx_lo < 0x10
+            dx_hi >= 0x0D || vx_lo < 0x10
         };
         if end {
             self.player.pose_timer = 0x40;
@@ -2188,8 +2130,7 @@ impl Port<'_, '_> {
 
     /// `$8DFE`: something solid 24 px ahead, which ends the slide in a crouch.
     fn slide_blocked(&mut self) -> bool {
-        let (ylo, yhi) = self.y();
-        let py = yhi.wrapping_sub(u8::from(ylo < 0x80));
+        let py = hi(self.player.y.wrapping_sub(0x80));
         let dx = self.screen_x(self.player.x);
         self.overflow = sub_overflows16(self.player.x, self.cx.world.camera_x);
         let solid = if self.player.faces_left() {
@@ -2648,6 +2589,58 @@ mod tests {
     use crate::levelmap::Cell;
 
     use super::{draw_player, step_draw, step_move};
+
+    #[test]
+    fn byte_borrows_are_word_maths() {
+        for vy in 0..=0xFFFFu16 {
+            let [hi, lo] = vy.to_be_bytes();
+            let (lo, carry) = lo.overflowing_add(6);
+            let hi = hi.wrapping_add(u8::from(carry));
+            let (hi, lo) = if hi & 0x80 != 0 {
+                (0xFF, if lo & 0x80 != 0 { lo } else { 0x80 })
+            } else {
+                (0x00, if lo & 0x80 == 0 { lo } else { 0x7F })
+            };
+            let work = crate::actor::engine::Work {
+                vy: vy.cast_signed(),
+                ..Default::default()
+            };
+            let mut player = crate::actor::world::Player::default();
+            super::gravity(&mut player, &work);
+            assert_eq!(player.vy, i16::from_be_bytes([hi, lo]));
+        }
+        for y in 0..=0xFFFFu16 {
+            let [yhi, ylo] = y.to_be_bytes();
+            let high = |w: u16| w.to_be_bytes()[0];
+            assert_eq!(
+                high(y.wrapping_sub(0x140)),
+                yhi.wrapping_sub(1).wrapping_sub(u8::from(ylo < 0x40))
+            );
+            assert_eq!(
+                high(y.wrapping_sub(0x80)),
+                yhi.wrapping_sub(u8::from(ylo < 0x80))
+            );
+            assert_eq!(high(y.wrapping_sub(0x200)), yhi.wrapping_sub(2));
+            assert_eq!(
+                high(y.wrapping_sub(0x280)),
+                yhi.wrapping_sub(2).wrapping_sub(u8::from(ylo < 0x80))
+            );
+            assert_eq!(
+                high(y.wrapping_sub(0x380)),
+                yhi.wrapping_sub(3).wrapping_sub(u8::from(ylo < 0x80))
+            );
+            let (_, carry) = ylo.overflowing_add(0x0C);
+            assert_eq!(
+                high(y.wrapping_add(0x0C)),
+                yhi.wrapping_add(u8::from(carry))
+            );
+            let (_, borrow) = ylo.overflowing_sub(0xC0);
+            assert_eq!(
+                high(y.wrapping_sub(0xC0)),
+                yhi.wrapping_sub(u8::from(borrow))
+            );
+        }
+    }
 
     /// Every `anim` a strip or `flight_steer`'s `walk_frames` gives indexes `frames`.
     #[test]
