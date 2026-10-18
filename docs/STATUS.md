@@ -112,6 +112,11 @@ None open.
 
 ## Owner decisions made
 
+- **Phase C (2026-10-18)**, answering `docs/specs/2026-10-18-phase-c-mirror-design.md`: C3 (the
+  `Modern` picture from entities) lands late in 1.1.x as groundwork; its background is a tilemap
+  from the level data, so the level's live map is typed first; the setting is
+  `picture: Classic | Modern`; the read-only mirror is its own release right after C1.
+
 - **The core on Bevy's ECS: the mirror (2026-10-17 morning).** After the spike's results,
   the owner chose the mirror: `Slots` stays the Classic simulation's owner, and the ECS is a
   one-way, read-only mirror at the app boundary for Phase C's renderer, the inspector, the

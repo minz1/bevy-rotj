@@ -4,7 +4,9 @@ Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: the dra
 records hold decoded pieces, not ROM pointers or CHR; records move to a shown list at `finish`;
 the replay test from the previous builder plus a drawer check; the oracle's inject keeps
 records; the mirror folds into C3; C3's gate is set equality, not a second rasteriser; the
-owner questions recommend). **Waiting for the owner** before any implementation (the HANDOFF).
+owner questions recommend). **The owner answered (2026-10-18)**: C3 lands late in 1.1.x as
+groundwork; its background is a tilemap from the level data, so the level's live map is typed
+first; the setting is `picture: Classic | Modern`; the mirror is its own release right after C1.
 Phase C of `docs/specs/2026-10-16-modernisation-roadmap-design.md`, with the owner's mirror
 decision (`docs/specs/2026-10-17-actors-as-entities-decision.md`): `rotj-core` stays plain
 Rust; the ECS is a one-way, read-only mirror in the app.
@@ -88,7 +90,20 @@ with no reader, is folded into C3: nothing would read its entities until then.)
   which the scene keeps.
 - **The setting**: a new value or key picks C3's picture; its name is the owner's.
 
-## Questions for the owner
+## The owner's answers (2026-10-18)
+
+- **C3 in late 1.1.x**, as groundwork for 1.2.0's interpolation and the other Enhanced features.
+- **The background from the level data**, not the software `Frame` or the nametables: the level's
+  live map (`Effects::level.map`, a streamed, paged buffer today) becomes typed first, in its own
+  spec and release, and C3's background is a tilemap over it. Layers, back to front: the
+  backdrop colour, behind-background sprites, the tilemap with colour 0 transparent, front
+  sprites; the HUD's split strip is its own layer, as the faithful UI draws it.
+- **The setting is `picture: Classic | Modern`**, beside `ui`.
+- **The mirror is its own release right after C1** (C2 again), so the inspector and editor can
+  start against it; its tests are its own (entities match the occupied slots, records split by
+  drawer add up to the frame's).
+
+## The questions as asked
 
 1. **When does C3 land?** Its visible gain today (no flicker, no limit) already ships as
    `sprite_limit: false`; what C3 adds is entities for what follows (interpolation, art, the
@@ -100,6 +115,10 @@ with no reader, is folded into C3: nothing would read its entities until then.)
 
 ## Plan
 
-1. C1 (after the owner's go): `Mark`'s drawer variants and their sites, `DrawRecord`,
-   `records`/`shown`, the oracle's inject, the two tests; checks; release.
-2. C3 per the owner's answers.
+1. C1: `Mark`'s drawer variants and their sites, `DrawRecord`, `records`/`shown`, the oracle's
+   inject, the two tests; checks; release.
+2. C2, the mirror: `MirrorPlugin`, the entities and resources, its tests; release.
+3. The level's live map typed: its own spec (the paged `map`, `map_offset`, the streaming), proven
+   by the lockstep with the tapes unchanged; release.
+4. C3: its own detailed spec (sprites, the level tilemap and its layers, the set-equality gate,
+   `picture: Classic | Modern`), reviewed; implementation; release.
