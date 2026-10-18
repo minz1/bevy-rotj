@@ -16,6 +16,7 @@ use rotj_core::prg::Prg;
 use rotj_core::render::{Frame, Line, MAX_SPRITES_PER_LINE, OAM_SPRITES, Picture};
 
 use crate::input::NesInput;
+use crate::mirror::Snapshot;
 use crate::pacing::Step;
 use crate::screen::{Screen, screen_frame, screen_image};
 use crate::settings::Settings;
@@ -52,6 +53,8 @@ pub struct Play {
     pub(crate) oam: [u8; 256],
     /// Which drawer placed each of those sprites.
     pub(crate) marks: [Mark; 64],
+    /// The game as the mirror shows it, taken with those sprites.
+    pub(crate) shown: Snapshot,
     /// The HUD label's sprites the step before showed, which the game draws every other frame.
     pub(crate) label: Vec<[u8; 4]>,
     /// The level forced at `$D3D8`, kept for the boot after a reset.
@@ -68,8 +71,9 @@ impl Play {
     /// `game` run to its first NMI wait.
     fn running(game: Game, prg: Vec<u8>, chr: Vec<u8>, ppu: Ppu, forced: Option<u8>) -> Play {
         let mut play = Play {
-            oam: game.oam.page,
-            marks: game.oam.marks,
+            oam: [0; 256],
+            marks: [Mark::Scene; 64],
+            shown: Snapshot::default(),
             label: Vec::new(),
             game,
             prg: Prg::new(prg),
@@ -79,6 +83,7 @@ impl Play {
             lines: Vec::new(),
             forced,
         };
+        play.copy_page();
         let registers = raster::Registers::of(&play.game);
         play.run_frame(registers);
         play
@@ -126,10 +131,16 @@ impl Play {
         self.ppu.apply(&vblank.writes, self.game.scroll.mirroring);
         let registers = raster::Registers::of(&self.game);
         self.label = marked(&self.oam, &self.marks, Mark::Label);
-        self.oam = self.game.oam.page;
-        self.marks = self.game.oam.marks;
+        self.copy_page();
         self.run_frame(registers);
         vblank.sound
+    }
+
+    /// Copies the page the NMI shows, its marks and the mirror's snapshot of the game.
+    fn copy_page(&mut self) {
+        self.oam = self.game.oam.page;
+        self.marks = self.game.oam.marks;
+        self.shown = Snapshot::of(&self.game);
     }
 
     /// True until the boot reaches the first loop frame.

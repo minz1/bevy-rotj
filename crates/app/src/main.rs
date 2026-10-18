@@ -3,6 +3,7 @@
 mod audio;
 mod input;
 mod menu;
+mod mirror;
 mod pacing;
 mod play;
 mod screen;
@@ -125,6 +126,7 @@ fn main() {
         audio::AudioPlugin,
         input::InputPlugin,
         play::PlayPlugin,
+        mirror::MirrorPlugin,
     ));
 
     // The display image is made before the app runs, so every system can rely on it.
