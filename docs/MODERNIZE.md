@@ -291,7 +291,7 @@ of its own, proven by the lockstep, ranked by payoff over risk:
 4. **PPU registers and VRAM addresses named** (the registers done in 1.1.24; the VRAM addresses stay data): raw `ppu_ctrl`/`mask` writes (about 64), palette
    pushes at `0x3F00` (12), nametable/attribute address arithmetic -> `ppu::ctrl`/`mask` consts,
    `Vram::push_palette`, `tile_addr`/`attribute_addr`.
-5. **`Projectile` positions as `u16`** (`level_x_hi/lo`, about 101 uses) and the homing shot's
+5. **`Projectile` positions as `u16`** (done in 1.1.25) (`level_x_hi/lo`, about 101 uses) and the homing shot's
    last address-keyed slot reads (`weapons.rs` `actor(cx, target, 0x7CC0)`, `0x7D00 + reset`)
    through `cx.get(slot, Field::..)`.
 6. **`Projectile` state bits named and the shot flight once**: the flight preamble copied in
@@ -307,6 +307,10 @@ of its own, proven by the lockstep, ranked by payoff over risk:
   `EOR $046F; BPL`, so the game reads only the facing byte's bit 7 (the vertical flip) and the
   pressed direction never counts: a landing with a direction held stops unless that bit is set. A
   Classic quirk the port reproduces; to be named as the rule at that line.
+- **Lead (2026-10-18, from 1.1.25)**: the death path switches Super back to the stored weapon
+  without freeing the shot slots, so a live Super shot's stale `param` could be steered as a homing
+  shot. The port reads the target by address as the ROM does, so it matches either way; whether
+  the ROM does it at all is a lead of its own.
 10. **The music driver's commands** as an enum and the APU registers named: waits on the owner,
     since §2 keeps the driver NES-shaped.
 

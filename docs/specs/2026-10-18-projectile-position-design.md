@@ -2,8 +2,8 @@
 
 Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: `byte`/`set_byte`; the
 full inventory; the homing target kept by address through `Cx::byte`, since a stale target can't be
-ruled out; no new helper; the `$FF` reset pinned by a test first and written as a branch). The
-survey loop's #5 (MODERNIZE "The survey loop, 2026-10-18"). No behaviour change: the weapons'
+ruled out; no new helper; the `$FF` reset pinned by a test first and written as a branch). Implemented in 1.1.25.
+The survey loop's #5 (MODERNIZE "The survey loop, 2026-10-18"). No behaviour change: the weapons'
 oracle tests and the lockstep prove it.
 
 ## What is there
