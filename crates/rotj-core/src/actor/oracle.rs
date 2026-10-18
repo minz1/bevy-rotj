@@ -11,7 +11,7 @@ use rotj_oracle::{
 
 use super::engine::Work;
 use super::families::{Brain, SecondBrain};
-use super::oam::OamBuilder;
+use super::oam::{Mark, OamBuilder};
 use super::slots::{Slot, Slots};
 use super::step_actors;
 use super::tape::{Event, MEMORY, Tape, Writes, loop_hash, script_hash};
@@ -624,16 +624,20 @@ impl Memory {
     }
 
     /// Applies `writes` over the already-projected memory and lifts `game` back, keeping
-    /// what memory does not hold: the script and the OAM's marks.
+    /// what memory does not hold: the script and the OAM's marks and draw records.
     fn apply(&mut self, game: &mut State, writes: &[(u16, u8)]) {
         for &(at, value) in writes {
             self.write(at, value);
         }
         let script = game.script.take();
         let marks = game.oam.marks;
+        let records = std::mem::take(&mut game.oam.records);
+        let shown = std::mem::take(&mut game.oam.shown);
         *game = self.lift();
         game.script = script;
         game.oam.marks = marks;
+        game.oam.records = records;
+        game.oam.shown = shown;
     }
 
     /// [`Memory::inject`] for interrupt bytes, except their stack traffic where the VRAM
@@ -1680,6 +1684,74 @@ pub(crate) struct GameRun {
     pub pictures: Pictures,
 }
 
+/// The slot drawers with an occupied slot.
+fn slot_drawers(game: &State) -> Vec<Mark> {
+    fn occupied(
+        kinds: impl Iterator<Item = u8>,
+        mark: fn(u8) -> Mark,
+    ) -> impl Iterator<Item = Mark> {
+        (0u8..)
+            .zip(kinds)
+            .filter(|&(_, kind)| kind != 0)
+            .map(move |(slot, _)| mark(slot))
+    }
+    occupied(game.slots.main.iter().map(|s| s.kind), Mark::Actor)
+        .chain(occupied(
+            game.slots.second.iter().map(|s| s.kind),
+            Mark::Second,
+        ))
+        .chain(occupied(
+            game.effects.projectiles.iter().map(|p| p.kind),
+            Mark::Projectile,
+        ))
+        .collect()
+}
+
+/// A loop frame's draw records are complete and name the right drawers: replayed on the
+/// builder the frame started from (`oam`), they leave its page and marks; they come in the
+/// loop's draw order; and every actor and second-class drawer's slot was occupied when the
+/// frame began (`drawers`) or when it ended (a projectile can be fired and freed in one frame).
+fn check_records(oam: &OamBuilder, drawers: &[Mark], game: &State, frame: u64) {
+    let shown = &game.oam.shown;
+    let replayed = oam.replayed(shown, game.world.frame_odd);
+    assert!(
+        replayed.page == game.oam.page && replayed.marks == game.oam.marks,
+        "frame {frame}: {} draw records do not replay to the page",
+        shown.len()
+    );
+    let order: Vec<(u8, u8)> = shown
+        .iter()
+        .filter_map(|r| loop_draw_order(r.mark))
+        .collect();
+    assert!(
+        order.is_sorted(),
+        "frame {frame}: draws out of the loop's order: {:?}",
+        shown.iter().map(|r| r.mark).collect::<Vec<_>>()
+    );
+    let after = slot_drawers(game);
+    for record in shown {
+        let slot = matches!(record.mark, Mark::Actor(_) | Mark::Second(_));
+        assert!(
+            !slot || drawers.contains(&record.mark) || after.contains(&record.mark),
+            "frame {frame}: {:?} drew with its slot empty",
+            record.mark
+        );
+    }
+}
+
+/// Where `$D3F9` draws a drawer: the HUD, Batman, the second class, the weapons, the actors,
+/// each set of slots from the highest down.
+fn loop_draw_order(mark: Mark) -> Option<(u8, u8)> {
+    match mark {
+        Mark::Hud | Mark::Label => Some((0, 0)),
+        Mark::Player => Some((1, 0)),
+        Mark::Second(slot) => Some((2, 7 - slot)),
+        Mark::Projectile(slot) => Some((3, 15 - slot)),
+        Mark::Actor(slot) => Some((4, 23 - slot)),
+        Mark::Scene | Mark::Pause | Mark::Title | Mark::Password => None,
+    }
+}
+
 /// What a lockstep's picture checks compared.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Pictures {
@@ -1877,6 +1949,9 @@ pub(crate) fn run_game(env: &mut impl Environment, prg: &Prg, chr: &[u8]) -> Gam
             env.nmi(&mut game);
         }
         let scripted = game.script.is_some();
+        let mut oam = game.oam.clone();
+        (oam.records, oam.shown) = (Vec::new(), Vec::new());
+        let drawers = slot_drawers(&game);
         game.frame(prg, chr, &mut |outside, game| env.outside(game, outside));
         if game.reset() {
             env.reset();
@@ -1925,6 +2000,7 @@ pub(crate) fn run_game(env: &mut impl Environment, prg: &Prg, chr: &[u8]) -> Gam
             }
             continue;
         }
+        check_records(&oam, &drawers, &game, env.frame());
         env.loop_wait();
         env.inject_irqs(&mut game);
         env.check(&game, run.frames);

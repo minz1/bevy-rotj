@@ -178,7 +178,7 @@ impl Play {
         let mut oam = self.oam;
         if park {
             for (entry, mark) in self.marks.iter().enumerate() {
-                if *mark != Mark::Scene {
+                if mark.is_ui() {
                     oam[entry * 4] = PARKED;
                 }
             }
@@ -531,10 +531,10 @@ mod tests {
                 &parked[entry * 4..entry * 4 + 4],
                 &play.oam[entry * 4..entry * 4 + 4],
             );
-            if play.marks[entry] == Mark::Scene {
-                assert_eq!(ours, game);
-            } else {
+            if play.marks[entry].is_ui() {
                 assert_eq!((ours[0], &ours[1..]), (PARKED, &game[1..]));
+            } else {
+                assert_eq!(ours, game);
             }
         }
         assert!(play.marks.contains(&Mark::Hud));

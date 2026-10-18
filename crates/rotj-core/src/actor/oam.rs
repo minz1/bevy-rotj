@@ -89,12 +89,20 @@ pub struct DrawCall {
 }
 
 /// Which of the game's drawers placed an OAM entry: metadata beside the page, not RAM, so a
-/// renderer can show the game's own UI sprites another way.
+/// renderer can show the game's own UI sprites another way and place the rest by who drew them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mark {
-    /// The level, its actors and everything not below.
+    /// Anything no drawer below claims.
     #[default]
     Scene,
+    /// The actor in this main slot (0-23).
+    Actor(u8),
+    /// The second-class actor in this slot (0-7, the game's 24-31).
+    Second(u8),
+    /// Batman.
+    Player,
+    /// The projectile in this slot (0-15).
+    Projectile(u8),
     /// The HUD's energy and meter gauges.
     Hud,
     /// The HUD's L/E label, drawn on odd frames.
@@ -105,6 +113,28 @@ pub enum Mark {
     Title,
     /// The password screen's entry or its rejection.
     Password,
+}
+
+impl Mark {
+    /// One of the game's own UI drawers, which a renderer may show as UI.
+    #[must_use]
+    pub fn is_ui(self) -> bool {
+        matches!(
+            self,
+            Mark::Hud | Mark::Label | Mark::Pause | Mark::Title | Mark::Password
+        )
+    }
+}
+
+/// One draw the builder took, as it was asked, before any piece was clipped or dropped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DrawRecord {
+    /// Who drew it.
+    pub mark: Mark,
+    /// Where and how.
+    pub call: DrawCall,
+    /// What: the decoded metasprite.
+    pub sprite: Metasprite,
 }
 
 /// The game's OAM page and its allocator.
@@ -131,6 +161,10 @@ pub struct OamBuilder {
     pub marks: [Mark; 64],
     /// The drawer drawing now.
     pub marking: Mark,
+    /// This frame's draws so far.
+    pub records: Vec<DrawRecord>,
+    /// The draws of the page last finished.
+    pub shown: Vec<DrawRecord>,
 }
 
 impl Default for OamBuilder {
@@ -154,12 +188,19 @@ impl OamBuilder {
             width: 256,
             marks: [Mark::Scene; 64],
             marking: Mark::Scene,
+            records: Vec::new(),
+            shown: Vec::new(),
         }
     }
 
     /// Draws `sprite` (`$C247`), returning the overflow flag it leaves: `BIT $BC`, then
     /// each piece's `BIT $9A` or `SBC #$0F` for y and its `ADC $94` for x.
     pub fn draw(&mut self, sprite: &Metasprite, call: DrawCall, frame_odd: bool) -> bool {
+        self.records.push(DrawRecord {
+            mark: self.marking,
+            call,
+            sprite: sprite.clone(),
+        });
         if self.overflow {
             return true;
         }
@@ -246,6 +287,7 @@ impl OamBuilder {
         self.start = self.start.wrapping_add(START_STEP);
         self.next = self.start;
         self.left = ENTRIES - 1;
+        self.shown = std::mem::take(&mut self.records);
     }
 }
 
@@ -258,7 +300,7 @@ pub fn undrawable(page: &[u8; 256], marks: &[Mark; 64], lines: &[Line]) -> Optio
         let [y, _, attr, x] = page[entry * 4..entry * 4 + 4].try_into().expect("4 bytes");
         let top = usize::from(y) + 1;
         let first = lines.get(top)?;
-        if marks[entry] == Mark::Scene || first.mask & 0x10 == 0 {
+        if !marks[entry].is_ui() || first.mask & 0x10 == 0 {
             return None;
         }
         let rows = &lines[top..(top + 16).min(lines.len())];
@@ -318,7 +360,21 @@ impl OamBuilder {
             width: 256,
             marks: [Mark::Scene; 64],
             marking: Mark::Scene,
+            records: Vec::new(),
+            shown: Vec::new(),
         }
+    }
+
+    /// `records` drawn on a copy of this builder and the page finished, as the frame that
+    /// took them drew it.
+    pub(crate) fn replayed(&self, records: &[DrawRecord], frame_odd: bool) -> OamBuilder {
+        let mut oam = self.clone();
+        for record in records {
+            oam.marking = record.mark;
+            oam.draw(&record.sprite, record.call, frame_odd);
+        }
+        oam.finish();
+        oam
     }
 
     pub(crate) fn project(&self, ram: &mut [u8; 2048]) {
@@ -570,6 +626,42 @@ mod tests {
         oam.draw(&sprite(vec![one_piece_at(100)]), at(200), false);
         oam.finish();
         assert_eq!(oam.marks[last], Mark::Hud);
+    }
+
+    #[test]
+    fn only_the_games_own_ui_drawers_are_ui() {
+        let ui = [
+            Mark::Hud,
+            Mark::Label,
+            Mark::Pause,
+            Mark::Title,
+            Mark::Password,
+        ];
+        let scene = [
+            Mark::Scene,
+            Mark::Actor(0),
+            Mark::Second(7),
+            Mark::Player,
+            Mark::Projectile(15),
+        ];
+        assert!(ui.iter().all(|mark| mark.is_ui()));
+        assert!(!scene.iter().any(|mark| mark.is_ui()));
+    }
+
+    #[test]
+    fn finish_moves_the_frames_records_to_shown() {
+        let mut oam = OamBuilder::new();
+        oam.marking = Mark::Actor(3);
+        oam.draw(&sprite(vec![one_piece_at(0)]), at(16), false);
+        oam.marking = Mark::Player;
+        oam.draw(&sprite(vec![one_piece_at(100)]), at(200), false);
+        oam.finish();
+        let marks: Vec<Mark> = oam.shown.iter().map(|record| record.mark).collect();
+        assert_eq!(marks, [Mark::Actor(3), Mark::Player]);
+        assert_eq!(oam.records, []);
+        assert_eq!(oam.shown[1].call, at(200));
+        oam.clear();
+        assert_eq!(oam.shown, []);
     }
 
     #[test]

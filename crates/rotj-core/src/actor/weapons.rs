@@ -8,6 +8,7 @@
 
 use super::collision::{self, Probe};
 use super::engine::{self, Work, rom_byte, rom_word};
+use super::oam::Mark;
 use super::scroll::Scroll;
 use super::slots::{self, hit};
 use super::world::{
@@ -190,10 +191,12 @@ impl Tables {
 pub fn step(work: &mut Work, cx: &mut Cx<'_>) {
     // The handlers below take the scroll directly; lend it out of the context.
     let mut scroll = std::mem::take(cx.scroll);
+    let marking = cx.oam.marking;
     match cx.effects.weapon {
         Weapon::PowerUpPieces => power_up_pieces(work, cx),
         weapon => each_projectile(work, cx, &mut scroll, weapon),
     }
+    cx.oam.marking = marking;
     *cx.scroll = scroll;
 }
 
@@ -215,6 +218,7 @@ fn power_up_pieces(work: &mut Work, cx: &mut Cx<'_>) {
             continue;
         }
         advance(slot, work, cx);
+        cx.oam.marking = Mark::Projectile(u8::try_from(slot).expect("16 projectile slots"));
         if project_keep(slot, work, cx) {
             let frame = cx.prg.weapons.piece_frames[usize::from(cx.effects.projectiles[slot].part)];
             work.pointer = rom_word(cx.prg, 5, 0x9DF8 + u16::from(frame));
@@ -261,6 +265,7 @@ fn each_projectile(work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scroll, weapon
     }
     for slot in (0..16).rev() {
         if cx.effects.projectiles[slot].kind != 0 {
+            cx.oam.marking = Mark::Projectile(u8::try_from(slot).expect("16 projectile slots"));
             match weapon {
                 Weapon::Bolt => bolt(slot, work, cx),
                 Weapon::Homing => homing(slot, work, cx),

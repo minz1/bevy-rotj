@@ -290,12 +290,14 @@ impl Game {
     /// Batman's animate-and-draw (bank 4 `$84AB`), or the draw alone (`$94A6`).
     pub fn draw_player(&mut self, prg: &Prg, animate: bool) {
         let (mut pressed, mut pad) = (self.world.pressed, self.world.pad);
+        let marking = std::mem::replace(&mut self.oam.marking, oam::Mark::Player);
         let (mut cx, work) = self.parts(prg);
         if animate {
             player::step_draw(&mut pressed, &mut pad, work, &mut cx);
         } else {
             player::draw_player(work, &mut cx);
         }
+        self.oam.marking = marking;
         (self.world.pressed, self.world.pad) = (pressed, pad);
     }
 
@@ -348,6 +350,7 @@ pub struct Vblank {
 
 /// One pass of the actor loop over slots 23 down to 0 (bank 14 `$CED5`).
 pub fn step_actors(prg: &Prg, game: &mut Game) {
+    let marking = game.oam.marking;
     for index in (0..game.slots.main.len()).rev() {
         if game.slots.main[index].kind == 0 {
             continue;
@@ -361,6 +364,7 @@ pub fn step_actors(prg: &Prg, game: &mut Game) {
             &game.effects.projectiles,
         );
         game.work.slot = u8::try_from(index).expect("24 main slots");
+        game.oam.marking = oam::Mark::Actor(game.work.slot);
         let running = slot.kind;
         let (mut cx, work) = game.parts(prg);
         families::step(&mut slot, work, &mut cx);
@@ -374,6 +378,7 @@ pub fn step_actors(prg: &Prg, game: &mut Game) {
             game.slots.main[index] = slot;
         }
     }
+    game.oam.marking = marking;
 }
 
 /// One pass of the second-class loop over slots 31 down to 24 (bank 14 `$CE7F`).
@@ -400,7 +405,8 @@ pub fn draw_second(
 ) {
     let camera_x = world.camera_x.wrapping_add(8) & 0xFFF0;
     let camera_y = world.camera_y.wrapping_add(8);
-    for second in slots.second.iter().rev() {
+    let marking = oam.marking;
+    for (index, second) in slots.second.iter().enumerate().rev() {
         let body = &second.body;
         if second.kind == 0 {
             continue;
@@ -434,8 +440,10 @@ pub fn draw_second(
             chr_slot: work.chr_slot,
             bottom: work.anchor & 0x40 != 0,
         };
+        oam.marking = oam::Mark::Second(u8::try_from(index).expect("8 second-class slots"));
         work.cpu_overflow = oam.draw(&sprite, call, world.frame_odd);
     }
+    oam.marking = marking;
 }
 
 #[cfg(test)]

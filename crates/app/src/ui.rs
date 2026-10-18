@@ -60,7 +60,7 @@ pub fn shown(
         label
     };
     let marked = (0..64)
-        .filter(|&entry| marks[entry] != Mark::Scene)
+        .filter(|&entry| marks[entry].is_ui())
         .map(|entry| -> [u8; 4] { oam[entry * 4..entry * 4 + 4].try_into().expect("4 bytes") });
     carried
         .iter()
