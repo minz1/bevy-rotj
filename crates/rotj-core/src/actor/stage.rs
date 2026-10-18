@@ -570,7 +570,7 @@ impl NextArea {
 /// The dark screen before the banner (`$92C6-$92DE`).
 fn hide_for_banner(game: &mut Game, prg: &[u8]) {
     game.scroll.mirroring = 2;
-    game.scroll.room[0] = 0;
+    game.scroll.split.armed = false;
     game.scroll.mask = 0;
     game.scroll.ppu_ctrl &= 0x7C;
     game.effects.music = 0xFF;
@@ -605,7 +605,7 @@ fn start_area(game: &mut Game, prg: &[u8], chr: &[u8], leftover: room::Leftover)
 fn clear_for_area(game: &mut Game) {
     game.effects.music = 0xFF;
     game.oam.clear();
-    game.scroll.room[0] = 0;
+    game.scroll.split.armed = false;
     game.scroll.ppu_ctrl &= 0x7F;
     game.scroll.mask = 0;
 }
@@ -989,7 +989,7 @@ impl Continue {
             match self.step {
                 Countdown::Setup => {
                     game.scroll.mirroring = 2;
-                    game.scroll.room[0] = 0;
+                    game.scroll.split.armed = false;
                     game.scroll.mask &= 0xE7;
                     game.scroll.ppu_ctrl &= 0x7C;
                     game.effects.music = 0xFF;

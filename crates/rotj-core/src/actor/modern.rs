@@ -30,7 +30,7 @@ pub fn view(game: &Game, lines: &[Line]) -> Option<View> {
     let steady = lines
         .iter()
         .all(|line| line.mask & 0x08 != 0 && background_banks(line) == banks);
-    let split = game.scroll.room[0] & 0x80 != 0;
+    let split = game.scroll.split.armed;
     (in_play && steady && !split).then(|| View {
         left: screen_edge(game.world.camera_x, game.scroll.scroll_x),
         top: i32::from(rounded(game.world.camera_y)),
@@ -164,7 +164,7 @@ mod tests {
         let mut script = game.clone();
         script.script = Some(Script::Ending(super::super::ending::Ending::default()));
         let mut split = game.clone();
-        split.scroll.room[0] |= 0x80;
+        split.scroll.split.armed = true;
         let mut masked = lines.clone();
         masked[100].mask &= !0x08;
         let mut banked = lines.clone();

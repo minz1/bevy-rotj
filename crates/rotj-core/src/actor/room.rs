@@ -14,7 +14,7 @@ use super::world::{
 use crate::actors::spawn_schedule;
 use crate::levelmap::Cell;
 use crate::prg::Prg;
-use crate::rooms::{Arrival, Room};
+use crate::rooms::{Arrival, Raster, Room};
 
 /// The room change `$BA = 1` starts, one frame per [`RoomChange::step`] (`$B7EC`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -576,7 +576,8 @@ pub fn start(prg: &[u8], chr: &[u8], level: usize) -> Game {
         oam: super::oam::OamBuilder::new(),
         work: super::engine::Work::default(),
         scroll: super::scroll::Scroll {
-            room: INTRO_RASTER,
+            split: INTRO_SPLIT,
+            bands: INTRO_BANDS,
             ..super::scroll::Scroll::default()
         },
         display: super::frame::Display {
@@ -596,10 +597,17 @@ pub fn start(prg: &[u8], chr: &[u8], level: usize) -> Game {
     game
 }
 
-/// The raster bytes `$D0-$DC` as the intro leaves them: its setup (WRAM `$604C-$6060`)
+/// The raster header `$D0-$D4` as the intro leaves it: its setup (WRAM `$604C-$6060`)
 /// and IRQ chain (bank 2 `$96AF-$972C`). An area with no raster split sets only `$D0`
-/// (`$D9B5`), so the first area after boot starts with the rest.
-const INTRO_RASTER: [u8; 13] = [0, 0x80, 0x26, 0x09, 0, 0, 0, 0, 0, 0, 0x1F, 0, 0];
+/// (`$D9B5`), so the first area after boot starts with the rest of these and [`INTRO_BANDS`].
+const INTRO_SPLIT: Raster = Raster {
+    armed: false,
+    first_irq_cycles: 0x2680,
+    handler: 0x09,
+    next_irq: 0,
+};
+/// The raster bands `$D5-$DC` as the intro leaves them.
+const INTRO_BANDS: [u8; 8] = [0, 0, 0, 0, 0, 0x1F, 0, 0];
 
 /// What WRAM `$7000-$7FFF` holds when an area's level loads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -796,20 +804,13 @@ pub fn parameters(game: &mut Game, prg: &[u8]) {
     let scroll = &mut game.scroll;
     let flag = |set: bool| if set { 0x80 } else { 0 };
     let Some(raster) = layout.raster else {
-        scroll.room[0] = 0;
+        scroll.split.armed = false;
         scroll.fixed_rows = [0; 16];
         scroll.fixed_quads = [0; 8];
         return;
     };
-    scroll.room = [0; 13];
-    let [cycles_low, cycles_high] = raster.first_irq_cycles.to_le_bytes();
-    scroll.room[..5].copy_from_slice(&[
-        flag(raster.armed),
-        cycles_low,
-        cycles_high,
-        raster.handler,
-        raster.next_irq,
-    ]);
+    scroll.split = raster;
+    scroll.bands = [0; 8];
     scroll.fixed_rows = layout.fixed_rows.map(flag);
     scroll.fixed_quads = layout.fixed_quads.map(flag);
     let player = &mut game.effects.player;

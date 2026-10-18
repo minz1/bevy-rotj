@@ -221,7 +221,7 @@ enum SlideRow {
     /// The split's counters reset and the next block drawn.
     DrawSlider,
     /// The palette queued, the split on every other frame, until the block has slid in
-    /// (`room[10] & $1F = $1F`).
+    /// (`$DA & $1F = $1F`).
     SlideUntilSplit,
     /// The split off, the PPU back on the first nametable.
     EndSplit,
@@ -594,25 +594,24 @@ impl Boot {
             }
             SlideRow::DrawSlider => {
                 if frame == 0 {
-                    let room = &mut game.scroll.room;
-                    room[4] = 0;
-                    room[5..=10].fill(0);
+                    game.scroll.split.next_irq = 0;
+                    game.scroll.bands[..6].fill(0);
                     draw_block(game, self.reader(chr), BLOCKS, &mut self.cursor);
                 }
                 wait(frame, 1)
             }
             SlideRow::SlideUntilSplit => {
-                if game.scroll.room[10] & 0x1F == 0x1F {
+                if game.scroll.bands[5] & 0x1F == 0x1F {
                     Flow::Done
                 } else {
-                    game.scroll.room[0] = if frame % 2 == 1 { 0x80 } else { 0 };
+                    game.scroll.split.armed = frame % 2 == 1;
                     queue_palette(game);
                     Flow::Waited
                 }
             }
             SlideRow::EndSplit => {
                 if frame == 0 {
-                    game.scroll.room[0] = 0;
+                    game.scroll.split.armed = false;
                     game.scroll.ppu_ctrl = 0xA8;
                     queue_palette(game);
                 }
@@ -626,7 +625,7 @@ impl Boot {
             }
             SlideRow::SplitOff => {
                 if frame == 0 {
-                    game.scroll.room[0] = 0;
+                    game.scroll.split.armed = false;
                 }
                 wait(frame, 1)
             }
@@ -1122,9 +1121,8 @@ fn reset(game: &mut Game) {
 /// The intro's raster split (`$604A-$6060`): `$D3 = 9`, its first IRQ `$2680` cycles
 /// after the NMI, the first nametable from y `$C0`.
 fn arm_slide(game: &mut Game) {
-    let room = &mut game.scroll.room;
-    room[3] = 9;
-    [room[1], room[2]] = [0x80, 0x26];
+    game.scroll.split.handler = 9;
+    game.scroll.split.first_irq_cycles = 0x2680;
     game.scroll.scroll_y = 0xC0;
 }
 
@@ -1330,8 +1328,10 @@ mod tests {
         let mut raster = false;
         for (wait, oracle) in waits.iter().enumerate() {
             game.frame(&prg, &chr);
+            let mut ram = [0; 2048];
+            game.scroll.project(&mut ram);
             assert_eq!(
-                game.scroll.room[..],
+                ram[0xD0..0xDD],
                 oracle.ram[0xD0..0xDD],
                 "wait {wait}, frame {}",
                 oracle.frame
@@ -1340,7 +1340,7 @@ mod tests {
                 super::super::raster::run_irqs(&mut game);
             }
             game.nmi(0);
-            raster = game.scroll.room[0] & 0x80 != 0;
+            raster = game.scroll.split.armed;
         }
         assert!(waits.len() > 280, "{} waits", waits.len());
     }

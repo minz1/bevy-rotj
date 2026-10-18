@@ -127,7 +127,7 @@ impl Play {
             raster::run_irqs(&mut self.game);
         }
         let vblank = self.game.nmi(pad);
-        self.raster = self.game.scroll.room[0] & 0x80 != 0;
+        self.raster = self.game.scroll.split.armed;
         self.ppu.apply(&vblank.writes, self.game.scroll.mirroring);
         let registers = raster::Registers::of(&self.game);
         self.label = marked(&self.oam, &self.marks, Mark::Label);
@@ -425,7 +425,7 @@ mod tests {
         let mut split = 0;
         for _ in 0..270 {
             play.step(0);
-            split += usize::from(play.raster && play.game().scroll.room[3] == 9);
+            split += usize::from(play.raster && play.game().scroll.split.handler == 9);
             pictures.insert(picture(&play));
         }
         assert!(pictures.len() > 60, "{} distinct pictures", pictures.len());

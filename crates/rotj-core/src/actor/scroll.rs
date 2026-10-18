@@ -7,6 +7,7 @@ use super::spawn::{SpawnTable, lock_at, spawn_at};
 use super::world::orientation;
 use crate::actors::CELL_PENDING;
 use crate::levelmap::Cell;
+use crate::rooms::Raster;
 
 /// Scroll state outside the camera position.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -40,8 +41,10 @@ pub struct Scroll {
     /// The PPU mask the NMI applies (`$FE`): `$18` shows the background and sprites
     /// with the left 8 pixels clipped, `$1E` without the clip, 0 nothing.
     pub mask: u8,
-    /// The room's parameters (`$D0-$DC`).
-    pub room: [u8; 13],
+    /// The raster split's header (`$D0-$D4`).
+    pub split: Raster,
+    /// The split's chain's own bytes (`$D5-$DC`, `bands[0]` is `$D5`).
+    pub bands: [u8; 8],
     /// The room's first schedule column (`$0403`).
     pub start: u8,
 }
@@ -543,7 +546,7 @@ fn stream_row(game: &mut Game, down: bool) {
 
 #[cfg(test)]
 mod layout {
-    use super::Scroll;
+    use super::{Raster, Scroll};
 
     impl Scroll {
         pub(crate) fn lift(ram: &[u8; 2048]) -> Scroll {
@@ -562,7 +565,16 @@ mod layout {
                 fixed_rows: ram[0x70..0x80].try_into().expect("16 bytes"),
                 mirroring: ram[0xEC],
                 mask: ram[0xFE],
-                room: ram[0xD0..0xDD].try_into().expect("13 bytes"),
+                split: {
+                    assert!(matches!(ram[0xD0], 0 | 0x80), "$D0 holds more than bit 7");
+                    Raster {
+                        armed: ram[0xD0] == 0x80,
+                        first_irq_cycles: u16::from_le_bytes([ram[0xD1], ram[0xD2]]),
+                        handler: ram[0xD3],
+                        next_irq: ram[0xD4],
+                    }
+                },
+                bands: ram[0xD5..0xDD].try_into().expect("8 bytes"),
                 start: ram[0x403],
             }
         }
@@ -582,7 +594,11 @@ mod layout {
             ram[0x70..0x80].copy_from_slice(&self.fixed_rows);
             ram[0xEC] = self.mirroring;
             ram[0xFE] = self.mask;
-            ram[0xD0..0xDD].copy_from_slice(&self.room);
+            ram[0xD0] = if self.split.armed { 0x80 } else { 0 };
+            ram[0xD1..0xD3].copy_from_slice(&self.split.first_irq_cycles.to_le_bytes());
+            ram[0xD3] = self.split.handler;
+            ram[0xD4] = self.split.next_irq;
+            ram[0xD5..0xDD].copy_from_slice(&self.bands);
             ram[0x403] = self.start;
         }
     }

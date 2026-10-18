@@ -458,7 +458,7 @@ fn stop(game: &mut Game) {
         *shadow = bank;
     }
     game.display.prg_windows[0] = 0xC0;
-    game.scroll.room[0] = 0;
+    game.scroll.split.armed = false;
     game.scroll.ppu_ctrl &= 0x7B;
     game.scroll.mask = 0;
 }

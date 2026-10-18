@@ -34,7 +34,7 @@ pub struct Room {
 }
 
 /// A room's raster split (`$D0-$D4`), from its screen record (bank 14 `$DA18[area]`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Raster {
     /// `$D0` bit 7: the NMI arms the first IRQ.
     pub armed: bool,
@@ -42,7 +42,7 @@ pub struct Raster {
     pub first_irq_cycles: u16,
     /// `$D3`: the IRQ handler (`actor::raster`'s 0-13).
     pub handler: u8,
-    /// `$D4`: which IRQ of the handler's chain runs next.
+    /// `$D4`: the index of the IRQ the chain runs next, back to 0 when the chain ends.
     pub next_irq: u8,
 }
 

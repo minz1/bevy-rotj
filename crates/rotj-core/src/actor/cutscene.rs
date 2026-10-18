@@ -159,26 +159,26 @@ impl Cutscene {
             Row::Slide => {
                 if frame == 0 {
                     let at = 0x7755 + 2 * u16::from(self.scene);
-                    let room = &mut game.scroll.room;
-                    room[3] = 0x0A;
-                    room[4] = 0;
-                    room[1] = payload_byte(chr, at);
-                    room[2] = payload_byte(chr, at + 1);
-                    room[0] = 0x80;
+                    let split = &mut game.scroll.split;
+                    split.handler = 0x0A;
+                    split.next_irq = 0;
+                    split.first_irq_cycles =
+                        u16::from_le_bytes([payload_byte(chr, at), payload_byte(chr, at + 1)]);
+                    split.armed = true;
                     game.scroll.mask = 0x1E;
                 }
                 wait(frame, 1)
             }
             Row::SlideIn => {
-                let room = &game.scroll.room;
-                if room[5] | room[6] | room[10] != 0 {
+                let bands = &game.scroll.bands;
+                if bands[0] | bands[1] | bands[5] != 0 {
                     Flow::Waited
                 } else {
                     Flow::Done
                 }
             }
             Row::SlideEnd => {
-                game.scroll.room[0] = 0;
+                game.scroll.split.armed = false;
                 game.scroll.ppu_ctrl = 0xA8;
                 Flow::Done
             }
@@ -209,9 +209,9 @@ impl Cutscene {
         game.scroll.ppu_ctrl = 0xA8;
         game.scroll.scroll_y = 0;
         game.scroll.scroll_x = 0;
-        game.scroll.room[5] = 0;
-        game.scroll.room[6] = 0;
-        game.scroll.room[10] = 3;
+        game.scroll.bands[0] = 0;
+        game.scroll.bands[1] = 0;
+        game.scroll.bands[5] = 3;
         game.oam.clear();
         let palette = payload_bytes(chr, 0x76EF, 32);
         game.effects.vram.push(0x3F00, 0, &palette);
@@ -256,7 +256,7 @@ pub(super) fn copy_frame(game: &mut Game, prg: &[u8], frame: u8, first: u8) {
                 *shadow = bank;
             }
             game.display.prg_windows[0] = 0xC0;
-            game.scroll.room[0] = 0;
+            game.scroll.split.armed = false;
             game.scroll.ppu_ctrl &= 0x7B;
             game.scroll.mask = 0;
         }
@@ -291,7 +291,7 @@ impl ScreenClear {
         let frame = self.frame;
         self.frame += 1;
         match frame {
-            0 => game.scroll.room[0] = 0,
+            0 => game.scroll.split.armed = false,
             1 => {
                 game.scroll.mirroring = 0;
                 game.scroll.scroll_x = 0;

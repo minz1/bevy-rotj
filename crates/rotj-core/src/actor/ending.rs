@@ -9,6 +9,7 @@ use super::cutscene::{
 use super::script::{Flow, Runner, wait};
 use super::stage::Fade;
 use crate::levelmap::PAYLOAD_FIRST_BANK;
+use crate::rooms::Raster;
 
 /// What the payload does from `$999C` on, in order: each step runs one frame or more,
 /// every frame ending at an NMI wait, or none and the next step runs in the same frame.
@@ -360,17 +361,15 @@ impl Ending {
                 self.buffer[32..].fill(high);
             }
             Row::Split => {
-                let room = &mut game.scroll.room;
-                room[3] = 0x0C;
-                room[5] = 0;
-                arm_split(room, 0x1E00);
+                game.scroll.split.handler = 0x0C;
+                game.scroll.bands[0] = 0;
+                arm_split(&mut game.scroll.split, 0x1E00);
             }
             Row::Parallax => {
-                let room = &mut game.scroll.room;
-                room[5..=10].fill(0);
+                game.scroll.bands[..6].fill(0);
                 game.scroll.scroll_x = 0;
-                room[3] = 0x0D;
-                arm_split(room, 0x1D00);
+                game.scroll.split.handler = 0x0D;
+                arm_split(&mut game.scroll.split, 0x1D00);
             }
             Row::Mirroring(mirroring) => game.scroll.mirroring = mirroring,
             Row::Park => game.oam.clear(),
@@ -509,10 +508,10 @@ fn wram(chr: &[u8], buffer: &[u8; 64], addr: u16) -> u8 {
 }
 
 /// Arms the raster split (`$D0-$D4`) `cycles` after the NMI.
-fn arm_split(room: &mut [u8; 13], cycles: u16) {
-    room[4] = 0;
-    [room[1], room[2]] = cycles.to_le_bytes();
-    room[0] = 0x80;
+fn arm_split(split: &mut Raster, cycles: u16) {
+    split.next_irq = 0;
+    split.first_irq_cycles = cycles;
+    split.armed = true;
 }
 
 /// The watching figure (`$6423`: `$6AD4` at (`$78`, `$A8`)), the frame's sprites done.
