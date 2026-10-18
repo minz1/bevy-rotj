@@ -4,7 +4,7 @@ Status: approved by the Opus stand-in, 2026-10-18, as the second half of the sur
 (the first, `docs/specs/2026-10-18-sound-ids-design.md`). Changed in the implementation's review:
 the projectile kinds are not charged-attack stages but each weapon's plain-shot tag, so they are
 `Weapon::shot_kind` (`(weapon + 1) << 1`, the player's launch already computed it), and a paired
-shot's second part, `kind` 1, is `player.rs`'s `PARTNER`. No behaviour change: constant
+shot's second part, `kind` 1, is `player.rs`'s `PARTNER`. Implemented in 1.1.28. No behaviour change: constant
 substitution, proven by the lockstep.
 
 ## What is there
