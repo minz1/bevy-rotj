@@ -5,6 +5,17 @@ snapshot, the gate at the NMI's state; the stale edge columns, the final boss's 
 left 8 px named; four 8x8 tilemaps, one per palette, tile byte = layer; sprites by draw order;
 sprite sets, not multisets, with "no overflow" defined; one pure per-piece placement; the rule on
 the live `$D0` and its coverage stated; the camera off on Classic frames, the clear colour).
+Implemented in 1.1.14, with three findings the gates made: the vertical rooms' nametable ring
+shows the incoming row at the top lines, which the overscan hides, so the background gate checks
+the TV-visible lines 8-231; the 8 px edges show the column the game streams next on any line
+(one frame as the camera lands), so the gate leaves them out on every line; and in a vertical
+room the game streams a page's row 15 attribute into row 14's slot as its scroll locks at the
+page's end, so row 14 shows row 15's palette until it is streamed again (TAS 7755-7767 and an
+owner playtest), allowed and counted. The sprite gate counts a second builder case: with exactly
+63 pieces placed, `finish` parks nothing and the one entry the frame never reached keeps the
+page's old sprite; its equality half holds only without an endless metasprite, whose laps fill
+the page. The app test is a headless render on this machine's software Vulkan compared pixel
+for pixel with the Classic picture, instead of a GPU-free check of the tile data.
 Phase C's C3 (`docs/specs/2026-10-18-phase-c-mirror-design.md`, the owner's answers): the picture
 from entities, groundwork for 1.2.0's interpolation and widescreen. Built on C1's draw records,
 C2's mirror and the typed live map (`docs/specs/2026-10-18-live-map-design.md`). The owner

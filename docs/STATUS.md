@@ -1,4 +1,4 @@
-# Status — where 1.1.13 stands
+# Status — where 1.1.14 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -37,6 +37,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.11 | **done, tag `1.1.11`** (2026-10-18): the eleventh modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). Phase C's C1, the draw-call record (`docs/specs/2026-10-18-phase-c-mirror-design.md`): every draw the OAM builder takes is kept as an `oam::DrawRecord` (who drew it, the call, the decoded metasprite) before any piece becomes an OAM byte; `Mark` names the drawer down to the slot (`Actor`, `Second`, `Player`, `Projectile`) and `Mark::is_ui` picks the game's own UI drawers; `finish` moves the frame's records to `shown`, beside the page. Not RAM: the tapes are unchanged. Every lockstep loop frame (the chain, the sweep, the explorer, the tape replay) replays its records on the builder it started from and gets its page and marks back, its records come in the loop's draw order, and every actor and second-class drawer's slot was occupied at the frame's start or end |
 | 1.1.12 | **done, tag `1.1.12`** (2026-10-18): the twelfth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). Phase C's C2, the read-only mirror (`docs/specs/2026-10-18-phase-c-mirror-design.md`, "C2"): `crates/app/src/mirror.rs` keeps 49 entities for the game's drawers (24 actor, 8 second-class and 16 projectile slots, Batman), each with `Drawer(Mark)`, `LevelPosition` in level pixels and its `Draws` for the frame on screen, the slots also their `Kind`, plus `MirrorCamera` and `OtherDraws`; `Play` takes a `mirror::Snapshot` with the page it shows, so records, page and positions are the same frame's, and the copy reads `Play` only and writes on change. Tested against the game (kinds and positions, a shot's included) and over a level's first 300 frames in a headless app (every mirrored sprite shown has its drawer's records; the records split add up); a snapshot taken a frame late fails it |
 | 1.1.13 | **done, tag `1.1.13`** (2026-10-18): the thirteenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The level's live map typed (`docs/specs/2026-10-18-live-map-design.md`): `levelmap::Map` holds the 16 rows of 256 metatile ids and is indexed by `levelmap::Cell { row, column }` (`Cell::at` the probes' rule that was `collision::map_offset`, `from_address` for the `$6000-$6FFF` addresses ROM tables and spawn records hold, `next` and `in_page` carrying past column `$FF` into the next row as the flat buffer does), with `page_index` the one page rule the probes and `engine::map_page` share; no map site builds a flat offset or subtracts `$6000` any more. The page table `Schedule::rows` is `page_columns` (it holds each page's first column), and the four stage actors that edit it are `page_table_pair_patch`, `page_table_tail_set`, `page_table_tail_clear` and `page_column_reset` |
+| 1.1.14 | **done, tag `1.1.14`** (2026-10-18): Phase C's C3, the `Modern` picture (`docs/specs/2026-10-18-modern-picture-design.md`), a new setting `picture: Classic | Modern` (default `Classic`, unchanged), groundwork for 1.2.0; the Classic suites, a random play sweep and a 300-branch exploration unchanged. In play, in rooms with no raster split (and in their pause, power-up and stage-end frames), Modern draws the level's background as four Bevy `TilemapChunk`s over the typed live map (one per background palette, the tileset the 256 tiles of the frame's banks in that palette's colours) and the game's sprites as Bevy sprites from the draw records, children of their drawers' mirror entities, layered by their priority bit and in draw order, with no per-line limit or flicker; every other frame (the script screens, the split rooms) shows the Classic picture. Modern renders into an image the screen quad shows, so scaling, overscan and the faithful UI are unchanged. Proven without a second rasteriser in every lockstep: on the 8,830 Modern frames of the whole chain, every TV-visible background cell from the live map equals the nametables' (left out: blank tiles' palettes and the 8 px edges a scroll streams into; one game difference allowed and counted: in a vertical room, a page's row 14 showing its row 15's palette, which the game streams into row 14's slot as its scroll locks at the page's end, 185 cells on the chain), and every loop frame's visible OAM entries are its records' sprites (equal below 64 placed without an endless metasprite; the builder's two cases counted: a clipped piece's half-written entry, 0 on the chain, and the one entry `finish` leaves unparked after exactly 63, 8). A headless render of stage 1-1 on this machine's software Vulkan matches the Classic picture pixel for pixel over the TV-visible area (`modern::tests::stage_1_renders_modern`) |
 
 ## Verified working
 
@@ -87,8 +88,9 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    `1.1.8`** (2026-10-17). **1.1.9, the ninth: tagged `1.1.9`** (2026-10-17). **1.1.10, the tenth: tagged
    `1.1.10`** (2026-10-18). **1.1.11, C1 the draw-call record: tagged `1.1.11`** (2026-10-18).
    **1.1.12, C2 the mirror: tagged `1.1.12`** (2026-10-18). **1.1.13, the live map typed: tagged
-   `1.1.13`** (2026-10-18). Next: C3, the `Modern` picture
-   (`docs/specs/2026-10-18-modern-picture-design.md`).
+   `1.1.13`** (2026-10-18). **1.1.14, C3 the `Modern` picture: tagged `1.1.14`** (2026-10-18).
+   The level packs wait for the owner's answers on the schema ("Owner decisions pending"). Next:
+   removing `Outside`, in a release of its own.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
@@ -113,7 +115,11 @@ from the game's own requests.
 
 ## Owner decisions pending
 
-None open.
+- **Level packs, release 1** (`docs/specs/2026-10-18-level-packs-design.md`, "Release 1: what
+  the approved schema can't carry"): the original game can't round-trip through the approved
+  schema without carrying an area's physical page order, the spawn schedule's trigger and
+  scroll-lock cells, and the start's scroll mode, lock and facing; five questions there. The
+  level packs wait; the modernisation goes on with `Outside`, `Work`, `Body` and the survey.
 
 ## Owner decisions made
 

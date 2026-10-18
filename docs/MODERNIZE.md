@@ -255,6 +255,9 @@ New candidates, each to be classified (state, flags, table index) before it chan
   `Schedule::page_columns`; `docs/specs/2026-10-18-live-map-design.md`). **Cleanup lead:**
   `levelmap::LevelMap`, the capture reader `rotj-tools sublevels` uses, is a second map type
   (15 rows, its own `metatile` and nametable render); folding it into `Map` would leave one.
+- Released as 1.1.14: Phase C's C3, the `Modern` picture (`app/src/modern.rs`, `actor::modern`).
+  Next for it, each its own release: the `$D3` 4 boss rooms (the bar as a strip layer), then the
+  band rooms.
 - **Resolved (2026-10-17):** `stun`'s `held = (attack & $80) << 1` was always 0, and so
   is the ROM's (`$92E8`: `AND #$80`, `ASL`, `STA $047F`, `STA $0470`); the port now writes
   the zeros plainly.
