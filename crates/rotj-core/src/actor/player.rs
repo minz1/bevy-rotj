@@ -2584,6 +2584,7 @@ mod tests {
 
     use crate::actor::button::Buttons;
     use crate::actor::collision::Probe;
+    use crate::actor::engine::hi;
     use crate::actor::oracle::{Routine, Scene, assert_game, assert_routine, was_seen};
     use crate::actor::world::Cx;
     use crate::levelmap::Cell;
@@ -2611,34 +2612,27 @@ mod tests {
         }
         for y in 0..=0xFFFFu16 {
             let [yhi, ylo] = y.to_be_bytes();
-            let high = |w: u16| w.to_be_bytes()[0];
             assert_eq!(
-                high(y.wrapping_sub(0x140)),
+                hi(y.wrapping_sub(0x140)),
                 yhi.wrapping_sub(1).wrapping_sub(u8::from(ylo < 0x40))
             );
             assert_eq!(
-                high(y.wrapping_sub(0x80)),
+                hi(y.wrapping_sub(0x80)),
                 yhi.wrapping_sub(u8::from(ylo < 0x80))
             );
-            assert_eq!(high(y.wrapping_sub(0x200)), yhi.wrapping_sub(2));
+            assert_eq!(hi(y.wrapping_sub(0x200)), yhi.wrapping_sub(2));
             assert_eq!(
-                high(y.wrapping_sub(0x280)),
+                hi(y.wrapping_sub(0x280)),
                 yhi.wrapping_sub(2).wrapping_sub(u8::from(ylo < 0x80))
             );
             assert_eq!(
-                high(y.wrapping_sub(0x380)),
+                hi(y.wrapping_sub(0x380)),
                 yhi.wrapping_sub(3).wrapping_sub(u8::from(ylo < 0x80))
             );
             let (_, carry) = ylo.overflowing_add(0x0C);
-            assert_eq!(
-                high(y.wrapping_add(0x0C)),
-                yhi.wrapping_add(u8::from(carry))
-            );
+            assert_eq!(hi(y.wrapping_add(0x0C)), yhi.wrapping_add(u8::from(carry)));
             let (_, borrow) = ylo.overflowing_sub(0xC0);
-            assert_eq!(
-                high(y.wrapping_sub(0xC0)),
-                yhi.wrapping_sub(u8::from(borrow))
-            );
+            assert_eq!(hi(y.wrapping_sub(0xC0)), yhi.wrapping_sub(u8::from(borrow)));
         }
     }
 
