@@ -87,6 +87,16 @@ pub(crate) fn rom_word(prg: &[u8], bank: u8, addr: u16) -> u16 {
     u16::from_le_bytes([rom_byte(prg, bank, addr), rom_byte(prg, bank, addr + 1)])
 }
 
+/// The high byte of a word.
+pub(crate) fn hi(value: u16) -> u8 {
+    value.to_be_bytes()[0]
+}
+
+/// The low byte of a word.
+pub(crate) fn lo(value: u16) -> u8 {
+    value.to_be_bytes()[1]
+}
+
 /// `N` bytes of PRG `bank` from a CPU address.
 pub(crate) fn rom_bytes<const N: usize>(prg: &[u8], bank: u8, addr: u16) -> [u8; N] {
     let bytes = bank_slice(prg, bank, addr & 0x1FFF).expect("address inside PRG");

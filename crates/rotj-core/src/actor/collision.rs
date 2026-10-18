@@ -1,6 +1,6 @@
 //! Level collision (bank 14 `$C93B`, `$C99D`, `$CAFE`, `$CD5F` and their bank-13 wrappers).
 
-use super::engine::{Work, rom_byte, rom_word};
+use super::engine::{Work, hi, lo, rom_byte, rom_word};
 use super::oam::attr;
 use super::world::{Cx, orientation, power_up, sound};
 use crate::collision::Surface;
@@ -26,23 +26,6 @@ pub struct Probe {
     pub flags: u8,
     /// Landing bytes (`$27`, `$28`).
     pub landing: [u8; 2],
-}
-
-fn hi(value: u16) -> u8 {
-    value.to_be_bytes()[0]
-}
-
-fn lo(value: u16) -> u8 {
-    value.to_be_bytes()[1]
-}
-
-fn word(hi: u8, lo: u8) -> u16 {
-    u16::from_be_bytes([hi, lo])
-}
-
-fn adc(a: u8, b: u8, carry: bool) -> (u8, bool) {
-    let sum = u16::from(a) + u16::from(b) + u16::from(carry);
-    (lo(sum), sum > 0xFF)
 }
 
 /// The collision class of the metatile under the probe (`2 * class`, as `$7340` holds it).
@@ -154,24 +137,22 @@ fn damage(work: &mut Work, amount: u8, cx: &Cx<'_>) {
 /// Pushes out of a wall along the probe's direction (`$C9DA`); always true (blocked).
 fn push(work: &mut Work, probe: Probe) -> bool {
     if probe.flags & probe::RIGHTWARD != 0 {
-        let (a, _) = adc(lo(probe.x), 0x0F, true);
-        let (a, carry) = adc(!a, 1, false);
-        let (x_lo, carry) = adc(a, lo(work.x), carry);
-        let (x_hi, _) = adc(0xFF, hi(work.x), carry);
-        work.x = word(x_hi, x_lo | 0x0F);
+        let a = lo(probe.x).wrapping_add(0x10);
+        work.x = work.x.wrapping_add(0xFF00).wrapping_add(back(a)) | 0x0F;
         stop(work)
     } else if probe.flags & probe::LEFTWARD != 0 {
-        let (a, carry) = adc(!lo(probe.x), 0, true);
-        let (x_lo, carry) = adc(a, lo(work.x), carry);
-        work.x = word(hi(work.x).wrapping_add(u8::from(carry)), x_lo);
+        work.x = work.x.wrapping_add(back(lo(probe.x)));
         stop(work)
     } else {
-        let (a, carry) = adc(!lo(probe.y), 1, false);
-        let (y_lo, carry) = adc(a, lo(work.y), carry);
-        work.y = word(hi(work.y).wrapping_add(u8::from(carry)), y_lo);
+        work.y = work.y.wrapping_add(back(lo(probe.y)));
         work.vy = 0;
         true
     }
+}
+
+/// The ROM's negate of `a`, whose carry (set only for 0) leaks into the next add.
+fn back(a: u8) -> u16 {
+    u16::from(a.wrapping_neg()) + u16::from(a == 0)
 }
 
 /// Stops the x motion against a wall (`$CA1D`); always true (blocked).
@@ -244,9 +225,9 @@ fn crumble(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
         second.kind = CRUMBLING_BLOCK;
         second.brain = super::families::SecondBrain::new(CRUMBLING_BLOCK);
         let body = &mut second.body;
-        body.x = word(hi(probe.x) & 0xFE, 0xF0);
+        body.x = (probe.x & 0xFE00) | 0xF0;
         body.anim = 0xF0;
-        body.y = word(hi(probe.y), 0xF0);
+        body.y = (probe.y & 0xFF00) | 0xF0;
         body.state = 0x80;
         (body.flags, body.hit, body.behaviour, body.subtype) = (0, 0, 0, 0);
         (body.phase, body.timer, body.counter) = (0, 0, 0);
@@ -275,7 +256,7 @@ fn bounce(work: &mut Work) {
 /// true (landed).
 fn settle(work: &mut Work, probe: &mut Probe, landing: [u8; 2]) -> bool {
     probe.landing = landing;
-    work.y = word(hi(work.y).wrapping_sub(1), 0xFF);
+    work.y = (work.y & 0xFF00).wrapping_sub(1);
     work.vy = 0;
     true
 }
@@ -317,8 +298,8 @@ fn stand(work: &mut Work, probe: &mut Probe, platform: &super::slots::Body) -> b
     if work.probe_flags & 0x40 != 0 && platform.hit != 0 && platform.hit & 0x80 == 0 {
         return false;
     }
-    work.y = word(hi(platform.y).wrapping_sub(1), lo(platform.y));
-    work.vy = word(platform.behaviour, platform.hit).cast_signed();
+    work.y = platform.y.wrapping_sub(0x100);
+    work.vy = i16::from_be_bytes([platform.behaviour, platform.hit]);
     probe.landing = [platform.subtype, platform.phase];
     bounce(work);
     true
@@ -329,11 +310,9 @@ fn stand_on_screen(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool 
     let camera = cx.world.camera_y;
     work.y = work.y.wrapping_sub(camera) | 0x3000;
     probe.x = work.x;
-    probe.y = word(hi(work.y), lo(probe.y));
+    probe.y = (work.y & 0xFF00) | (probe.y & 0xFF);
     floor(work, probe, cx);
-    work.y = word(hi(work.y) & 0x0F, lo(work.y))
-        .wrapping_add(camera)
-        .wrapping_sub(1);
+    work.y = (work.y & 0x0FFF).wrapping_add(camera).wrapping_sub(1);
     true
 }
 
@@ -372,7 +351,8 @@ pub fn ahead(work: &mut Work, probe: &mut Probe, gap: u8, cx: &mut Cx<'_>) -> bo
 pub fn column(work: &mut Work, probe: &mut Probe, direction: u8, cx: &mut Cx<'_>) -> bool {
     for raise in 0..3 {
         if raise > 0 {
-            probe.y = word(hi(probe.y), lo(probe.y).wrapping_sub(1));
+            // The low byte only, no borrow.
+            probe.y = u16::from_be_bytes([hi(probe.y), lo(probe.y).wrapping_sub(1)]);
         }
         let blocked = wall(work, probe, direction, cx);
         if blocked || raise == 2 {
@@ -597,6 +577,69 @@ mod tests {
         tour((0xAF6A, 13), &RIDE_EXITS, 100, |r, probe| {
             Answer::Riding(r.in_slot(|_, work, cx| ride_here(work, probe, cx)))
         });
+    }
+
+    #[test]
+    fn push_is_word_maths() {
+        fn adc(a: u8, b: u8, carry: bool) -> (u8, bool) {
+            let sum = u16::from(a) + u16::from(b) + u16::from(carry);
+            (sum.to_be_bytes()[1], sum > 0xFF)
+        }
+        fn old(w: u16, p: u8, flags: u8) -> u16 {
+            let [w_hi, w_lo] = w.to_be_bytes();
+            if flags & probe::RIGHTWARD != 0 {
+                let (a, _) = adc(p, 0x0F, true);
+                let (a, carry) = adc(!a, 1, false);
+                let (x_lo, carry) = adc(a, w_lo, carry);
+                let (x_hi, _) = adc(0xFF, w_hi, carry);
+                u16::from_be_bytes([x_hi, x_lo | 0x0F])
+            } else {
+                let (a, carry) = adc(!p, u8::from(flags == 0), flags != 0);
+                let (lo, carry) = adc(a, w_lo, carry);
+                u16::from_be_bytes([w_hi.wrapping_add(u8::from(carry)), lo])
+            }
+        }
+        for flags in [probe::RIGHTWARD, probe::LEFTWARD, 0] {
+            for hi in [0x00, 0xFF] {
+                for w_lo in 0..=0xFF {
+                    for p in 0..=0xFF {
+                        let w = u16::from_be_bytes([hi, w_lo]);
+                        let probe = Probe {
+                            x: u16::from(p),
+                            y: u16::from(p),
+                            flags,
+                            ..Probe::default()
+                        };
+                        let mut work = Work {
+                            x: w,
+                            y: w,
+                            ..Work::default()
+                        };
+                        assert!(push(&mut work, probe));
+                        let got = if flags == 0 { work.y } else { work.x };
+                        assert_eq!(got, old(w, p, flags), "{flags} {w:04X} {p:02X}");
+                    }
+                }
+            }
+        }
+        let pushed = |flags, p, w| {
+            let mut work = Work {
+                x: w,
+                ..Work::default()
+            };
+            let probe = Probe {
+                x: p,
+                flags,
+                ..Probe::default()
+            };
+            push(&mut work, probe);
+            work.x
+        };
+        assert_eq!(pushed(probe::LEFTWARD, 0x00, 0x1230), 0x1231);
+        assert_eq!(
+            pushed(probe::RIGHTWARD, 0xF0, 0x1230),
+            0x1230u16.wrapping_sub(0xFF) | 0x0F
+        );
     }
 
     /// Stage 7-1's wall of spikes (id `$C5`, class `$10`, x `$BD`, rows 9-14): Batman

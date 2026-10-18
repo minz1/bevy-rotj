@@ -1,5 +1,6 @@
 //! Actor slots: the 24 main slots the actor loop runs, and the 8 second-class slots.
 
+use crate::actor::engine::{hi, lo};
 use crate::actor::families::{Brain, SecondBrain};
 use crate::actor::world::{PROJECTILE_ARRAYS, Projectile};
 use crate::actors::SpawnRecord;
@@ -441,14 +442,6 @@ pub(crate) fn store_aliases(
             set(slots, projectiles, index, field, body.get(field));
         }
     }
-}
-
-fn hi(value: u16) -> u8 {
-    value.to_be_bytes()[0]
-}
-
-fn lo(value: u16) -> u8 {
-    value.to_be_bytes()[1]
 }
 
 impl Body {
