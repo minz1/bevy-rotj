@@ -1,4 +1,4 @@
-# Status — where 1.1.20 stands
+# Status — where 1.1.21 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -44,6 +44,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.18 | **done, tag `1.1.18`** (2026-10-18): the eighteenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The sprite attribute bits named (`docs/specs/2026-10-18-attribute-bits-design.md`, the survey loop's first item): `oam::attr` (`FLIP_X`, `FLIP_Y`, `BEHIND`, `PALETTE`) replaces the raw masks on the attribute bytes in 31 files, the Classic and Modern pictures decoding the byte with the same names; `Player::faces_left` serves every facing test; `breakable_block::KEEPS_PALETTES` names that family's own switch; the landing's turn test is named as the Classic rule it is (the ROM at `$8427` reads only the facing byte's bit 7, never the pad) |
 | 1.1.19 | **done, tag `1.1.19`** (2026-10-18): the nineteenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The collision probes' results typed (`docs/specs/2026-10-18-probe-results-design.md`, the survey loop's #2): the hit probes (`wall`, `floor`, `feet`, `head`, `ahead`, `column`, `corners`) return true when they hit and `solid`/`below` true when solid, where both had answered in bit 7 with opposite meanings; `collision::probe` names the flag bits the handlers read (`RIGHTWARD`, `LEFTWARD`, `FLOORS_SOLID`); the probes' oracle tests still compare the ROM's exact answer (the A byte for the hit probes, the N flag for `solid`) |
 | 1.1.20 | **done, tag `1.1.20`** (2026-10-18): the twentieth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The raster split typed (`docs/specs/2026-10-18-raster-split-design.md`, the survey loop's #3): `Scroll::room`'s 13 raw bytes (`$D0-$DC`) are `Scroll::split`, the `rooms::Raster` header a room's screen record already used (armed, the first IRQ's delay as a word, the handler chain, the next IRQ's index), and `Scroll::bands` (`$D5-$DC`), the chain's own bytes; the handlers' delays are words; the chain lockstep reaches every handler chain but the intro's (`$09`, proven by its own oracle test) and `$0B` (checked by hand) |
+| 1.1.21 | **done, tag `1.1.21`** (2026-10-18): level packs, release 1 (`docs/specs/2026-10-18-level-packs-release-1-design.md`, on the owner-approved format and the owner's answers): `rotj_core::levels` holds the Tiled JSON model (maps, layers, objects, typed and list properties, tileset references, the `.world`, `pack.json`, unknown fields kept), the exporter (`rotj export-levels --rom <file> --out <dir>` writes the original game as one world: a stage per area named by its banner, a room per Tiled map, one tileset name per (area, CHR) variant, the stage's page map, actors as objects classed by family with `variant`s and `triggers`, scroll-lock markers, `player-start` with facing and scroll mode and lock) and the importer, which refuses malformed packs by name. Proven against the ROM: `import(export(rom))` equals the game's assets in everything the game reads (terrain, rooms, the 590 spawn records the schedule can name, the schedule's triggers and locks), with three owner questions skipped by name and pinned (two rooms' first spawn column, bit 6 of 24 pending cells, the dropped residue), and `export(import(export(rom)))` is byte-equal file by file. The game does not load packs yet (release 3); nothing it does changed (the Classic suites, a sweep and a 300-branch exploration unchanged, the chain's tape byte-identical) |
 
 ## Verified working
 
@@ -101,8 +102,9 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    (`docs/specs/2026-10-18-family-fields-views-design.md`). **1.1.17, the hurt written once:
    tagged `1.1.17`** (2026-10-18). **1.1.18, the attribute bits named: tagged `1.1.18`**
    (2026-10-18). **1.1.19, the probe results typed: tagged `1.1.19`** (2026-10-18). **1.1.20, the
-   raster split typed: tagged `1.1.20`** (2026-10-18). Next: level packs release 1
-   (`docs/specs/2026-10-18-level-packs-release-1-design.md`), then the survey loop's list.
+   raster split typed: tagged `1.1.20`** (2026-10-18). **1.1.21, level packs release 1: tagged
+   `1.1.21`** (2026-10-18). Next: level packs release 2 (the stage descriptor) and the survey
+   loop's list (the empty slot named, the PPU names, the projectile, ...).
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
@@ -140,6 +142,17 @@ from the game's own requests.
   original game's pack names three second-class kinds the ROM has no handler for (ids past area 17
   room 0's records, never reached in play); should the importer refuse them in other packs, since
   placing one would stop the game once it loads packs?
+- **Level packs, release 2's knobs** (the survey in `docs/specs/2026-10-18-stage-descriptor-design.md`):
+  the engine reads per stage its song, banner/pause digits, the picture before the banner, whether
+  it is a continue checkpoint and its password (the pause screen's four letters), and what clearing
+  it does. New public names to approve for `pack.json`: `password` (on checkpoints), `cutscene`,
+  and the values
+  `song-xx`/`keep` (songs are shared between stages, so `"music": "stage-1"` can't name them),
+  `picture-xx`, `ending`. The approved `sprite_palettes` has nothing to carry (no sprite palette is
+  read by area; rooms carry theirs): drop it? The approved `boss` knob: the boss intro comes from
+  the next-area gate's spawn record (stage 3-1 mixes plain and intro gates), so a stage-level
+  `boss` can't express it; drop it or keep it as an editor-wizard field (recommended), with typed
+  gate properties later. The engine side of release 2 goes ahead without these.
 - **Level packs, the schedule residue in release 3**: dropping the residue (the owner's answer)
   changes WRAM bytes the lockstep compares (`$7410-$750F`); release 3's spec will propose how the
   proof treats them.

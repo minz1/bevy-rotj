@@ -1,6 +1,8 @@
 # Level packs, release 1: the Tiled model, the exporter, the importer, the proofs
 
-Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: `two_page` derived from
+Status: implemented in 1.1.21 (the reviewer's hardening: the importer refuses malformed packs by
+name; the JSON `version` is Tiled's own `1.11`; 590 readable records, not 613; bit 6 of 24 pending
+cells pinned for the owner). Approved with changes by the Opus stand-in, 2026-10-18 (applied: `two_page` derived from
 the map's size, with tile-less regions and more extra pages; the `mirroring` and
 `first_spawn_column` rules, no overrides, area 11 rooms 2 and 3 pending the owner; the residue
 sentence; the page-table actors' assertion; `triggers` as a Tiled 1.12 `list`; gid checks;
