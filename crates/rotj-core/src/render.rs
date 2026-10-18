@@ -94,6 +94,53 @@ pub struct Line {
     pub mirroring: u8,
 }
 
+/// Where a line's background pixel `x` is fetched from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BackgroundCell {
+    /// The physical nametable, 0 or 1, as the line's mirroring maps it.
+    pub physical: usize,
+    /// The tile byte's offset in it.
+    pub tile_at: usize,
+    /// The attribute byte's offset in it.
+    pub attribute_at: usize,
+    /// The palette bits' shift in the attribute byte.
+    pub shift: usize,
+    /// The pixel's column within its tile, 0-7.
+    pub column: usize,
+}
+
+impl Line {
+    /// Drawn scrolled sideways: the column the game is still writing shows at its edges,
+    /// which a TV's overscan hid.
+    #[must_use]
+    pub const fn scrolled(&self) -> bool {
+        self.v & 0x1F != 0 || self.fine_x != 0
+    }
+
+    /// Where the line's background pixel `x` (0-255) is fetched from.
+    #[must_use]
+    pub fn background_cell(&self, x: usize) -> BackgroundCell {
+        let v = usize::from(self.v);
+        let coarse_y = (v >> 5) & 0x1F;
+        let column = (v & 0x1F) * 8 + usize::from(self.fine_x) + x;
+        let coarse_x = (column / 8) % 32;
+        let table = ((v >> 10) & 3) ^ ((column / 256) & 1);
+        let physical = match self.mirroring & 3 {
+            0 => table & 1,
+            1 => (table >> 1) & 1,
+            2 => 0,
+            _ => 1,
+        };
+        BackgroundCell {
+            physical,
+            tile_at: coarse_y * 32 + coarse_x,
+            attribute_at: ATTRIBUTE_OFFSET + (coarse_y / 4) * 8 + coarse_x / 4,
+            shift: ((coarse_y % 4) / 2) * 4 + ((coarse_x % 4) / 2) * 2,
+            column: column % 8,
+        }
+    }
+}
+
 /// A whole frame's inputs as the PPU sees them.
 #[derive(Clone, Copy, Debug)]
 pub struct Picture<'a> {
@@ -115,13 +162,7 @@ impl Picture<'_> {
         self.chr[bank + (addr & 0x3FF)]
     }
 
-    fn nametable(&self, line: &Line, table: usize, at: usize) -> u8 {
-        let physical = match line.mirroring & 3 {
-            0 => table & 1,
-            1 => (table >> 1) & 1,
-            2 => 0,
-            _ => 1,
-        };
+    fn nametable(&self, physical: usize, at: usize) -> u8 {
         self.vram[physical * NAMETABLE_BYTES + at]
     }
 
@@ -161,22 +202,15 @@ impl Frame {
         y: usize,
         bg: &mut [u8; SCREEN_W],
     ) {
-        let v = usize::from(line.v);
-        let (coarse_y, fine_y) = ((v >> 5) & 0x1F, (v >> 12) & 7);
+        let fine_y = (usize::from(line.v) >> 12) & 7;
         let base = if line.ctrl & 0x10 != 0 { 0x1000 } else { 0 };
         for (x, slot) in bg.iter_mut().enumerate() {
-            let column = (v & 0x1F) * 8 + usize::from(line.fine_x) + x;
-            let coarse_x = (column / 8) % 32;
-            let table = ((v >> 10) & 3) ^ ((column / 256) & 1);
-            let tile = picture.nametable(line, table, coarse_y * 32 + coarse_x);
-            let attr = picture.nametable(
-                line,
-                table,
-                ATTRIBUTE_OFFSET + (coarse_y / 4) * 8 + coarse_x / 4,
-            );
-            let shift = ((coarse_y % 4) / 2) * 4 + ((coarse_x % 4) / 2) * 2;
+            let cell = line.background_cell(x);
+            let tile = picture.nametable(cell.physical, cell.tile_at);
+            let attr = picture.nametable(cell.physical, cell.attribute_at);
+            let shift = cell.shift;
             let addr = base + usize::from(tile) * TILE_BYTES + fine_y;
-            let bit = 7 - column % 8;
+            let bit = 7 - cell.column;
             let low = (picture.pattern(line.chr, addr) >> bit) & 1;
             let high = (picture.pattern(line.chr, addr + 8) >> bit) & 1;
             let shown = line.mask & 0x08 != 0 && (x >= 8 || line.mask & 0x02 != 0);

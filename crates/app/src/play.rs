@@ -83,8 +83,8 @@ impl Play {
             lines: Vec::new(),
             forced,
         };
-        play.copy_page();
         let registers = raster::Registers::of(&play.game);
+        play.copy_page(&registers);
         play.run_frame(registers);
         play
     }
@@ -131,16 +131,16 @@ impl Play {
         self.ppu.apply(&vblank.writes, self.game.scroll.mirroring);
         let registers = raster::Registers::of(&self.game);
         self.label = marked(&self.oam, &self.marks, Mark::Label);
-        self.copy_page();
+        self.copy_page(&registers);
         self.run_frame(registers);
         vblank.sound
     }
 
     /// Copies the page the NMI shows, its marks and the mirror's snapshot of the game.
-    fn copy_page(&mut self) {
+    fn copy_page(&mut self, registers: &raster::Registers) {
         self.oam = self.game.oam.page;
         self.marks = self.game.oam.marks;
-        self.shown = Snapshot::of(&self.game);
+        self.shown = Snapshot::of(&self.game, &raster::lines(registers, &self.game));
     }
 
     /// True until the boot reaches the first loop frame.
@@ -355,9 +355,8 @@ fn draw(play: Option<Res<'_, Play>>, settings: Res<'_, Settings>, mut screen: Re
         let faithful = settings.ui == crate::settings::UiStyle::Faithful;
         play.compose(screen_frame(&mut screen), limit, faithful);
         let hidden = settings.overscan == crate::settings::Overscan::Hidden;
-        let edges = std::array::from_fn(|y| {
-            hidden && play.lines.get(y).is_some_and(crate::screen::scrolled)
-        });
+        let edges =
+            std::array::from_fn(|y| hidden && play.lines.get(y).is_some_and(Line::scrolled));
         screen.edges = edges;
     }
 }

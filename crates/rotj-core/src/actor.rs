@@ -9,6 +9,7 @@ pub mod ending;
 pub mod engine;
 pub mod families;
 pub mod frame;
+pub mod modern;
 pub mod oam;
 #[cfg(test)]
 pub(crate) mod oracle;
@@ -568,6 +569,17 @@ mod tests {
         assert!(
             pictures.hud > 0 && pictures.label > 0,
             "the chain showed marked HUD sprites: {run:?}"
+        );
+        let exceptions = run.sprite_exceptions;
+        assert_eq!(
+            (
+                pictures.modern,
+                pictures.row_15_palettes,
+                exceptions.half_written,
+                exceptions.unreached
+            ),
+            (8830, 185, 0, 8),
+            "the Modern frames and the gates' exceptions: {run:?}"
         );
         let injected: Vec<_> = run.injected.keys().copied().collect();
         assert_eq!(

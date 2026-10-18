@@ -7,7 +7,7 @@ use std::path::Path;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, PrimaryWindow};
 use rotj_core::palette::{NES_PALETTE, RGB_PPU, Rgb, from_pal, ntsc};
-use rotj_core::render::{Frame, Line, SCREEN_H, SCREEN_W};
+use rotj_core::render::{Frame, SCREEN_H, SCREEN_W};
 
 use crate::settings::{Overscan, PaletteChoice, Settings, SettingsDir};
 
@@ -82,13 +82,6 @@ pub fn rgba_into(indices: &[u8], rgb: &Rgb, edges: &[bool], out: &mut [u8]) {
         pixel[..3].copy_from_slice(&colour);
         pixel[3] = 0xFF;
     }
-}
-
-/// A line drawn scrolled sideways: the column the game is still writing shows at its
-/// edges, which a TV's overscan hid.
-#[must_use]
-pub const fn scrolled(line: &Line) -> bool {
-    line.v & 0x1F != 0 || line.fine_x != 0
 }
 
 /// The part of the 256x240 picture that shows.
@@ -233,6 +226,7 @@ pub fn pixels(count: usize) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rotj_core::render::Line;
 
     #[test]
     fn composite_direct_upload_is_the_classic_frame() {
@@ -271,11 +265,11 @@ mod tests {
             ..Line::default()
         };
         assert!(
-            !scrolled(&line(0x0400 | 0x20, 0)),
+            !line(0x0400 | 0x20, 0).scrolled(),
             "a whole screen, any table or row"
         );
-        assert!(scrolled(&line(1, 0)));
-        assert!(scrolled(&line(0, 3)));
+        assert!(line(1, 0).scrolled());
+        assert!(line(0, 3).scrolled());
     }
 
     #[test]

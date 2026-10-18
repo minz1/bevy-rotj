@@ -917,6 +917,17 @@ impl Lockstep {
         if let Some(why) = super::oam::undrawable(&before.oam.page, &before.oam.marks, &port) {
             panic!("frame {frame}: {why}{}", self.context());
         }
+        if let Some(view) = super::modern::view(before, &port) {
+            let chr = &rotj_rom::for_test().expect("the ROM").chr;
+            match super::modern::check_background(&view, before, &port, &self.ppu, chr) {
+                Ok(row_15_palettes) => self.pictures.row_15_palettes += row_15_palettes,
+                Err(why) => panic!(
+                    "frame {frame}: the Modern background: {why}{}",
+                    self.context()
+                ),
+            }
+            self.pictures.modern += 1;
+        }
         let shown = |mark| before.oam.marks.iter().filter(|&&m| m == mark).count();
         self.pictures.hud += shown(super::oam::Mark::Hud);
         self.pictures.label += shown(super::oam::Mark::Label);
@@ -1682,6 +1693,7 @@ pub(crate) struct GameRun {
     /// A draw hung the port's game and the oracle's loop never waited for an NMI again.
     pub hung: bool,
     pub pictures: Pictures,
+    pub sprite_exceptions: SpriteExceptions,
 }
 
 /// The slot drawers with an occupied slot.
@@ -1711,7 +1723,13 @@ fn slot_drawers(game: &State) -> Vec<Mark> {
 /// builder the frame started from (`oam`), they leave its page and marks; they come in the
 /// loop's draw order; and every actor and second-class drawer's slot was occupied when the
 /// frame began (`drawers`) or when it ended (a projectile can be fired and freed in one frame).
-fn check_records(oam: &OamBuilder, drawers: &[Mark], game: &State, frame: u64) {
+fn check_records(
+    oam: &OamBuilder,
+    drawers: &[Mark],
+    game: &State,
+    frame: u64,
+    exceptions: &mut SpriteExceptions,
+) {
     let shown = &game.oam.shown;
     let replayed = oam.replayed(shown, game.world.frame_odd);
     assert!(
@@ -1728,6 +1746,7 @@ fn check_records(oam: &OamBuilder, drawers: &[Mark], game: &State, frame: u64) {
         "frame {frame}: draws out of the loop's order: {:?}",
         shown.iter().map(|r| r.mark).collect::<Vec<_>>()
     );
+    check_sprites(oam, game, frame, exceptions);
     let after = slot_drawers(game);
     for record in shown {
         let slot = matches!(record.mark, Mark::Actor(_) | Mark::Second(_));
@@ -1737,6 +1756,70 @@ fn check_records(oam: &OamBuilder, drawers: &[Mark], game: &State, frame: u64) {
             record.mark
         );
     }
+}
+
+/// The page's visible entries are the frame's records' visible sprites: a subset, and equal
+/// when the records place fewer than 64 and none is an endless metasprite (whose laps fill the
+/// page). Two exceptions, as the builder leaves them, counted in `exceptions`: an entry a piece
+/// clipped in x half-wrote over its old tile, and, when exactly 63 are placed and `finish`
+/// parks nothing, the one entry the frame never reached, still the page's from before (`oam`).
+fn check_sprites(oam: &OamBuilder, game: &State, frame: u64, exceptions: &mut SpriteExceptions) {
+    let visible = |entry: &[u8; 4]| entry[0] < 0xEF;
+    let shown = &game.oam.shown;
+    let placed: Vec<[u8; 4]> = shown
+        .iter()
+        .flat_map(|record| record.sprites(game.oam.width))
+        .collect();
+    let records: BTreeSet<[u8; 4]> = placed.iter().copied().filter(visible).collect();
+    let clipped: BTreeSet<[u8; 3]> = shown
+        .iter()
+        .flat_map(|record| {
+            let call = record.call;
+            record
+                .sprite
+                .pieces
+                .iter()
+                .filter_map(move |&piece| super::oam::place(call, piece))
+        })
+        .filter(|placed| !(0..game.oam.width).contains(&placed.x))
+        .map(|placed| {
+            let [y, _, attr, x] = placed.entry();
+            [y, attr, x]
+        })
+        .collect();
+    // 63 placements step the allocator 63 times from where the frame began.
+    let unreached = (placed.len() == 63)
+        .then(|| usize::from(oam.next.wrapping_add(0xC4u8.wrapping_mul(63)) >> 2));
+    let entries = game.oam.page.as_chunks::<4>().0;
+    for (index, entry) in entries.iter().enumerate() {
+        let [y, _, attr, x] = *entry;
+        if !visible(entry) || records.contains(entry) {
+            continue;
+        }
+        if clipped.contains(&[y, attr, x]) {
+            exceptions.half_written += 1;
+        } else if unreached == Some(index) && oam.page.as_chunks::<4>().0[index] == *entry {
+            exceptions.unreached += 1;
+        } else {
+            panic!("frame {frame}: page entry {index} {entry:02X?} is no record's sprite");
+        }
+    }
+    if placed.len() < 64 && !shown.iter().any(|record| record.sprite.endless) {
+        let page: BTreeSet<[u8; 4]> = entries.iter().copied().filter(visible).collect();
+        let missing: Vec<_> = records.difference(&page).collect();
+        assert!(
+            missing.is_empty(),
+            "frame {frame}: {} placed sprites, these not on the page: {missing:02X?}",
+            placed.len()
+        );
+    }
+}
+
+/// How often [`check_sprites`]' two exceptions held.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SpriteExceptions {
+    pub half_written: usize,
+    pub unreached: usize,
 }
 
 /// Where `$D3F9` draws a drawer: the HUD, Batman, the second class, the weapons, the actors,
@@ -1769,6 +1852,10 @@ pub(crate) struct Pictures {
     /// The HUD's marked gauge and label entries the compared frames showed.
     pub hud: usize,
     pub label: usize,
+    /// Frames the Modern picture draws, whose background matched the nametables.
+    pub modern: usize,
+    /// Of their cells, those showing their page's row 15 palette on row 14 ([`super::modern::check_background`]).
+    pub row_15_palettes: usize,
 }
 
 /// Runs the port's [`Game::frame`](super::Game::frame) chained from one lift at the
@@ -2000,7 +2087,13 @@ pub(crate) fn run_game(env: &mut impl Environment, prg: &Prg, chr: &[u8]) -> Gam
             }
             continue;
         }
-        check_records(&oam, &drawers, &game, env.frame());
+        check_records(
+            &oam,
+            &drawers,
+            &game,
+            env.frame(),
+            &mut run.sprite_exceptions,
+        );
         env.loop_wait();
         env.inject_irqs(&mut game);
         env.check(&game, run.frames);

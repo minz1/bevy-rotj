@@ -26,6 +26,8 @@ pub struct Settings {
     pub vsync: bool,
     /// How the game's own UI (HUD, pause card, title cursor, password entry) is drawn.
     pub ui: UiStyle,
+    /// How the picture is drawn.
+    pub picture: Picture,
 }
 
 impl Default for Settings {
@@ -37,8 +39,18 @@ impl Default for Settings {
             sprite_limit: true,
             vsync: true,
             ui: UiStyle::Classic,
+            picture: Picture::Classic,
         }
     }
+}
+
+/// How the picture is drawn.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Picture {
+    /// The PPU's picture, line by line.
+    Classic,
+    /// In play, the level's tilemap and the game's sprites as Bevy entities.
+    Modern,
 }
 
 /// How the game's own UI is drawn.
@@ -124,6 +136,7 @@ struct Fields {
     sprite_limit: Option<Box<RawValue>>,
     vsync: Option<Box<RawValue>>,
     ui: Option<Box<RawValue>>,
+    picture: Option<Box<RawValue>>,
 }
 
 /// The settings `text` holds that this release reads, each on its own: a value it does
@@ -146,6 +159,7 @@ fn parse(text: &str) -> ron::error::SpannedResult<Settings> {
     read(fields.sprite_limit, &mut settings.sprite_limit);
     read(fields.vsync, &mut settings.vsync);
     read(fields.ui, &mut settings.ui);
+    read(fields.picture, &mut settings.picture);
     Ok(settings)
 }
 
@@ -196,6 +210,7 @@ mod tests {
             sprite_limit: false,
             vsync: false,
             ui: UiStyle::Faithful,
+            picture: Picture::Modern,
         };
         save(&dir, &settings).expect("save");
         assert_eq!(load(&dir), settings);

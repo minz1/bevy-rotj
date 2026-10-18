@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 use rotj_core::actor::Game;
 use rotj_core::actor::oam::{DrawRecord, Mark};
+use rotj_core::render::Line;
 
 use crate::pacing::Step;
 use crate::play::Play;
@@ -49,11 +50,14 @@ pub struct Snapshot {
     /// Every drawer, the slots in order then Batman.
     pub drawers: Vec<DrawerState>,
     pub camera: Vec2,
+    /// What the Modern picture draws of the frame, when it draws it.
+    pub modern: Option<crate::modern::ModernFrame>,
 }
 
 impl Snapshot {
+    /// The game at its NMI, whose frame `lines` draws.
     #[must_use]
-    pub fn of(game: &Game) -> Snapshot {
+    pub fn of(game: &Game, lines: &[Line]) -> Snapshot {
         let slot = |drawer, kind, x, y| DrawerState {
             drawer,
             kind: Some(kind),
@@ -89,6 +93,7 @@ impl Snapshot {
                 .chain([batman])
                 .collect(),
             camera: level_pixels(game.world.camera_x, game.world.camera_y),
+            modern: crate::modern::ModernFrame::of(game, lines),
         }
     }
 }
@@ -118,12 +123,16 @@ fn spawn(mut commands: Commands<'_, '_>) {
             Kind::default(),
             LevelPosition::default(),
             Draws::default(),
+            Transform::default(),
+            Visibility::default(),
         ));
     }
     commands.spawn((
         Drawer(Mark::Player),
         LevelPosition::default(),
         Draws::default(),
+        Transform::default(),
+        Visibility::default(),
     ));
 }
 
@@ -196,7 +205,7 @@ mod tests {
         });
         assert!(fired, "a shot is out");
         let game = play.game();
-        let snapshot = Snapshot::of(game);
+        let snapshot = Snapshot::of(game, &play.lines);
         let state = |mark| {
             snapshot
                 .drawers

@@ -137,6 +137,61 @@ pub struct DrawRecord {
     pub sprite: Metasprite,
 }
 
+impl DrawRecord {
+    /// The OAM entries (`[y, tile, attribute, x]`) the record's pieces become on a page `width`
+    /// pixels wide, without the allocator: one lap of an endless metasprite, nothing dropped.
+    pub fn sprites(&self, width: i16) -> impl Iterator<Item = [u8; 4]> + '_ {
+        self.sprite.pieces.iter().filter_map(move |&piece| {
+            let placed = place(self.call, piece)?;
+            (0..width).contains(&placed.x).then(|| placed.entry())
+        })
+    }
+}
+
+/// Where one piece of a draw lands: its OAM y, tile, attribute and screen x, the x before
+/// the visible width is checked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Placed {
+    /// OAM y.
+    pub y: u8,
+    /// The piece's tile ORed with the call's.
+    pub tile: u8,
+    /// The piece's attribute ORed with the call's.
+    pub attr: u8,
+    /// Screen x, which may be off the page.
+    pub x: i16,
+}
+
+impl Placed {
+    /// The OAM entry's four bytes.
+    #[must_use]
+    pub fn entry(self) -> [u8; 4] {
+        [self.y, self.tile, self.attr, self.x.to_le_bytes()[0]]
+    }
+}
+
+/// Where `$C247` places `piece` of `call`, or `None` when its y drops it.
+#[must_use]
+pub fn place(call: DrawCall, piece: Piece) -> Option<Placed> {
+    let y = piece_y(call, piece.dy)?;
+    let attr = piece.attr | call.attr;
+    Some(Placed {
+        y,
+        tile: piece.tile | call.tile,
+        attr,
+        x: call.x + i16::from(piece_dx(attr, piece.dx)),
+    })
+}
+
+/// A piece's x offset, mirrored when its attribute flips it.
+fn piece_dx(attr: u8, dx: i8) -> i8 {
+    if attr & 0x40 == 0 {
+        dx
+    } else {
+        (!dx).wrapping_sub(7)
+    }
+}
+
 /// The game's OAM page and its allocator.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OamBuilder {
@@ -226,25 +281,20 @@ impl OamBuilder {
             }
             let entry = usize::from(next);
             cpu_overflow = y_overflow(call, piece.dy);
-            let Some(y) = piece_y(call, piece.dy) else {
+            let Some(placed) = place(call, *piece) else {
                 continue;
             };
-            let attr = piece.attr | call.attr;
-            let dx = if attr & 0x40 == 0 {
-                piece.dx
-            } else {
-                (!piece.dx).wrapping_sub(7)
-            };
-            let x = call.x + i16::from(dx);
+            let dx = piece_dx(placed.attr, piece.dx);
             cpu_overflow = adc_overflows(dx.cast_unsigned(), call.x.to_le_bytes()[0], false);
+            let [y, tile, attr, x] = placed.entry();
             self.page[entry] = y;
             self.marks[entry >> 2] = self.marking;
             self.page[entry + 2] = attr;
-            self.page[entry + 3] = x.to_le_bytes()[0];
-            if !(0..self.width).contains(&x) {
+            self.page[entry + 3] = x;
+            if !(0..self.width).contains(&placed.x) {
                 continue;
             }
-            self.page[entry + 1] = piece.tile | call.tile;
+            self.page[entry + 1] = tile;
             lap_placed = true;
             next = next.wrapping_add(NEXT_ENTRY);
             self.left = self.left.wrapping_sub(1);
@@ -626,6 +676,41 @@ mod tests {
         oam.draw(&sprite(vec![one_piece_at(100)]), at(200), false);
         oam.finish();
         assert_eq!(oam.marks[last], Mark::Hud);
+    }
+
+    #[test]
+    fn a_records_sprites_are_its_placed_pieces() {
+        let flipped = Piece {
+            tile: 2,
+            dx: 4,
+            attr: 0x40,
+            dy: -16,
+        };
+        let record = DrawRecord {
+            mark: Mark::Player,
+            call: at(250),
+            sprite: sprite(vec![one_piece_at(0), one_piece_at(8), flipped]),
+        };
+        // x 258 is off the page; the flip mirrors dx 4 to -12.
+        let sprites: Vec<[u8; 4]> = record.sprites(256).collect();
+        assert_eq!(sprites, [[0x30, 1, 0, 250], [0x30, 2, 0x40, 238]]);
+        let clipped = place(record.call, one_piece_at(8)).expect("y keeps it");
+        assert_eq!((clipped.x, clipped.entry()), (258, [0x30, 1, 0, 2]));
+    }
+
+    #[test]
+    fn an_endless_metasprite_gives_one_lap() {
+        let endless = Metasprite {
+            chr: 0,
+            pieces: vec![one_piece_at(0); 64],
+            endless: true,
+        };
+        let record = DrawRecord {
+            mark: Mark::Hud,
+            call: at(16),
+            sprite: endless,
+        };
+        assert_eq!(record.sprites(256).count(), 64);
     }
 
     #[test]

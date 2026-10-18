@@ -66,33 +66,42 @@ pub fn shown(
         .iter()
         .copied()
         .chain(marked)
-        .filter_map(|[y, tile, attr, x]| {
-            let line = lines.get(usize::from(y) + 1)?;
-            if line.mask & 0x10 == 0 {
-                return None;
-            }
-            let table = 4 * usize::from(tile & 1);
-            let banks = line.sprite_chr[table..table + 4]
-                .try_into()
-                .expect("4 banks");
-            let grey = if line.mask & 1 != 0 { 0x30 } else { 0x3F };
-            let colours = std::array::from_fn(|v| {
-                let entry = palette[0x10 + 4 * usize::from(attr & 3) + v] & grey;
-                if v == 0 {
-                    [0; 3]
-                } else {
-                    rgb[usize::from(entry)]
-                }
-            });
+        .filter_map(|entry| {
+            let [y, tile, attr, x] = entry;
             Some(Shown {
                 y,
                 tile,
                 attr,
                 x,
-                key: Key { banks, colours },
+                key: sprite_key(entry, lines, palette, rgb)?,
             })
         })
         .collect()
+}
+
+/// The atlas an OAM entry's 8x16 sprite is drawn from: its line's sprite banks and its
+/// palette's colours, or `None` on a line with sprites off.
+#[must_use]
+pub fn sprite_key(entry: [u8; 4], lines: &[Line], palette: &[u8; 32], rgb: &Rgb) -> Option<Key> {
+    let [y, tile, attr, _] = entry;
+    let line = lines.get(usize::from(y) + 1)?;
+    if line.mask & 0x10 == 0 {
+        return None;
+    }
+    let table = 4 * usize::from(tile & 1);
+    let banks = line.sprite_chr[table..table + 4]
+        .try_into()
+        .expect("4 banks");
+    let grey = if line.mask & 1 != 0 { 0x30 } else { 0x3F };
+    let colours = std::array::from_fn(|v| {
+        let entry = palette[0x10 + 4 * usize::from(attr & 3) + v] & grey;
+        if v == 0 {
+            [0; 3]
+        } else {
+            rgb[usize::from(entry)]
+        }
+    });
+    Some(Key { banks, colours })
 }
 
 /// A pattern table as 128 8x16 tiles, 16 to a row, in `key`'s colours, colour 0 clear.
