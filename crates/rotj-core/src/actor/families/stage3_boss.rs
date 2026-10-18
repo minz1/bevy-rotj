@@ -10,6 +10,7 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion};
 
@@ -81,7 +82,7 @@ impl State {
         engine::load(body, work);
         let flash = engine::boss_flash(body, work, cx.world);
         if flash & 0x80 != 0 {
-            work.attr = body.flags & 0xFC;
+            work.attr = body.flags & !attr::PALETTE;
             if body.dying_timer == 0x01 {
                 engine::boss_defeated(work.slot, cx);
             }
@@ -196,7 +197,7 @@ fn dashing(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
     body.sprite = 3;
     work.vy = i16::from_be_bytes([0xFF, 0xFA]);
     work.ax = 0;
-    if work.attr & 0x40 == 0 {
+    if work.attr & attr::FLIP_X == 0 {
         if work.x.to_be_bytes()[0] >= 0x0C {
             return end_dash(body, work, cx);
         }
@@ -307,7 +308,7 @@ fn flipping(body: &mut Body, work: &mut Work) {
     body.subtype = body.subtype.wrapping_add(1);
     let low = body.subtype & 0x7F;
     if low == 4 {
-        work.attr ^= 0x40;
+        work.attr ^= attr::FLIP_X;
     } else if low >= 8 {
         if body.subtype & 0x80 != 0 {
             body.phase = Phase::Dashing.byte();
@@ -329,9 +330,9 @@ fn spawn_shots(body: &Body, work: &Work, cx: &mut Cx<'_>) {
         };
         let child = &mut cx.slots.main[slot];
         let missile = &mut child.body;
-        missile.flags = (work.attr & 0x40) | 0x03;
+        missile.flags = (work.attr & attr::FLIP_X) | attr::PALETTE;
         missile.phase = count;
-        let position = if work.attr & 0x40 == 0 {
+        let position = if work.attr & attr::FLIP_X == 0 {
             work.x.wrapping_add(0x80)
         } else {
             missile.phase = missile.phase.wrapping_add(5);
@@ -364,7 +365,7 @@ fn tail(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             engine::draw(work, DRAW_BANK, cx);
         }
         if body.counter & 0x80 != 0 {
-            work.attr |= 0x03;
+            work.attr |= attr::PALETTE;
             work.pointer = engine::rom_word(cx.prg, 0, THIRD_DRAW);
             engine::draw(work, DRAW_BANK, cx);
         }

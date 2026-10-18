@@ -7,6 +7,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
+use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion};
 
@@ -127,7 +128,7 @@ fn advance(body: &mut Body, cx: &Cx<'_>) {
 /// `$9088`: face the player and keep only the low two attribute bits.
 fn face(work: &mut Work, cx: &Cx<'_>) {
     let dx = engine::player_dx(work, &cx.effects.player);
-    work.attr = (work.attr & 0x03) | engine::face(dx);
+    work.attr = (work.attr & attr::PALETTE) | engine::face(dx);
 }
 
 /// `$8D9F`: stand, then leave unless the level state is `$09`.
@@ -217,7 +218,11 @@ fn jumping(body: &mut Body, work: &mut Work, grounded: bool, cx: &mut Cx<'_>) {
     body.timer = body.timer.wrapping_add(1);
     if body.timer >= 0x20 {
         work.vy = -0xA0;
-        body.vx_drift = if work.attr & 0x40 != 0 { -0x20 } else { 0x20 };
+        body.vx_drift = if work.attr & attr::FLIP_X != 0 {
+            -0x20
+        } else {
+            0x20
+        };
         body.timer = 0x80;
     }
 }
@@ -258,7 +263,7 @@ fn third_draw(body: &Body, work: &mut Work, cx: &mut Cx<'_>) {
             return;
         };
         work.screen_y = y;
-        let moved = if work.attr & 0x40 == 0 {
+        let moved = if work.attr & attr::FLIP_X == 0 {
             work.screen_x.checked_add(0x1B)
         } else {
             work.screen_x.checked_sub(0x1B)
@@ -273,7 +278,7 @@ fn third_draw(body: &Body, work: &mut Work, cx: &mut Cx<'_>) {
             return;
         };
         work.screen_y = y;
-        let moved = if work.attr & 0x40 == 0 {
+        let moved = if work.attr & attr::FLIP_X == 0 {
             work.screen_x.checked_add(0x27)
         } else {
             work.screen_x.checked_sub(0x27)
@@ -298,7 +303,7 @@ fn spawn_3a(body: &Body, work: &Work, cx: &mut Cx<'_>) {
         return;
     };
     cx.effects.sound[0] = SPAWN_SOUND;
-    let left = work.attr & 0x40 != 0;
+    let left = work.attr & attr::FLIP_X != 0;
     let (dx, dy, phase, frame) = if body.phase == Phase::Spawning.byte() {
         (0x01D0, 0x03B0, if left { 2 } else { 3 }, 1)
     } else {

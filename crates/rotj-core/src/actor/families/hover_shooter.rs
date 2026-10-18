@@ -3,6 +3,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
+use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
@@ -29,7 +30,7 @@ impl State {
         if engine::dying(kind, body, work, 0x80, cx) {
             return;
         }
-        work.attr = (body.flags | work.attr) & 0xDF;
+        work.attr = (body.flags | work.attr) & !attr::BEHIND;
         if body.phase == HOVERING {
             hovering(body, work, cx);
         } else {
@@ -94,14 +95,14 @@ fn rearing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 /// Turns to face the player `dx` away (`$939C`; hovering only from `$200` away, rearing's
 /// `$93D8` at any distance).
 fn face(work: &mut Work, dx: i16) {
-    work.attr = (work.attr & 0x03) | engine::face(dx);
+    work.attr = (work.attr & attr::PALETTE) | engine::face(dx);
 }
 
 /// Writes the `$20` companion into slot `slot` (16-23) as `$9457` does: `$200`
 /// to the side the parent faces, `$17F` above it, sharing its flags and CHR slot.
 fn spawn_child(parent: &Body, slot: usize, cx: &mut Cx<'_>) {
     let child = &mut cx.slots.main[slot];
-    let facing_left = parent.flags & 0x40 != 0;
+    let facing_left = parent.flags & attr::FLIP_X != 0;
     child.kind = CHILD;
     child.body.flags = parent.flags;
     child.body.x = if facing_left {

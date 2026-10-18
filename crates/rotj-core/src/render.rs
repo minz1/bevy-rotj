@@ -4,6 +4,7 @@
 //! has (nametables, CHR, palette RAM, OAM) and each line's own scroll, `$2000`/`$2001`
 //! and CHR banks, so mid-frame changes show up exactly where the hardware shows them.
 
+use crate::actor::oam::attr;
 use crate::chr::TILE_BYTES;
 use crate::palette;
 
@@ -242,7 +243,7 @@ impl Frame {
         for oam in found {
             let (attr, x0) = (oam[2], usize::from(oam[3]));
             let row = y - usize::from(oam[0]) - 1;
-            let row = if attr & 0x80 != 0 {
+            let row = if attr & attr::FLIP_Y != 0 {
                 height - 1 - row
             } else {
                 row
@@ -263,15 +264,20 @@ impl Frame {
                 if x >= SCREEN_W || drawn[x] || (x < 8 && line.mask & 0x04 == 0) {
                     continue;
                 }
-                let bit = if attr & 0x40 != 0 { col } else { 7 - col };
+                let bit = if attr & attr::FLIP_X != 0 {
+                    col
+                } else {
+                    7 - col
+                };
                 let value = ((high >> bit) & 1) << 1 | ((low >> bit) & 1);
                 if value == 0 {
                     continue;
                 }
                 drawn[x] = true;
-                if attr & 0x20 == 0 || bg[x] == 0 {
-                    let entry =
-                        SPRITE_PALETTE_OFFSET + usize::from(attr & 3) * 4 + usize::from(value);
+                if attr & attr::BEHIND == 0 || bg[x] == 0 {
+                    let entry = SPRITE_PALETTE_OFFSET
+                        + usize::from(attr & attr::PALETTE) * 4
+                        + usize::from(value);
                     self.put(y * SCREEN_W + x, picture.colour(line, entry));
                 }
             }

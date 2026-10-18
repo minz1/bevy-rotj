@@ -1,7 +1,7 @@
 //! What actors read and write outside their own slot.
 
 use super::button::Buttons;
-use super::oam::OamBuilder;
+use super::oam::{OamBuilder, attr};
 use super::scroll::Scroll;
 use super::slots::Slots;
 
@@ -261,7 +261,8 @@ pub struct Player {
     pub vx: i16,
     /// What he is doing (`$046E`).
     pub motion: Motion,
-    /// Bit 6: facing left (`$046F`).
+    /// Batman's sprite attribute byte (`$046F`): bit 6 faces left; the palette bits beside
+    /// it, which his palette changes set.
     pub facing: u8,
     /// Frames of hurt invulnerability (`$0479`).
     pub hurt_timer: u8,
@@ -312,6 +313,14 @@ pub struct Player {
     pub tally_digit: u8,
     /// The sprite bank `$E4` the entry keeps (`$0487`).
     pub entry_chr: u8,
+}
+
+impl Player {
+    /// Is he facing left (`$046F` bit 6)?
+    #[must_use]
+    pub fn faces_left(&self) -> bool {
+        self.facing & attr::FLIP_X != 0
+    }
 }
 
 /// Everything a handler reads and does not own.

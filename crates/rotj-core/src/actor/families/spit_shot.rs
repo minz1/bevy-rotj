@@ -7,6 +7,7 @@
 //! it itself.
 
 use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
@@ -47,7 +48,7 @@ impl State {
     /// One frame of the handler (`$98A3`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
-        work.attr = body.flags & 0xDF;
+        work.attr = body.flags & !attr::BEHIND;
         let subtype = if body.behaviour & 0x80 == 0 {
             STRAIGHT
         } else {

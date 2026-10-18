@@ -5,6 +5,7 @@
 //! read by the dying path), so its only phase is 0.
 
 use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::oam::attr;
 use crate::actor::slots::{Body, Field, own_field};
 use crate::actor::world::Cx;
 
@@ -111,8 +112,8 @@ impl Indexed<'_> {
 /// `$89F5`: hands a type `$24` to the free child slot `index`, to the side of the
 /// parent that its attribute bit 6 selects.
 fn spawn_child(index: usize, work: &Work, chr_slot: u8, cx: &mut Cx<'_>) {
-    let flags = (work.attr & 0x40) | 0x03;
-    let (phase, x) = if flags & 0x40 != 0 {
+    let flags = (work.attr & attr::FLIP_X) | attr::PALETTE;
+    let (phase, x) = if flags & attr::FLIP_X != 0 {
         (RIGHT, work.x.wrapping_add(OFFSET))
     } else {
         (LEFT, work.x.wrapping_sub(OFFSET))

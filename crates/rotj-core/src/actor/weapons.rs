@@ -8,7 +8,7 @@
 
 use super::collision::{self, Probe};
 use super::engine::{self, Work, rom_byte, rom_word};
-use super::oam::Mark;
+use super::oam::{Mark, attr};
 use super::scroll::Scroll;
 use super::slots::{self, hit};
 use super::world::{
@@ -241,7 +241,7 @@ fn power_up_pieces(work: &mut Work, cx: &mut Cx<'_>) {
         player.power_up = power_up::ON;
         effects.attack = attack::CHARGEABLE;
         effects.weapon = Weapon::Super;
-        player.facing &= 0xFC;
+        player.facing &= !attr::PALETTE;
         player.stage_script = 0;
         player.hurt = 0;
         player.flash_timer = 0;
@@ -702,7 +702,7 @@ fn homing_launch(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         if cx.effects.player.motion == Motion::AimingUp {
             3
         } else {
-            u16::from(faces_left(cx))
+            u16::from(cx.effects.player.faces_left())
         }
     } else if !pad.intersects(Buttons::SIDEWAYS) {
         #[cfg(test)]
@@ -742,7 +742,7 @@ fn homing_in_front(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     let (x, y) = if cx.effects.player.motion == Motion::AimingUp {
         above_player(cx)
     } else {
-        let dx = if faces_left(cx) {
+        let dx = if cx.effects.player.faces_left() {
             cx.prg.weapons.front_left_dx[motion]
         } else {
             cx.prg.weapons.front_right_dx[motion]
@@ -759,7 +759,15 @@ fn homing_in_front(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
 fn above_player(cx: &Cx<'_>) -> (u16, u16) {
     #[cfg(test)]
     super::oracle::seen(0x9EA7);
-    beside_player(cx, if faces_left(cx) { 0xFFE0 } else { 0x0020 }, 0xFBF0)
+    beside_player(
+        cx,
+        if cx.effects.player.faces_left() {
+            0xFFE0
+        } else {
+            0x0020
+        },
+        0xFBF0,
+    )
 }
 
 /// The in-flight sprite of handlers 0 and 5: the pointer at `sprites[$7CB0 >> 7]`.
@@ -1212,7 +1220,7 @@ fn splitter(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
             if phase & 0x40 == 0 {
                 let projectile = &mut cx.effects.projectiles[slot];
                 let [hi, lo] = projectile.vx.to_be_bytes();
-                if attr & 0x40 != 0 {
+                if attr & attr::FLIP_X != 0 {
                     let (sub, borrow) = lo.overflowing_sub(2);
                     let hi = if borrow { hi.wrapping_sub(1) } else { hi };
                     projectile.vx = i16::from_be_bytes([hi, if sub >= 0xD0 { sub } else { 0xC0 }]);
@@ -1417,7 +1425,7 @@ fn three_way_brew(slot: usize, cx: &mut Cx<'_>) {
 
 /// The `$9F07`-`$9F2B` x offset ahead of the player for `motion`.
 fn ahead(cx: &Cx<'_>, motion: usize) -> u16 {
-    if faces_left(cx) {
+    if cx.effects.player.faces_left() {
         cx.prg.weapons.ahead_left_dx[motion]
     } else {
         cx.prg.weapons.ahead_right_dx[motion]
@@ -1444,7 +1452,8 @@ fn three_way_blow(slot: usize, vx: i16, cx: &mut Cx<'_>) {
 /// `$FD70` above him (`$9ED6[3]`, `$7F60` bit 7 marking it vertical).
 fn three_way_let_go(slot: usize, cx: &mut Cx<'_>) {
     let motion = usize::from(cx.effects.player.motion.byte());
-    let (aim_up, left) = (cx.effects.player.motion == Motion::AimingUp, faces_left(cx));
+    let player = &cx.effects.player;
+    let (aim_up, left) = (player.motion == Motion::AimingUp, player.faces_left());
     let (x, y, pick) = if aim_up {
         (0, 0xFD70, 3)
     } else {
@@ -1584,11 +1593,6 @@ fn beside_player(cx: &Cx<'_>, dx: u16, dy: u16) -> (u16, u16) {
     (player.x.wrapping_add(dx), player.y.wrapping_add(dy))
 }
 
-/// Is the player facing left (`$046F` bit 6)?
-fn faces_left(cx: &Cx<'_>) -> bool {
-    cx.effects.player.facing & 0x40 != 0
-}
-
 /// Handler 2's charged attack, type `$80` (`$8A4F`): four parts circle the player
 /// while B is held, then fly off as type `$81` parts.
 fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
@@ -1618,13 +1622,14 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     let (back_hi, round) = (!hi).overflowing_add(u8::from(carry));
     let back = u16::from_be_bytes([back_hi, back_lo]);
     let motion = usize::from(cx.effects.player.motion.byte());
+    let left = cx.effects.player.faces_left();
     (work.x, work.y) = if cx.effects.player.motion == Motion::AimingUp {
         #[cfg(test)]
         super::oracle::seen(0x8AFF);
-        let dx = if faces_left(cx) { 0xFFE0 } else { 0x0020 };
+        let dx = if left { 0xFFE0 } else { 0x0020 };
         let (x, y) = beside_player(cx, dx, 0xFBF0);
         (x.wrapping_add(vy), y.wrapping_add(back))
-    } else if faces_left(cx) {
+    } else if left {
         let (x, y) = beside_player(
             cx,
             cx.prg.weapons.split_left_dx[motion],
@@ -1652,7 +1657,8 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     #[cfg(test)]
     super::oracle::seen(0x8BCB);
     cx.effects.sound[0] = 0x2F;
-    let (aim_up, left) = (cx.effects.player.motion == Motion::AimingUp, faces_left(cx));
+    let player = &cx.effects.player;
+    let (aim_up, left) = (player.motion == Motion::AimingUp, player.faces_left());
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.kind = splitter_stage::THROWN;
     [projectile.level_x_hi, projectile.level_x_lo] = work.x.to_be_bytes();
@@ -1669,7 +1675,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     } else {
         projectile.timer = 0;
         if left {
-            projectile.attr = 0x40;
+            projectile.attr = attr::FLIP_X;
             2
         } else {
             0
@@ -1704,10 +1710,14 @@ fn wave_charge(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
     (work.x, work.y) = if cx.effects.player.motion == Motion::AimingUp {
         #[cfg(test)]
         super::oracle::seen(0x8F16);
-        let dx = if faces_left(cx) { 0xFFE0 } else { 0x0020 };
+        let dx = if cx.effects.player.faces_left() {
+            0xFFE0
+        } else {
+            0x0020
+        };
         beside_player(cx, dx, 0xFDF0)
     } else {
-        let dx = if faces_left(cx) {
+        let dx = if cx.effects.player.faces_left() {
             cx.prg.weapons.wave_left_dx[motion]
         } else {
             cx.prg.weapons.wave_right_dx[motion]
@@ -1761,7 +1771,7 @@ fn wave_spread(slot: usize, cx: &mut Cx<'_>) -> bool {
     let angle = usize::from(source.part);
     let along = cx.prg.weapons.spread_vx[angle];
     let motion = usize::from(cx.effects.player.motion.byte());
-    let left = faces_left(cx);
+    let left = cx.effects.player.faces_left();
     let (x, y) = if cx.effects.player.motion == Motion::AimingUp {
         #[cfg(test)]
         super::oracle::seen(0x9023);
@@ -1788,7 +1798,7 @@ fn wave_spread(slot: usize, cx: &mut Cx<'_>) -> bool {
         projectile.timer = 0x80;
         projectile.attr = 0;
     } else {
-        projectile.attr = cx.effects.player.facing & 0x40;
+        projectile.attr = cx.effects.player.facing & attr::FLIP_X;
         projectile.vx = if left { -0x50 } else { 0x50 };
         projectile.vy = along;
         projectile.timer = 0;

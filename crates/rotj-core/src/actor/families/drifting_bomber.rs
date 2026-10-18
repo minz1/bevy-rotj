@@ -8,6 +8,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
+use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
@@ -83,11 +84,15 @@ fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         body.anim = 0x80;
         body.timer = 1;
         body.subtype = body.subtype.wrapping_add(1);
-        body.vx_drift = if work.attr & 0x40 != 0 { 0x20 } else { -0x20 };
+        body.vx_drift = if work.attr & attr::FLIP_X != 0 {
+            0x20
+        } else {
+            -0x20
+        };
         return;
     }
     drift(body, work);
-    let settled = if work.attr & 0x40 != 0 {
+    let settled = if work.attr & attr::FLIP_X != 0 {
         body.vx_drift < 0 || body.vx_drift.to_be_bytes()[1] < 0x08
     } else {
         body.vx_drift >= 0 || body.vx_drift.to_be_bytes()[1] >= 0xF8
@@ -108,7 +113,7 @@ fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 
 /// `$8CBC`: accelerate `$7E50:$7E60` by two toward the facing, clamped to +-64.
 fn drift(body: &mut Body, work: &Work) {
-    if work.attr & 0x40 != 0 {
+    if work.attr & attr::FLIP_X != 0 {
         body.vx_drift = body.vx_drift.wrapping_sub(2);
         if body.vx_drift >= 0 || body.vx_drift.to_be_bytes()[1] >= 0xC0 {
             return;
@@ -153,7 +158,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             body.anim = 0;
         }
         work.screen_y = work.screen_y.wrapping_sub(0x1D);
-        work.screen_x = if work.attr & 0x40 != 0 {
+        work.screen_x = if work.attr & attr::FLIP_X != 0 {
             work.screen_x.wrapping_sub(0x10)
         } else {
             work.screen_x.wrapping_add(0x10)
@@ -175,7 +180,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 /// Writes a `$24` child into slot `slot` (16-23), as `$8C59` does.
 fn spawn_child(body: &Body, work: &Work, slot: usize, cx: &mut Cx<'_>) {
     let child = &mut cx.slots.main[slot];
-    let facing_left = work.attr & 0x40 != 0;
+    let facing_left = work.attr & attr::FLIP_X != 0;
     child.kind = CHILD;
     child.body.flags = 0;
     child.body.phase = u8::from(facing_left);

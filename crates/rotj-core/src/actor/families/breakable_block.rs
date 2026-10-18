@@ -9,6 +9,9 @@ use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
 use crate::levelmap::Cell;
 
+/// `$7C00` bit 7: the shatter leaves the nametable attributes as they are (no palette copy).
+const KEEPS_PALETTES: u8 = 0x80;
+
 /// Both kinds keep no state outside [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -77,7 +80,7 @@ fn shatter(body: &Body, work: &Work, cx: &mut Cx<'_>) {
         tiles[at..at + 2].copy_from_slice(&[top_left, top_right]);
         tiles[at + 4..at + 6].copy_from_slice(&[bottom_left, bottom_right]);
     }
-    let fields = (body.flags & 0x80 == 0).then(|| {
+    let fields = (body.flags & KEEPS_PALETTES == 0).then(|| {
         let [target_hi, target_lo] = target.to_be_bytes();
         let hi = if engine::is_page_column(base, cx) {
             target_hi.wrapping_sub(1)

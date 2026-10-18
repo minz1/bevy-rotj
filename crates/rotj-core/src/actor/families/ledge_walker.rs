@@ -2,6 +2,7 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
@@ -89,7 +90,7 @@ impl State {
 
 /// Walking (`$9667`): walk, and turn round at a wall or a ledge.
 fn walking(body: &mut Body, work: &mut Work, flags: u8, probe: &mut Probe, cx: &mut Cx<'_>) {
-    let facing_left = work.attr & 0x40 != 0;
+    let facing_left = work.attr & attr::FLIP_X != 0;
     let at_edge = flags & WALL != 0 || {
         probe.x = if facing_left {
             work.x.wrapping_sub(LEDGE_REACH)
@@ -118,7 +119,7 @@ fn turning(body: &mut Body, work: &mut Work) {
     body.sprite = TURNING_SPRITE;
     body.anim = body.anim.wrapping_add(1);
     if body.anim == TURN_FLIP {
-        work.attr ^= 0x40;
+        work.attr ^= attr::FLIP_X;
     } else if body.anim >= TURN_LENGTH {
         body.phase = Phase::Walking.byte();
         body.anim = 0;

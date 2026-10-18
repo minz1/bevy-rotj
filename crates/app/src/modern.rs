@@ -14,6 +14,7 @@ use bevy::sprite::Anchor;
 use bevy::sprite_render::{TileData, TilemapChunk, TilemapChunkTileData};
 use rotj_core::actor::Game;
 use rotj_core::actor::modern::{View, tile_at, view};
+use rotj_core::actor::oam::attr;
 use rotj_core::palette::Rgb;
 use rotj_core::render::{Line, SCREEN_H, SCREEN_W};
 
@@ -373,9 +374,9 @@ fn spawn_sprites(
                     index: usize::from(tile >> 1),
                 },
             );
-            sprite.flip_x = attr & 0x40 != 0;
-            sprite.flip_y = attr & 0x80 != 0;
-            let depth = if attr & 0x20 != 0 { 1.5 } else { 3.5 };
+            sprite.flip_x = attr & attr::FLIP_X != 0;
+            sprite.flip_y = attr & attr::FLIP_Y != 0;
+            let depth = if attr & attr::BEHIND != 0 { 1.5 } else { 3.5 };
             let mut spawned = commands.spawn((
                 ModernSprite,
                 sprite,

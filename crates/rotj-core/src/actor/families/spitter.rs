@@ -8,6 +8,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
+use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
@@ -23,7 +24,6 @@ const SPIT_FRAME: u8 = 1;
 const END_FRAME: u8 = 0x10;
 const REST_AFTER_SPIT: u8 = 0x30;
 const REST_AFTER_SPIT_WITH_BEHAVIOUR: u8 = 0x18;
-const FACING_LEFT: u8 = 0x40;
 /// The phase (`$7DD0`) in which it idles until the player comes near.
 const WAITING: u8 = 0;
 /// The phase (`$7DD0`) in which it spits a child.
@@ -66,7 +66,7 @@ impl State {
             return;
         }
         work.pointer = engine::rom_word(cx.prg, 0, METASPRITES + u16::from(body.sprite));
-        work.attr |= 0x20;
+        work.attr |= attr::BEHIND;
         engine::tile_bits(work, cx.prg);
         engine::draw(work, SPRITE_BANK, cx);
         if work.anchor & 0x40 == 0 {
@@ -114,7 +114,7 @@ fn spit(body: &mut Body, cx: &mut Cx<'_>) {
 /// of the parent's facing.
 fn spawn_child(body: &mut Body, slot: usize, cx: &mut Cx<'_>) {
     let [x_hi, x_lo] = body.x.to_be_bytes();
-    let x_hi = if body.flags & FACING_LEFT == 0 {
+    let x_hi = if body.flags & attr::FLIP_X == 0 {
         x_hi.wrapping_add(1)
     } else {
         x_hi.wrapping_sub(1)

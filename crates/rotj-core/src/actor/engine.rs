@@ -1,6 +1,6 @@
 //! The bank-13 routines handlers share, each called where the 6502 calls it.
 
-use super::oam::{DrawCall, Metasprite};
+use super::oam::{DrawCall, Metasprite, attr};
 use super::slots::{Body, Field, hit};
 use super::world::{
     Cx, Effects, Level, Motion, Player, Schedule, Weapon, World, attack, busy, hurt, orientation,
@@ -267,7 +267,7 @@ pub fn player_dy(work: &Work, player: &Player) -> i16 {
 #[must_use]
 pub fn face(dx: i16) -> u8 {
     let sign = if dx < 0 { 0x80u8 } else { 0 };
-    (sign >> 1) ^ 0x40
+    (sign >> 1) ^ attr::FLIP_X
 }
 
 /// The page column and page index under the working position (`$A0A9`: `$20`, `$21`).
@@ -738,10 +738,10 @@ pub fn boss_flash(body: &mut Body, work: &mut Work, world: &World) -> u8 {
         return if world.frame_odd { 0xC0 } else { 0x80 };
     }
     if body.hit & hit::FLASHING == 0 {
-        work.attr = body.flags & 0xFC;
+        work.attr = body.flags & !attr::PALETTE;
     } else {
         body.hit = (body.hit & 0x7F).wrapping_sub(1);
-        work.attr = body.flags | 0x03;
+        work.attr = body.flags | attr::PALETTE;
     }
     0
 }
@@ -892,11 +892,7 @@ pub fn start_hurt(player: &mut Player) -> i16 {
     if player.motion == Motion::Falling {
         player.motion = Motion::Jumping;
     }
-    if player.facing & 0x40 == 0 {
-        -0x20
-    } else {
-        0x20
-    }
+    if player.faces_left() { 0x20 } else { -0x20 }
 }
 
 /// Spawns type `$08`'s four parts around the working position (`$AC16`); the slot used.
@@ -938,7 +934,7 @@ pub fn spawn_parts(variant: u8, work: &Work, cx: &mut Cx<'_>) -> Option<usize> {
 pub fn level_end(effects: &mut Effects) {
     let player = &mut effects.player;
     player.motion = Motion::Dying;
-    player.facing |= 3;
+    player.facing |= attr::PALETTE;
     player.hurt = hurt::STUNNED | hurt::INVULNERABLE;
     player.stage_script = stage_script::FROZEN;
     player.death_timer = 0;
@@ -1022,10 +1018,10 @@ pub fn dying(
 ) -> bool {
     if body.hit & hit::DYING == 0 {
         if body.hit & hit::FLASHING == 0 {
-            work.attr = body.flags & 0xFC;
+            work.attr = body.flags & !attr::PALETTE;
         } else {
             body.hit = (body.hit & 0x7F).wrapping_sub(1);
-            work.attr = body.flags | 0x03;
+            work.attr = body.flags | attr::PALETTE;
         }
         return false;
     }
@@ -1140,8 +1136,8 @@ pub fn end_frame(body: &mut Body, work: &mut Work) {
 pub fn store(body: &mut Body, work: &mut Work) {
     body.x = work.x;
     body.y = work.y;
-    work.attr &= 0xE0;
-    body.flags = (body.flags & 0x03) | work.attr;
+    work.attr &= attr::FLIP_Y | attr::FLIP_X | attr::BEHIND;
+    body.flags = (body.flags & attr::PALETTE) | work.attr;
     body.age = work.age;
 }
 

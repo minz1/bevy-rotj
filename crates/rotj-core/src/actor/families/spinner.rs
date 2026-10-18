@@ -11,6 +11,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
+use crate::actor::oam::attr;
 use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 use crate::actors::STATE_UNTARGETED;
@@ -78,7 +79,7 @@ impl State {
     /// One frame of the handler (`$9032`; the phase table is at `$9243`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
-        work.attr = (body.flags & 0x03) | 0x01;
+        work.attr = (body.flags & attr::PALETTE) | 0x01;
         engine::integrate(body, work);
         match Phase::from_byte(body.phase) {
             Some(Phase::Idling) => idling(body, cx),
@@ -183,7 +184,7 @@ fn falling(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 /// `$918E`: flash (`$40` in the attr) while `$7E90` counts to 8, then hold.
 fn flashing(body: &mut Body, work: &mut Work) {
     if body.behaviour & 0x01 == 0 {
-        work.attr |= 0x40;
+        work.attr |= attr::FLIP_X;
     }
     body.anim = body.anim.wrapping_add(1);
     if body.anim >= 0x08 {
@@ -196,7 +197,7 @@ fn flashing(body: &mut Body, work: &mut Work) {
 /// `$91B9`: flash while descending to the head row, else ramp the vy.
 fn descending(body: &mut Body, work: &mut Work) {
     if body.behaviour & 0x01 == 0 {
-        work.attr |= 0x40;
+        work.attr |= attr::FLIP_X;
     }
     if work.y.to_be_bytes()[0] >= 0x0D {
         body.phase = Phase::Spawning.byte();

@@ -11,8 +11,8 @@ license.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-rotj-oracle = { path = "../../tools/rotj-oracle", version = "1.1.17" }
-rotj-rom = { path = "../rotj-rom", version = "1.1.17" }
+rotj-oracle = { path = "../../tools/rotj-oracle", version = "1.1.18" }
+rotj-rom = { path = "../rotj-rom", version = "1.1.18" }
 
 [lints]
 workspace = true

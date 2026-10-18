@@ -11,6 +11,7 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::families::Brain;
+use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
@@ -40,8 +41,6 @@ const SPAWN_SPACING: u8 = 4;
 /// The child sits `$80` to the side and `$80` below (`$99F2`, `$9A02`): `+$80`
 /// when facing left, `-$80` otherwise (`$9A4B` = `$FF/$00`).
 const SPAWN_OFFSET: u16 = 0x80;
-/// `$99` bit 6: facing left.
-const FACING_LEFT: u8 = 0x40;
 /// The `$7DB0` flip thresholds (`$9924`..`$9948`): the y low byte's bit 7 and
 /// the y high byte against `4`/`5`.
 const LOWER_LIMIT: u8 = 4;
@@ -94,7 +93,7 @@ impl State {
 }
 
 fn facing_left(work: &Work) -> bool {
-    work.attr & FACING_LEFT != 0
+    work.attr & attr::FLIP_X != 0
 }
 
 /// Drifts along the current half of the path and swaps halves at the y limits;

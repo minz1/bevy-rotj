@@ -46,6 +46,7 @@
 
 use thiserror::Error;
 
+use crate::actor::oam::attr;
 use crate::ines::FME7_PRG_BANK_SIZE;
 
 /// FME-7 PRG bank holding the actor spawn tables.
@@ -295,7 +296,7 @@ impl From<[u8; SPAWN_RECORD_BYTES]> for SpawnRecord {
         SpawnRecord {
             x: u16::from_be_bytes([bytes[0], bytes[1]]),
             y: u16::from_be_bytes([bytes[2], bytes[3]]),
-            flags: bytes[4] & 0xE3,
+            flags: bytes[4] & (attr::FLIP_Y | attr::FLIP_X | attr::BEHIND | attr::PALETTE),
             chr_slot: (bytes[4] >> 2) & 7,
             second_class: bytes[5] & 0x80 != 0,
             kind: (bytes[5] & 0x7F) << 1,

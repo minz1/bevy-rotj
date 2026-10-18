@@ -3,7 +3,7 @@
 
 use super::Game;
 use super::engine::{draw, rom_word};
-use super::oam::Mark;
+use super::oam::{Mark, attr};
 use crate::actor::world::Motion;
 use crate::prg::Prg;
 
@@ -44,14 +44,14 @@ pub fn draw_hud(game: &mut Game, prg: &Prg) {
         work.pointer = gauge(energy);
         draw(work, 14, &mut cx);
     }
-    work.attr = 0x83;
+    work.attr = attr::FLIP_Y | attr::PALETTE;
     work.screen_y = 0x30;
     let meter = cx.effects.meter;
     if meter & 0x80 != 0 {
         return;
     }
     if meter == 0x0E && cx.world.frame & 4 == 0 {
-        work.attr = 0x80;
+        work.attr = attr::FLIP_Y;
     }
     work.pointer = gauge(meter);
     draw(work, 14, &mut cx);

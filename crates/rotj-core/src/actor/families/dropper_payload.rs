@@ -6,6 +6,7 @@
 //! itself, clearing its parent's phase.
 
 use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::oam::attr;
 use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
@@ -45,7 +46,7 @@ impl State {
         let landing_y = u16::from_be_bytes([body.counter, body.timer]);
         if work.y.to_be_bytes()[0] & 0x80 == 0 && work.y >= landing_y && body.anim & LANDING == 0 {
             cx.effects.sound[0] = SOUND;
-            body.flags &= 0x03;
+            body.flags &= attr::PALETTE;
             work.attr = body.flags;
             body.vx = 0;
             body.anim = LANDING;

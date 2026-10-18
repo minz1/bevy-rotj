@@ -9,6 +9,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
+use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
@@ -142,8 +143,8 @@ fn spawn_projectile(body: &Body, work: &Work, cx: &mut Cx<'_>) {
     let Some(slot) = engine::free_child_slot(cx.slots) else {
         return;
     };
-    let facing = work.attr & 0xC0;
-    let facing_left = facing & 0x40 != 0;
+    let facing = work.attr & (attr::FLIP_X | attr::FLIP_Y);
+    let facing_left = facing & attr::FLIP_X != 0;
     let child = &mut cx.slots.main[slot];
     child.kind = PROJECTILE;
     child.body.flags = facing;

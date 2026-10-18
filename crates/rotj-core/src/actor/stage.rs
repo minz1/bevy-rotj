@@ -37,7 +37,7 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
     let mut pads = None;
     match end.phase {
         0 => {
-            if x >= 0x2000 || (x >= 0x1F60 && game.effects.player.facing & 0x40 == 0) {
+            if x >= 0x2000 || (x >= 0x1F60 && !game.effects.player.faces_left()) {
                 game.effects.music = 0xFC;
                 end.phase = 1;
                 for projectile in &mut game.effects.projectiles {

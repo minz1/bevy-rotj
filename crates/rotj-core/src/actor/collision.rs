@@ -1,6 +1,7 @@
 //! Level collision (bank 14 `$C93B`, `$C99D`, `$CAFE`, `$CD5F` and their bank-13 wrappers).
 
 use super::engine::{Work, rom_byte, rom_word};
+use super::oam::attr;
 use super::world::{Cx, orientation, power_up};
 use crate::collision::Surface;
 
@@ -91,7 +92,7 @@ pub fn wall(work: &mut Work, probe: &mut Probe, flags: u8, cx: &mut Cx<'_>) -> u
         | Surface::SolidToBodies => push(work, *probe),
         Surface::HazardBehind => {
             damage(work, 2, cx);
-            work.attr |= 0x20;
+            work.attr |= attr::BEHIND;
             0x80
         }
         Surface::SolidHazard => {
@@ -99,7 +100,7 @@ pub fn wall(work: &mut Work, probe: &mut Probe, flags: u8, cx: &mut Cx<'_>) -> u
             push(work, *probe)
         }
         Surface::Behind | Surface::OneWayBehind => {
-            work.attr |= 0x20;
+            work.attr |= attr::BEHIND;
             0x80
         }
         Surface::Open | Surface::Crumbling | Surface::OneWay => 0x80,
@@ -177,7 +178,7 @@ pub fn floor(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
         Surface::BeltLeft => land(work, probe, [0xF0, 0xFF]),
         Surface::HazardBehind => {
             damage(work, 2, cx);
-            work.attr |= 0x20;
+            work.attr |= attr::BEHIND;
             0x80
         }
         Surface::SolidHazard => {
@@ -193,7 +194,7 @@ pub fn floor(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> u8 {
             settle(work, probe, [0x00, 0x00])
         }
         Surface::Behind => {
-            work.attr |= 0x20;
+            work.attr |= attr::BEHIND;
             0x80
         }
         Surface::Open => 0x80,

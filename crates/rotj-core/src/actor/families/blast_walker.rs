@@ -7,6 +7,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
+use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
@@ -88,7 +89,7 @@ fn waiting(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) -> bool {
     body.sprite = 0;
     body.state = 0;
     if dx >= 0 {
-        work.attr |= 0x40;
+        work.attr |= attr::FLIP_X;
     }
     false
 }
@@ -115,7 +116,11 @@ fn dwelling(body: &mut Body, work: &Work) {
 /// Blasting (`$8E91`): drift aside, then spawn the `$24` blast.
 fn blasting(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     body.anim = 4;
-    let drift = if work.attr & 0x40 != 0 { 0x10 } else { -0x10 };
+    let drift = if work.attr & attr::FLIP_X != 0 {
+        0x10
+    } else {
+        -0x10
+    };
     body.vx_drift = body.vx_drift.wrapping_add(drift);
     body.sprite = 4;
     body.phase = Phase::Falling.byte();
@@ -160,7 +165,7 @@ fn spawn_blast(body: &Body, cx: &mut Cx<'_>) {
     let Some(index) = engine::free_child_slot(cx.slots) else {
         return;
     };
-    let left = body.flags & 0x40 != 0;
+    let left = body.flags & attr::FLIP_X != 0;
     let child = &mut cx.slots.main[index];
     child.kind = BLAST;
     child.brain = Brain::new(BLAST);
@@ -209,7 +214,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 fn draw_spark(work: &mut Work, cx: &mut Cx<'_>) {
     let saved_x = work.screen_x;
     let saved_y = work.screen_y;
-    let x = if work.attr & 0x40 != 0 {
+    let x = if work.attr & attr::FLIP_X != 0 {
         match work.screen_x.checked_sub(0x18) {
             Some(x) => x,
             None => return,
@@ -230,7 +235,7 @@ fn draw_spark(work: &mut Work, cx: &mut Cx<'_>) {
     work.screen_y = y;
     work.pointer = engine::rom_word(cx.prg, BANK, SPARK);
     let saved_attr = work.attr;
-    work.attr = (work.attr & 0xC0) | 0x03;
+    work.attr = (work.attr & (attr::FLIP_X | attr::FLIP_Y)) | attr::PALETTE;
     engine::draw(work, DRAW_BANK, cx);
     work.screen_x = saved_x;
     work.screen_y = saved_y;

@@ -6,6 +6,18 @@ use crate::actors::{ActorError, bank_slice};
 use crate::ines::FME7_PRG_BANK_SIZE;
 use crate::render::Line;
 
+/// The bits of an OAM attribute byte.
+pub mod attr {
+    /// The sprite is mirrored horizontally.
+    pub const FLIP_X: u8 = 0x40;
+    /// The sprite is mirrored vertically.
+    pub const FLIP_Y: u8 = 0x80;
+    /// The sprite is drawn behind the background's opaque pixels.
+    pub const BEHIND: u8 = 0x20;
+    /// The sprite palette (0-3).
+    pub const PALETTE: u8 = 0x03;
+}
+
 /// One 8x16 sprite of a metasprite, relative to the draw position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Piece {
@@ -185,7 +197,7 @@ pub fn place(call: DrawCall, piece: Piece) -> Option<Placed> {
 
 /// A piece's x offset, mirrored when its attribute flips it.
 fn piece_dx(attr: u8, dx: i8) -> i8 {
-    if attr & 0x40 == 0 {
+    if attr & attr::FLIP_X == 0 {
         dx
     } else {
         (!dx).wrapping_sub(7)
@@ -354,7 +366,7 @@ pub fn undrawable(page: &[u8; 256], marks: &[Mark; 64], lines: &[Line]) -> Optio
             return None;
         }
         let rows = &lines[top..(top + 16).min(lines.len())];
-        let why = if attr & 0x20 != 0 {
+        let why = if attr & attr::BEHIND != 0 {
             "behind the background"
         } else if first.ctrl & 0x20 == 0 {
             "in 8x8 mode"
@@ -683,7 +695,7 @@ mod tests {
         let flipped = Piece {
             tile: 2,
             dx: 4,
-            attr: 0x40,
+            attr: attr::FLIP_X,
             dy: -16,
         };
         let record = DrawRecord {

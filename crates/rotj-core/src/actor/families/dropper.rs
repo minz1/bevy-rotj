@@ -8,6 +8,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::{Brain, dropper_payload};
+use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
@@ -94,7 +95,7 @@ fn waiting(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         return;
     }
     let dx = engine::player_dx(work, &cx.effects.player);
-    work.attr = (work.attr & 0x03) | engine::face(dx);
+    work.attr = (work.attr & attr::PALETTE) | engine::face(dx);
     if spawn_child(body, work, cx) {
         body.phase = Phase::Lowering.byte();
         body.timer = 0;
@@ -120,7 +121,7 @@ fn spawn_child(body: &mut Body, work: &Work, cx: &mut Cx<'_>) -> bool {
     child.vy = 0x40;
     child.contact = 0x40;
     child.state = STATE_UNTARGETED;
-    child.flags = (work.attr & 0x40) | 0x02;
+    child.flags = (work.attr & attr::FLIP_X) | 0x02;
     child.phase = 0;
     true
 }

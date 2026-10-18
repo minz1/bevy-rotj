@@ -3,6 +3,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
+use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
@@ -98,7 +99,7 @@ fn idling(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
     }
     let dx = engine::player_dx(work, &cx.effects.player);
     let dx_hi = dx.unsigned_abs().to_be_bytes()[0];
-    work.attr = (work.attr & 0x03) | engine::face(dx);
+    work.attr = (work.attr & attr::PALETTE) | engine::face(dx);
     if dx_hi >= 5 {
         body.phase = Phase::Firing.byte();
         body.timer = 0;
@@ -106,9 +107,9 @@ fn idling(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
         anim(body);
     } else {
         let turn = if dx_hi >= 3 {
-            u8::from(work.attr & 0x40 != 0)
+            u8::from(work.attr & attr::FLIP_X != 0)
         } else {
-            u8::from(work.attr & 0x40 == 0)
+            u8::from(work.attr & attr::FLIP_X == 0)
         };
         body.vx = cx.prg.families.crate_soldier.turn_speeds[usize::from(turn)];
         work.vy = -0x60;
@@ -203,7 +204,8 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, probe: &mut Probe, cx: 
         if let Some(y) = work.screen_y.checked_sub(0x18) {
             work.screen_y = y;
             work.pointer = engine::rom_word(cx.prg, 8, SHOT);
-            work.attr = (work.attr & 0xC0) | if cx.world.frame_odd { 0x03 } else { 0 };
+            work.attr = (work.attr & (attr::FLIP_X | attr::FLIP_Y))
+                | if cx.world.frame_odd { attr::PALETTE } else { 0 };
             engine::draw(work, 1, cx);
         }
     }
@@ -232,7 +234,7 @@ fn anim(body: &mut Body) {
 
 /// The muzzle-flash screen x at `$9747`; `None` skips the second draw as on a borrow.
 fn shot_x(work: &Work) -> Option<u8> {
-    if work.attr & 0x40 == 0 {
+    if work.attr & attr::FLIP_X == 0 {
         work.screen_x
             .checked_add(0x18)
             .or_else(|| work.screen_x.checked_sub(0x18))
@@ -244,7 +246,7 @@ fn shot_x(work: &Work) -> Option<u8> {
 /// Writes the `$24` child into main slot `slot` (16-23) as `$97B1` does.
 fn spawn_child(parent: &Body, slot: usize, cx: &mut Cx<'_>) {
     let child = &mut cx.slots.main[slot];
-    let facing_left = parent.flags & 0x40 != 0;
+    let facing_left = parent.flags & attr::FLIP_X != 0;
     child.kind = CHILD;
     child.body.flags = parent.flags;
     child.body.x = if facing_left {

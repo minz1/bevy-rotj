@@ -7,6 +7,7 @@
 
 use super::collision::{self, Probe};
 use super::engine::{self, Work, adc_overflows, rom_word, sub_overflows16};
+use super::oam::attr;
 use super::world::{
     Cx, Motion, Player, Projectile, Weapon, attack, busy, hurt, orientation, pose, power_up,
     set_first_colours, sliding, stage_script,
@@ -454,7 +455,7 @@ fn landing_response(pad: Buttons, player: &mut Player) {
         player.pose_step = player.pose;
         player.anim = 0x04;
     } else if pad.intersects(Buttons::SIDEWAYS) {
-        // Turn when the pressed direction is not the facing one.
+        // Classic's rule: `$8427` leaves `$40` or 0, so only `facing`'s bit 7 decides, never the pad.
         let mut toward = (pad & Buttons::SIDEWAYS).bits();
         toward = (toward >> 1) | ((toward & 1) << 7);
         toward >>= 1;
@@ -659,7 +660,7 @@ impl Port<'_, '_> {
 
     /// Bit 7 of the `asl` that tests the pad's direction against `$046F`.
     fn faces_press(&self) -> bool {
-        self.pad.contains(Buttons::RIGHT) != ((self.player.facing & 0x40) != 0)
+        self.pad.contains(Buttons::RIGHT) != self.player.faces_left()
     }
 
     fn run(&mut self) {
@@ -870,11 +871,7 @@ impl Port<'_, '_> {
         }
         self.work.attr = 0;
         if self.player.motion == Motion::AimingUp {
-            let add = if self.player.facing & 0x40 != 0 {
-                0xFE
-            } else {
-                0x02
-            };
+            let add = if self.player.faces_left() { 0xFE } else { 0x02 };
             self.work.screen_x = self.work.screen_x.wrapping_add(add);
             let (y, carry) = self.work.screen_y.overflowing_add(0xBF);
             self.overflow = adc_overflows(0xBF, self.work.screen_y, false);
@@ -885,7 +882,7 @@ impl Port<'_, '_> {
         } else {
             let motion = usize::from(self.player.motion.byte());
             let player = &self.cx.prg.player;
-            let add = if self.player.facing & 0x40 != 0 {
+            let add = if self.player.faces_left() {
                 player.muzzle_x_left[motion]
             } else {
                 player.muzzle_x_right[motion]
@@ -893,7 +890,7 @@ impl Port<'_, '_> {
             let (x, carry) = self.work.screen_x.overflowing_add(add);
             self.overflow = adc_overflows(add, self.work.screen_x, false);
             self.work.screen_x = x;
-            if carry != (self.player.facing & 0x40 != 0) {
+            if carry != self.player.faces_left() {
                 return;
             }
             let add = player.muzzle_y[motion];
@@ -925,7 +922,7 @@ impl Port<'_, '_> {
             self.player.pose = 0;
             self.player.hurt = hurt::INVULNERABLE;
             self.player.hurt_timer = 0x40;
-            self.player.facing &= 0x40;
+            self.player.facing &= attr::FLIP_X;
             self.player.pose = pose::LANDING;
             self.player.anim = 0x09;
             return;
@@ -937,9 +934,9 @@ impl Port<'_, '_> {
 
     /// `$9274`: the knocked-back facing, which alternates every fourth frame.
     fn hurt_facing(&mut self) {
-        let mut x = self.player.facing & 0x40;
+        let mut x = self.player.facing & attr::FLIP_X;
         if self.cx.world.frame & 0x04 == 0 {
-            x |= 0x03;
+            x |= attr::PALETTE;
         }
         self.player.facing = x;
     }
@@ -958,7 +955,7 @@ impl Port<'_, '_> {
             }
             self.player.hurt = hurt::INVULNERABLE;
             self.player.hurt_timer = 0x40;
-            self.player.facing &= 0x40;
+            self.player.facing &= attr::FLIP_X;
             return;
         }
         self.cx.effects.attack &= attack::CHARGEABLE;
@@ -968,9 +965,9 @@ impl Port<'_, '_> {
         self.pressed &= Buttons::START;
         self.pad &= Buttons::START;
         self.player.facing = if self.cx.world.frame & 0x04 != 0 {
-            self.player.facing & 0x40
+            self.player.facing & attr::FLIP_X
         } else {
-            (self.player.facing & 0x40) | 0x03
+            (self.player.facing & attr::FLIP_X) | attr::PALETTE
         };
     }
 
@@ -978,7 +975,7 @@ impl Port<'_, '_> {
     fn start_crouch(&mut self) {
         self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::TURNING != 0 {
-            self.player.facing ^= 0x40;
+            self.player.facing ^= attr::FLIP_X;
         }
         self.player.anim = 0x01;
         self.player.pose =
@@ -1027,7 +1024,7 @@ impl Port<'_, '_> {
         };
         let motion = usize::from(self.player.motion.byte());
         let aim_up = self.player.motion == Motion::AimingUp;
-        let face_left = self.player.facing & 0x40 != 0;
+        let face_left = self.player.faces_left();
         let add = |a_hi: u8, a_lo: u8, b_hi: u8, b_lo: u8| {
             let (lo, carry) = a_lo.overflowing_add(b_lo);
             let hi = a_hi.wrapping_add(b_hi).wrapping_add(u8::from(carry));
@@ -1482,7 +1479,7 @@ impl Port<'_, '_> {
     fn standing_jump(&mut self) {
         self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::TURNING != 0 {
-            self.player.facing ^= 0x40;
+            self.player.facing ^= attr::FLIP_X;
         }
         self.player.anim = if self.player.pose & pose::SHOT != 0 {
             0x27
@@ -1496,7 +1493,7 @@ impl Port<'_, '_> {
     fn standing_shot(&mut self) {
         if self.player.pose & pose::TURNING != 0 {
             self.player.pose &= !pose::TURNING;
-            self.player.facing ^= 0x40;
+            self.player.facing ^= attr::FLIP_X;
         }
         self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::SHOT != 0 {
@@ -1546,7 +1543,7 @@ impl Port<'_, '_> {
         };
         self.player.pose_timer = 2;
         self.player.anim = 0x07;
-        self.player.facing ^= 0x40;
+        self.player.facing ^= attr::FLIP_X;
     }
 
     /// `$85C9`: standing idle, cycling the stand animation.
@@ -1691,7 +1688,7 @@ impl Port<'_, '_> {
             }
             self.player.pose &= pose::SHOT;
             self.player.pose_timer = 0;
-            self.player.facing ^= 0x40;
+            self.player.facing ^= attr::FLIP_X;
         }
         if self.pad.intersects(Buttons::SIDEWAYS) {
             self.crouching_turn();
@@ -1748,7 +1745,7 @@ impl Port<'_, '_> {
         }
         self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::TURNING != 0 {
-            self.player.facing ^= 0x40;
+            self.player.facing ^= attr::FLIP_X;
         }
         self.player.pose = if self.player.pose & pose::SHOT != 0 {
             0x40
@@ -1764,7 +1761,7 @@ impl Port<'_, '_> {
     fn crouching_shot(&mut self) {
         self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::TURNING != 0 {
-            self.player.facing ^= 0x40;
+            self.player.facing ^= attr::FLIP_X;
         }
         self.reset_and_shoot();
         self.player.attack_timer = 0;
@@ -1776,7 +1773,7 @@ impl Port<'_, '_> {
     fn crouching_slide(&mut self) {
         self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::TURNING != 0 {
-            self.player.facing ^= 0x40;
+            self.player.facing ^= attr::FLIP_X;
         }
         self.player.anim = 0x38;
         self.player.motion = Motion::Sliding;
@@ -1833,7 +1830,7 @@ impl Port<'_, '_> {
     fn walking_stop(&mut self) {
         self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::TURNING != 0 {
-            self.player.facing ^= 0x40;
+            self.player.facing ^= attr::FLIP_X;
         }
         self.player.pose_timer = 0;
         self.player.pose_step = 0;
@@ -1856,7 +1853,7 @@ impl Port<'_, '_> {
         self.cx.effects.sound[0] = 0x24;
         if self.player.pose & pose::TURNING != 0 {
             self.player.pose &= !pose::TURNING;
-            self.player.facing ^= 0x40;
+            self.player.facing ^= attr::FLIP_X;
         }
         if self.jump_blocked() {
             // `$8A07`: `JMP $895F`, walking's direction dispatch.
@@ -1880,7 +1877,7 @@ impl Port<'_, '_> {
     fn walking_shot(&mut self) {
         if self.player.pose & pose::TURNING != 0 {
             self.player.pose &= !pose::TURNING;
-            self.player.facing ^= 0x40;
+            self.player.facing ^= attr::FLIP_X;
         }
         self.reset_and_shoot();
         self.set_overflow_from(self.player.pose);
@@ -1929,7 +1926,7 @@ impl Port<'_, '_> {
             self.player.anim = self.cx.prg.player.animations.walking_turn[usize::from(x)];
             return;
         }
-        self.player.facing ^= 0x40;
+        self.player.facing ^= attr::FLIP_X;
         self.player.pose_step = 0;
         self.player.pose_timer = 0;
         self.player.pose &= pose::SHOT;
@@ -2019,7 +2016,7 @@ impl Port<'_, '_> {
             let mut step = self.player.pose_timer;
             if self.player.pose_timer == 0x04 {
                 self.player.pose &= !pose::TURNING;
-                self.player.facing ^= 0x40;
+                self.player.facing ^= attr::FLIP_X;
                 step = 0x04;
             }
             let x = u16::from(step >> 1);
@@ -2061,7 +2058,7 @@ impl Port<'_, '_> {
     fn jumping_shot(&mut self) {
         if self.player.pose & pose::TURNING != 0 {
             self.player.pose &= !pose::TURNING;
-            self.player.facing ^= 0x40;
+            self.player.facing ^= attr::FLIP_X;
         }
         self.reset_and_shoot();
         self.player.attack_timer = 0;
@@ -2143,19 +2140,19 @@ impl Port<'_, '_> {
         self.player.sliding = sliding::ON;
         let [hi, lo] = self.player.x.to_be_bytes();
         let x = self.player.x.cast_signed();
-        self.overflow = if self.player.facing & 0x40 == 0 {
-            x.overflowing_add(0x80).1
-        } else {
+        self.overflow = if self.player.faces_left() {
             x.overflowing_sub(0x80).1
-        };
-        if self.player.facing & 0x40 == 0 {
-            let (lo, carry) = lo.overflowing_add(0x80);
-            self.player.x = u16::from_be_bytes([hi.wrapping_add(u8::from(carry)), lo]);
-            self.player.vx = i16::from_be_bytes([0x00, 0x90]);
         } else {
+            x.overflowing_add(0x80).1
+        };
+        if self.player.faces_left() {
             let (lo, borrow) = lo.overflowing_sub(0x80);
             self.player.x = u16::from_be_bytes([hi.wrapping_sub(u8::from(borrow)), lo]);
             self.player.vx = i16::from_be_bytes([0xFF, 0x70]);
+        } else {
+            let (lo, carry) = lo.overflowing_add(0x80);
+            self.player.x = u16::from_be_bytes([hi.wrapping_add(u8::from(carry)), lo]);
+            self.player.vx = i16::from_be_bytes([0x00, 0x90]);
         }
         self.player.anim = 0x3A;
         self.player.pose_timer = 0x80;
@@ -2189,10 +2186,10 @@ impl Port<'_, '_> {
         let py = yhi.wrapping_sub(u8::from(ylo < 0x80));
         let dx = self.screen_x(self.player.x);
         self.overflow = sub_overflows16(self.player.x, self.cx.world.camera_x);
-        let solid = if self.player.facing & 0x40 == 0 {
-            dx >= 0xD0 || self.solid_x(self.player.x.wrapping_add(0x180), py)
-        } else {
+        let solid = if self.player.faces_left() {
             dx < 0x1A || self.solid_x(self.player.x.wrapping_sub(0x180), py)
+        } else {
+            dx >= 0xD0 || self.solid_x(self.player.x.wrapping_add(0x180), py)
         };
         if solid {
             self.player.anim = 0x04;
@@ -2321,7 +2318,7 @@ impl Port<'_, '_> {
     /// `$8FE6`: motion 6 aiming up while turning.
     fn aiming_up_turn(&mut self) {
         if !self.faces_press() {
-            self.player.facing ^= 0x40;
+            self.player.facing ^= attr::FLIP_X;
         }
         self.aiming_up_attack();
     }
@@ -2392,7 +2389,7 @@ impl Port<'_, '_> {
             self.set_overflow_from(self.player.death_flags);
             if self.player.death_flags & 0x80 == 0 {
                 self.work.pointer = self.rw(0x9A40 + u16::from(timer & 0x06));
-                self.work.attr = self.player.facing & 0x03;
+                self.work.attr = self.player.facing & attr::PALETTE;
                 self.overlay(4);
             }
             self.player.death_timer = timer.wrapping_add(1);
@@ -2406,7 +2403,7 @@ impl Port<'_, '_> {
                 beat = 0x80;
             }
             if beat.is_multiple_of(8) {
-                self.player.facing ^= 0x03;
+                self.player.facing ^= attr::PALETTE;
             }
         }
         if self.player.death_timer < 0xC0 {
@@ -2545,7 +2542,7 @@ impl Port<'_, '_> {
     /// `$D1B0`: the line above him, frame `line` (`$D1D8`), at (`$3E`, `$78`).
     fn entry_line(&mut self, line: u8) {
         self.work.pointer = rom_word(self.cx.prg, 14, 0xD1D8 + 2 * u16::from(line));
-        self.work.attr |= 0x03;
+        self.work.attr |= attr::PALETTE;
         self.work.chr_slot = 4;
         self.work.screen_x = 0x3E;
         self.work.screen_y = 0x78;
@@ -2589,8 +2586,8 @@ impl Port<'_, '_> {
         } else {
             self.player.stage_script = stage_script::FROZEN;
             let x = u16::from((self.cx.world.frame >> 1) & 0x01);
-            self.player.facing =
-                (self.player.facing & 0xFC) | self.cx.prg.player.power_up_facings[usize::from(x)];
+            self.player.facing = (self.player.facing & !attr::PALETTE)
+                | self.cx.prg.player.power_up_facings[usize::from(x)];
         }
     }
 

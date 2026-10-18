@@ -3,6 +3,7 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
@@ -32,7 +33,7 @@ impl State {
             work.pointer = FLASH;
         } else {
             work.attr = body.flags;
-            work.x = if body.flags & 0x40 == 0 {
+            work.x = if body.flags & attr::FLIP_X == 0 {
                 work.x.wrapping_add(STEP)
             } else {
                 work.x.wrapping_sub(STEP)

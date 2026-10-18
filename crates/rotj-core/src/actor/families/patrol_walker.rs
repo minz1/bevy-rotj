@@ -3,6 +3,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
+use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
@@ -95,12 +96,12 @@ fn drift(probe: Probe) -> i16 {
 
 /// The `$9C2D` walk velocity for the facing bit of `$99`.
 fn walk(attr: u8, tables: &Tables) -> i16 {
-    tables.walk_speeds[usize::from(attr & 0x40 != 0)]
+    tables.walk_speeds[usize::from(attr & attr::FLIP_X != 0)]
 }
 
 /// Sets the facing bit of `$99` from the actor-minus-player x difference (`$9972`).
 fn face(work: &mut Work, dx: i16) {
-    work.attr = (work.attr & 0x23) | engine::face(dx);
+    work.attr = (work.attr & (attr::BEHIND | attr::PALETTE)) | engine::face(dx);
 }
 
 /// Walking (`$994E`): idle, walk, or hop a gap; charge when the player is within 6 px.
@@ -234,7 +235,7 @@ fn flash(work: &mut Work, cx: &mut Cx<'_>) {
         return;
     };
     work.screen_y = up;
-    let side = if work.attr & 0x40 == 0 {
+    let side = if work.attr & attr::FLIP_X == 0 {
         x.checked_add(0x1C)
     } else {
         x.checked_sub(0x1C)
@@ -242,7 +243,7 @@ fn flash(work: &mut Work, cx: &mut Cx<'_>) {
     if let Some(side) = side {
         work.screen_x = side;
         work.pointer = engine::rom_word(cx.prg, 8, FLASH);
-        work.attr |= 0x03;
+        work.attr |= attr::PALETTE;
         engine::draw(work, 1, cx);
     }
     work.screen_y = y;
@@ -254,7 +255,7 @@ fn spawn_child(parent: &Body, cx: &mut Cx<'_>) {
     let Some(slot) = (16..24).rev().find(|&slot| cx.slots.main[slot].kind == 0) else {
         return;
     };
-    let left = parent.flags & 0x40 != 0;
+    let left = parent.flags & attr::FLIP_X != 0;
     let child = &mut cx.slots.main[slot];
     child.kind = CHILD;
     child.body.flags = parent.flags;

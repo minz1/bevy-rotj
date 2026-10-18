@@ -8,7 +8,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use rotj_core::actor::oam::Mark;
+use rotj_core::actor::oam::{Mark, attr};
 use rotj_core::palette::Rgb;
 use rotj_core::render::Line;
 
@@ -94,7 +94,7 @@ pub fn sprite_key(entry: [u8; 4], lines: &[Line], palette: &[u8; 32], rgb: &Rgb)
         .expect("4 banks");
     let grey = if line.mask & 1 != 0 { 0x30 } else { 0x3F };
     let colours = std::array::from_fn(|v| {
-        let entry = palette[0x10 + 4 * usize::from(attr & 3) + v] & grey;
+        let entry = palette[0x10 + 4 * usize::from(attr & attr::PALETTE) + v] & grey;
         if v == 0 {
             [0; 3]
         } else {
@@ -242,8 +242,8 @@ fn show(
                     index: usize::from(piece.tile >> 1),
                 },
             );
-            image.flip_x = piece.attr & 0x40 != 0;
-            image.flip_y = piece.attr & 0x80 != 0;
+            image.flip_x = piece.attr & attr::FLIP_X != 0;
+            image.flip_y = piece.attr & attr::FLIP_Y != 0;
             (
                 Node {
                     position_type: PositionType::Absolute,

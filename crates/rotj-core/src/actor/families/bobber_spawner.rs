@@ -10,6 +10,7 @@
 //! directly. Its `$7DD0` byte counts the children it has dropped (0-5).
 
 use crate::actor::engine::Work;
+use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
 
@@ -20,7 +21,7 @@ const SLOTS: usize = 16;
 /// Child x high = camera x high + `$10`, i.e. 256 px right of the camera.
 const CHILD_DX: u8 = 0x10;
 /// Child `$7C00`.
-const CHILD_FLAGS: u8 = 0x41;
+const CHILD_FLAGS: u8 = attr::FLIP_X | 0x01;
 /// Child velocity drift `$7E50:$7E60` = `$FFF0`.
 const CHILD_DRIFT: [u8; 2] = [0xFF, 0xF0];
 /// `$8771`: once the parent has dropped this many children it frees its slot.
