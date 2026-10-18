@@ -3,7 +3,9 @@
 Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: the types live in
 `levelmap.rs` with its constants; the rows stored as `[[u8; 256]; 16]`; no `clear_columns`; the
 carry past column `$FF` kept and tested; the `$6000` rule narrowed to map sites; the missed sites
-added; `crumbling_block`'s `+` noted; edge-case tests; what C3 adds). Item 3 of HANDOFF's order
+added; `crumbling_block`'s `+` noted; edge-case tests; what C3 adds). Implemented in 1.1.13;
+the reviewer's change: `Cell::in_page` adds the page column with the flat buffer's carry, as the
+code did, rather than ORing it. Item 3 of HANDOFF's order
 (Phase C, before C3): the owner's answer to `docs/specs/2026-10-18-phase-c-mirror-design.md` makes
 C3's background a tilemap over the level's live map, so the map is typed first. No behaviour
 change: the lockstep proves it, tapes unchanged.
