@@ -300,7 +300,7 @@ of its own, proven by the lockstep, ranked by payoff over risk:
 8. **Byte-wise 16-bit arithmetic** (done in 1.1.29 for the four files; about 45 `overflowing_*` lines in 29 others remain) in `player.rs` (37 carry pairs), `weapons.rs` (25),
    `engine.rs` (16), `collision.rs` (12) -> `u16` maths with an equivalence test per site, as
    1.1.6 did for the families; one `hi`/`lo`/`word` helper instead of four.
-9. **The remaining flag bytes named**: `Body.contact`, `probe_flags`, `work.anchor`, `pose_step`,
+9. **The remaining flag bytes named** (done in 1.1.30): `Body.contact`, `probe_flags`, `work.anchor`, `pose_step`,
    `death_flags`, the `energy & 0x80` sign tests, `scroll.mode`.
 - **Resolved (2026-10-18)**: `player.rs:461`'s `(toward ^ facing) & 0x80` is the ROM's own
   test: `$8427` does `LSR`, `ROR`, `LSR` on `$F6 & 3`, leaving `$40` or `0`, then

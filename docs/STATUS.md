@@ -1,4 +1,4 @@
-# Status — where 1.1.29 stands
+# Status — where 1.1.30 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -53,6 +53,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.27 | **done, tag `1.1.27`** (2026-10-18): the twenty-seventh modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The sound, music and song ids named (`docs/specs/2026-10-18-sound-ids-design.md`, the survey loop's #7, first half): `world::sound` names every effect the game requests by where it plays, `sound::music` the driver's four commands (stop, fade out, pause, resume) and `sound::song` the songs requested by id, at about 80 sites; 16 per-family `*_SOUND` aliases folded in; `docs/MUSIC.md`'s `$FC` corrected to the fade-out the driver does |
 | 1.1.28 | **done, tag `1.1.28`** (2026-10-18): the twenty-eighth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The spawned kinds named (`docs/specs/2026-10-18-kind-ids-design.md`, the survey loop's #7, second half): the bare child kinds the engine and the families spawn are private consts named by the child's family; a weapon's plain shot kind is `Weapon::shot_kind` (the loop flies a shot by the current weapon, not its kind), and a paired shot's second part `PARTNER` |
 | 1.1.29 | **done, tag `1.1.29`** (2026-10-18): the twenty-ninth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The byte-wise 16-bit arithmetic as word maths (`docs/specs/2026-10-18-word-maths-design.md`, the survey loop's #8) in `collision.rs`, `engine.rs`, `weapons.rs` and `player.rs`: about 40 sites that added a byte at a time are `u16` maths, each form checked exhaustively against the byte-wise code it replaced (four new tests); the sites that aren't plain adds are named for what they do (the push's negate whose carry leaks into the next add, the nametable row wrap, the splitter's negate carry, the launch's signed overflow); one `hi`/`lo` pair replaces three copies |
+| 1.1.30 | **done, tag `1.1.30`** (2026-10-18): the thirtieth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The remaining flag bytes named (`docs/specs/2026-10-18-flag-bytes-design.md`, the survey loop's #9): `slots::contact` (shielded, passive, untargeted, slide-hurts, smite-proof, collects), `engine::probe_flags` (also for the player's spike hit), `engine::anchor`, `world::slide_ledge`, `world::death`, `scroll::mode` and `Player::out_of_energy` replace raw masks in about 40 files; the bits no ROM reader tests stay unnamed, on a scan of every read of those addresses |
 
 ## Verified working
 
@@ -117,7 +118,8 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    (2026-10-18). **1.1.26, the shots' flight written once: tagged `1.1.26`** (2026-10-18).
    **1.1.27, the sound ids named: tagged `1.1.27`** (2026-10-18). **1.1.28, the spawned kinds
    named: tagged `1.1.28`** (2026-10-18). **1.1.29, the word maths: tagged `1.1.29`**
-   (2026-10-18). Next: the survey loop's list (the flag bytes, the music driver).
+   (2026-10-18). **1.1.30, the flag bytes named: tagged `1.1.30`** (2026-10-18). Next: the music
+   driver (the APU registers named, then its commands as enums), then a fresh survey.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and

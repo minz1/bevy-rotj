@@ -5,7 +5,7 @@ Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: contact
 `contact::UNTARGETED` beside `STATE_UNTARGETED`, each linking the other; `probe_flags` bit 6 is
 `BLOCKED_Y`; `Player.hit` included; `pose_step`'s flags are the slide's ledge probe; `death_flags`'
 reads are `BIT`s and bit 0 is written but never read; `out_of_energy`, not `is_dead`; the anchor's
-whole-byte tests kept; the proof's claimed-set step dropped; the family consts kept). The survey
+whole-byte tests kept; the proof's claimed-set step dropped; the family consts kept). Implemented in 1.1.30. The survey
 loop's #9 (MODERNIZE "The survey loop, 2026-10-18"). No behaviour change: constant substitution,
 proven by the lockstep.
 
