@@ -483,7 +483,7 @@ impl Ppu {
 
     fn poke(&mut self, addr: u16, byte: u8, mirroring: u8) {
         let addr = addr & 0x3FFF;
-        if addr >= 0x3F00 {
+        if addr >= PALETTE_ADDRESS {
             let mut at = usize::from(addr & 0x1F);
             if at & 0x13 == 0x10 {
                 at &= 0x0F;
@@ -520,7 +520,15 @@ impl Default for Vram {
     }
 }
 
+/// The PPU address of the palette.
+const PALETTE_ADDRESS: u16 = 0x3F00;
+
 impl Vram {
+    /// Queues `bytes` for the palette (`$3F00`).
+    pub fn push_palette(&mut self, bytes: &[u8]) {
+        self.push(PALETTE_ADDRESS, 0, bytes);
+    }
+
     /// Queues `bytes` for PPU `addr` (`$C0C6`, data from memory).
     pub fn push(&mut self, addr: u16, flags: u8, bytes: &[u8]) {
         let len = u8::try_from(bytes.len()).expect("a queue entry fits a byte count");

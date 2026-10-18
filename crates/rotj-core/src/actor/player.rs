@@ -2496,7 +2496,7 @@ impl Port<'_, '_> {
                 };
                 set_first_colours(&mut self.cx.effects.palette, colour);
                 let effects = &mut *self.cx.effects;
-                effects.vram.push(0x3F00, 0, &effects.palette);
+                effects.vram.push_palette(&effects.palette);
                 // `$C34B` -> `$C0C6`: its `ADC #$00` on the return address's high byte ($C3).
                 self.overflow = false;
             }

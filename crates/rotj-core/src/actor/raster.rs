@@ -14,7 +14,7 @@
 
 use super::Game;
 use super::scroll::Scroll;
-use crate::render::Line;
+use crate::render::{Line, ctrl, mask};
 
 /// A register an IRQ writes, by the write that changes what the PPU draws.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,13 +153,13 @@ fn handler(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32> {
         }
         0x0C => {
             if scroll.split.next_irq == 0 {
-                irq.write(78, Reg::Ctrl(scroll.ppu_ctrl | 1));
+                irq.write(78, Reg::Ctrl(scroll.ppu_ctrl | ctrl::NAMETABLE_X));
                 irq.scroll((95, 101), scroll.bands[0]);
                 scroll.split.next_irq = 1;
                 return Some(next(0x4000, 175));
             }
             irq.write(76, Reg::Ctrl(scroll.ppu_ctrl));
-            irq.write(82, Reg::Mask(0x0A));
+            irq.write(82, Reg::Mask(mask::BACKGROUND | mask::LEFT_BACKGROUND));
             irq.scroll((98, 104), 0);
             scroll.split.next_irq = 0;
             None
@@ -294,7 +294,7 @@ fn swinging_row(scroll: &mut Scroll, irq: &mut Irq<'_>) -> Option<u32> {
         scroll.split.next_irq = 1;
         return Some(next(0x0700, 167));
     }
-    scroll.ppu_ctrl |= 2;
+    scroll.ppu_ctrl |= ctrl::NAMETABLE_Y;
     let delta = 1 & scroll.gate;
     let bands = &mut scroll.bands;
     let mut climbing = bands[1] & 0x80 != 0;
@@ -320,7 +320,7 @@ fn swinging_row(scroll: &mut Scroll, irq: &mut Irq<'_>) -> Option<u32> {
 fn intro(scroll: &mut Scroll, irq: &mut Irq<'_>) -> Option<u32> {
     let phase = scroll.split.next_irq;
     if phase >= 9 {
-        irq.write(78, Reg::Ctrl(scroll.ppu_ctrl | 1));
+        irq.write(78, Reg::Ctrl(scroll.ppu_ctrl | ctrl::NAMETABLE_X));
         irq.scroll((94, 100), 0);
         scroll.split.next_irq = 0;
         let bands = &mut scroll.bands;
@@ -376,7 +376,7 @@ fn cutscene(scroll: &mut Scroll, irq: &mut Irq<'_>) -> Option<u32> {
             Some(next(0x1000, 182))
         }
         _ => {
-            irq.write(78, Reg::Ctrl(scroll.ppu_ctrl & 0xFE));
+            irq.write(78, Reg::Ctrl(scroll.ppu_ctrl & !ctrl::NAMETABLE_X));
             irq.scroll((94, 100), 0);
             scroll.split.next_irq = 0;
             let bands = &mut scroll.bands;
@@ -466,7 +466,7 @@ impl Regs {
         match reg {
             Reg::Ctrl(value) => {
                 self.ctrl = value;
-                self.t = (self.t & !0x0C00) | (u16::from(value & 3) << 10);
+                self.t = (self.t & !0x0C00) | (u16::from(value & ctrl::NAMETABLE) << 10);
             }
             Reg::Mask(value) => self.mask = value,
             Reg::ScrollX(value) => {
@@ -502,7 +502,7 @@ impl Regs {
     /// Dot 256: fine y down a line (into the next nametable row at 30 tiles), the
     /// horizontal scroll from `t`.
     fn end_line(&mut self) {
-        if self.mask & 0x18 == 0 {
+        if self.mask & mask::RENDERING == 0 {
             return;
         }
         let mut v = self.v;
@@ -550,7 +550,7 @@ impl Registers {
 pub fn lines(registers: &Registers, game: &Game) -> Vec<Line> {
     let scroll = &registers.scroll;
     let (x, y) = (scroll.scroll_x, scroll.scroll_y);
-    let t = (u16::from(scroll.ppu_ctrl & 3) << 10)
+    let t = (u16::from(scroll.ppu_ctrl & ctrl::NAMETABLE) << 10)
         | (u16::from(y & 7) << 12)
         | (u16::from(y >> 3) << 5)
         | u16::from(x >> 3);
@@ -578,7 +578,7 @@ pub fn lines(registers: &Registers, game: &Game) -> Vec<Line> {
         }
     };
     apply_until(&mut regs, 0);
-    if regs.mask & 0x18 != 0 {
+    if regs.mask & mask::RENDERING != 0 {
         regs.v = regs.t;
     }
     let mut lines = Vec::with_capacity(240);

@@ -337,7 +337,7 @@ fn queue_palette(cx: &mut Cx<'_>) {
         return;
     }
     let palette = cx.effects.palette;
-    cx.effects.vram.push(0x3F00, 0, &palette);
+    cx.effects.vram.push_palette(&palette);
 }
 
 /// `$8F37`: palette `$0F`, then a type `$B8` into the highest free slot 0-15.

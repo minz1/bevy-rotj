@@ -16,7 +16,7 @@ use rotj_core::actor::Game;
 use rotj_core::actor::modern::{View, tile_at, view};
 use rotj_core::actor::oam::attr;
 use rotj_core::palette::Rgb;
-use rotj_core::render::{Line, SCREEN_H, SCREEN_W};
+use rotj_core::render::{Line, SCREEN_H, SCREEN_W, mask};
 
 use crate::mirror::Drawer;
 use crate::pacing::Step;
@@ -60,7 +60,9 @@ impl ModernFrame {
             .collect();
         Some(ModernFrame {
             view,
-            greyscale: lines.first().is_some_and(|line| line.mask & 1 != 0),
+            greyscale: lines
+                .first()
+                .is_some_and(|line| line.mask & mask::GREYSCALE != 0),
             tiles,
         })
     }

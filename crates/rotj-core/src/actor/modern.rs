@@ -4,7 +4,7 @@
 use super::world::{Ppu, orientation};
 use super::{Game, Script};
 use crate::levelmap::Cell;
-use crate::render::Line;
+use crate::render::{Line, ctrl, mask};
 
 /// What the Modern picture draws of a frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,7 +29,7 @@ pub fn view(game: &Game, lines: &[Line]) -> Option<View> {
     let banks = background_banks(lines.first()?);
     let steady = lines
         .iter()
-        .all(|line| line.mask & 0x08 != 0 && background_banks(line) == banks);
+        .all(|line| line.mask & mask::BACKGROUND != 0 && background_banks(line) == banks);
     let split = game.scroll.split.armed;
     (in_play && steady && !split).then(|| View {
         left: screen_edge(game.world.camera_x, game.scroll.scroll_x),
@@ -72,7 +72,11 @@ fn screen_edge(camera: u16, scroll: u8) -> i32 {
 
 /// The four banks a line's background is fetched from (`$2000` bit 4 picks the table).
 fn background_banks(line: &Line) -> [u8; 4] {
-    let first = if line.ctrl & 0x10 == 0 { 0 } else { 4 };
+    let first = if line.ctrl & ctrl::BACKGROUND_PATTERNS_HIGH == 0 {
+        0
+    } else {
+        4
+    };
     line.chr[first..first + 4].try_into().expect("four banks")
 }
 
@@ -166,7 +170,7 @@ mod tests {
         let mut split = game.clone();
         split.scroll.split.armed = true;
         let mut masked = lines.clone();
-        masked[100].mask &= !0x08;
+        masked[100].mask &= !mask::BACKGROUND;
         let mut banked = lines.clone();
         banked[100].chr[0] ^= 1;
         assert_eq!(view(&script, &lines), None, "a script screen");

@@ -17,7 +17,7 @@ use super::step_actors;
 use super::tape::{Event, MEMORY, Tape, Writes, loop_hash, script_hash};
 use super::world::{Cx, Effects, Ppu, Schedule, World};
 use crate::actors::{CELL_PENDING, CELL_RECORD, SpawnRecord, spawn_record, spawn_record_pointer};
-use crate::render::Line;
+use crate::render::{Line, ctrl, mask};
 
 /// The ported paths that ran in any test so far, by their 6502 address.
 static SEEN: Mutex<BTreeSet<u16>> = Mutex::new(BTreeSet::new());
@@ -195,11 +195,20 @@ pub(crate) struct Picture {
 /// What a line draws with: the background's scroll, table, banks and mirroring only
 /// while the background shows, the sprites' size, table and banks only while they show.
 fn drawn(l: &Line) -> Line {
-    let (background, sprites) = (l.mask & 0x08 != 0, l.mask & 0x10 != 0);
+    let (background, sprites) = (l.mask & mask::BACKGROUND != 0, l.mask & mask::SPRITES != 0);
     Line {
         v: if background { l.v } else { 0 },
         fine_x: if background { l.fine_x } else { 0 },
-        ctrl: l.ctrl & (if background { 0x10 } else { 0 } | if sprites { 0x28 } else { 0 }),
+        ctrl: l.ctrl
+            & (if background {
+                ctrl::BACKGROUND_PATTERNS_HIGH
+            } else {
+                0
+            } | if sprites {
+                ctrl::TALL_SPRITES | ctrl::SPRITE_PATTERNS_HIGH
+            } else {
+                0
+            }),
         mask: l.mask,
         chr: if background { l.chr } else { [0; 8] },
         sprite_chr: if sprites { l.sprite_chr } else { [0; 8] },

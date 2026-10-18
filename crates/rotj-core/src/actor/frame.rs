@@ -84,7 +84,7 @@ pub fn queue_palette(game: &mut Game) {
         return;
     }
     let effects = &mut game.effects;
-    effects.vram.push(0x3F00, 0, &effects.palette);
+    effects.vram.push_palette(&effects.palette);
     effects.palette_dirty = 0;
 }
 

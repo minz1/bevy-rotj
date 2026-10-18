@@ -4,7 +4,7 @@ use super::engine::adc_overflows;
 use crate::actors::{ActorError, bank_slice};
 #[cfg(test)]
 use crate::ines::FME7_PRG_BANK_SIZE;
-use crate::render::Line;
+use crate::render::{Line, ctrl, mask};
 
 /// The bits of an OAM attribute byte.
 pub mod attr {
@@ -362,13 +362,13 @@ pub fn undrawable(page: &[u8; 256], marks: &[Mark; 64], lines: &[Line]) -> Optio
         let [y, _, attr, x] = page[entry * 4..entry * 4 + 4].try_into().expect("4 bytes");
         let top = usize::from(y) + 1;
         let first = lines.get(top)?;
-        if !marks[entry].is_ui() || first.mask & 0x10 == 0 {
+        if !marks[entry].is_ui() || first.mask & mask::SPRITES == 0 {
             return None;
         }
         let rows = &lines[top..(top + 16).min(lines.len())];
         let why = if attr & attr::BEHIND != 0 {
             "behind the background"
-        } else if first.ctrl & 0x20 == 0 {
+        } else if first.ctrl & ctrl::TALL_SPRITES == 0 {
             "in 8x8 mode"
         } else if rows.iter().any(|line| line.sprite_chr != first.sprite_chr) {
             "across a sprite bank change"

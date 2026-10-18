@@ -1,6 +1,6 @@
 # The PPU registers named
 
-Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: the bits beside
+Status: approved with changes by the Opus stand-in, 2026-10-18 (applied, and `SHOWN` from the implementation's review: the bits beside
 `render::Line`, not a new module; `Vram::push_palette` instead of a palette const; the nametable
 bits split; every odd mask named; the counts and the missed sites; the tests' policy). The survey
 loop's #4 (MODERNIZE "The survey loop, 2026-10-18"). No behaviour change: constant substitution,
@@ -30,11 +30,12 @@ proven by the lockstep (which compares every frame's 240 lines and the IRQs' reg
     `SPRITE_PATTERNS_HIGH = 0x08`, `BACKGROUND_PATTERNS_HIGH = 0x10`, `TALL_SPRITES = 0x20`,
     `NMI = 0x80`;
   - `render::mask`: `GREYSCALE = 0x01`, `LEFT_BACKGROUND = 0x02`, `LEFT_SPRITES = 0x04`,
-    `BACKGROUND = 0x08`, `SPRITES = 0x10`, `RENDERING = BACKGROUND | SPRITES`.
+    `BACKGROUND = 0x08`, `SPRITES = 0x10`, `RENDERING = BACKGROUND | SPRITES`, and
+    `SHOWN = RENDERING | LEFT_BACKGROUND | LEFT_SPRITES` (the full picture, written 11 times).
   Bit 6 and the emphasis bits are left out: nothing uses them. Not newtypes: the bytes are RAM the
   lockstep compares and the game does arithmetic on them. `Line`'s field docs link to them.
 - Every combination is spelled out, no literal left: `0xA8` = `NMI | TALL_SPRITES |
-  SPRITE_PATTERNS_HIGH`; `0x1E` = `RENDERING | LEFT_BACKGROUND | LEFT_SPRITES`; `0x0A` =
+  SPRITE_PATTERNS_HIGH`; `0x1E` = `SHOWN`; `0x0A` =
   `BACKGROUND | LEFT_BACKGROUND`; `&= 0xFC` = `&= !NAMETABLE`; `&= 0xE7` = `&= !RENDERING`;
   `0x7C` = `!(NMI | NAMETABLE)`; `0x7B` = `!(NMI | VERTICAL_INCREMENT)`; `0x78` =
   `!(NMI | VERTICAL_INCREMENT | NAMETABLE)`; `0xFB` = `!VERTICAL_INCREMENT`; `0xFD` =
@@ -44,10 +45,11 @@ proven by the lockstep (which compares every frame's 240 lines and the IRQs' reg
 - Every reader above uses the same names, so the Classic and Modern pictures decode the registers
   one way.
 - `Vram::push_palette(&mut self, bytes: &[u8])` replaces the 22 `push(0x3F00, 0, ..)` calls; the
-  address is one private const in `world.rs`, shared with `Ppu::poke`'s test. `stage::PALETTE_OFFSET`
+  address is one private const in `world.rs`, shared with `Ppu::poke`'s palette range check. `stage::PALETTE_OFFSET`
   (an offset into the dump, beside `NAMETABLE_OFFSET`) stays.
 - Tests that build a `Line` or registers use the names (`render.rs`'s, `actor::modern`'s, the
-  app's `ui.rs`: `0x1F` = `RENDERING | LEFT_BACKGROUND | LEFT_SPRITES | GREYSCALE`, `0x0E`);
+  app's `ui.rs`: `0x1F` = `SHOWN | GREYSCALE`, `0x0E`); a test building a raw `VramWrite` or
+  checking a parsed address keeps `0x3F00`;
   `tape.rs`'s hash of RAM byte `$FE` stays a literal.
 - Out of scope: the nametable and attribute addresses (the ROM's write lists carry them as data;
   the banner's and the HUD's fixed cells are one-offs, each documented by address); a VRAM queue

@@ -367,7 +367,7 @@ mod tests {
     use rotj_core::actor::stage::StageEnd;
     use rotj_core::actor::world::Motion;
     use rotj_core::digest::fnv1a;
-    use rotj_core::render::SCREEN_W;
+    use rotj_core::render::{SCREEN_W, mask};
 
     /// A committed digest of an fceux capture (`crates/app/digests.txt`).
     fn digest(name: &str) -> u64 {
@@ -1251,7 +1251,7 @@ mod tests {
                         .filter(|s| s.0 == y)
                         .flat_map(|s| [line(&s.1), line(&s.2)]),
                 );
-                let blank = |l: &Line| l.mask & 0x18 == 0;
+                let blank = |l: &Line| l.mask & mask::RENDERING == 0;
                 match states
                     .into_iter()
                     .find(|s| s == mine || blank(s) && blank(mine))
@@ -1262,7 +1262,7 @@ mod tests {
             }
             jittered += usize::from(compared.contains(&false));
             unmatched += compared.iter().filter(|&&c| !c).count();
-            if lines.iter().all(|l| l.mask & 0x18 == 0) {
+            if lines.iter().all(|l| l.mask & mask::RENDERING == 0) {
                 continue;
             }
             play.compose(&mut ours, MAX_SPRITES_PER_LINE, false);

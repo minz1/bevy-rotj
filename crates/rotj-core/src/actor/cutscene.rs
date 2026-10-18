@@ -5,6 +5,7 @@ use super::Game;
 use super::oam::{DrawCall, Metasprite};
 use super::script::{Flow, Runner, wait};
 use crate::levelmap::PAYLOAD_FIRST_BANK;
+use crate::render::{ctrl, mask};
 
 /// CHR offset of the payload's WRAM `$6000-$7E5F` (banks `$F8-$FF`).
 const PAYLOAD: usize = 0xF8 * 0x400;
@@ -165,7 +166,7 @@ impl Cutscene {
                     split.first_irq_cycles =
                         u16::from_le_bytes([payload_byte(chr, at), payload_byte(chr, at + 1)]);
                     split.armed = true;
-                    game.scroll.mask = 0x1E;
+                    game.scroll.mask = mask::SHOWN;
                 }
                 wait(frame, 1)
             }
@@ -179,12 +180,12 @@ impl Cutscene {
             }
             Row::SlideEnd => {
                 game.scroll.split.armed = false;
-                game.scroll.ppu_ctrl = 0xA8;
+                game.scroll.ppu_ctrl = ctrl::NMI | ctrl::TALL_SPRITES | ctrl::SPRITE_PATTERNS_HIGH;
                 Flow::Done
             }
             Row::Wait(count) => wait(frame, count),
             Row::GreyPalette => {
-                game.effects.vram.push(0x3F00, 0, &[0x10; 32]);
+                game.effects.vram.push_palette(&[0x10; 32]);
                 Flow::Done
             }
             Row::LightPicture => {
@@ -206,7 +207,7 @@ impl Cutscene {
         for (i, shadow) in (0..).zip(&mut game.oam.chr) {
             *shadow = payload_byte(chr, banks + i);
         }
-        game.scroll.ppu_ctrl = 0xA8;
+        game.scroll.ppu_ctrl = ctrl::NMI | ctrl::TALL_SPRITES | ctrl::SPRITE_PATTERNS_HIGH;
         game.scroll.scroll_y = 0;
         game.scroll.scroll_x = 0;
         game.scroll.bands[0] = 0;
@@ -214,7 +215,7 @@ impl Cutscene {
         game.scroll.bands[5] = 3;
         game.oam.clear();
         let palette = payload_bytes(chr, 0x76EF, 32);
-        game.effects.vram.push(0x3F00, 0, &palette);
+        game.effects.vram.push_palette(&palette);
         self.cursor = payload_byte(chr, 0x775B + 2 * u16::from(self.scene));
     }
 
@@ -231,7 +232,7 @@ impl Cutscene {
         ]);
         let mut palette = payload_bytes(chr, 0x770F, 16);
         palette.extend(payload_bytes(chr, lit, 16));
-        game.effects.vram.push(0x3F00, 0, &palette);
+        game.effects.vram.push_palette(&palette);
     }
 }
 
@@ -257,10 +258,10 @@ pub(super) fn copy_frame(game: &mut Game, prg: &[u8], frame: u8, first: u8) {
             }
             game.display.prg_windows[0] = 0xC0;
             game.scroll.split.armed = false;
-            game.scroll.ppu_ctrl &= 0x7B;
+            game.scroll.ppu_ctrl &= !(ctrl::NMI | ctrl::VERTICAL_INCREMENT);
             game.scroll.mask = 0;
         }
-        1 => game.scroll.ppu_ctrl |= 0x80,
+        1 => game.scroll.ppu_ctrl |= ctrl::NMI,
         _ => super::stage::blackout(game, prg),
     }
 }
@@ -297,9 +298,9 @@ impl ScreenClear {
                 game.scroll.scroll_x = 0;
                 game.scroll.scroll_y = 0;
                 game.scroll.mask = 0;
-                game.scroll.ppu_ctrl = 0xA8;
+                game.scroll.ppu_ctrl = ctrl::NMI | ctrl::TALL_SPRITES | ctrl::SPRITE_PATTERNS_HIGH;
                 game.oam.clear();
-                game.effects.vram.push(0x3F00, 0, &[0x0F; 32]);
+                game.effects.vram.push_palette(&[0x0F; 32]);
             }
             2..=33 => {
                 let addr = 0x2000 + u16::from(frame - 2) * 0x40;

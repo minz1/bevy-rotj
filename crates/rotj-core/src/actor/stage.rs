@@ -10,6 +10,7 @@ use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
 use crate::ppulist::WriteList;
 use crate::prg::Prg;
+use crate::render::{ctrl, mask};
 
 /// The stages there are: `$0400 / 2` indexes their tables.
 const STAGES: u8 = 18;
@@ -250,7 +251,7 @@ fn depart(game: &mut Game, prg: &Prg, x_beat: u8, y_beat: u8) {
 /// Queues the palette shadow (`$C34B`).
 pub(super) fn queue_palette(game: &mut Game) {
     let effects = &mut game.effects;
-    effects.vram.push(0x3F00, 0, &effects.palette);
+    effects.vram.push_palette(&effects.palette);
 }
 
 /// Queues the palette with every colour's brightness capped at `cap` (`$C30A`, `X = $FF`).
@@ -261,7 +262,7 @@ fn queue_faded(game: &mut Game, cap: u8) {
             *colour = (*colour & 0x0F) | cap;
         }
     }
-    game.effects.vram.push(0x3F00, 0, &faded);
+    game.effects.vram.push_palette(&faded);
 }
 
 /// Builds and queues the dark palette, background and sprite set 0 (`$C35A`, before its NMI wait).
@@ -592,7 +593,7 @@ impl NextArea {
                     return;
                 }
                 Step::Show => {
-                    game.scroll.mask |= 0x18;
+                    game.scroll.mask |= mask::RENDERING;
                     self.step = Step::Enter;
                     return;
                 }
@@ -681,7 +682,7 @@ fn hide_for_banner(game: &mut Game, prg: &[u8]) {
     game.scroll.mirroring = 2;
     game.scroll.split.armed = false;
     game.scroll.mask = 0;
-    game.scroll.ppu_ctrl &= 0x7C;
+    game.scroll.ppu_ctrl &= !(ctrl::NMI | ctrl::NAMETABLE);
     game.effects.music = 0xFF;
     blackout(game, prg);
 }
@@ -696,8 +697,8 @@ fn show_banner(game: &mut Game, prg: &Prg) {
     for (bank, shadow) in (0xCC..).zip(&mut game.oam.chr[..4]) {
         *shadow = bank;
     }
-    game.scroll.ppu_ctrl |= 0x80;
-    game.scroll.mask = 0x18;
+    game.scroll.ppu_ctrl |= ctrl::NMI;
+    game.scroll.mask = mask::RENDERING;
 }
 
 /// The area start (bank 13 `$B200`) up to its scroll reset (`$BE6E`), over what
@@ -706,7 +707,7 @@ fn start_area(game: &mut Game, prg: &[u8], chr: &[u8], leftover: room::Leftover)
     room::enter_area(game, prg, chr, leftover);
     game.scroll.scroll_x = 0;
     game.scroll.scroll_y = 0;
-    game.scroll.ppu_ctrl = (game.scroll.ppu_ctrl & 0xFC) | 0x80;
+    game.scroll.ppu_ctrl = (game.scroll.ppu_ctrl & !ctrl::NAMETABLE) | ctrl::NMI;
 }
 
 /// The area start's first frame (bank 13 `$BD4D-$BD51`, `$BE58`): the music
@@ -715,7 +716,7 @@ fn clear_for_area(game: &mut Game) {
     game.effects.music = 0xFF;
     game.oam.clear();
     game.scroll.split.armed = false;
-    game.scroll.ppu_ctrl &= 0x7F;
+    game.scroll.ppu_ctrl &= !ctrl::NMI;
     game.scroll.mask = 0;
 }
 
@@ -793,11 +794,11 @@ impl BossIntro {
                 }
                 game.scroll.scroll_x = 0;
                 game.scroll.scroll_y = 0;
-                game.scroll.ppu_ctrl = (game.scroll.ppu_ctrl & 0xFC) | 0x80;
+                game.scroll.ppu_ctrl = (game.scroll.ppu_ctrl & !ctrl::NAMETABLE) | ctrl::NMI;
                 self.step = Intro::Show;
             }
             Intro::Show => {
-                game.scroll.mask |= 0x18;
+                game.scroll.mask |= mask::RENDERING;
                 self.step = Intro::Start;
             }
             Intro::Start => {
@@ -906,7 +907,7 @@ impl BossIntro {
         let [hi, lo] = self.offset.wrapping_neg().to_be_bytes();
         let scroll = hi.wrapping_add(u8::from(lo & 0x80 != 0));
         game.scroll.scroll_x = scroll;
-        game.scroll.ppu_ctrl |= 1;
+        game.scroll.ppu_ctrl |= ctrl::NAMETABLE_X;
         let (mut cx, work) = game.parts(prg);
         work.anchor = 0;
         work.attr = 0;
@@ -944,7 +945,7 @@ impl BossIntro {
     /// from `$BE4B`, the boss's hit points (`$BE4E[$040F]`), the tally's target
     /// `$1F40`, Batman in motion 9, the palette queued, the area's song and `$BA = 0`.
     fn enter(&self, game: &mut Game, prg: &Prg) {
-        game.scroll.ppu_ctrl &= 0xFC;
+        game.scroll.ppu_ctrl &= !ctrl::NAMETABLE;
         game.scroll.mirroring = self.mirroring;
         room::parameters(game, prg);
         game.oam.clear();
@@ -978,7 +979,7 @@ fn queue_whitened(game: &mut Game, cap: u8) {
             *colour = (*colour & 0x0F) | cap;
         }
     }
-    game.effects.vram.push(0x3F00, 0, &lit);
+    game.effects.vram.push_palette(&lit);
 }
 
 /// The stage's song request (`$D973`).
@@ -1098,8 +1099,8 @@ impl Continue {
                 Countdown::Setup => {
                     game.scroll.mirroring = 2;
                     game.scroll.split.armed = false;
-                    game.scroll.mask &= 0xE7;
-                    game.scroll.ppu_ctrl &= 0x7C;
+                    game.scroll.mask &= !mask::RENDERING;
+                    game.scroll.ppu_ctrl &= !(ctrl::NMI | ctrl::NAMETABLE);
                     game.effects.music = 0xFF;
                     blackout(game, prg);
                     self.step = Countdown::Draw;
@@ -1118,11 +1119,11 @@ impl Continue {
                             }
                         }
                     }
-                    game.scroll.ppu_ctrl |= 0x80;
+                    game.scroll.ppu_ctrl |= ctrl::NMI;
                     self.step = Countdown::Show;
                 }
                 Countdown::Show => {
-                    game.scroll.mask |= 0x18;
+                    game.scroll.mask |= mask::RENDERING;
                     self.step = Countdown::First;
                 }
                 Countdown::First => {
@@ -1189,17 +1190,17 @@ impl Continue {
             match self.step {
                 Countdown::Over => {
                     game.effects.music = 0xFF;
-                    game.scroll.ppu_ctrl &= 0x7F;
-                    game.scroll.mask &= 0xE7;
+                    game.scroll.ppu_ctrl &= !ctrl::NMI;
+                    game.scroll.mask &= !mask::RENDERING;
                     self.step = Countdown::OverDraw;
                 }
                 Countdown::OverDraw => {
                     game.effects.vram.direct.extend(text(prg, 0x925A));
-                    game.scroll.ppu_ctrl |= 0x80;
+                    game.scroll.ppu_ctrl |= ctrl::NMI;
                     self.step = Countdown::OverShow;
                 }
                 Countdown::OverShow => {
-                    game.scroll.mask |= 0x18;
+                    game.scroll.mask |= mask::RENDERING;
                     self.step = Countdown::OverPalette;
                 }
                 Countdown::OverPalette => {

@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use rotj_core::actor::oam::{Mark, attr};
 use rotj_core::palette::Rgb;
-use rotj_core::render::Line;
+use rotj_core::render::{Line, mask};
 
 use crate::pacing::Step;
 use crate::play::Play;
@@ -85,14 +85,18 @@ pub fn shown(
 pub fn sprite_key(entry: [u8; 4], lines: &[Line], palette: &[u8; 32], rgb: &Rgb) -> Option<Key> {
     let [y, tile, attr, _] = entry;
     let line = lines.get(usize::from(y) + 1)?;
-    if line.mask & 0x10 == 0 {
+    if line.mask & mask::SPRITES == 0 {
         return None;
     }
     let table = 4 * usize::from(tile & 1);
     let banks = line.sprite_chr[table..table + 4]
         .try_into()
         .expect("4 banks");
-    let grey = if line.mask & 1 != 0 { 0x30 } else { 0x3F };
+    let grey = if line.mask & mask::GREYSCALE != 0 {
+        0x30
+    } else {
+        0x3F
+    };
     let colours = std::array::from_fn(|v| {
         let entry = palette[0x10 + 4 * usize::from(attr & attr::PALETTE) + v] & grey;
         if v == 0 {
@@ -293,12 +297,13 @@ impl Plugin for UiPlugin {
 mod tests {
     use super::*;
     use crate::settings::Overscan;
+    use rotj_core::render::ctrl;
 
     const SHOWING: Line = Line {
         v: 0,
         fine_x: 0,
-        ctrl: 0x20,
-        mask: 0x1E,
+        ctrl: ctrl::TALL_SPRITES,
+        mask: mask::SHOWN,
         chr: [0; 8],
         sprite_chr: [0, 1, 2, 3, 4, 5, 6, 7],
         mirroring: 0,
@@ -319,7 +324,7 @@ mod tests {
     #[test]
     fn shown_takes_the_marked_sprites_in_their_lines_colours() {
         let mut lines = [SHOWING; 240];
-        lines[20].mask = 0x1F;
+        lines[20].mask = mask::SHOWN | mask::GREYSCALE;
         let mut palette = [0; 32];
         palette[0x10 + 4 * 3..0x10 + 4 * 3 + 4].copy_from_slice(&[0x0F, 0x16, 0x27, 0x30]);
         let rgb: Rgb = std::array::from_fn(|i| [u8::try_from(i).expect("64"); 3]);
@@ -354,7 +359,7 @@ mod tests {
     #[test]
     fn shown_skips_lines_with_sprites_off_and_unmarked_or_parked_sprites() {
         let mut lines = [SHOWING; 240];
-        lines[11].mask = 0x0E;
+        lines[11].mask = mask::BACKGROUND | mask::LEFT_BACKGROUND | mask::LEFT_SPRITES;
         let rgb = [[0; 3]; 64];
         let none = |oam: [u8; 256], marks: [Mark; 64]| {
             shown(&oam, &marks, &[], &lines, &[0; 32], &rgb).is_empty()

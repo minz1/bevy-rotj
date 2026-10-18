@@ -14,6 +14,7 @@ use super::world::{
 use crate::actors::spawn_schedule;
 use crate::levelmap::Cell;
 use crate::prg::Prg;
+use crate::render::{ctrl, mask};
 use crate::rooms::{Arrival, Raster, Room};
 
 /// The room change `$BA = 1` starts, one frame per [`RoomChange::step`] (`$B7EC`).
@@ -103,7 +104,7 @@ impl RoomChange {
                 }
                 Phase::Turn => {
                     let page = usize::from(game.world.camera_y >> 12)
-                        + usize::from(game.scroll.ppu_ctrl & 1) * 16;
+                        + usize::from(game.scroll.ppu_ctrl & ctrl::NAMETABLE_X) * 16;
                     let draw = PageDraw::new(
                         game.schedule.page_columns[page],
                         0x60,
@@ -126,10 +127,11 @@ impl RoomChange {
                 }
                 Phase::Flip => {
                     let scroll = &mut game.scroll;
-                    let flipped = scroll.ppu_ctrl ^ 2;
+                    let flipped = scroll.ppu_ctrl ^ ctrl::NAMETABLE_Y;
                     scroll.scroll_y = 0;
                     scroll.mirroring = 0;
-                    scroll.ppu_ctrl = (flipped & 0xFC) | ((flipped & 2) >> 1);
+                    scroll.ppu_ctrl =
+                        (flipped & !ctrl::NAMETABLE) | ((flipped & ctrl::NAMETABLE_Y) >> 1);
                     self.phase = Phase::Enter;
                     return;
                 }
@@ -201,7 +203,7 @@ impl RoomChange {
                 self.phase = Phase::Draw(draw, then);
             }
             Phase::FadeEnter => {
-                game.scroll.ppu_ctrl &= 0xFC;
+                game.scroll.ppu_ctrl &= !ctrl::NAMETABLE;
                 game.scroll.mirroring = self.replaced;
                 parameters(game, prg);
                 game.oam.finish();
@@ -229,7 +231,7 @@ impl RoomChange {
     /// The second page of a room two nametables wide or tall (`$BA3C-$BA51`, `$BB18-$BB2D`):
     /// into `$2400`, from map row 1 when the room is tall.
     fn second_page(&self, game: &mut Game, column: u8) -> Phase {
-        game.scroll.ppu_ctrl &= 0xFC;
+        game.scroll.ppu_ctrl &= !ctrl::NAMETABLE;
         let row = if game.world.orientation & orientation::VERTICAL == 0 {
             0x61
         } else {
@@ -291,13 +293,13 @@ impl RoomChange {
                 borrow
             };
             if wrapped {
-                scroll.ppu_ctrl ^= 1;
+                scroll.ppu_ctrl ^= ctrl::NAMETABLE_X;
             }
         } else if self.target & 8 == 0 {
             player.screen_y = player.screen_y.wrapping_sub(0x10).max(0x40);
             let y = scroll.scroll_y.wrapping_add(0x10);
             scroll.scroll_y = if y >= 0xF0 {
-                scroll.ppu_ctrl ^= 2;
+                scroll.ppu_ctrl ^= ctrl::NAMETABLE_Y;
                 0
             } else {
                 y
@@ -306,7 +308,7 @@ impl RoomChange {
             player.screen_y = player.screen_y.wrapping_add(0x10).min(0xD0);
             let y = scroll.scroll_y.wrapping_sub(0x10);
             scroll.scroll_y = if y >= 0xF0 {
-                scroll.ppu_ctrl ^= 2;
+                scroll.ppu_ctrl ^= ctrl::NAMETABLE_Y;
                 0xE0
             } else {
                 y
@@ -353,7 +355,7 @@ fn page_draws(game: &Game, last: Then) -> (PageDraw, Then) {
 /// Restores the arrangement, places the player and reads the room's parameters, and
 /// ends the change (`$BA3C-$BA88`, `$D4EF`).
 fn place(game: &mut Game, prg: &[u8], replaced: u8) {
-    game.scroll.ppu_ctrl &= 0xFC;
+    game.scroll.ppu_ctrl &= !ctrl::NAMETABLE;
     game.scroll.mirroring = replaced;
     let player = &mut game.effects.player;
     let [x, _] = player.x.to_be_bytes();
@@ -370,7 +372,11 @@ fn place(game: &mut Game, prg: &[u8], replaced: u8) {
 
 /// The nametable `$B351` draws a page into for the scroll's arrangement (`$B8E7`, `$B945`).
 fn table(ppu_ctrl: u8) -> u8 {
-    if ppu_ctrl & 3 != 0 { 0x20 } else { 0x24 }
+    if ppu_ctrl & ctrl::NAMETABLE != 0 {
+        0x20
+    } else {
+        0x24
+    }
 }
 
 /// The camera speed toward the nearest 256 px page edge (`$B80C-$B865`).
@@ -591,8 +597,8 @@ pub fn start(prg: &Prg, chr: &[u8], level: usize) -> Game {
     enter_area(&mut game, prg, chr, Leftover::Boot);
     // shortcut: Batman's sprite banks as stage 1-1 starts with them; the player draw sets them.
     game.oam.chr[5..8].copy_from_slice(&[0xF5, 0xF6, 0xF7]);
-    game.scroll.ppu_ctrl = 0xA8;
-    game.scroll.mask = 0x18;
+    game.scroll.ppu_ctrl = ctrl::NMI | ctrl::TALL_SPRITES | ctrl::SPRITE_PATTERNS_HIGH;
+    game.scroll.mask = mask::RENDERING;
     parameters(&mut game, prg);
     game
 }
@@ -839,7 +845,7 @@ pub fn enter(game: &mut Game, prg: &[u8], target: u8) -> u8 {
     load(game, prg);
     let replaced = game.scroll.mirroring;
     game.scroll.mirroring = u8::from(target.trailing_zeros() >= 2);
-    game.effects.vram.push(0x3F00, 0, &game.effects.palette);
+    game.effects.vram.push_palette(&game.effects.palette);
     replaced
 }
 

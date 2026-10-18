@@ -104,11 +104,11 @@ fn flash(kind: &mut u8, body: &mut Body, cx: &mut Cx<'_>) {
     if body.phase < FLASH_FRAMES {
         let mut white = [WHITE; 32];
         white[0x11..0x14].fill(BLACK);
-        cx.effects.vram.push(0x3F00, 0, &white);
+        cx.effects.vram.push_palette(&white);
         return;
     }
     let palette = cx.effects.palette;
-    cx.effects.vram.push(0x3F00, 0, &palette);
+    cx.effects.vram.push_palette(&palette);
     if cx.effects.boss_hp != 0 {
         let pool = u16::from_le_bytes(cx.effects.boss_pool).wrapping_sub(DRAIN);
         cx.effects.boss_pool = pool.to_le_bytes();

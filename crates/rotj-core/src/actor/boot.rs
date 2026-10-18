@@ -13,6 +13,7 @@ use crate::actor::button::Buttons;
 use crate::actor::world::{Weapon, set_first_colours};
 use crate::levelmap::BOOT_FIRST_BANK;
 use crate::prg::Prg;
+use crate::render::{ctrl, mask};
 
 /// The WRAM byte at `addr` once `$98C3` has copied the payload (CHR `$F0-$F7`, in order).
 fn payload_byte(chr: &[u8], addr: u16) -> u8 {
@@ -531,7 +532,8 @@ impl Boot {
             PowerRow::CopyPayload => copy_payload(game, prg, frame, BOOT_FIRST_BANK),
             PowerRow::Enter => {
                 if frame == 0 {
-                    game.scroll.ppu_ctrl = 0xA8;
+                    game.scroll.ppu_ctrl =
+                        ctrl::NMI | ctrl::TALL_SPRITES | ctrl::SPRITE_PATTERNS_HIGH;
                     game.scroll.mask = 0;
                     self.clear = ScreenClear::new(0);
                 }
@@ -569,7 +571,7 @@ impl Boot {
             IntroRow::Wait(count) => wait(frame, count),
             IntroRow::ShowPicture => {
                 if frame == 0 {
-                    game.scroll.mask = 0x1E;
+                    game.scroll.mask = mask::SHOWN;
                     queue_palette(game);
                 }
                 wait(frame, 1)
@@ -613,7 +615,8 @@ impl Boot {
             SlideRow::EndSplit => {
                 if frame == 0 {
                     game.scroll.split.armed = false;
-                    game.scroll.ppu_ctrl = 0xA8;
+                    game.scroll.ppu_ctrl =
+                        ctrl::NMI | ctrl::TALL_SPRITES | ctrl::SPRITE_PATTERNS_HIGH;
                     queue_palette(game);
                 }
                 wait(frame, 1)
@@ -676,14 +679,15 @@ impl Boot {
             TitleSetupRow::Wait(count) => wait(frame, count),
             TitleSetupRow::TitlePalette => {
                 if frame == 0 {
-                    game.scroll.ppu_ctrl = 0xA8;
-                    game.effects.vram.push(0x3F00, 0, &palette(chr, PALETTE));
+                    game.scroll.ppu_ctrl =
+                        ctrl::NMI | ctrl::TALL_SPRITES | ctrl::SPRITE_PATTERNS_HIGH;
+                    game.effects.vram.push_palette(&palette(chr, PALETTE));
                 }
                 wait(frame, 1)
             }
             TitleSetupRow::TitleBlocks => {
                 if frame == 12 {
-                    game.scroll.mask = 0x1E;
+                    game.scroll.mask = mask::SHOWN;
                     Flow::Done
                 } else {
                     let read = self.reader(chr);
@@ -838,7 +842,7 @@ impl Boot {
                 self.shown = Shown::Letters;
                 self.draw_password(game, chr);
                 game.effects.palette = palette(chr, PASSWORD_PALETTE);
-                game.scroll.mask = 0x1E;
+                game.scroll.mask = mask::SHOWN;
                 self.fade = Fade::new(true, false);
                 self.step = Step::Password(Password::FadeIn);
                 return false;
@@ -1102,7 +1106,7 @@ fn flicker_frame(game: &mut Game, chr: &[u8], frame: u16) {
         let at = FLICKER_PALETTES + 2 * (3 - frame / 8);
         let source = u16::from_le_bytes([payload_byte(chr, at), payload_byte(chr, at + 1)]);
         let palette = payload_bytes(chr, source, 16);
-        game.effects.vram.push(0x3F00, 0, &palette);
+        game.effects.vram.push_palette(&palette);
     }
     queue_palette(game);
 }
@@ -1116,7 +1120,7 @@ fn reset(game: &mut Game) {
     game.effects.animated = 2;
     game.world.rng = [0x49, 0x2F];
     game.effects.vram.top = 0x7F;
-    game.scroll.ppu_ctrl = 0xA8;
+    game.scroll.ppu_ctrl = ctrl::NMI | ctrl::TALL_SPRITES | ctrl::SPRITE_PATTERNS_HIGH;
 }
 
 /// The intro's raster split (`$604A-$6060`): `$D3 = 9`, its first IRQ `$2680` cycles

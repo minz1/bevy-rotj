@@ -76,7 +76,7 @@ impl Pause {
             Step::Held => {
                 game.oam.chr[4..].copy_from_slice(&self.saved);
                 let effects = &mut game.effects;
-                effects.vram.push(0x3F00, 0, &effects.palette);
+                effects.vram.push_palette(&effects.palette);
                 game.oam.clear();
                 game.effects.music = 0xFD;
                 game.effects.song = 0x3A;
@@ -113,7 +113,7 @@ impl Pause {
         }
         palette[22] = self.colour;
         set_first_colours(&mut palette, 0x0F);
-        game.effects.vram.push(0x3F00, 0, &palette);
+        game.effects.vram.push_palette(&palette);
     }
 }
 

@@ -73,6 +73,44 @@ impl Default for Frame {
     }
 }
 
+/// The bits of `$2000` (PPU control) the port uses.
+pub mod ctrl {
+    /// Base nametable, low bit (the horizontal scroll's ninth bit).
+    pub const NAMETABLE_X: u8 = 0x01;
+    /// Base nametable, high bit (the vertical scroll's ninth bit).
+    pub const NAMETABLE_Y: u8 = 0x02;
+    /// Both base-nametable bits.
+    pub const NAMETABLE: u8 = NAMETABLE_X | NAMETABLE_Y;
+    /// `$2007` steps the address by 32 instead of 1.
+    pub const VERTICAL_INCREMENT: u8 = 0x04;
+    /// Sprites fetch from the pattern table at `$1000`.
+    pub const SPRITE_PATTERNS_HIGH: u8 = 0x08;
+    /// The background fetches from the pattern table at `$1000`.
+    pub const BACKGROUND_PATTERNS_HIGH: u8 = 0x10;
+    /// Sprites are 8x16.
+    pub const TALL_SPRITES: u8 = 0x20;
+    /// The vblank NMI is enabled.
+    pub const NMI: u8 = 0x80;
+}
+
+/// The bits of `$2001` (PPU mask) the port uses.
+pub mod mask {
+    /// Greyscale colours.
+    pub const GREYSCALE: u8 = 0x01;
+    /// The background shows in the leftmost 8 pixels.
+    pub const LEFT_BACKGROUND: u8 = 0x02;
+    /// Sprites show in the leftmost 8 pixels.
+    pub const LEFT_SPRITES: u8 = 0x04;
+    /// The background is drawn.
+    pub const BACKGROUND: u8 = 0x08;
+    /// Sprites are drawn.
+    pub const SPRITES: u8 = 0x10;
+    /// Either layer drawn: rendering is on.
+    pub const RENDERING: u8 = BACKGROUND | SPRITES;
+    /// Both layers drawn across all 256 columns.
+    pub const SHOWN: u8 = RENDERING | LEFT_BACKGROUND | LEFT_SPRITES;
+}
+
 /// What the PPU draws one scanline with: the scroll, `$2000`/`$2001`, and the mapper's
 /// CHR banks and mirroring as they were when the line began.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -82,10 +120,10 @@ pub struct Line {
     pub v: u16,
     /// Fine X scroll.
     pub fine_x: u8,
-    /// `$2000`: pattern tables (bits 3, 4), sprite size (bit 5).
+    /// `$2000`: pattern tables (bits 3, 4), sprite size (bit 5); the bits are [`ctrl`].
     pub ctrl: u8,
     /// `$2001`: greyscale (bit 0), left-8 background/sprites (bits 1, 2), background and
-    /// sprites on (bits 3, 4).
+    /// sprites on (bits 3, 4); the bits are [`mask`].
     pub mask: u8,
     /// The eight 1 KiB CHR banks of `$0000-$1FFF`, for the background.
     pub chr: [u8; 8],
@@ -173,7 +211,7 @@ impl Picture<'_> {
         } else {
             entry
         }] & 0x3F;
-        if line.mask & 1 != 0 {
+        if line.mask & mask::GREYSCALE != 0 {
             value & 0x30
         } else {
             value
@@ -204,7 +242,11 @@ impl Frame {
         bg: &mut [u8; SCREEN_W],
     ) {
         let fine_y = (usize::from(line.v) >> 12) & 7;
-        let base = if line.ctrl & 0x10 != 0 { 0x1000 } else { 0 };
+        let base = if line.ctrl & ctrl::BACKGROUND_PATTERNS_HIGH != 0 {
+            0x1000
+        } else {
+            0
+        };
         for (x, slot) in bg.iter_mut().enumerate() {
             let cell = line.background_cell(x);
             let tile = picture.nametable(cell.physical, cell.tile_at);
@@ -214,7 +256,8 @@ impl Frame {
             let bit = 7 - cell.column;
             let low = (picture.pattern(line.chr, addr) >> bit) & 1;
             let high = (picture.pattern(line.chr, addr + 8) >> bit) & 1;
-            let shown = line.mask & 0x08 != 0 && (x >= 8 || line.mask & 0x02 != 0);
+            let shown = line.mask & mask::BACKGROUND != 0
+                && (x >= 8 || line.mask & mask::LEFT_BACKGROUND != 0);
             let value = if shown { high << 1 | low } else { 0 };
             *slot = value;
             let entry = usize::from((attr >> shift) & 3) * 4 + usize::from(value);
@@ -230,10 +273,10 @@ impl Frame {
         bg: &[u8; SCREEN_W],
         sprites_per_line: usize,
     ) {
-        if line.mask & 0x10 == 0 {
+        if line.mask & mask::SPRITES == 0 {
             return;
         }
-        let tall = line.ctrl & 0x20 != 0;
+        let tall = line.ctrl & ctrl::TALL_SPRITES != 0;
         let height = if tall { 16 } else { 8 };
         let mut drawn = [false; SCREEN_W];
         let found = (0..OAM_SPRITES)
@@ -252,7 +295,11 @@ impl Frame {
                 let table = if oam[1] & 1 != 0 { 0x1000 } else { 0 };
                 table + usize::from(oam[1] & 0xFE) * TILE_BYTES + (row / 8) * TILE_BYTES + row % 8
             } else {
-                let table = if line.ctrl & 0x08 != 0 { 0x1000 } else { 0 };
+                let table = if line.ctrl & ctrl::SPRITE_PATTERNS_HIGH != 0 {
+                    0x1000
+                } else {
+                    0
+                };
                 table + usize::from(oam[1]) * TILE_BYTES + row
             };
             let (low, high) = (
@@ -261,7 +308,7 @@ impl Frame {
             );
             for col in 0..8 {
                 let x = x0 + col;
-                if x >= SCREEN_W || drawn[x] || (x < 8 && line.mask & 0x04 == 0) {
+                if x >= SCREEN_W || drawn[x] || (x < 8 && line.mask & mask::LEFT_SPRITES == 0) {
                     continue;
                 }
                 let bit = if attr & attr::FLIP_X != 0 {
@@ -312,7 +359,7 @@ mod tests {
                 oam: [0xFF; 256],
                 chr: vec![0; 8192],
                 line: Line {
-                    mask: 0x1E,
+                    mask: mask::SHOWN,
                     chr: BANKS,
                     sprite_chr: BANKS,
                     ..Line::default()
@@ -411,7 +458,7 @@ mod tests {
         let mut scene = Scene::new();
         scene.solid(1, 2, 1);
         scene.palette[SPRITE_PALETTE_OFFSET + 1] = 0x28;
-        scene.line.ctrl = 0x20;
+        scene.line.ctrl = ctrl::TALL_SPRITES;
         scene.sprite(0, 0, 3, 0, 0);
         assert_eq!(at(&scene.render(), 0, 1), 0x28);
     }
@@ -482,7 +529,7 @@ mod tests {
         scene.palette[SPRITE_PALETTE_OFFSET + 2] = 0x28;
         scene.sprite(0, 0, 5, 0, 0);
         assert_eq!(at(&scene.render(), 0, 1), 0x16);
-        scene.line.ctrl = 0x08;
+        scene.line.ctrl = ctrl::SPRITE_PATTERNS_HIGH;
         assert_eq!(at(&scene.render(), 0, 1), 0x28);
 
         scene.solid(0, 5, 2);
@@ -491,7 +538,7 @@ mod tests {
         let frame = scene.render();
         assert_eq!(at(&frame, 0, 8), 0x16);
         assert_eq!(at(&frame, 0, 9), 0);
-        scene.line.ctrl = 0x20;
+        scene.line.ctrl = ctrl::TALL_SPRITES;
         let frame = scene.render();
         assert_eq!(at(&frame, 0, 8), 0x16);
         assert_eq!(at(&frame, 0, 9), 0x28);
@@ -511,7 +558,7 @@ mod tests {
         let frame = scene.render();
         assert_eq!(at(&frame, 0, 1), 0x16);
         assert_eq!(at(&frame, 7, 1), 0x16);
-        scene.line.mask = 0x18;
+        scene.line.mask = mask::RENDERING;
         let frame = scene.render();
         assert_eq!(at(&frame, 0, 1), 0x0F);
         assert_eq!(at(&frame, 7, 1), 0x0F);
@@ -532,7 +579,7 @@ mod tests {
         let frame = scene.render();
         assert_eq!(at(&frame, 0, 0), 0x21);
         assert_eq!(at(&frame, 16, 1), 0x16);
-        scene.line.mask = 0x1F;
+        scene.line.mask = mask::SHOWN | mask::GREYSCALE;
         let frame = scene.render();
         assert_eq!(at(&frame, 0, 0), 0x20);
         assert_eq!(at(&frame, 16, 1), 0x10);

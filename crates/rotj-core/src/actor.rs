@@ -29,6 +29,7 @@ pub mod weapons;
 pub mod world;
 
 use crate::prg::Prg;
+use crate::render::ctrl;
 use button::Buttons;
 use engine::Work;
 use oam::OamBuilder;
@@ -149,7 +150,7 @@ impl Game {
         if self.oam.hung {
             return;
         }
-        self.scroll.ppu_ctrl &= 0xFB;
+        self.scroll.ppu_ctrl &= !ctrl::VERTICAL_INCREMENT;
         match self.script_frame(prg, chr) {
             ScriptFrame::Stepped => return,
             ScriptFrame::AtPauseCheck if self.pause_requested() => {
@@ -1968,8 +1969,8 @@ mod tests {
         let mut game =
             super::room::start(crate::prg::for_test().expect("the test ROM"), &rom.chr, 0);
         game.effects.vram.direct.clear();
-        game.effects.vram.push(0x3F00, 0, &[0x0F, 0x26]);
-        game.effects.vram.push(0x3F00, 0, &[0x0F, 0x06]);
+        game.effects.vram.push_palette(&[0x0F, 0x26]);
+        game.effects.vram.push_palette(&[0x0F, 0x06]);
         let writes = game.nmi(0).writes;
         let bytes: Vec<_> = writes.iter().map(|write| write.bytes[1]).collect();
         assert_eq!(bytes, [0x06, 0x26]);

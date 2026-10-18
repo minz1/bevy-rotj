@@ -11,6 +11,7 @@ use super::world::VramWrite;
 use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
 use crate::ppulist::WriteList;
+use crate::render::{ctrl, mask};
 
 /// Its screen's direct writes (`$9BEB`), palette (`$9C36`), cursor (`$9C56`, at x `$68`
 /// and a row's y from `$9C62`), the number's metasprite (`$9C65`) and tiles (`$9C6B`),
@@ -77,7 +78,9 @@ impl SoundTest {
                     self.step = Step::Mask;
                 }
                 Step::Mask => {
-                    game.scroll.ppu_ctrl = (game.scroll.ppu_ctrl & 0x78) | 0x20;
+                    game.scroll.ppu_ctrl = (game.scroll.ppu_ctrl
+                        & !(ctrl::NMI | ctrl::VERTICAL_INCREMENT | ctrl::NAMETABLE))
+                        | ctrl::TALL_SPRITES;
                     game.scroll.mask = 0;
                     self.step = Step::Screen;
                 }
@@ -86,7 +89,7 @@ impl SoundTest {
                     self.step = Step::Draw;
                 }
                 Step::Draw => {
-                    game.scroll.mask = 0x18;
+                    game.scroll.mask = mask::RENDERING;
                     self.draw(game, prg);
                     self.step = Step::Running;
                 }
@@ -162,7 +165,7 @@ impl SoundTest {
         }
         game.oam.finish();
         let palette: Vec<u8> = (0..32).map(|i| rom(PALETTE + i)).collect();
-        game.effects.vram.push(0x3F00, 0, &palette);
+        game.effects.vram.push_palette(&palette);
     }
 }
 
@@ -188,7 +191,7 @@ fn show_screen(game: &mut Game, prg: &[u8]) {
     for (i, shadow) in (0..).zip(&mut game.oam.chr) {
         *shadow = rom(BANKS + i);
     }
-    game.scroll.ppu_ctrl |= 0x80;
+    game.scroll.ppu_ctrl |= ctrl::NMI;
 }
 
 /// `value` one up (wrapping to 0 at `count`) or one down (wrapping to `count - 1`).

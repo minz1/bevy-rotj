@@ -9,6 +9,7 @@ use super::engine::{rom_byte, rom_word};
 use super::room::build_palette;
 use super::stage::{Fade, blackout, queue_palette};
 use super::world::{VramWrite, set_first_colours};
+use crate::render::{ctrl, mask};
 
 /// The buttons that leave the attract mode while held (`$F6 & $D0`).
 const HELD_TO_LEAVE: Buttons = Buttons::ACCEPT;
@@ -153,7 +154,7 @@ impl Attract {
                 self.step = Step::First;
             }
             Step::First => {
-                game.scroll.mask = 0x18;
+                game.scroll.mask = mask::RENDERING;
                 game.scroll.scroll_x = 0;
                 game.scroll.scroll_y = 0;
                 build_palette(prg, 0x28, 0x13, &mut game.effects.palette);
@@ -200,12 +201,12 @@ impl Attract {
             Step::SecondPage => {
                 if self.copied == 0 {
                     self.reset_counts();
-                    game.scroll.ppu_ctrl &= 0xFC;
+                    game.scroll.ppu_ctrl &= !ctrl::NAMETABLE;
                     game.scroll.mask = 0;
                     game.oam.clear();
                 }
                 if self.copy_page(game, chr, STORY + 0x400, 0x2400) {
-                    game.scroll.mask = 0x18;
+                    game.scroll.mask = mask::RENDERING;
                     for (shadow, bank) in game.oam.chr[..4].iter_mut().zip(0x78..) {
                         *shadow = bank;
                     }
@@ -251,12 +252,12 @@ impl Attract {
                         *star = rom_byte(prg, 2, STARS + i);
                     }
                     self.reset_counts();
-                    game.scroll.ppu_ctrl &= 0xFC;
+                    game.scroll.ppu_ctrl &= !ctrl::NAMETABLE;
                     game.scroll.mask = 0;
                     game.oam.clear();
                 }
                 if self.copy_page(game, chr, CITY, 0x2000) {
-                    game.scroll.mask = 0x18;
+                    game.scroll.mask = mask::RENDERING;
                     for (shadow, bank) in game.oam.chr[..4].iter_mut().zip(0x64..) {
                         *shadow = bank;
                     }
@@ -357,7 +358,7 @@ impl Attract {
     /// screen, the scroll right at half a pixel a frame into the second nametable.
     fn first_frame(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) {
         self.first_colours(game, prg, chr);
-        let table = u16::from(game.scroll.ppu_ctrl & 1) << 8;
+        let table = u16::from(game.scroll.ppu_ctrl & ctrl::NAMETABLE_X) << 8;
         let [high, x] = 0x0170u16
             .wrapping_sub(table | u16::from(game.scroll.scroll_x))
             .to_be_bytes();
@@ -371,7 +372,7 @@ impl Attract {
         game.scroll.scroll_x = scroll.to_be_bytes()[0];
         if wrapped {
             self.scroll = 0xFFFF;
-            game.scroll.ppu_ctrl |= 1;
+            game.scroll.ppu_ctrl |= ctrl::NAMETABLE_X;
             game.scroll.scroll_x = 0;
         }
         game.oam.finish();
@@ -399,7 +400,7 @@ impl Attract {
             return;
         }
         if self.count == 0 {
-            let table = game.scroll.ppu_ctrl & 3;
+            let table = game.scroll.ppu_ctrl & ctrl::NAMETABLE;
             if table != 0 {
                 self.count = table;
             }
@@ -453,13 +454,13 @@ fn stop(game: &mut Game) {
     game.effects.music = 0xFF;
     game.oam.clear();
     game.scroll.mirroring = 0;
-    game.scroll.ppu_ctrl &= 0xFB;
+    game.scroll.ppu_ctrl &= !ctrl::VERTICAL_INCREMENT;
     for (shadow, bank) in game.oam.chr[..4].iter_mut().zip(0xEC..) {
         *shadow = bank;
     }
     game.display.prg_windows[0] = 0xC0;
     game.scroll.split.armed = false;
-    game.scroll.ppu_ctrl &= 0x7B;
+    game.scroll.ppu_ctrl &= !(ctrl::NMI | ctrl::VERTICAL_INCREMENT);
     game.scroll.mask = 0;
 }
 
@@ -474,7 +475,7 @@ fn copy(game: &mut Game, chr: &[u8]) {
     for (shadow, bank) in game.oam.chr[..4].iter_mut().zip(0x1C..) {
         *shadow = bank;
     }
-    game.scroll.ppu_ctrl |= 0x80;
+    game.scroll.ppu_ctrl |= ctrl::NMI;
 }
 
 /// The third screen's figure (`$9E63`) at (`$60`, `$8F`).

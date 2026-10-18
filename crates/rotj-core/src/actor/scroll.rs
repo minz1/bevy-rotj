@@ -7,6 +7,7 @@ use super::spawn::{SpawnTable, lock_at, spawn_at};
 use super::world::orientation;
 use crate::actors::CELL_PENDING;
 use crate::levelmap::Cell;
+use crate::render::ctrl;
 use crate::rooms::Raster;
 
 /// Scroll state outside the camera position.
@@ -115,7 +116,7 @@ fn across_x(game: &mut Game) {
         let moved = camera.wrapping_add(speed.cast_unsigned());
         if moved & 0x8000 == 0 {
             game.world.camera_x = moved;
-            scroll.ppu_ctrl &= 0xFE;
+            scroll.ppu_ctrl &= !ctrl::NAMETABLE_X;
         } else {
             game.world.camera_x = 0;
         }
@@ -129,7 +130,7 @@ fn across_x(game: &mut Game) {
             game.world.camera_x = moved;
         } else {
             game.world.camera_x = 0x1000;
-            scroll.ppu_ctrl |= 1;
+            scroll.ppu_ctrl |= ctrl::NAMETABLE_X;
         }
     }
     let [column, fraction] = game.world.camera_x.to_be_bytes();
@@ -137,7 +138,7 @@ fn across_x(game: &mut Game) {
         ((fraction >> 4) | (column << 4)).overflowing_add(u8::from(fraction & 8 != 0));
     game.scroll.scroll_x = scroll_x;
     if wrapped {
-        game.scroll.ppu_ctrl |= 1;
+        game.scroll.ppu_ctrl |= ctrl::NAMETABLE_X;
     }
 }
 
@@ -174,9 +175,9 @@ fn across_y(game: &mut Game) {
     }
     let [row, fraction] = scroll.ring_y.to_be_bytes();
     if row & 0xF0 == 0 {
-        scroll.ppu_ctrl |= 2;
+        scroll.ppu_ctrl |= ctrl::NAMETABLE_Y;
     } else {
-        scroll.ppu_ctrl &= 0xFD;
+        scroll.ppu_ctrl &= !ctrl::NAMETABLE_Y;
     }
     game.world.camera_y = game
         .world
@@ -187,7 +188,7 @@ fn across_y(game: &mut Game) {
         scroll.scroll_y = scroll.scroll_y.wrapping_add(1);
         if scroll.scroll_y >= 0xF0 {
             scroll.scroll_y &= 0x0F;
-            scroll.ppu_ctrl &= 0xFD;
+            scroll.ppu_ctrl &= !ctrl::NAMETABLE_Y;
         }
     }
 }

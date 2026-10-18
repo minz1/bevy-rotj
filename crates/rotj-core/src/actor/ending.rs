@@ -9,6 +9,7 @@ use super::cutscene::{
 use super::script::{Flow, Runner, wait};
 use super::stage::Fade;
 use crate::levelmap::PAYLOAD_FIRST_BANK;
+use crate::render::mask;
 use crate::rooms::Raster;
 
 /// What the payload does from `$999C` on, in order: each step runs one frame or more,
@@ -95,7 +96,7 @@ const SCRIPT: &[Row] = &[
     Row::Fill(BUFFER_FILL, BUFFER_FILL_TAIL),
     Row::Blocks(SCREEN_BLOCKS, 5),
     Row::Split,
-    Row::Mask(0x1E),
+    Row::Mask(mask::SHOWN),
     Row::FadeIn,
     Row::Wait(0x90),
     Row::Buffer(0x689C, 6),
@@ -117,7 +118,7 @@ const SCRIPT: &[Row] = &[
     Row::Palette(0x6AB4),
     Row::Buffer(0x6AB4, 32),
     Row::Watcher,
-    Row::Mask(0x1E),
+    Row::Mask(mask::SHOWN),
     Row::FadeIn,
     Row::Skyline,
     Row::Watch(0x5F),
@@ -136,7 +137,7 @@ const SCRIPT: &[Row] = &[
     Row::Palette(0x6CF2),
     Row::Blocks(0x6B02, 5),
     Row::Parallax,
-    Row::Mask(0x1E),
+    Row::Mask(mask::SHOWN),
     Row::WalkIn,
     Row::FadeIn,
     Row::Walk(0xA0),
@@ -150,7 +151,7 @@ const SCRIPT: &[Row] = &[
     Row::Banks(0x7103, 4),
     Row::Palette(0x7107),
     Row::Blocks(0x70C3, 2),
-    Row::Mask(0x1E),
+    Row::Mask(mask::SHOWN),
     Row::FadeIn,
     Row::Wait(0x180),
     Row::FadeOut,
@@ -158,7 +159,7 @@ const SCRIPT: &[Row] = &[
     Row::Clear(0),
     Row::Palette(0x7127),
     Row::Blocks(0x7147, 3),
-    Row::Mask(0x1E),
+    Row::Mask(mask::SHOWN),
     Row::FadeIn,
     Row::Hold,
 ];
@@ -277,7 +278,7 @@ impl Ending {
             }
             Row::ShowBuffer => {
                 if self.runner.frame == 0 {
-                    game.effects.vram.push(0x3F00, 0, &self.buffer[..32]);
+                    game.effects.vram.push_palette(&self.buffer[..32]);
                 }
                 frames(1)
             }
