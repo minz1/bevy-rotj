@@ -7,7 +7,7 @@
 //! [`engine::draw`]); `docs/ACTORS.md` §9g.
 
 use super::collision::{self, Probe};
-use super::engine::{self, Work, rom_byte, rom_word};
+use super::engine::{self, Work, rom_word};
 use super::oam::{Mark, attr};
 use super::scroll::Scroll;
 use super::slots::{Field, hit};
@@ -299,11 +299,9 @@ fn each_projectile(
 /// Gravity's `$7EB0`/`$7D20` add: `$7EB0 += 6`, carrying into the high byte; returns
 /// the overflow flag the `ADC #$06` leaves.
 fn gravity(projectile: &mut Projectile) -> bool {
-    let [hi, lo] = projectile.vy.to_be_bytes();
-    let (lo_after, carry) = lo.overflowing_add(6);
-    let hi = if carry { hi.wrapping_add(1) } else { hi };
-    projectile.vy = i16::from_be_bytes([hi, lo_after]);
-    engine::adc_overflows(lo, 6, false)
+    let overflow = engine::adc_overflows(projectile.vy.to_be_bytes()[1], 6, false);
+    projectile.vy = projectile.vy.wrapping_add(6);
+    overflow
 }
 
 /// Integrates the projectile's level position by its velocity (`$9E13`).
@@ -1203,23 +1201,18 @@ fn splitter(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         if timer & 0x80 != 0 {
             if phase & shot_state::FALLING == 0 {
                 let projectile = &mut cx.effects.projectiles[slot];
-                let [hi, lo] = projectile.vy.to_be_bytes();
-                let (sub, borrow) = lo.overflowing_sub(2);
-                let hi = if borrow { hi.wrapping_sub(1) } else { hi };
+                let [hi, sub] = projectile.vy.wrapping_sub(2).to_be_bytes();
                 projectile.vy = i16::from_be_bytes([hi, if sub >= 0xD0 { sub } else { 0xC0 }]);
             }
             work.pointer = rom_word(cx.prg, 5, 0x8A43 + u16::from(kind & 0x80 != 0) * 2);
         } else {
             if phase & shot_state::FALLING == 0 {
                 let projectile = &mut cx.effects.projectiles[slot];
-                let [hi, lo] = projectile.vx.to_be_bytes();
                 if attr & attr::FLIP_X != 0 {
-                    let (sub, borrow) = lo.overflowing_sub(2);
-                    let hi = if borrow { hi.wrapping_sub(1) } else { hi };
+                    let [hi, sub] = projectile.vx.wrapping_sub(2).to_be_bytes();
                     projectile.vx = i16::from_be_bytes([hi, if sub >= 0xD0 { sub } else { 0xC0 }]);
                 } else {
-                    let (add, carry) = lo.overflowing_add(2);
-                    let hi = if carry { hi.wrapping_add(1) } else { hi };
+                    let [hi, add] = projectile.vx.wrapping_add(2).to_be_bytes();
                     projectile.vx = i16::from_be_bytes([hi, if add < 0x30 { add } else { 0x40 }]);
                 }
             }
@@ -1524,10 +1517,8 @@ fn three_way_tether(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
 /// One axis of the tether's spring: the low byte up 4 when the offset is negative
 /// (`behind`) and down 4 otherwise, held to `toward`/`away` in `$xx-$7F`/`$80-$xx`.
 fn three_way_pull(velocity: i16, behind: bool, toward: u8, away: u8) -> i16 {
-    let [hi, lo] = velocity.to_be_bytes();
     if behind {
-        let (lo, carry) = lo.overflowing_add(4);
-        let hi = hi.wrapping_add(u8::from(carry));
+        let [hi, lo] = velocity.wrapping_add(4).to_be_bytes();
         let lo = if (toward..0x80).contains(&lo) {
             toward
         } else {
@@ -1535,8 +1526,7 @@ fn three_way_pull(velocity: i16, behind: bool, toward: u8, away: u8) -> i16 {
         };
         i16::from_be_bytes([hi, lo])
     } else {
-        let (lo, borrow) = lo.overflowing_sub(4);
-        let hi = hi.wrapping_sub(u8::from(borrow));
+        let [hi, lo] = velocity.wrapping_sub(4).to_be_bytes();
         let lo = if (0x80..away).contains(&lo) { away } else { lo };
         i16::from_be_bytes([hi, lo])
     }
@@ -1545,11 +1535,6 @@ fn three_way_pull(velocity: i16, behind: bool, toward: u8, away: u8) -> i16 {
 /// The highest free weapon slot.
 fn free_slot(cx: &Cx<'_>) -> Option<usize> {
     (0..16).rev().find(|&i| cx.effects.projectiles[i].kind == 0)
-}
-
-/// The big-endian word from bank 5 bytes `hi` and `lo`.
-fn word(cx: &Cx<'_>, hi: u16, lo: u16) -> u16 {
-    u16::from_be_bytes([rom_byte(cx.prg, 5, hi), rom_byte(cx.prg, 5, lo)])
 }
 
 /// The player's level position plus `(dx, dy)`.
@@ -1565,14 +1550,10 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     super::oracle::seen(0x8A4F);
     let projectile = cx.effects.projectiles[slot];
     let turn = u16::from(projectile.part) + if projectile.param & 0x80 != 0 { 4 } else { 0 };
-    let vx = projectile
-        .vx
-        .cast_unsigned()
-        .wrapping_add(word(cx, 0x8C79 + turn, 0x8C71 + turn));
-    let vy = projectile
-        .vy
-        .cast_unsigned()
-        .wrapping_add(word(cx, 0x8C89 + turn, 0x8C81 + turn));
+    let [dvx] = engine::rom_split_words(cx.prg, 5, 0x8C79 + turn, 0x8C71 + turn);
+    let [dvy] = engine::rom_split_words(cx.prg, 5, 0x8C89 + turn, 0x8C81 + turn);
+    let vx = projectile.vx.cast_unsigned().wrapping_add(dvx);
+    let vy = projectile.vy.cast_unsigned().wrapping_add(dvy);
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.vx = vx.cast_signed();
     projectile.vy = vy.cast_signed();
@@ -1582,10 +1563,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         projectile.part_timer = 0;
         cx.effects.sound[1] = sound::SPLITTER_ORBIT;
     }
-    let [hi, lo] = vx.to_be_bytes();
-    let (back_lo, carry) = (!lo).overflowing_add(1);
-    let (back_hi, round) = (!hi).overflowing_add(u8::from(carry));
-    let back = u16::from_be_bytes([back_hi, back_lo]);
+    let back = vx.wrapping_neg();
     let motion = usize::from(cx.effects.player.motion.byte());
     let left = cx.effects.player.faces_left();
     (work.x, work.y) = if cx.effects.player.motion == Motion::AimingUp {
@@ -1600,7 +1578,8 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
             cx.prg.weapons.split_left_dx[motion],
             cx.prg.weapons.split_dy[motion],
         );
-        let x = x.wrapping_add(back).wrapping_add(u16::from(round));
+        // Classic adds the negate's carry.
+        let x = x.wrapping_add(back).wrapping_add(u16::from(vx == 0));
         (x, y.wrapping_add(vy))
     } else {
         let (x, y) = beside_player(
@@ -1655,8 +1634,8 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         rom_word(cx.prg, 5, tables + pose),
         u16::from(projectile.part),
     );
-    let vx = word(cx, table + part + 4, table + part);
-    let vy = word(cx, table + part + 12, table + part + 8);
+    let [vx] = engine::rom_split_words(cx.prg, 5, table + part + 4, table + part);
+    let [vy] = engine::rom_split_words(cx.prg, 5, table + part + 12, table + part + 8);
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.vx = vx.cast_signed();
     projectile.vy = vy.cast_signed();
@@ -1865,10 +1844,9 @@ fn wave_flight(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
 fn weave(slot: usize, cx: &mut Cx<'_>, horizontal: bool) -> bool {
     if cx.effects.projectiles[slot].param & 0x80 == 0 {
         let projectile = &mut cx.effects.projectiles[slot];
-        let (hi, lo) = velocity(projectile, horizontal);
-        let (sub, borrow) = lo.overflowing_sub(4);
-        let hi = if borrow { hi.wrapping_sub(1) } else { hi };
-        set_velocity(projectile, horizontal, hi, sub);
+        let velocity = axis(projectile, horizontal);
+        *velocity = velocity.wrapping_sub(4);
+        let sub = velocity.to_be_bytes()[1];
         if (0x40..0xC0).contains(&sub) {
             #[cfg(test)]
             super::oracle::seen(if horizontal { 0x8DEE } else { 0x8E3D });
@@ -1877,10 +1855,9 @@ fn weave(slot: usize, cx: &mut Cx<'_>, horizontal: bool) -> bool {
         return true;
     }
     let projectile = &mut cx.effects.projectiles[slot];
-    let (hi, lo) = velocity(projectile, horizontal);
-    let (add, carry) = lo.overflowing_add(4);
-    let hi = if carry { hi.wrapping_add(1) } else { hi };
-    set_velocity(projectile, horizontal, hi, add);
+    let velocity = axis(projectile, horizontal);
+    *velocity = velocity.wrapping_add(4);
+    let add = velocity.to_be_bytes()[1];
     if !(0x40..0xC0).contains(&add) {
         return true;
     }
@@ -1888,23 +1865,12 @@ fn weave(slot: usize, cx: &mut Cx<'_>, horizontal: bool) -> bool {
     !horizontal || add == 0x40
 }
 
-/// The high and low bytes of the velocity `edge` adjusts.
-fn velocity(projectile: &Projectile, horizontal: bool) -> (u8, u8) {
-    let [hi, lo] = if horizontal {
-        projectile.vx.to_be_bytes()
-    } else {
-        projectile.vy.to_be_bytes()
-    };
-    (hi, lo)
-}
-
-/// Writes the two velocity bytes `edge` adjusted.
-fn set_velocity(projectile: &mut Projectile, horizontal: bool, hi: u8, lo: u8) {
-    let value = i16::from_be_bytes([hi, lo]);
+/// The velocity the weave adjusts.
+fn axis(projectile: &mut Projectile, horizontal: bool) -> &mut i16 {
     if horizontal {
-        projectile.vx = value;
+        &mut projectile.vx
     } else {
-        projectile.vy = value;
+        &mut projectile.vy
     }
 }
 
@@ -1919,6 +1885,17 @@ fn draw_on_odd_frames(work: &mut Work, cx: &mut Cx<'_>) {
 mod tests {
     use super::super::oracle::{Scene, assert_game, assert_routine, was_seen};
     use super::super::world::{Cx, shot_state};
+
+    #[test]
+    fn splitter_negate_is_word_maths() {
+        for vx in 0..=0xFFFFu16 {
+            let [hi, lo] = vx.to_be_bytes();
+            let (back_lo, carry) = (!lo).overflowing_add(1);
+            let (back_hi, round) = (!hi).overflowing_add(u8::from(carry));
+            let back = u16::from_be_bytes([back_hi, back_lo]);
+            assert_eq!((vx.wrapping_neg(), vx == 0), (back, round));
+        }
+    }
 
     /// Stage 1-1 with the power-up's weapon and its charge (type `$80`) in slot 14, the
     /// meter at 2, after one weapons call with `overflow` coming in and, if `shot_above`, a
