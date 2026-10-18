@@ -280,7 +280,7 @@ New candidates, each to be classified (state, flags, table index) before it chan
 A read-only survey of `next` for what is still NES-shaped, beyond everything above; each a release
 of its own, proven by the lockstep, ranked by payoff over risk:
 
-1. **Sprite attribute bits named**: raw `0x40` flip-x, `0x80` flip-y, `0x20` behind and `0x03`
+1. **Sprite attribute bits named** (done in 1.1.18): raw `0x40` flip-x, `0x80` flip-y, `0x20` behind and `0x03`
    palette masks on `work.attr`, `Body.flags`, `Projectile.attr` and `Player.facing`, about 130
    sites in 25 files (`facing ^= 0x40` 20 times in `player.rs`) -> an `oam::attr` module and
    `turn_around`/`faces_left`; constant substitution. `facing` also holds palette bits: it is
@@ -307,10 +307,11 @@ of its own, proven by the lockstep, ranked by payoff over risk:
    1.1.6 did for the families; one `hi`/`lo`/`word` helper instead of four.
 9. **The remaining flag bytes named**: `Body.contact`, `probe_flags`, `work.anchor`, `pose_step`,
    `death_flags`, the `energy & 0x80` sign tests, `scroll.mode`.
-- **A lead (the attribute-bits review)**: `player.rs:461` tests `(toward ^ facing) & 0x80`,
-  where `toward` is `0x40` or `0` after its shift, so only `facing`'s bit 7 counts and the pressed
-  direction is ignored; check the ROM's rotate there (a fix would change behaviour, so an oracle
-  probe first).
+- **Resolved (2026-10-18)**: `player.rs:461`'s `(toward ^ facing) & 0x80` is the ROM's own
+  test: `$8427` does `LSR`, `ROR`, `LSR` on `$F6 & 3`, leaving `$40` or `0`, then
+  `EOR $046F; BPL`, so the game reads only the facing byte's bit 7 (the vertical flip) and the
+  pressed direction never counts: a landing with a direction held stops unless that bit is set. A
+  Classic quirk the port reproduces; to be named as the rule at that line.
 10. **The music driver's commands** as an enum and the APU registers named: waits on the owner,
     since §2 keeps the driver NES-shaped.
 
@@ -328,8 +329,7 @@ To do, in the survey loop's order after #1-#3 above, level packs release 1 along
   `TapePlayer::injected` gone); **Modern's tilemap computed only when `picture: Modern`**.
 - **Modern's per-frame sprite and atlas churn**: measure on the headless render; reuse only if
   it costs.
-- **Leads to probe**: `player.rs:461`'s `facing` bit 7 (a fix waits for the owner);
-  `path_platform`'s and the splitter orbit's table sizes; later, the odd-energy HUD and the
+- **Leads to probe**: `path_platform`'s and the splitter orbit's table sizes; later, the odd-energy HUD and the
   no-free-slot `$AC16` path. The aliased-byte write-back fix comes with level packs.
 - **The music driver** (owner, 2026-10-18): its commands as an enum, the APU registers named.
 

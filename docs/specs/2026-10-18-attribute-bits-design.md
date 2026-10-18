@@ -2,7 +2,8 @@
 
 Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: the counts; one
 `Player::faces_left` instead of a local copy; the bytes out of scope listed; each bit named by what
-its reader does; `player.rs:461` left alone as a lead; the `facing` doc). The survey loop's first item (MODERNIZE "The survey loop, 2026-10-18",
+its reader does; `player.rs:461` left alone as a lead; the `facing` doc). Implemented in 1.1.18;
+the lead resolved: the ROM tests the same bit, so the line is named as Classic's rule. The survey loop's first item (MODERNIZE "The survey loop, 2026-10-18",
 #1). No behaviour change: constant substitution, proven by the lockstep.
 
 ## What is there

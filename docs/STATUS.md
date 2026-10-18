@@ -1,4 +1,4 @@
-# Status — where 1.1.17 stands
+# Status — where 1.1.18 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -41,6 +41,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.15 | **done, tag `1.1.15`** (2026-10-18): the fifteenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged). `Outside` removed (`docs/specs/2026-10-18-outside-removal-design.md`, the owner's approved release of its own): `Game::frame` no longer takes a callback to hand the oracle an unported second-class update (every type is ported since 1.0.0), and with it went the lockstep's re-lift, its on-demand peeks and `GameRun::relifted`; a test build asserts in the loop that no live second-class type is unported. **The tape format's change**: the `Relift` and `Outside` events and their wire tags (1, 4) are retired, not reused, so the other events keep their encoding; the 1.1.14 chain tape replays unmodified on the new code, and the tape the new lockstep records is byte-identical to it, so nothing was re-recorded in substance |
 | 1.1.16 | **done, tag `1.1.16`** (2026-10-18): the sixteenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). Weapon 5's charge and the 6502 overflow flag as data flow (`docs/specs/2026-10-18-overflow-flow-design.md`): a trace over a sweep, an exploration and a held-B probe found the charge waits, in play, on the flag Batman's frame leaves (B held about 90% of the time, invulnerable standing, a mid-jump turn or a crouch release), which a live second-class actor's draw usually clears; so `Work::cpu_overflow` is gone, `player::step_draw` returns the flag `$84AB` leaves, `draw_second` and `weapons::step` take it and thread it slot to slot, and `super_unleash` takes it with the Classic rule written on it; `bit` is `set_overflow_from`. New tests pin the threading (the charge waits on the incoming flag; a shot above that goes off the screen clears it; `draw_second` with no live actor passes it through) |
 | 1.1.17 | **done, tag `1.1.17`** (2026-10-18): the seventeenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The hurt written once (`docs/specs/2026-10-18-hurt-once-design.md`): the damage tile's response and `engine::hurt_player` share `engine::start_hurt` (the shot pose dropped, stunned and invulnerable for 32 frames, a fall turned into a jump; the knock-back speed away from where Batman faces), each keeping its own rule for where the speed goes; the stunned frame's handler is `stunned` |
+| 1.1.18 | **done, tag `1.1.18`** (2026-10-18): the eighteenth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The sprite attribute bits named (`docs/specs/2026-10-18-attribute-bits-design.md`, the survey loop's first item): `oam::attr` (`FLIP_X`, `FLIP_Y`, `BEHIND`, `PALETTE`) replaces the raw masks on the attribute bytes in 31 files, the Classic and Modern pictures decoding the byte with the same names; `Player::faces_left` serves every facing test; `breakable_block::KEEPS_PALETTES` names that family's own switch; the landing's turn test is named as the Classic rule it is (the ROM at `$8427` reads only the facing byte's bit 7, never the pad) |
 
 ## Verified working
 
@@ -96,8 +97,9 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    **1.1.15, `Outside` removed: tagged `1.1.15`** (2026-10-18). **1.1.16, the overflow flag as data
    flow: tagged `1.1.16`** (2026-10-18). `Body`'s typed per-family state is deferred
    (`docs/specs/2026-10-18-family-fields-views-design.md`). **1.1.17, the hurt written once:
-   tagged `1.1.17`** (2026-10-18). Next: the survey loop (what is still NES-shaped, logged in
-   MODERNIZE and worked through).
+   tagged `1.1.17`** (2026-10-18). **1.1.18, the attribute bits named: tagged `1.1.18`**
+   (2026-10-18). Next: the survey loop's list in MODERNIZE (the probe results typed, the raster
+   split typed, ...), level packs release 1 alongside.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
