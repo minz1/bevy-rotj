@@ -9,7 +9,7 @@
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::{Brain, dropper_payload};
 use crate::actor::oam::attr;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, contact};
 use crate::actor::world::Cx;
 use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
 
@@ -119,7 +119,7 @@ fn spawn_child(body: &mut Body, work: &Work, cx: &mut Cx<'_>) -> bool {
     child.y = cx.world.camera_y;
     child.chr_slot = body.chr_slot;
     child.vy = 0x40;
-    child.contact = 0x40;
+    child.contact = contact::PASSIVE;
     child.state = STATE_UNTARGETED;
     child.flags = (work.attr & attr::FLIP_X) | 0x02;
     child.phase = 0;

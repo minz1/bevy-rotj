@@ -6,11 +6,14 @@
 //! `docs/ACTORS.md` §9h.
 
 use super::collision::{self, Probe, probe};
-use super::engine::{self, Work, adc_overflows, hi, lo, rom_word, sub_overflows16};
+use super::engine::{
+    self, Work, adc_overflows, anchor, hi, lo, probe_flags, rom_word, sub_overflows16,
+};
 use super::oam::attr;
+use super::slots::contact;
 use super::world::{
-    Cx, Motion, Player, Projectile, Weapon, attack, busy, hurt, orientation, pose, power_up,
-    set_first_colours, shot_flags, sliding, sound, stage_script,
+    Cx, Motion, Player, Projectile, Weapon, attack, busy, death, hurt, orientation, pose, power_up,
+    set_first_colours, shot_flags, slide_ledge, sliding, sound, stage_script,
 };
 use crate::actor::button::Buttons;
 use crate::actors::STATE_UNTARGETED;
@@ -244,7 +247,7 @@ pub fn step_move(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
         // `$8135`: land on the floor at the feet.
         probe.y = work.y;
         if floor(&mut player, work, probe, cx) {
-            work.probe_flags |= 0x40;
+            work.probe_flags |= probe_flags::BLOCKED_Y;
         }
     } else {
         // `$8103`: rising into the ceiling `$2B0` above.
@@ -266,9 +269,9 @@ pub fn step_move(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
 
     // `$82B9-$8310`: a damage response (`$9F` bit 7, set by the `$C99D`/`$CAFE`
     // class handlers on a damage tile) costs energy and knocks the player back.
-    if work.probe_flags & 0x80 != 0
-        && (player.hit & 0x80 != 0 || player.hurt & hurt::INVULNERABLE == 0)
-        && player.energy & 0x80 == 0
+    if work.probe_flags & probe_flags::DAMAGED != 0
+        && (player.hit & probe_flags::DAMAGED != 0 || player.hurt & hurt::INVULNERABLE == 0)
+        && !player.out_of_energy()
     {
         hit!(9);
         player.energy = player.energy.wrapping_sub(work.damage);
@@ -342,7 +345,7 @@ fn ground_or_ride(
     probe: &mut Probe,
     cx: &mut Cx<'_>,
 ) {
-    let mut grounded = work.probe_flags & 0x40 != 0;
+    let mut grounded = work.probe_flags & probe_flags::BLOCKED_Y != 0;
     if falling {
         probe.y = work.y;
         if !grounded {
@@ -354,7 +357,7 @@ fn ground_or_ride(
             }
         }
         if grounded {
-            work.probe_flags |= 0x40;
+            work.probe_flags |= probe_flags::BLOCKED_Y;
         }
         // `$824F`: fall onto a platform, or settle the motion state.
         let stood = collision::ride(work, probe, cx);
@@ -376,7 +379,7 @@ fn ground_or_ride(
             grounded = wall(player, work, probe, 0x08, cx);
         }
         if grounded {
-            work.probe_flags |= 0x40;
+            work.probe_flags |= probe_flags::BLOCKED_Y;
         } else if air_state(player, work, probe, cx) {
             player.carrier = 0;
         }
@@ -525,7 +528,7 @@ fn air_state(player: &mut Player, work: &mut Work, probe: &mut Probe, cx: &mut C
 
 /// `$8451`: the slide off a ledge: the probe that lands it or lets it fall.
 fn slide_off_ledge(player: &mut Player, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
-    if player.pose_step & 0x80 != 0 {
+    if player.pose_step & slide_ledge::PROBED != 0 {
         return;
     }
     work.vy = 0;
@@ -535,7 +538,11 @@ fn slide_off_ledge(player: &mut Player, work: &mut Work, probe: &mut Probe, cx: 
     probe.x = work.x;
     probe.y = work.y.wrapping_add(0x0100);
     let solid = collision::solid(probe, 0x80 | probe::FLOORS_SOLID, cx);
-    player.pose_step = if solid { 0xC0 } else { 0x80 };
+    player.pose_step = if solid {
+        slide_ledge::PROBED | slide_ledge::FLOOR_BELOW
+    } else {
+        slide_ledge::PROBED
+    };
     player.pose_timer = 0;
     work.y = probe.y;
     player.anim = 0x3C;
@@ -728,7 +735,7 @@ impl Port<'_, '_> {
         if dy_hi >= 0x0F {
             self.die();
             self.player.stage_script = stage_script::FROZEN | stage_script::HIDDEN;
-            self.player.death_flags = 0x80;
+            self.player.death_flags = death::NO_OVERLAY;
             return;
         }
         let mut sy = (dy_lo >> 4) | (dy_hi << 4);
@@ -738,7 +745,7 @@ impl Port<'_, '_> {
         }
         self.player.screen_y = sy;
         self.work.screen_y = sy;
-        self.work.anchor = if sy >= 0xF0 { 0x40 } else { 0 };
+        self.work.anchor = if sy >= 0xF0 { anchor::BOTTOM } else { 0 };
         self.draw();
     }
 
@@ -899,7 +906,7 @@ impl Port<'_, '_> {
         self.player.hurt_timer = self.player.hurt_timer.wrapping_sub(1);
         if self.player.hurt_timer & 0x80 != 0 {
             self.set_overflow_from(self.player.energy);
-            if self.player.energy & 0x80 != 0 {
+            if self.player.out_of_energy() {
                 self.die();
                 return;
             }
@@ -936,7 +943,7 @@ impl Port<'_, '_> {
         }
         self.player.hurt_timer = self.player.hurt_timer.wrapping_sub(1);
         if self.player.hurt_timer & 0x80 != 0 {
-            if self.player.energy & 0x80 != 0 {
+            if self.player.out_of_energy() {
                 self.die();
                 return;
             }
@@ -1312,7 +1319,7 @@ impl Port<'_, '_> {
         for _ in 0..16 {
             let actor = &self.cx.slots.main[usize::from(slot)];
             if actor.kind != 0
-                && actor.body.contact & 0x20 == 0
+                && actor.body.contact & contact::UNTARGETED == 0
                 && actor.body.state & STATE_UNTARGETED == 0
             {
                 return slot;
@@ -2028,7 +2035,7 @@ impl Port<'_, '_> {
         self.stunned();
         self.player.walk_gate = Buttons::NONE;
         self.set_overflow_from(self.player.pose_step);
-        if self.player.pose_step & 0x80 == 0 {
+        if self.player.pose_step & slide_ledge::PROBED == 0 {
             self.slide_on_ground();
             return;
         }
@@ -2040,7 +2047,7 @@ impl Port<'_, '_> {
             self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
             return;
         }
-        if self.player.pose_step & 0x40 == 0 {
+        if self.player.pose_step & slide_ledge::FLOOR_BELOW == 0 {
             self.player.motion = Motion::Falling;
             self.player.pose_timer = 0;
             self.player.pose_step = 0;
@@ -2328,13 +2335,13 @@ impl Port<'_, '_> {
             if timer == 0x2F {
                 self.cx.effects.sound[1] = sound::PLAYER_DIES;
                 self.player.stage_script = stage_script::FROZEN | stage_script::HIDDEN;
-                self.player.death_flags |= 0x01;
+                self.player.death_flags |= death::BURST;
             }
             if timer.is_multiple_of(16) {
                 self.cx.effects.sound[1] = sound::DEATH_TICK;
             }
             self.set_overflow_from(self.player.death_flags);
-            if self.player.death_flags & 0x80 == 0 {
+            if self.player.death_flags & death::NO_OVERLAY == 0 {
                 self.work.pointer = self.rw(0x9A40 + u16::from(timer & 0x06));
                 self.work.attr = self.player.facing & attr::PALETTE;
                 self.overlay(4);
@@ -2383,7 +2390,7 @@ impl Port<'_, '_> {
         self.work.screen_x = self.player.screen_x;
         self.work.screen_y = self.player.screen_y;
         self.set_overflow_from(self.player.death_flags);
-        if self.player.death_flags & 0x80 == 0 {
+        if self.player.death_flags & death::NO_OVERLAY == 0 {
             self.overflow = engine::draw(self.work, 1, self.cx);
         }
     }

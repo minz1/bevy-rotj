@@ -10,7 +10,7 @@
 //! `$A8E4`: it has no gravity, and `$7DD0` is a lifetime counter, not a phase
 //! flag, so the slot frees after `$B0` frames whether drawn or not.
 
-use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::slots::Body;
 use crate::actor::slots::hit;
 use crate::actor::world::Cx;
@@ -69,7 +69,7 @@ impl State {
         if body.phase < FLICKER || body.phase & 0x02 != 0 {
             draw(body, work, cx);
         }
-        if work.anchor & 0x40 == 0 {
+        if work.anchor & anchor::BOTTOM == 0 {
             work.hitbox = HITBOX;
             engine::contact(kind, body, work, CONTACT, cx);
         }

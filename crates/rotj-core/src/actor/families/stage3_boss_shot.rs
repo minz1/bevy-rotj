@@ -8,7 +8,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, contact};
 use crate::actor::world::{Cx, sound};
 
 const HOME_BANK: u8 = 0;
@@ -21,7 +21,7 @@ const SOLID_FLAGS: u8 = 0x80 | collision::probe::FLOORS_SOLID;
 const BURSTING: u8 = 2;
 const BURST_VARIANT: u8 = 7;
 const BURST_KIND: u8 = 0x92;
-const BURST_CONTACT: u8 = 0x20;
+const BURST_CONTACT: u8 = contact::UNTARGETED;
 const HITBOX: u8 = 1;
 /// `$AFD6`'s amount (X:A) and mode (Y).
 const CONTACT: u16 = 0x03E0;

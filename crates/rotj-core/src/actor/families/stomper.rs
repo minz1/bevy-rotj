@@ -2,8 +2,7 @@
 //! through three phases (the dispatch table at bank 8 `$8A68`).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
-use crate::actor::slots::hit;
+use crate::actor::slots::{Body, contact, hit};
 use crate::actor::world::{Cx, sound};
 
 /// The overlay metasprites (bank 8 `$8A64`, by Y = 0 or 2).
@@ -139,7 +138,7 @@ fn hovering(
     cx: &mut Cx<'_>,
 ) {
     if visibility == Visibility::On {
-        body.contact = 0x80;
+        body.contact = contact::SHIELDED;
         work.hitbox = 0;
         engine::contact(kind, body, work, 4, cx);
     }

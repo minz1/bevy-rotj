@@ -1,13 +1,28 @@
 //! The bank-13 routines handlers share, each called where the 6502 calls it.
 
 use super::oam::{DrawCall, Metasprite, attr};
-use super::slots::{Body, Field, hit};
+use super::slots::{Body, Field, contact, hit};
 use super::world::{
     Cx, Effects, Level, Motion, Player, Schedule, Weapon, World, attack, busy, hurt, orientation,
     pose, power_up, shot_flags, shot_state, sliding, sound, stage_script,
 };
 use crate::actors::{STATE_DROPS_PICKUP, bank_slice};
 use crate::levelmap::Cell;
+
+/// The bits of [`Work::probe_flags`] (`$9F`), which [`Player::hit`](super::world::Player::hit)
+/// also receives whole.
+pub mod probe_flags {
+    /// The tile dealt damage (spikes and the damage tiles).
+    pub const DAMAGED: u8 = 0x80;
+    /// The vertical probe met solid: the floor when falling, the ceiling when rising.
+    pub const BLOCKED_Y: u8 = 0x40;
+}
+
+/// The values of [`Work::anchor`] (`$9A`); the port writes only 0 and this bit.
+pub mod anchor {
+    /// The actor sits in the band below the view height and is drawn bottom-anchored.
+    pub const BOTTOM: u8 = 0x40;
+}
 
 /// The zero-page working set `$90-$A6`, carried from slot to slot as the game's is.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -26,14 +41,13 @@ pub struct Work {
     pub chr_slot: u8,
     /// Attribute bits for the draw, merged into `$7C00` at the end (`$99`).
     pub attr: u8,
-    /// Bit 6: drawn bottom-anchored (`$9A`).
+    /// Whether it is drawn bottom-anchored (`$9A`): 0 or [`anchor::BOTTOM`].
     pub anchor: u8,
     /// This frame's x step (`$9B:$9C`).
     pub step_x: i16,
     /// The y velocity before gravity (`$9D:$9E`).
     pub vy: i16,
-    /// The probe's result flags (`$9F`), cleared on load: bit 6 landed on a floor,
-    /// bit 7 the metatile dealt damage.
+    /// The probe's result flags (`$9F`), cleared on load: the [`probe_flags`] bits.
     pub probe_flags: u8,
     /// The reference x velocity (`$A0:$A1`).
     pub ref_vx: i16,
@@ -224,7 +238,7 @@ pub fn on_screen(work: &mut Work, world: &World) -> Visibility {
         };
     }
     let row = if dy >= world.view.height {
-        work.anchor = 0x40;
+        work.anchor = anchor::BOTTOM;
         dy + 256
     } else {
         dy
@@ -590,7 +604,7 @@ pub fn draw_metasprite(work: &mut Work, sprite: &Metasprite, cx: &mut Cx<'_>) ->
         attr: work.attr,
         tile: work.tile,
         chr_slot: work.chr_slot,
-        bottom: work.anchor & 0x40 != 0,
+        bottom: work.anchor & anchor::BOTTOM != 0,
     };
     cx.oam.draw(sprite, call, cx.world.frame_odd)
 }
@@ -606,20 +620,21 @@ fn overlaps(work: &Work, player: &Player, hitbox: Hitbox) -> bool {
 
 /// Contact with the player (`$A9C4`): an item is collected, the actor or the player hurt.
 pub fn contact(kind: &mut u8, body: &mut Body, work: &mut Work, damage: u8, cx: &mut Cx<'_>) {
-    let checks_player = if body.contact & 0x40 == 0 {
+    let checks_player = if body.contact & contact::PASSIVE == 0 {
         cx.effects.player.sliding & sliding::ON != 0
             || (cx.effects.player.power_up & power_up::ON == 0
                 && cx.effects.player.hurt & hurt::INVULNERABLE == 0)
     } else {
-        body.contact & 0x01 != 0
+        body.contact & contact::COLLECTS != 0
     };
     let hitbox = cx.prg.hitboxes.actors[usize::from(work.hitbox)];
     if checks_player && overlaps(work, &cx.effects.player, hitbox) {
-        if body.contact & 0x40 != 0 {
+        if body.contact & contact::PASSIVE != 0 {
             collect(kind, body, cx);
             return;
         }
-        if cx.effects.player.sliding & sliding::ON != 0 && body.contact & 0x10 != 0 {
+        if cx.effects.player.sliding & sliding::ON != 0 && body.contact & contact::SLIDE_HURTS != 0
+        {
             hurt_actor(body, work, cx);
             return;
         }
@@ -660,7 +675,7 @@ pub fn projectile_hits(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             continue;
         }
         let projectile = &mut cx.effects.projectiles[index];
-        if body.contact & 0x80 != 0 {
+        if body.contact & contact::SHIELDED != 0 {
             if projectile.flags & shot_flags::PASSES_SHIELDS != 0 {
                 continue;
             }
@@ -779,7 +794,7 @@ pub fn boss_contact(amount: u16, mode: u8, body: &mut Body, work: &Work, cx: &mu
             if attacking && cx.effects.boss_hp == 0 {
                 return 0;
             }
-            if attacking && mode != 0x80 && body.contact & 0x10 != 0 {
+            if attacking && mode != 0x80 && body.contact & contact::SLIDE_HURTS != 0 {
                 cx.effects.sound[0] = sound::IMPACT;
                 return boss_damaged(8, body, cx);
             }
@@ -943,7 +958,7 @@ pub fn spawn_parts(variant: u8, work: &Work, cx: &mut Cx<'_>) -> Option<usize> {
     slot.kind = BURST;
     slot.brain = super::families::Brain::new(BURST);
     slot.body.set(Field::RefVxHigh, 0x20);
-    slot.body.contact = 0x48;
+    slot.body.contact = contact::PASSIVE | contact::SMITE_PROOF;
     Some(index)
 }
 
@@ -1072,7 +1087,7 @@ pub fn dying(
     body.vx = 0;
     body.ref_vx = 0;
     body.vy = -0x40;
-    body.contact = 0x49;
+    body.contact = contact::PASSIVE | contact::COLLECTS | contact::SMITE_PROOF;
     true
 }
 
@@ -1091,7 +1106,7 @@ pub fn free_child_slot(slots: &super::slots::Slots) -> Option<usize> {
 pub fn collect(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
     let effects = &mut *cx.effects;
     effects.sound[1] = sound::PICKUP;
-    if effects.player.energy & 0x80 != 0 {
+    if effects.player.out_of_energy() {
         *kind = 0;
         return;
     }

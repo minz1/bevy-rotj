@@ -4,7 +4,7 @@
 //! draws and never touches the player.
 
 use crate::actor::engine::Work;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, contact};
 use crate::actor::world::Cx;
 
 /// The type the handler hands to the highest free main slot.
@@ -59,7 +59,7 @@ impl State {
         } else {
             i16::from_be_bytes([0, (random_hi & 0x0F) + 3])
         };
-        child.body.contact = 8;
+        child.body.contact = contact::SMITE_PROOF;
         child.body.state = 0;
         child.body.hit = 0;
         child.body.subtype = 0;

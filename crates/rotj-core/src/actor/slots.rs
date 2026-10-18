@@ -5,6 +5,23 @@ use crate::actor::families::{Brain, SecondBrain};
 use crate::actor::world::{PROJECTILE_ARRAYS, Projectile};
 use crate::actors::SpawnRecord;
 
+/// The bits of [`Body::contact`] (`$7EE0`); no ROM reader tests bits 2 and 1.
+pub mod contact {
+    /// The player's shots bounce off.
+    pub const SHIELDED: u8 = 0x80;
+    /// Touching never hurts; only with [`COLLECTS`] is it touched, and then collected.
+    pub const PASSIVE: u8 = 0x40;
+    /// Not a homing target; unlike [`STATE_UNTARGETED`](crate::actors::STATE_UNTARGETED) it
+    /// does not drop a lock already made.
+    pub const UNTARGETED: u8 = 0x20;
+    /// The player's slide hurts it.
+    pub const SLIDE_HURTS: u8 = 0x10;
+    /// Proof against the Super weapon's smite.
+    pub const SMITE_PROOF: u8 = 0x08;
+    /// With [`PASSIVE`]: the touch collects it (`$A9CA`).
+    pub const COLLECTS: u8 = 0x01;
+}
+
 /// The per-slot arrays the spawners and the engine share (`docs/ACTORS.md` §9).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Body {
@@ -42,7 +59,7 @@ pub struct Body {
     pub scratch: u8,
     /// Hit points (`$7EF0:$7BE0`).
     pub health: u16,
-    /// Contact flags (`$7EE0`).
+    /// Contact flags (`$7EE0`), the [`contact`] bits.
     pub contact: u8,
     /// Frames lived (`$7BA0`).
     pub age: u8,

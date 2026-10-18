@@ -8,7 +8,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, contact};
 use crate::actor::world::Cx;
 use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
 
@@ -21,7 +21,7 @@ const CHILD: u8 = 0x7E;
 /// The child's y (`$92C5`/`$92C7` = `$01`/`$40`).
 const CHILD_Y: u16 = 0x0140;
 /// The child's `$7EE0` (`$92D6`).
-const CHILD_CONTACT: u8 = 0x88;
+const CHILD_CONTACT: u8 = contact::SHIELDED | contact::SMITE_PROOF;
 /// The child's `$7D90` when the parent's has no bit 7 (`$92D4`).
 const CHILD_BEHAVIOUR: u8 = 0x80;
 

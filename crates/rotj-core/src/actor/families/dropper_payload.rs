@@ -7,7 +7,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, Field};
+use crate::actor::slots::{Body, Field, contact};
 use crate::actor::world::{Cx, sound};
 
 const BANK: u8 = 11;
@@ -92,7 +92,7 @@ pub(crate) fn arm(child: &mut Body, parent: u8, landing_y: u16, y: u16, vx: i16)
     child.state = 0;
     child.hit = 0;
     child.subtype = parent;
-    child.contact = 0x20;
+    child.contact = contact::UNTARGETED;
     child.timer = landing_low;
     child.counter = landing_high;
     child.vx = vx;

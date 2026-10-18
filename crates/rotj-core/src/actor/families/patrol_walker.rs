@@ -1,7 +1,7 @@
 //! Type `$26`, the walker of stages 1-2 (`$02`) and 2-2 (`$06`) (bank 8 `$98D6`).
 
 use crate::actor::collision::{self, Probe};
-use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::Body;
@@ -220,7 +220,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if body.counter & 0x80 != 0 {
         flash(work, cx);
     }
-    if work.anchor & 0x40 == 0 {
+    if work.anchor & anchor::BOTTOM == 0 {
         work.hitbox = 0;
         engine::contact(kind, body, work, 2, cx);
     }

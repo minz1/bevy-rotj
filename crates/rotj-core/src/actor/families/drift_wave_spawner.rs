@@ -1,7 +1,7 @@
 //! Type `$C2`, the area-20:00 `$C4` wave spawner (bank 12 `$97B6`).
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, contact};
 use crate::actor::world::Cx;
 use crate::actors::STATE_UNTARGETED;
 
@@ -80,7 +80,7 @@ impl State {
                     child.body.anim = 0;
                     child.body.ref_vx = 0;
                     child.body.vx = 0;
-                    child.body.contact = 0x88;
+                    child.body.contact = contact::SHIELDED | contact::SMITE_PROOF;
                     child.body.health = 0x8888;
                     child.body.state = STATE_UNTARGETED;
                     child.body.flags = 1;

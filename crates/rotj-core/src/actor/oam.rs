@@ -458,7 +458,7 @@ impl DrawCall {
             attr: ram[0x99],
             tile: ram[0xA4],
             chr_slot: ram[0x98],
-            bottom: ram[0x9A] & 0x40 != 0,
+            bottom: ram[0x9A] & super::engine::anchor::BOTTOM != 0,
         }
     }
 }

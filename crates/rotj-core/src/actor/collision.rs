@@ -1,6 +1,6 @@
 //! Level collision (bank 14 `$C93B`, `$C99D`, `$CAFE`, `$CD5F` and their bank-13 wrappers).
 
-use super::engine::{Work, hi, lo, rom_byte, rom_word};
+use super::engine::{Work, hi, lo, probe_flags, rom_byte, rom_word};
 use super::oam::attr;
 use super::world::{Cx, orientation, power_up, sound};
 use crate::collision::Surface;
@@ -117,7 +117,7 @@ fn spikes(work: &mut Work, cx: &mut Cx<'_>) {
         return;
     }
     work.damage = 0x10;
-    work.probe_flags |= 0x80;
+    work.probe_flags |= probe_flags::DAMAGED;
     player.hit = work.probe_flags;
     player.power_up &= !power_up::ON;
     cx.effects.scroll_lock = 0xFF;
@@ -130,7 +130,7 @@ fn spikes(work: &mut Work, cx: &mut Cx<'_>) {
 fn damage(work: &mut Work, amount: u8, cx: &Cx<'_>) {
     if cx.effects.player.power_up & power_up::ON == 0 {
         work.damage = amount;
-        work.probe_flags |= 0x80;
+        work.probe_flags |= probe_flags::DAMAGED;
     }
 }
 
@@ -295,7 +295,10 @@ pub fn ride(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
 
 /// Stands on a platform and takes its motion (`$CDD9`); false when it slips off.
 fn stand(work: &mut Work, probe: &mut Probe, platform: &super::slots::Body) -> bool {
-    if work.probe_flags & 0x40 != 0 && platform.hit != 0 && platform.hit & 0x80 == 0 {
+    if work.probe_flags & probe_flags::BLOCKED_Y != 0
+        && platform.hit != 0
+        && platform.hit & 0x80 == 0
+    {
         return false;
     }
     work.y = platform.y.wrapping_sub(0x100);

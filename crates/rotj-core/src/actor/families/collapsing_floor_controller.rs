@@ -9,7 +9,7 @@
 //! `$93E1` is part of the handler.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, contact};
 use crate::actor::world::{Cx, Motion};
 use crate::levelmap::Cell;
 
@@ -86,7 +86,7 @@ impl State {
             if let Some(slot) = engine::spawn_parts(CHILD_VARIANT, work, cx) {
                 let child = &mut cx.slots.main[slot];
                 child.kind = CHILD_KIND;
-                child.body.contact = 0x40;
+                child.body.contact = contact::PASSIVE;
                 child.body.flags = 0x03;
             }
         }

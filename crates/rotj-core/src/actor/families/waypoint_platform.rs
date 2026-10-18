@@ -4,7 +4,7 @@
 //! `$A852` (`on_screen`), `$C247` (`draw`) and `$A9C4` (`contact`). It stores its
 //! position itself and never runs `$A8E4`, and any frame it is not on screen frees it.
 
-use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, sound};
@@ -82,7 +82,8 @@ impl State {
             }
             advance(body, cx);
         }
-        if engine::on_screen(work, cx.world) != Visibility::On || work.anchor & 0x40 != 0 {
+        if engine::on_screen(work, cx.world) != Visibility::On || work.anchor & anchor::BOTTOM != 0
+        {
             *kind = 0;
             return;
         }

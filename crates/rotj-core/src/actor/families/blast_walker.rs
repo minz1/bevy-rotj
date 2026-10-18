@@ -5,7 +5,7 @@
 //! and frees its slot once it has fallen past row `$0F`. Phases dispatch through
 //! the table at `$9022`; the metasprite tables are the four words from `$902A`.
 
-use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::Body;
@@ -194,7 +194,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
                 body.anim = body.anim.wrapping_sub(1);
                 draw_spark(work, cx);
             }
-            if work.anchor & 0x40 == 0 {
+            if work.anchor & anchor::BOTTOM == 0 {
                 work.hitbox = HITBOX;
                 engine::contact(kind, body, work, DAMAGE, cx);
             }

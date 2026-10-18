@@ -8,7 +8,7 @@ use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, contact};
 use crate::actor::world::{Cx, Motion, sound};
 
 /// The `$3A` part (`ace_ranger_shot` family), spawned by `$8FB9`.
@@ -344,7 +344,7 @@ fn spawn_3c(cx: &mut Cx<'_>) {
         part.body.y = u16::from_be_bytes([y, 0]);
         (part.body.state, part.body.hit, part.body.health) = (0, 0, 0x0008);
         (part.body.timer, part.body.counter) = (0, 0);
-        part.body.contact = 0x10;
+        part.body.contact = contact::SLIDE_HURTS;
         part.brain = Brain::new(SHELL);
         if count == 0 {
             break;

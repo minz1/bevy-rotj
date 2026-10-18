@@ -1,7 +1,7 @@
 //! Type `$88`, a walker that turns at ledges and walls (bank 0 `$95F6`).
 
 use crate::actor::collision::{self, Probe};
-use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::oam::attr;
 use crate::actor::slots::Body;
 use crate::actor::world::Cx;
@@ -133,7 +133,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             work.pointer = engine::rom_word(cx.prg, 0, METASPRITES + u16::from(body.sprite));
             engine::tile_bits(work, cx.prg);
             engine::draw(work, DRAW_BANK, cx);
-            if work.anchor & 0x40 == 0 {
+            if work.anchor & anchor::BOTTOM == 0 {
                 work.hitbox = 9;
                 engine::contact(kind, body, work, 2, cx);
             }

@@ -1,7 +1,7 @@
 //! Type `$22`, the stage 1-1 soldier on the crate (bank 8 `$9555`).
 
 use crate::actor::collision::{self, Probe};
-use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::Body;
@@ -207,7 +207,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, probe: &mut Probe, cx: 
             engine::draw(work, 1, cx);
         }
     }
-    if work.anchor & 0x40 == 0 {
+    if work.anchor & anchor::BOTTOM == 0 {
         work.hitbox = 0x0A;
         engine::contact(kind, body, work, 2, cx);
     }

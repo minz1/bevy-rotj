@@ -7,10 +7,10 @@
 //! [`engine::draw`]); `docs/ACTORS.md` §9g.
 
 use super::collision::{self, Probe};
-use super::engine::{self, Work, rom_word};
+use super::engine::{self, Work, anchor, rom_word};
 use super::oam::{Mark, attr};
 use super::scroll::Scroll;
-use super::slots::{Field, hit};
+use super::slots::{Field, contact, hit};
 use super::world::{
     Cx, Motion, Projectile, Weapon, attack, busy, power_up, set_first_colours, shot_flags,
     shot_state, sound, stage_script,
@@ -339,7 +339,7 @@ fn project_to_screen(slot: usize, work: &mut Work, cx: &mut Cx<'_>, keep: bool) 
         if !keep {
             cx.effects.projectiles[slot].kind = 0;
         } else if dy.to_be_bytes()[0] < 0x15 {
-            work.anchor = 0x40;
+            work.anchor = anchor::BOTTOM;
         }
         return false;
     }
@@ -509,7 +509,7 @@ fn homing_retarget(slot: usize, cx: &mut Cx<'_>) -> u8 {
     let hittable = |&target: &usize| {
         let actor = &cx.slots.main[target];
         actor.kind != 0
-            && actor.body.contact & 0x20 == 0
+            && actor.body.contact & contact::UNTARGETED == 0
             && actor.body.state & STATE_UNTARGETED == 0
     };
     let found = if slot & 1 == 0 {
@@ -570,7 +570,7 @@ fn homing_gather(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         }
     }
     work.y = work.y.wrapping_add(0x0380);
-    if project_keep(slot, work, cx) || work.anchor & 0x40 != 0 {
+    if project_keep(slot, work, cx) || work.anchor & anchor::BOTTOM != 0 {
         work.attr = 0;
         draw(work, cx);
         if cx.effects.projectiles[slot].param != 0 {
@@ -660,7 +660,7 @@ fn homing_draw_circlers(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         if projectile.param >= 0x20 {
             projectile.param = 0;
         }
-        if project_keep(slot, work, cx) || work.anchor & 0x40 != 0 {
+        if project_keep(slot, work, cx) || work.anchor & anchor::BOTTOM != 0 {
             draw(work, cx);
             let projectile = &mut cx.effects.projectiles[part];
             projectile.screen_x = work.screen_x;
@@ -1046,7 +1046,8 @@ fn super_smite(cx: &mut Cx<'_>) {
     let camera_y = cx.world.camera_y;
     for actor in cx.slots.main[..16].iter_mut().rev() {
         let body = &mut actor.body;
-        if actor.kind == 0 || body.contact & 0x08 != 0 || body.hit & hit::DYING != 0 {
+        if actor.kind == 0 || body.contact & contact::SMITE_PROOF != 0 || body.hit & hit::DYING != 0
+        {
             continue;
         }
         let dx = body.x.to_be_bytes()[0].wrapping_sub(camera_x);

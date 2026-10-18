@@ -2,7 +2,7 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, contact};
 use crate::actor::world::{Cx, sound};
 
 /// The appearing phase's metasprite table (bank 8 `$8EC3`).
@@ -128,7 +128,7 @@ fn landed(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         if let Some(slot) = engine::spawn_parts(4, work, cx) {
             let child = &mut cx.slots.main[slot];
             child.kind = CHILD;
-            child.body.contact = 0x20;
+            child.body.contact = contact::UNTARGETED;
             child.body.flags = 0x03;
         }
     }

@@ -6,7 +6,7 @@
 //! bank 9 mapping), `$A9C4` (`contact`), `$CD50` (`despawn`) and `$A934`
 //! (`store`). It never integrates.
 
-use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::Body;
@@ -69,7 +69,7 @@ impl State {
         work.attr |= attr::BEHIND;
         engine::tile_bits(work, cx.prg);
         engine::draw(work, SPRITE_BANK, cx);
-        if work.anchor & 0x40 == 0 {
+        if work.anchor & anchor::BOTTOM == 0 {
             work.hitbox = HITBOX;
             engine::contact(kind, body, work, DAMAGE, cx);
         }

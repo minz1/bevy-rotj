@@ -1,7 +1,7 @@
 //! Type `$94`, an area-1C stage controller (bank 12 `$8000`).
 
 use crate::actor::engine::Work;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, contact};
 use crate::actor::world::Cx;
 
 /// The type the handler hands to the highest free main slot.
@@ -40,7 +40,7 @@ impl State {
         child.body.phase = 0;
         child.body.timer = 0;
         child.body.anim = 0;
-        child.body.contact = 0x50;
+        child.body.contact = contact::PASSIVE | contact::SLIDE_HURTS;
         child.body.health = 0x0008;
         child.body.state = 0;
         child.body.flags = 1;

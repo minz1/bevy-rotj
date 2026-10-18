@@ -375,6 +375,22 @@ pub mod shot_state {
     pub const FALLING: u8 = 0x40;
 }
 
+/// The flags of [`Player::pose_step`] (`$047D`) during the slide off a ledge.
+pub mod slide_ledge {
+    /// The ledge probe has run.
+    pub const PROBED: u8 = 0x80;
+    /// The probe found a floor below: he stands up on the ledge instead of falling.
+    pub const FLOOR_BELOW: u8 = 0x40;
+}
+
+/// The bits of [`Player::death_flags`] (`$0465`).
+pub mod death {
+    /// He dies with no overlay (fell below the screen): the dying overlay is skipped.
+    pub const NO_OVERLAY: u8 = 0x80;
+    /// The burst pose has begun; written (`ORA #1`) but never read.
+    pub const BURST: u8 = 0x01;
+}
+
 /// The player as actors see him.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Player {
@@ -424,19 +440,21 @@ pub struct Player {
     pub walk_gate: Buttons,
     /// The walk ramp timer (`$047C`).
     pub walk_timer: u8,
-    /// The per-pose step (`$047D`); bits 7-6 are the air state's landing flags.
+    /// The per-pose step (`$047D`): a counter, and during the slide off a ledge the
+    /// [`slide_ledge`] flags.
     pub pose_step: u8,
     /// The per-pose frame counter (`$047E`), cleared with the air state.
     pub pose_timer: u8,
-    /// The movement's damage flag (`$A8`), zeroed each frame and set from the probe's
-    /// `$9F` bit 7.
+    /// The probe's result flags (`$A8`), zeroed each frame and set from `$9F` whole; only
+    /// [`DAMAGED`](super::engine::probe_flags::DAMAGED) is read: spike damage lands even
+    /// through invulnerability.
     pub hit: u8,
     /// `$B9`: 0x80 set by the movement's tail, cleared by the draw; the `$CAA9` and
     /// `$CC6D` class handlers skip when bit 7 is set.
     pub moved: u8,
     /// The draw's hit-flash counter (`$0464`).
     pub flash_timer: u8,
-    /// The death/room-change flags (`$0465`): bit 0 the burst pose, bit 7 hides the draw.
+    /// The death flags (`$0465`), the [`death`] bits; the game reads them with `BIT`.
     pub death_flags: u8,
     /// The attack (shoot) frame counter (`$046B`).
     pub attack_timer: u8,
@@ -459,6 +477,12 @@ impl Player {
     #[must_use]
     pub fn faces_left(&self) -> bool {
         self.facing & attr::FLIP_X != 0
+    }
+
+    /// Is his energy negative (`$0478` below zero): dead, or dying once the stun ends?
+    #[must_use]
+    pub fn out_of_energy(&self) -> bool {
+        self.energy.cast_signed() < 0
     }
 }
 

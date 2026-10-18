@@ -6,7 +6,7 @@
 //! It ends a frame with `$A934` alone, never `$A8E4`, so it keeps its velocity
 //! instead of falling.
 
-use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::Body;
@@ -170,7 +170,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     }
     work.screen_x = saved_x;
     work.screen_y = saved_y;
-    if work.anchor & 0x40 == 0 {
+    if work.anchor & anchor::BOTTOM == 0 {
         work.hitbox = 2;
         engine::contact(kind, body, work, 2, cx);
     }

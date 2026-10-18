@@ -10,7 +10,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, contact};
 use crate::actor::world::{Cx, sound};
 
 const METASPRITE_PTR: u16 = 0x857E;
@@ -20,7 +20,7 @@ const WAKE_DISTANCE: u16 = 0x200;
 const FALL_LIMIT_ROW: u8 = 0x0F;
 const PARTS_VARIANT: u8 = 5;
 const PARTS_KIND: u8 = 0x18;
-const PARTS_CONTACT: u8 = 0x20;
+const PARTS_CONTACT: u8 = contact::UNTARGETED;
 const PARTS_FLAGS: u8 = 2;
 const DRAW_ATTR: u8 = 2;
 const HITBOX: u8 = 6;

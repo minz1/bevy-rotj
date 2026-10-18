@@ -7,10 +7,10 @@
 //! (`free_child_slot`), `$CD50` (`despawn`) and `$A934` (`store`). It never
 //! integrates: its position only changes through the other handlers' writes.
 
-use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, contact};
 use crate::actor::world::{Cx, sound};
 use crate::actors::CELL_PENDING;
 
@@ -71,7 +71,7 @@ impl State {
 /// Standing (`$92DD`): stand until the player is near and the actor is not mid-hit.
 fn standing(body: &mut Body, work: &Work, cx: &Cx<'_>) {
     body.sprite = 0;
-    body.contact = 0x80;
+    body.contact = contact::SHIELDED;
     if body.anim & 0x80 == 0
         && engine::player_dx(work, &cx.effects.player).unsigned_abs() < WAKE_DISTANCE
     {
@@ -82,7 +82,7 @@ fn standing(body: &mut Body, work: &Work, cx: &Cx<'_>) {
 
 /// Crouching (`$9302`): crouch for eight frames, then hold until it throws or is hurt.
 fn crouching(body: &mut Body) {
-    body.contact = 0x10;
+    body.contact = contact::SLIDE_HURTS;
     body.timer = body.timer.wrapping_add(1);
     if body.timer < 8 {
         body.sprite = 1;
@@ -129,7 +129,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     work.pointer = engine::rom_word(cx.prg, 11, METASPRITES + 2 * u16::from(body.sprite));
     engine::tile_bits(work, cx.prg);
     engine::draw(work, DRAW_BANK, cx);
-    if work.anchor & 0x40 == 0 {
+    if work.anchor & anchor::BOTTOM == 0 {
         work.hitbox = HITBOX;
         engine::contact(kind, body, work, DAMAGE, cx);
     }

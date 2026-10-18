@@ -10,10 +10,20 @@ use crate::levelmap::Cell;
 use crate::render::ctrl;
 use crate::rooms::Raster;
 
+/// The bits of [`Scroll::mode`] (`$C3`); the other bits have no reader.
+pub mod mode {
+    /// The camera x auto-scrolls instead of chasing the player.
+    pub const AUTO_X: u8 = 0x80;
+    /// The camera y auto-scrolls instead of chasing the player.
+    pub const AUTO_Y: u8 = 0x40;
+    /// The auto-scroll runs forward (`+$0A`: right in x, down in y); clear, it runs backward.
+    pub const FORWARD: u8 = 0x01;
+}
+
 /// Scroll state outside the camera position.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Scroll {
-    /// Bit 7 auto-scrolls x, bit 6 y; bit 0 the direction (`$C3`).
+    /// The auto-scroll mode (`$C3`), the [`mode`] bits.
     pub mode: u8,
     /// The auto-scroll gate (`$B6`).
     pub gate: u8,
@@ -62,12 +72,12 @@ pub fn speed(game: &mut Game, prg: &[u8]) {
             .cast_signed()
             .clamp(-0x80, 0x80)
     };
-    scroll.speed_x = if scroll.mode & 0x80 != 0 {
+    scroll.speed_x = if scroll.mode & mode::AUTO_X != 0 {
         auto(scroll.mode, scroll.gate, 0xF5)
     } else {
         toward(player.x, game.world.camera_x)
     };
-    scroll.speed_y = if scroll.mode & 0x40 != 0 {
+    scroll.speed_y = if scroll.mode & mode::AUTO_Y != 0 {
         auto(scroll.mode, scroll.gate, 0xFC)
     } else {
         toward(player.y, game.world.camera_y)
@@ -76,7 +86,7 @@ pub fn speed(game: &mut Game, prg: &[u8]) {
 
 /// The auto-scroll speed: `$0A` forward, or back by `backward` (`$F5` in x, `$FC` in y).
 fn auto(mode: u8, gate: u8, backward: u8) -> i16 {
-    if mode & 1 != 0 || gate == 0 {
+    if mode & mode::FORWARD != 0 || gate == 0 {
         i16::from(0x0A & gate)
     } else {
         i16::from_be_bytes([gate, backward & gate])

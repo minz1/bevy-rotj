@@ -5,7 +5,7 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::families::Brain;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, contact};
 use crate::actor::world::Cx;
 
 const KIND: u8 = 0x4C;
@@ -18,7 +18,7 @@ const RELOAD: u8 = 0xC0;
 const FIRED: u8 = 0x80;
 const CHILD_X_LOW: u8 = 0x80;
 const CHILD_Y: u16 = 0x0A80;
-const CHILD_CONTACT: u8 = 0x10;
+const CHILD_CONTACT: u8 = contact::SLIDE_HURTS;
 const CHILD_HEALTH: u16 = 3;
 
 /// The spawner's tables (bank 11), by the side `timer` toggles (0 or 1).

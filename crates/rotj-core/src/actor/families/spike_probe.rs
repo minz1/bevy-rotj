@@ -3,7 +3,7 @@
 //! shadow. Both keep their whole state in [`Body`].
 
 use crate::actor::collision::{self, Probe};
-use crate::actor::engine::{self, Work};
+use crate::actor::engine::{self, Work, probe_flags};
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion};
 
@@ -63,7 +63,7 @@ fn probe(work: &mut Work, cx: &mut Cx<'_>) {
     };
     work.probe_flags = 0;
     collision::wall(work, &mut probe, 0x88, cx);
-    if work.probe_flags & 0x80 != 0 {
+    if work.probe_flags & probe_flags::DAMAGED != 0 {
         engine::level_end(cx.effects);
     }
 }

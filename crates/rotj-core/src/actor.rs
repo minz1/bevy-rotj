@@ -31,7 +31,7 @@ pub mod world;
 use crate::prg::Prg;
 use crate::render::ctrl;
 use button::Buttons;
-use engine::Work;
+use engine::{Work, anchor};
 use oam::OamBuilder;
 use slots::Slots;
 use world::{Cx, Effects, Schedule, World, busy, stage_script};
@@ -430,7 +430,11 @@ pub fn draw_second(
             continue;
         };
         work.screen_y = (dy >> 4).to_le_bytes()[0];
-        work.anchor = if work.screen_y >= 0xF0 { 0x40 } else { 0 };
+        work.anchor = if work.screen_y >= 0xF0 {
+            anchor::BOTTOM
+        } else {
+            0
+        };
         work.chr_slot = body.chr_slot;
         work.tile = engine::rom_byte(prg, 14, 0xDD24 + u16::from(body.chr_slot));
         work.attr = body.flags;
@@ -443,7 +447,7 @@ pub fn draw_second(
             attr: work.attr,
             tile: work.tile,
             chr_slot: work.chr_slot,
-            bottom: work.anchor & 0x40 != 0,
+            bottom: work.anchor & anchor::BOTTOM != 0,
         };
         oam.marking = oam::Mark::Second(u8::try_from(index).expect("8 second-class slots"));
         overflow = oam.draw(&sprite, call, world.frame_odd);

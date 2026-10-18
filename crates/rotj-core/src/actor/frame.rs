@@ -40,7 +40,7 @@ pub fn draw_hud(game: &mut Game, prg: &Prg) {
         cx.oam.marking = Mark::Hud;
     }
     let energy = cx.effects.player.energy;
-    if energy & 0x80 == 0 && (energy != 0 || cx.world.frame & 8 == 0) {
+    if !cx.effects.player.out_of_energy() && (energy != 0 || cx.world.frame & 8 == 0) {
         work.pointer = gauge(energy);
         draw(work, 14, &mut cx);
     }

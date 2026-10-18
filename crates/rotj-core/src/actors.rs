@@ -150,7 +150,8 @@ pub const SLOT_PHASE: u16 = 0x7DD0;
 /// weapon (bank 13 `$A5C3`, `engine::dying`: bit clear frees the slot instead).
 pub const STATE_DROPS_PICKUP: u8 = 0x80;
 
-/// `$7D50` bit 6: the actor is never chosen as a target. Bank 8 `$8D33` sets it
+/// `$7D50` bit 6: the actor is never chosen as a target, and a homing lock on it drops (unlike
+/// [`contact::UNTARGETED`](crate::actor::slots::contact::UNTARGETED)). Bank 8 `$8D33` sets it
 /// (`ORA #$40`); the target finders test it with `LDA $7D50,y; ASL; BMI` (bank 5
 /// `$8417`/`$8430`, bank 4 `$9F2C`/`$9F54`).
 pub const STATE_UNTARGETED: u8 = 0x40;
@@ -287,7 +288,7 @@ pub struct SpawnRecord {
     /// Bytes 9-10: hit points in slots 0-15 (`$7EF0`/`$7BE0`); a second-class slot
     /// writes them to `$7BD8`/`$7BE0` instead.
     pub health: u16,
-    /// Byte 11: contact damage in slots 0-15 (`$7EE0`); `$7C30` in a second-class slot.
+    /// Byte 11: the contact flags in slots 0-15 (`$7EE0`); `$7C30` in a second-class slot.
     pub contact: u8,
 }
 

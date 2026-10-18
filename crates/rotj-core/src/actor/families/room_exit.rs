@@ -13,7 +13,7 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$81D4`).
     pub fn step(&mut self, _kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-        if cx.effects.player.energy & 0x80 != 0 || cx.effects.player.hurt & hurt::STUNNED != 0 {
+        if cx.effects.player.out_of_energy() || cx.effects.player.hurt & hurt::STUNNED != 0 {
             return;
         }
         work.hitbox = 0;

@@ -1,7 +1,7 @@
 //! Type `$1E` (bank 8 `$9364`): hovers in place, faces the player, then rears a
 //! `$20` companion out to its side.
 
-use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::Body;
@@ -43,7 +43,7 @@ impl State {
         work.pointer = engine::rom_word(cx.prg, 8, METASPRITES + 2 * u16::from(body.counter));
         engine::tile_bits(work, cx.prg);
         engine::draw(work, 1, cx);
-        if work.anchor & 0x40 == 0 {
+        if work.anchor & anchor::BOTTOM == 0 {
             work.hitbox = 0x0A;
             engine::contact(kind, body, work, 2, cx);
         }

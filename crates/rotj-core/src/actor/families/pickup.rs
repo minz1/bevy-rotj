@@ -3,7 +3,7 @@
 //! its slot after `$F0` phases.
 
 use crate::actor::collision::{self, Probe};
-use crate::actor::engine::{self, Visibility, Work};
+use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::slots::Body;
 use crate::actor::slots::hit;
 use crate::actor::world::Cx;
@@ -66,7 +66,7 @@ impl State {
             work.attr = attr;
             engine::draw(work, 1, cx);
         }
-        if work.anchor & 0x40 == 0 {
+        if work.anchor & anchor::BOTTOM == 0 {
             work.hitbox = CONTACT;
             engine::contact(kind, body, work, CONTACT, cx);
         }

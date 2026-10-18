@@ -32,7 +32,7 @@ impl State {
         {
             return;
         }
-        if cx.effects.player.energy & 0x80 != 0 || cx.effects.player.hurt & hurt::STUNNED != 0 {
+        if cx.effects.player.out_of_energy() || cx.effects.player.hurt & hurt::STUNNED != 0 {
             return;
         }
         if body.behaviour != 0 {
