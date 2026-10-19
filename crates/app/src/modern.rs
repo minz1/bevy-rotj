@@ -406,20 +406,20 @@ pub struct ModernPlugin;
 
 impl Plugin for ModernPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn)
-            // The tiles must reach the chunk in the frame their scroll offset does.
-            .add_systems(
-                Update,
-                draw.in_set(Step::Picture)
-                    .before(update_tilemap_chunk_indices),
-            );
+        app.add_systems(Startup, spawn).add_systems(
+            Update,
+            draw.in_set(Step::Picture)
+                .before(update_tilemap_chunk_indices),
+        );
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::any::TypeId;
     use std::path::PathBuf;
 
+    use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
     use bevy::render::view::screenshot::{Screenshot, save_to_disk};
     use bevy::window::ExitCondition;
     use bevy::winit::WinitPlugin;
@@ -429,6 +429,35 @@ mod tests {
     /// Batman walking right and firing every other pair of frames.
     fn pad(frame: usize) -> u8 {
         if frame % 4 < 2 { 0x41 } else { 0x01 }
+    }
+
+    /// The chunk upload runs after `draw`, so a tile lands in the frame its scroll offset does.
+    #[test]
+    fn the_tiles_upload_after_draw() {
+        let mut app = App::new();
+        app.add_systems(Update, update_tilemap_chunk_indices)
+            .add_plugins(ModernPlugin);
+        let world = app.world_mut();
+        let mut update = world
+            .resource_mut::<Schedules>()
+            .remove(Update)
+            .expect("the Update schedule");
+        update.set_build_settings(ScheduleBuildSettings {
+            ambiguity_detection: LogLevel::Error,
+            ..default()
+        });
+        update
+            .initialize(world)
+            .expect("Update builds, the two ordered");
+        let order: Vec<TypeId> = update
+            .systems()
+            .expect("initialised")
+            .map(|(_, system)| system.system_type())
+            .collect();
+        let at = |system: TypeId| order.iter().position(|&id| id == system);
+        let draw = at(IntoSystem::into_system(draw).system_type()).expect("draw");
+        let upload = IntoSystem::into_system(update_tilemap_chunk_indices).system_type();
+        assert!(draw < at(upload).expect("the upload"));
     }
 
     /// Stage 1-1 in a headless app drawn Modern on the real render path, and the frame on
