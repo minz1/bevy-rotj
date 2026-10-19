@@ -4,7 +4,7 @@ Status: approved with changes by the Opus stand-in, 2026-10-18 (applied: the sur
 two releases, this one and `docs/specs/2026-10-18-music-commands-design.md`; the registers and the
 voice together, since the voice is how the driver picks a register; per-channel const modules, not
 an enum, because the driver writes `$400D`, which the APU ignores; names after the APU's own
-methods; the flags struct dropped). The owner approved modernising the driver (2026-10-18). No
+methods; the flags struct dropped). The owner approved modernising the driver (2026-10-18). Implemented in 1.1.32. No
 behaviour change: constant substitution and a typed index, proven by the music test's per-frame
 write streams.
 
