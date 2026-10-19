@@ -139,10 +139,15 @@ fn main() {
     app.insert_resource(screen).run();
 }
 
+/// The camera that shows the screen quad in the window, the only one [`fit_camera`] fits.
+#[derive(Component)]
+struct ScreenCamera;
+
 /// `Camera2d` over the 4x-scaled screen quad (1024x960 world units), sized to the
 /// window by [`fit_camera`].
 fn spawn_camera(mut commands: Commands<'_, '_>) {
     commands.spawn((
+        ScreenCamera,
         Camera2d,
         Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::WindowSize,
@@ -176,7 +181,7 @@ fn integer_view(width: f32, height: f32, picture: Vec2) -> (f32, Vec2) {
 fn fit_camera(
     windows: Query<'_, '_, Ref<'_, Window>, With<PrimaryWindow>>,
     settings: Res<'_, settings::Settings>,
-    mut cameras: Query<'_, '_, (&mut Projection, &mut Transform), With<Camera2d>>,
+    mut cameras: Query<'_, '_, (&mut Projection, &mut Transform), With<ScreenCamera>>,
     mut ui_scale: ResMut<'_, UiScale>,
 ) {
     let Ok(window) = windows.single() else {
@@ -203,6 +208,40 @@ mod tests {
 
     const FULL: Vec2 = Vec2::new(256.0, 240.0);
     const TV: Vec2 = Vec2::new(256.0, 224.0);
+
+    #[test]
+    fn fitting_the_window_leaves_the_modern_camera_alone() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        world.insert_resource(settings::Settings::default());
+        world.insert_resource(UiScale(1.0));
+        world.spawn((Window::default(), PrimaryWindow));
+        let screen = world
+            .spawn((
+                ScreenCamera,
+                Camera2d,
+                Projection::Orthographic(OrthographicProjection::default_2d()),
+            ))
+            .id();
+        let modern = world
+            .spawn((
+                Camera2d,
+                Projection::Orthographic(OrthographicProjection::default_2d()),
+                Transform::from_xyz(128.0, -120.0, 0.0),
+            ))
+            .id();
+        world.run_system_once(fit_camera).expect("fit_camera runs");
+        let scale = |entity| match world.get::<Projection>(entity) {
+            Some(Projection::Orthographic(orthographic)) => orthographic.scale,
+            _ => panic!("an orthographic camera"),
+        };
+        assert_ne!(scale(screen), 1.0, "the screen camera is fitted");
+        assert_eq!(scale(modern), 1.0);
+        assert_eq!(
+            world.get::<Transform>(modern).map(|t| t.translation),
+            Some(Vec3::new(128.0, -120.0, 0.0))
+        );
+    }
 
     #[test]
     fn the_picture_scales_by_whole_multiples_on_whole_pixels() {
