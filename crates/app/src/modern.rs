@@ -11,7 +11,9 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::sprite::Anchor;
-use bevy::sprite_render::{TileData, TilemapChunk, TilemapChunkTileData};
+use bevy::sprite_render::{
+    TileData, TilemapChunk, TilemapChunkTileData, update_tilemap_chunk_indices,
+};
 use rotj_core::actor::Game;
 use rotj_core::actor::modern::{View, tile_at, view};
 use rotj_core::actor::oam::attr;
@@ -405,7 +407,12 @@ pub struct ModernPlugin;
 impl Plugin for ModernPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn)
-            .add_systems(Update, draw.in_set(Step::Picture));
+            // The tiles must reach the chunk in the frame their scroll offset does.
+            .add_systems(
+                Update,
+                draw.in_set(Step::Picture)
+                    .before(update_tilemap_chunk_indices),
+            );
     }
 }
 
