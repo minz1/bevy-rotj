@@ -3,7 +3,7 @@
 ## Checks
 Run from `/home/minz1/projects/batmanROTJ` or the item's worktree. Check `$?` of every command; never `cmd | tail && git commit`. Before a long run: `df -h /` and `df -h /mnt/c`; under 50 GB free on `/`, `rm -rf target/debug` in the main checkout and recheck; still low: exit STOP.
 - Item: `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and the tests of the crates it touches (`cargo test -p <crate>`). A bug fix adds a test that fails without the fix.
-- Release or batch: `bash .orchestration/fullset.sh <worktree> <outdir>` (fmt, ignored suites, workspace, sweep, explore; summary in `<outdir>/summary`), then `cmp <worktree>/target/tapes/the_loop_matches_the_tas_from_stage_1_to_the_ending.tape .orchestration/chain-1.1.14.tape`. It outlives the session only when detached: `setsid -f bash .orchestration/fullset.sh <worktree> <outdir> </dev/null >"<outdir>.log" 2>&1`, record it in the Handoff, exit `WAIT 60`. Running: `pgrep -f "fullset.sh <worktree>"` matches. Done: no match and `<outdir>/summary` has an `explore exit` line. Never `run_in_background` or a bare `&`. Use `/home/minz1/projects/rotj-map` as the worktree (`git switch --detach <commit>` first).
+- Release or batch: `bash .orchestration/fullset.sh <worktree> <outdir>` (fmt, ignored suites, workspace, sweep, explore; summary in `<outdir>/summary`), then `cmp <worktree>/target/tapes/the_loop_matches_the_tas_from_stage_1_to_the_ending.tape .orchestration/chain-1.1.14.tape`. It outlives the session only when detached: `setsid -f bash .orchestration/fullset.sh <worktree> <outdir> </dev/null >"<outdir>.log" 2>&1`, record it in the Handoff, exit `WAIT 60`. Running: `pgrep -f -- "fullset.sh <worktree>( |\$)"` matches. Done: no match and `<outdir>/summary` has an `explore exit` line. Never `run_in_background` or a bare `&`. Use `/home/minz1/projects/rotj-map` as the worktree (`git switch --detach <commit>` first).
 - Final item: `bash .orchestration/release-checks.sh` on main HEAD (gates, sweep, explore). Green is `GATES GREEN at <commit>` in `.orchestration/rel/summary`, `sweep ... diverges 0`, `explore ... 0 divergences`.
 
 ## May happen mid-run
@@ -33,7 +33,7 @@ Exit `STOP <reason>` and park the item for:
 - New public names beyond the approved ones, or a change to the approved level-format schema.
 - Level packs release 3 (waits on "Owner decisions pending" in `docs/STATUS.md`).
 - Destructive or hard-to-reverse steps: deleting a branch or worktree with unmerged work, `git push --force`, `git reset --hard` on shared branches.
-- Under 50 GB free on `/` after cleaning `target/debug`; a red gate that two attempts did not fix.
+- Under 50 GB free on `/` after cleaning `target/debug`; a red release gate (`release-checks.sh` on main) that two attempts did not fix. A red item check follows the item rules instead (`[!]` after two attempts).
 
 ## Where to look for more work
 Mandate: keep releasing 1.1.x patches until the codebase is modernised, except what is strictly needed to prove Classic (the oracle and its harness, the RAM/WRAM projection and lift, the tapes, Classic's named rules).
