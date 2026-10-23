@@ -210,7 +210,7 @@ fn colours(palette: &[u8; 32], first: usize, greyscale: bool, rgb: &Rgb) -> Set 
 /// What the picture is drawn from.
 #[derive(SystemParam)]
 struct Inputs<'w> {
-    play: Option<Res<'w, Play>>,
+    play: Res<'w, Play>,
     settings: Res<'w, Settings>,
     colours: Res<'w, Colours>,
     screen: Res<'w, Screen>,
@@ -260,9 +260,10 @@ fn draw(
         commands.entity(sprite).despawn();
     }
     let frame = play
+        .shown
+        .modern
         .as_ref()
-        .filter(|_| settings.picture == Picture::Modern)
-        .and_then(|play| Some((play, play.shown.modern.as_ref()?)));
+        .filter(|_| settings.picture == Picture::Modern);
     let shown_image = if frame.is_some() {
         modern.image.clone()
     } else {
@@ -277,20 +278,20 @@ fn draw(
         return;
     };
     camera.is_active = frame.is_some();
-    let Some((play, frame)) = frame else {
+    let Some(frame) = frame else {
         return;
     };
     let rgb = &colours_table.rgb;
     let [red, green, blue] = colours(&play.ppu.palette, 0, frame.greyscale, rgb)[0];
     camera.clear_color = ClearColorConfig::Custom(Color::srgb_u8(red, green, blue));
-    show_background(&mut modern, &mut images, &mut chunks, play, frame, rgb);
+    show_background(&mut modern, &mut images, &mut chunks, &play, frame, rgb);
     let faithful = settings.ui == UiStyle::Faithful;
     spawn_sprites(
         &mut commands,
         &mut modern,
         &mut images,
         &drawers,
-        play,
+        &play,
         faithful,
         rgb,
     );

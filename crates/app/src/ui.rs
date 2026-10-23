@@ -178,23 +178,24 @@ struct Art<'w> {
 )]
 fn show(
     mut commands: Commands<'_, '_>,
-    play: Option<Res<'_, Play>>,
+    play: Res<'_, Play>,
     settings: Res<'_, Settings>,
     colours: Res<'_, Colours>,
     mut art: Art<'_>,
     overlays: Query<'_, '_, Entity, With<Overlay>>,
     mut last: Local<'_, Vec<Shown>>,
 ) {
-    let pieces = match &play {
-        Some(play) if settings.ui == UiStyle::Faithful => shown(
+    let pieces = if settings.ui == UiStyle::Faithful {
+        shown(
             &play.oam,
             &play.marks,
             &play.label,
             &play.lines,
             &play.ppu.palette,
             &colours.rgb,
-        ),
-        _ => Vec::new(),
+        )
+    } else {
+        Vec::new()
     };
     if pieces == *last && !settings.is_changed() {
         return;
@@ -205,9 +206,9 @@ fn show(
     }
     let keys: Vec<Key> = pieces.iter().map(|piece| piece.key).collect();
     art.atlases.keep(&keys);
-    let Some(play) = play.filter(|_| !pieces.is_empty()) else {
+    if pieces.is_empty() {
         return;
-    };
+    }
     let layout = art
         .atlases
         .layout

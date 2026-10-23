@@ -135,15 +135,16 @@ fn spawn(mut commands: Commands<'_, '_>) {
 }
 
 /// Copies the snapshot `Play` took into the entities and resources, changing only what changed.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Bevy system params, rust-clippy#8940"
+)]
 fn copy(
-    play: Option<Res<'_, Play>>,
+    play: Res<'_, Play>,
     mut drawers: Query<'_, '_, (&Drawer, Option<&mut Kind>, &mut LevelPosition, &mut Draws)>,
     mut camera: ResMut<'_, MirrorCamera>,
     mut other: ResMut<'_, OtherDraws>,
 ) {
-    let Some(play) = play else {
-        return;
-    };
     let snapshot = &play.shown;
     for (drawer, kind, mut position, mut draws) in &mut drawers {
         let Some(state) = snapshot.drawers.iter().find(|s| s.drawer == drawer.0) else {

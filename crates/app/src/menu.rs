@@ -261,7 +261,7 @@ pub fn steer(
     keys: Res<'_, ButtonInput<KeyCode>>,
     gamepads: Query<'_, '_, &Gamepad>,
     mut input: ResMut<'_, NesInput>,
-    play: Option<Res<'_, Play>>,
+    play: Res<'_, Play>,
     mut menu: ResMut<'_, Menu>,
     mut settings: ResMut<'_, Settings>,
     dir: Res<'_, SettingsDir>,
@@ -272,8 +272,7 @@ pub fn steer(
         });
     let pressed = |button: u8| input.pressed.0 & button != 0;
     if !menu.open {
-        let paused = play.is_some_and(|play| play.paused());
-        if toggle || paused && pressed(NesButtons::SELECT) {
+        if toggle || play.paused() && pressed(NesButtons::SELECT) {
             menu.open = true;
             menu.row = Row::Volume;
         }
@@ -342,7 +341,7 @@ struct Shown<'w> {
     menu: Res<'w, Menu>,
     settings: Res<'w, Settings>,
     colours: Res<'w, Colours>,
-    play: Option<Res<'w, Play>>,
+    play: Res<'w, Play>,
 }
 
 impl Shown<'_> {
@@ -436,7 +435,7 @@ fn draw(
     let Some(font) = font else {
         return;
     };
-    let hint = !shown.menu.open && shown.play.as_ref().is_some_and(|play| play.paused());
+    let hint = !shown.menu.open && shown.play.paused();
     let changed = shown.menu.is_changed()
         || shown.settings.is_changed()
         || shown.colours.is_changed()

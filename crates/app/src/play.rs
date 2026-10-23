@@ -310,15 +310,12 @@ fn power_on(mut commands: Commands<'_, '_>, screen: Res<'_, Screen>, rom: Res<'_
 )]
 pub(crate) fn tick(
     input: Res<'_, NesInput>,
-    play: Option<ResMut<'_, Play>>,
+    mut play: ResMut<'_, Play>,
     recorder: Option<ResMut<'_, Recorder>>,
     music: Option<ResMut<'_, crate::audio::Music>>,
     state: Res<'_, State<GameState>>,
     mut next: ResMut<'_, NextState<GameState>>,
 ) {
-    let Some(mut play) = play else {
-        return;
-    };
     let pad = input.game_byte();
     if let Some(mut recorder) = recorder {
         recorder.record(pad);
@@ -343,20 +340,17 @@ pub(crate) fn tick(
     clippy::needless_pass_by_value,
     reason = "Bevy system params, rust-clippy#8940"
 )]
-fn draw(play: Option<Res<'_, Play>>, settings: Res<'_, Settings>, mut screen: ResMut<'_, Screen>) {
-    if let Some(play) = play {
-        let limit = if settings.sprite_limit {
-            MAX_SPRITES_PER_LINE
-        } else {
-            OAM_SPRITES
-        };
-        let faithful = settings.ui == crate::settings::UiStyle::Faithful;
-        play.compose(screen_frame(&mut screen), limit, faithful);
-        let hidden = settings.overscan == crate::settings::Overscan::Hidden;
-        let edges =
-            std::array::from_fn(|y| hidden && play.lines.get(y).is_some_and(Line::scrolled));
-        screen.edges = edges;
-    }
+fn draw(play: Res<'_, Play>, settings: Res<'_, Settings>, mut screen: ResMut<'_, Screen>) {
+    let limit = if settings.sprite_limit {
+        MAX_SPRITES_PER_LINE
+    } else {
+        OAM_SPRITES
+    };
+    let faithful = settings.ui == crate::settings::UiStyle::Faithful;
+    play.compose(screen_frame(&mut screen), limit, faithful);
+    let hidden = settings.overscan == crate::settings::Overscan::Hidden;
+    let edges = std::array::from_fn(|y| hidden && play.lines.get(y).is_some_and(Line::scrolled));
+    screen.edges = edges;
 }
 
 #[cfg(test)]
