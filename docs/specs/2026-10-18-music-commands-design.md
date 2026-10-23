@@ -5,7 +5,7 @@ release; the mid-note gate kept on the raw byte; `FF` an explicit unhandled vari
 decode/execute contract restated; the instrument note keeps its opcode; the SFX commands their own
 enum in the same release; the proof extended first: a long-horizon sweep and a coverage record;
 no golden digests and no RAM projection). The second half of the survey loop's #10, after
-`docs/specs/2026-10-18-apu-registers-design.md`. No behaviour change, proven by the music test.
+`docs/specs/2026-10-18-apu-registers-design.md`. Implemented in 1.1.33. No behaviour change, proven by the music test.
 
 ## What is there
 

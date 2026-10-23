@@ -315,7 +315,7 @@ of its own, proven by the lockstep, ranked by payoff over risk:
   shot. The port reads the target by address as the ROM does, so it matches either way; whether
   the ROM does it at all is a lead of its own.
 10. **The music driver's commands** as an enum and the APU registers named (the owner approved,
-    2026-10-18): the registers and the driver's voice done in 1.1.32.
+    2026-10-18): the registers and the driver's voice done in 1.1.32, the commands done in 1.1.33.
 
 ### The owner's review of the passed-on candidates (2026-10-18)
 

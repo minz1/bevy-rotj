@@ -1,4 +1,4 @@
-# Status — where 1.1.32 stands
+# Status — where 1.1.33 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -56,6 +56,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.30 | **done, tag `1.1.30`** (2026-10-18): the thirtieth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The remaining flag bytes named (`docs/specs/2026-10-18-flag-bytes-design.md`, the survey loop's #9): `slots::contact` (shielded, passive, untargeted, slide-hurts, smite-proof, collects), `engine::probe_flags` (also for the player's spike hit), `engine::anchor`, `world::slide_ledge`, `world::death`, `scroll::mode` and `Player::out_of_energy` replace raw masks in about 40 files; the bits no ROM reader tests stay unnamed, on a scan of every read of those addresses |
 | 1.1.31 | **done, tag `1.1.31`** (2026-10-19): a bug fix to the `Modern` picture, Classic untouched. The window fit applied to every `Camera2d`, Modern's render-to-image camera included, so its scene was drawn offset (now only the `ScreenCamera` is fitted; `fitting_the_window_leaves_the_modern_camera_alone`); and Modern's `draw` and Bevy's chunk upload were unordered, so while scrolling a tile could reach the screen a frame after its fine-scroll offset, an 8 px jump at each tile crossing (now `draw` runs first; `the_tiles_upload_after_draw`) |
 | 1.1.32 | **done, tag `1.1.32`** (2026-10-19): the thirty-second modernisation patch, no behaviour change (the music test's per-frame register-write streams, the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The APU registers named and the driver's voice typed (`docs/specs/2026-10-18-apu-registers-design.md`, the survey loop's #10, first half): `rotj-apu`'s per-channel register modules and `status` bits replace raw `$40xx` addresses in the APU, the driver and their tests; the driver's voice is `Voice` instead of a `u8` and a register base |
+| 1.1.33 | **done, tag `1.1.33`** (2026-10-23): the thirty-third modernisation patch, no behaviour change (the music test's per-frame register-write streams, a new 3,600-frame sweep of every song with its committed coverage record, the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The music driver's commands as enums (`docs/specs/2026-10-18-music-commands-design.md`, the survey loop's #10, second half): each stream byte decodes with its fixed operands into a typed `Command` (`FF` an explicit `Unhandled`), the SFX engine's into `SfxCommand`; the mid-note gate stays on the raw byte; `docs/MUSIC.md` records the unhandled `FF` and the commands no song reaches |
 
 ## Verified working
 
@@ -122,7 +123,8 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    named: tagged `1.1.28`** (2026-10-18). **1.1.29, the word maths: tagged `1.1.29`**
    (2026-10-18). **1.1.30, the flag bytes named: tagged `1.1.30`** (2026-10-18). **1.1.31, the `Modern` picture's
    camera and scroll fixed: tagged `1.1.31`** (2026-10-19). **1.1.32, the APU registers named: tagged
-   `1.1.32`** (2026-10-19). Next: the music driver's commands as enums, then the fresh survey's list.
+   `1.1.32`** (2026-10-19). **1.1.33, the music driver's commands as enums: tagged `1.1.33`**
+   (2026-10-23). Next: the fresh survey's list.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
