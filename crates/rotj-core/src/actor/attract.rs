@@ -9,7 +9,7 @@ use super::engine::{rom_byte, rom_word};
 use super::room::build_palette;
 use super::stage::{Fade, blackout, queue_palette};
 use super::world::{VramWrite, set_first_colours, sound};
-use crate::render::{ctrl, mask};
+use crate::render::{Mirroring, ctrl, mask};
 
 /// The buttons that leave the attract mode while held (`$F6 & $D0`).
 const HELD_TO_LEAVE: Buttons = Buttons::ACCEPT;
@@ -453,7 +453,7 @@ impl Attract {
 fn stop(game: &mut Game) {
     game.effects.music = sound::music::STOP;
     game.oam.clear();
-    game.scroll.mirroring = 0;
+    game.scroll.mirroring = Mirroring::SideBySide;
     game.scroll.ppu_ctrl &= !ctrl::VERTICAL_INCREMENT;
     for (shadow, bank) in game.oam.chr[..4].iter_mut().zip(0xEC..) {
         *shadow = bank;

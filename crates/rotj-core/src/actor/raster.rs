@@ -14,7 +14,7 @@
 
 use super::Game;
 use super::scroll::Scroll;
-use crate::render::{Line, ctrl, mask};
+use crate::render::{Line, Mirroring, ctrl, mask};
 
 /// A register an IRQ writes, by the write that changes what the PPU draws.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -458,7 +458,7 @@ struct Regs {
     ctrl: u8,
     mask: u8,
     chr: [u8; 8],
-    mirroring: u8,
+    mirroring: Mirroring,
 }
 
 impl Regs {
@@ -561,7 +561,7 @@ pub fn lines(registers: &Registers, game: &Game) -> Vec<Line> {
         ctrl: scroll.ppu_ctrl,
         mask: scroll.mask,
         chr: registers.chr,
-        mirroring: scroll.mirroring & 3,
+        mirroring: scroll.mirroring,
     };
     let writes = if scroll.split.armed {
         chain(&mut game.scroll.clone(), game.world.frame)

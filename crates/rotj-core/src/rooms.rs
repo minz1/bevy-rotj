@@ -2,6 +2,7 @@
 //! imported so the game builds the room from data (`docs/specs/2026-10-17-rooms-design.md`).
 
 use crate::actors::bank_slice;
+use crate::render::Mirroring;
 
 /// One room's layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,7 +77,7 @@ pub struct Start {
     /// The scroll mode (`$C3`, the auto-scroll bits).
     pub scroll_mode: u8,
     /// The nametable mirroring (`$EC`).
-    pub mirroring: u8,
+    pub mirroring: Mirroring,
     /// The first spawn schedule column (`$0403`).
     pub first_spawn_column: u8,
     /// The player's facing.
@@ -163,7 +164,7 @@ impl Room {
                 ring_y: start_word(8)?,
                 scroll_lock: start(10)?,
                 scroll_mode: start(11)?,
-                mirroring: start(12)?,
+                mirroring: Mirroring::from_register(start(12)?),
                 first_spawn_column: start(13)?,
                 facing: start(14)?,
             },

@@ -4,6 +4,7 @@ use super::button::Buttons;
 use super::oam::{OamBuilder, attr};
 use super::scroll::Scroll;
 use super::slots::Slots;
+use crate::render::Mirroring;
 
 /// The live spawn schedule (`$7410`) and its page -> row table (`$0440`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -633,7 +634,7 @@ impl Ppu {
     /// Applies queued writes the way the NMI flushes them (`$C084`): flags bit 2
     /// steps the address by 32, and `mirroring` (`$EC`, the FME-7 command `$C`)
     /// maps the four logical tables onto the two physical ones.
-    pub fn apply(&mut self, writes: &[VramWrite], mirroring: u8) {
+    pub fn apply(&mut self, writes: &[VramWrite], mirroring: Mirroring) {
         for write in writes {
             let step = if write.flags & 4 != 0 { 32 } else { 1 };
             let mut addr = write.addr;
@@ -644,7 +645,7 @@ impl Ppu {
         }
     }
 
-    fn poke(&mut self, addr: u16, byte: u8, mirroring: u8) {
+    fn poke(&mut self, addr: u16, byte: u8, mirroring: Mirroring) {
         let addr = addr & 0x3FFF;
         if addr >= PALETTE_ADDRESS {
             let mut at = usize::from(addr & 0x1F);
@@ -654,12 +655,7 @@ impl Ppu {
             self.palette[at] = byte;
         } else if addr >= 0x2000 {
             let table = usize::from((addr >> 10) & 3);
-            let physical = match mirroring & 3 {
-                0 => table & 1,
-                1 => table >> 1,
-                2 => 0,
-                _ => 1,
-            };
+            let physical = mirroring.physical(table);
             self.nametables[physical][usize::from(addr & 0x3FF)] = byte;
         }
     }

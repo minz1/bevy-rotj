@@ -10,7 +10,7 @@ use super::script::{Flow, Runner, wait};
 use super::stage::Fade;
 use crate::actor::world::sound;
 use crate::levelmap::PAYLOAD_FIRST_BANK;
-use crate::render::mask;
+use crate::render::{Mirroring, mask};
 use crate::rooms::Raster;
 
 /// What the payload does from `$999C` on, in order: each step runs one frame or more,
@@ -52,7 +52,7 @@ enum Row {
     /// The credits' parallax split (`$D3 = $0D`, first IRQ `$1D00` cycles in).
     Parallax,
     /// The nametable arrangement (`$EC`, FME-7 command `$C`).
-    Mirroring(u8),
+    Mirroring(Mirroring),
     /// Every sprite parked (`$C16F`).
     Park,
     /// Frames of nothing but the wait.
@@ -134,7 +134,7 @@ const SCRIPT: &[Row] = &[
     // $6444: the credits
     Row::Clear(0),
     Row::Banks(0x6CEA, 8),
-    Row::Mirroring(2),
+    Row::Mirroring(Mirroring::SingleLow),
     Row::Palette(0x6CF2),
     Row::Blocks(0x6B02, 5),
     Row::Parallax,

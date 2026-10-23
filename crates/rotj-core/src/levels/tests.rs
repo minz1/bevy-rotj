@@ -7,6 +7,7 @@ use super::*;
 use crate::actor::world::orientation;
 use crate::actors::{CELL_FLAGS, CELL_LOCK, CELL_PENDING, CELL_RECORD, SpawnRecord};
 use crate::collision::CLASS_COUNT;
+use crate::render::Mirroring;
 use crate::rooms::{Arrival, Start};
 
 /// The ids a room's read cells name: the pending cells on the pages of its table.
@@ -206,7 +207,7 @@ fn room(pages: [u8; TABLE_ENTRIES], chr: [u8; 4], records: &[(usize, SpawnRecord
                 ring_y: 0,
                 scroll_lock: 1,
                 scroll_mode: 2,
-                mirroring: 2,
+                mirroring: Mirroring::SingleLow,
                 first_spawn_column: pages[0] << 4,
                 facing: 1,
             },
@@ -264,12 +265,12 @@ fn hand_made() -> Levels {
     c.room.orientation = orientation::VERTICAL;
     let start = &mut c.room.start;
     (start.camera_x, start.camera_y, start.ring_y) = (0, 0x1800, 0x1800);
-    (start.mirroring, start.first_spawn_column) = (0, 0x10);
+    (start.mirroring, start.first_spawn_column) = (Mirroring::SideBySide, 0x10);
     let mut d = room(d_pages, [1, 2, 3, 4], &[(5, record(0x0280, false, 0x0C))]);
     d.room.orientation = orientation::TWO_PAGES;
     let start = &mut d.room.start;
     (start.camera_y, start.ring_y) = (0x1000, 0x1000);
-    (start.mirroring, start.first_spawn_column) = (1, 0x10);
+    (start.mirroring, start.first_spawn_column) = (Mirroring::Stacked, 0x10);
     let mut schedule = [0; PAGE_CELLS];
     schedule[0x12] = CELL_PENDING | 5;
     schedule[0x17] = CELL_PENDING | 5;

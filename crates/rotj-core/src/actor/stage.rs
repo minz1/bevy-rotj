@@ -10,7 +10,7 @@ use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
 use crate::ppulist::WriteList;
 use crate::prg::Prg;
-use crate::render::{ctrl, mask};
+use crate::render::{Mirroring, ctrl, mask};
 
 /// The stages there are: `$0400 / 2` indexes their tables.
 const STAGES: u8 = 18;
@@ -675,7 +675,7 @@ impl NextArea {
 
 /// The dark screen before the banner (`$92C6-$92DE`).
 fn hide_for_banner(game: &mut Game, prg: &[u8]) {
-    game.scroll.mirroring = 2;
+    game.scroll.mirroring = Mirroring::SingleLow;
     game.scroll.split.armed = false;
     game.scroll.mask = 0;
     game.scroll.ppu_ctrl &= !(ctrl::NMI | ctrl::NAMETABLE);
@@ -734,7 +734,7 @@ pub struct BossIntro {
     /// The fade's brightness cap, then the hold's frames left (`$18`).
     cap: u8,
     /// The arrangement the room loader set, restored at the end (`$1F`).
-    mirroring: u8,
+    mirroring: Mirroring,
     /// The room's page draw (`$B351`).
     page: Option<room::PageDraw>,
     /// The bottom rows' 64-byte runs queued so far.
@@ -768,7 +768,7 @@ impl BossIntro {
                 for slot in &mut game.slots.second {
                     slot.kind = 0;
                 }
-                game.scroll.mirroring = 0;
+                game.scroll.mirroring = Mirroring::SideBySide;
                 clear_for_area(game);
                 self.step = Intro::Card;
             }
@@ -1093,7 +1093,7 @@ impl Continue {
         loop {
             match self.step {
                 Countdown::Setup => {
-                    game.scroll.mirroring = 2;
+                    game.scroll.mirroring = Mirroring::SingleLow;
                     game.scroll.split.armed = false;
                     game.scroll.mask &= !mask::RENDERING;
                     game.scroll.ppu_ctrl &= !(ctrl::NMI | ctrl::NAMETABLE);

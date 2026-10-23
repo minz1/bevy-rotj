@@ -14,7 +14,9 @@ use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::{Context, Result, bail};
-use rotj_core::render::{Frame, Line, NAMETABLE_BYTES, PALETTE_BYTES, Picture, SCREEN_H, SCREEN_W};
+use rotj_core::render::{
+    Frame, Line, Mirroring, NAMETABLE_BYTES, PALETTE_BYTES, Picture, SCREEN_H, SCREEN_W,
+};
 
 /// Scroll overrides for a render, so a scroll can be swept when hunting a
 /// match against an emulator frame.
@@ -228,8 +230,8 @@ fn sources(job: &Job) -> Result<Sources> {
 fn screen(job: &Job) -> Result<()> {
     let sources = sources(job)?;
     let mirroring = match job.mirroring.as_str() {
-        "vertical" | "v" => 0,
-        "horizontal" | "h" => 1,
+        "vertical" | "v" => Mirroring::SideBySide,
+        "horizontal" | "h" => Mirroring::Stacked,
         other => bail!("unknown mirroring `{other}`"),
     };
 

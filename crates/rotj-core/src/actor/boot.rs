@@ -13,7 +13,7 @@ use crate::actor::button::Buttons;
 use crate::actor::world::{Weapon, set_first_colours, sound};
 use crate::levelmap::BOOT_FIRST_BANK;
 use crate::prg::Prg;
-use crate::render::{ctrl, mask};
+use crate::render::{Mirroring, ctrl, mask};
 
 /// The WRAM byte at `addr` once `$98C3` has copied the payload (CHR `$F0-$F7`, in order).
 fn payload_byte(chr: &[u8], addr: u16) -> u8 {
@@ -647,7 +647,8 @@ impl Boot {
             }
             SlideRow::HomeScroll => {
                 let scroll = &mut game.scroll;
-                (scroll.scroll_x, scroll.scroll_y, scroll.mirroring) = (0, 0, 0);
+                (scroll.scroll_x, scroll.scroll_y, scroll.mirroring) =
+                    (0, 0, Mirroring::SideBySide);
                 Flow::Done
             }
         };
@@ -1098,9 +1099,9 @@ fn flicker_frame(game: &mut Game, chr: &[u8], frame: u16) {
     let rising = u8::try_from(frame.saturating_sub(31)).expect("< 48");
     let scroll = &mut game.scroll;
     (scroll.scroll_y, scroll.mirroring) = if frame % 2 == 1 {
-        (0, 3)
+        (0, Mirroring::SingleHigh)
     } else {
-        (0xC0 + rising, 2)
+        (0xC0 + rising, Mirroring::SingleLow)
     };
     if frame < 32 && frame.is_multiple_of(8) {
         let at = FLICKER_PALETTES + 2 * (3 - frame / 8);

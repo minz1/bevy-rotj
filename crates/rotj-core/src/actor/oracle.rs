@@ -17,7 +17,7 @@ use super::step_actors;
 use super::tape::{Event, MEMORY, Tape, Writes, loop_hash, script_hash};
 use super::world::{Cx, Effects, Ppu, Schedule, World};
 use crate::actors::{CELL_PENDING, CELL_RECORD, SpawnRecord, spawn_record, spawn_record_pointer};
-use crate::render::{Line, ctrl, mask};
+use crate::render::{Line, Mirroring, ctrl, mask};
 
 /// The ported paths that ran in any test so far, by their 6502 address.
 static SEEN: Mutex<BTreeSet<u16>> = Mutex::new(BTreeSet::new());
@@ -212,7 +212,11 @@ fn drawn(l: &Line) -> Line {
         mask: l.mask,
         chr: if background { l.chr } else { [0; 8] },
         sprite_chr: if sprites { l.sprite_chr } else { [0; 8] },
-        mirroring: if background { l.mirroring & 3 } else { 0 },
+        mirroring: if background {
+            l.mirroring
+        } else {
+            Mirroring::default()
+        },
     }
 }
 
@@ -244,7 +248,7 @@ fn render_line(l: &rotj_oracle::Line) -> Line {
         mask: l.mask,
         chr: l.chr,
         sprite_chr: l.sprite_chr,
-        mirroring: l.mirroring,
+        mirroring: Mirroring::from_register(l.mirroring),
     }
 }
 
@@ -915,7 +919,7 @@ impl Lockstep {
         let normal = |l: &Line| {
             let mut l = drawn(l);
             if direct_mirroring {
-                l.mirroring = 0;
+                l.mirroring = Mirroring::default();
             }
             l
         };

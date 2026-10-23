@@ -6,7 +6,7 @@ use super::oam::{DrawCall, Metasprite};
 use super::script::{Flow, Runner, wait};
 use crate::actor::world::sound;
 use crate::levelmap::PAYLOAD_FIRST_BANK;
-use crate::render::{ctrl, mask};
+use crate::render::{Mirroring, ctrl, mask};
 
 /// CHR offset of the payload's WRAM `$6000-$7E5F` (banks `$F8-$FF`).
 const PAYLOAD: usize = 0xF8 * 0x400;
@@ -295,7 +295,7 @@ impl ScreenClear {
         match frame {
             0 => game.scroll.split.armed = false,
             1 => {
-                game.scroll.mirroring = 0;
+                game.scroll.mirroring = Mirroring::SideBySide;
                 game.scroll.scroll_x = 0;
                 game.scroll.scroll_y = 0;
                 game.scroll.mask = 0;

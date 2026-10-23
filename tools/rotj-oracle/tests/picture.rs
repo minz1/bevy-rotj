@@ -14,7 +14,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use rotj_core::digest::fnv1a;
-use rotj_core::render::{Frame, Line, Picture};
+use rotj_core::render::{Frame, Line, Mirroring, Picture};
 use rotj_oracle::{FrameLog, Machine, power_on, read_inputs};
 
 const LAST: u64 = 48100;
@@ -39,7 +39,7 @@ fn line(l: &rotj_oracle::Line) -> Line {
         mask: l.mask,
         chr: l.chr,
         sprite_chr: l.sprite_chr,
-        mirroring: l.mirroring,
+        mirroring: Mirroring::from_register(l.mirroring),
     }
 }
 

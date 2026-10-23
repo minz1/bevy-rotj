@@ -466,6 +466,7 @@ mod tests {
         assert_game_recording, assert_playtest, fresh_start, playtest_scene, replay,
     };
     use super::tape::{Event, Tape};
+    use crate::render::Mirroring;
     use rotj_rom::Rom;
 
     const CHAIN: &str = "the_loop_matches_the_tas_from_stage_1_to_the_ending";
@@ -1907,7 +1908,7 @@ mod tests {
                 bytes: vec![value],
             })
             .collect();
-        ppu.apply(&queued, 0);
+        ppu.apply(&queued, Mirroring::default());
         let port = ppu.palette.map(|entry| entry & 0x3F);
         let oracle = machine.bus.ppu.palette;
         assert_eq!((port[0], port[4], port[0x1D]), (0x01, 0x02, 0x03));

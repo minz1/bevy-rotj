@@ -14,7 +14,7 @@ use super::world::{
 use crate::actors::spawn_schedule;
 use crate::levelmap::Cell;
 use crate::prg::Prg;
-use crate::render::{ctrl, mask};
+use crate::render::{Mirroring, ctrl, mask};
 use crate::rooms::{Arrival, Raster, Room};
 
 /// The room change `$BA = 1` starts, one frame per [`RoomChange::step`] (`$B7EC`).
@@ -23,7 +23,7 @@ pub struct RoomChange {
     /// The side the new room lies on (`$BB`, kept in `$15`).
     target: u8,
     /// The arrangement `$B927` replaced, restored at the end (`$1F`).
-    replaced: u8,
+    replaced: Mirroring,
     /// The sprite colours the fade path keeps across the load (`$04F1-$04F3` in `$1A-$1C`).
     kept: [u8; 3],
     phase: Phase,
@@ -67,7 +67,7 @@ impl RoomChange {
     pub fn new(target: u8) -> RoomChange {
         RoomChange {
             target,
-            replaced: 0,
+            replaced: Mirroring::default(),
             kept: [0; 3],
             phase: if target & 0x80 == 0 {
                 Phase::Align
@@ -129,7 +129,7 @@ impl RoomChange {
                     let scroll = &mut game.scroll;
                     let flipped = scroll.ppu_ctrl ^ ctrl::NAMETABLE_Y;
                     scroll.scroll_y = 0;
-                    scroll.mirroring = 0;
+                    scroll.mirroring = Mirroring::SideBySide;
                     scroll.ppu_ctrl =
                         (flipped & !ctrl::NAMETABLE) | ((flipped & ctrl::NAMETABLE_Y) >> 1);
                     self.phase = Phase::Enter;
@@ -255,7 +255,7 @@ impl RoomChange {
         let [cx, fx] = game.world.camera_x.to_be_bytes();
         if (cy & 0x0F) | fy == 0 && (cx & 0x0F) | fx == 0 {
             if game.world.orientation & orientation::VERTICAL != 0 {
-                game.scroll.mirroring = 0;
+                game.scroll.mirroring = Mirroring::SideBySide;
                 self.phase = Phase::Turn;
                 return true;
             }
@@ -354,7 +354,7 @@ fn page_draws(game: &Game, last: Then) -> (PageDraw, Then) {
 
 /// Restores the arrangement, places the player and reads the room's parameters, and
 /// ends the change (`$BA3C-$BA88`, `$D4EF`).
-fn place(game: &mut Game, prg: &[u8], replaced: u8) {
+fn place(game: &mut Game, prg: &[u8], replaced: Mirroring) {
     game.scroll.ppu_ctrl &= !ctrl::NAMETABLE;
     game.scroll.mirroring = replaced;
     let player = &mut game.effects.player;
@@ -410,8 +410,8 @@ impl PageDraw {
     /// Starts drawing the page at map column `column` from map row `row` into the
     /// nametable at `table` (`$20`, `$24`, `$28`), as `$B351` sets up.
     #[must_use]
-    pub fn new(column: u8, row: u8, table: u8, mirroring: u8) -> PageDraw {
-        let table = if table != 0x20 && mirroring & 3 != 0 {
+    pub fn new(column: u8, row: u8, table: u8, mirroring: Mirroring) -> PageDraw {
+        let table = if table != 0x20 && mirroring != Mirroring::SideBySide {
             0x28
         } else {
             table
@@ -840,11 +840,15 @@ pub fn parameters(game: &mut Game, prg: &[u8]) {
 
 /// Enters the next room of the area (`$B927-$B942`): the loader, the arrangement for
 /// the slide toward `target`'s side, and the palette upload; the arrangement it replaced.
-pub fn enter(game: &mut Game, prg: &[u8], target: u8) -> u8 {
+pub fn enter(game: &mut Game, prg: &[u8], target: u8) -> Mirroring {
     game.world.room = game.world.room.wrapping_add(2);
     load(game, prg);
     let replaced = game.scroll.mirroring;
-    game.scroll.mirroring = u8::from(target.trailing_zeros() >= 2);
+    game.scroll.mirroring = if target.trailing_zeros() >= 2 {
+        Mirroring::Stacked
+    } else {
+        Mirroring::SideBySide
+    };
     game.effects.vram.push_palette(&game.effects.palette);
     replaced
 }

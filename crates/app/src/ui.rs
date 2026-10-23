@@ -297,7 +297,7 @@ impl Plugin for UiPlugin {
 mod tests {
     use super::*;
     use crate::settings::Overscan;
-    use rotj_core::render::ctrl;
+    use rotj_core::render::{Mirroring, ctrl};
 
     const SHOWING: Line = Line {
         v: 0,
@@ -306,7 +306,7 @@ mod tests {
         mask: mask::SHOWN,
         chr: [0; 8],
         sprite_chr: [0, 1, 2, 3, 4, 5, 6, 7],
-        mirroring: 0,
+        mirroring: Mirroring::SideBySide,
     };
 
     fn hud_marks() -> [Mark; 64] {

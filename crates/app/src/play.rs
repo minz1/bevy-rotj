@@ -367,7 +367,7 @@ mod tests {
     use rotj_core::actor::stage::StageEnd;
     use rotj_core::actor::world::Motion;
     use rotj_core::digest::fnv1a;
-    use rotj_core::render::{SCREEN_W, mask};
+    use rotj_core::render::{Mirroring, SCREEN_W, mask};
 
     /// A committed digest of an fceux capture (`crates/app/digests.txt`).
     fn digest(name: &str) -> u64 {
@@ -1196,7 +1196,7 @@ mod tests {
             mask: l.mask,
             chr: l.chr,
             sprite_chr: l.sprite_chr,
-            mirroring: l.mirroring,
+            mirroring: Mirroring::from_register(l.mirroring),
         }
     }
 

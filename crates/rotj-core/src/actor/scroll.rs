@@ -7,7 +7,7 @@ use super::spawn::{SpawnTable, lock_at, spawn_at};
 use super::world::orientation;
 use crate::actors::CELL_PENDING;
 use crate::levelmap::Cell;
-use crate::render::ctrl;
+use crate::render::{Mirroring, ctrl};
 use crate::rooms::Raster;
 
 /// The bits of [`Scroll::mode`] (`$C3`); the other bits have no reader.
@@ -48,7 +48,7 @@ pub struct Scroll {
     /// Metatile rows the column stream leaves alone, by bit 7 (`$70-$7F`).
     pub fixed_rows: [u8; 16],
     /// The nametable arrangement the NMI applies (`$EC`).
-    pub mirroring: u8,
+    pub mirroring: Mirroring,
     /// The PPU mask the NMI applies (`$FE`): `$18` shows the background and sprites
     /// with the left 8 pixels clipped, `$1E` without the clip, 0 nothing.
     pub mask: u8,
@@ -557,7 +557,7 @@ fn stream_row(game: &mut Game, down: bool) {
 
 #[cfg(test)]
 mod layout {
-    use super::{Raster, Scroll};
+    use super::{Mirroring, Raster, Scroll};
 
     impl Scroll {
         pub(crate) fn lift(ram: &[u8; 2048]) -> Scroll {
@@ -574,7 +574,10 @@ mod layout {
                 ppu_ctrl: ram[0xFF],
                 fixed_quads: ram[0x60..0x68].try_into().expect("8 bytes"),
                 fixed_rows: ram[0x70..0x80].try_into().expect("16 bytes"),
-                mirroring: ram[0xEC],
+                mirroring: {
+                    assert!(ram[0xEC] < 4, "$EC holds more than the mapper's two bits");
+                    Mirroring::from_register(ram[0xEC])
+                },
                 mask: ram[0xFE],
                 split: {
                     assert!(matches!(ram[0xD0], 0 | 0x80), "$D0 holds more than bit 7");
@@ -603,7 +606,7 @@ mod layout {
             ram[0xFF] = self.ppu_ctrl;
             ram[0x60..0x68].copy_from_slice(&self.fixed_quads);
             ram[0x70..0x80].copy_from_slice(&self.fixed_rows);
-            ram[0xEC] = self.mirroring;
+            ram[0xEC] = self.mirroring.register();
             ram[0xFE] = self.mask;
             ram[0xD0] = if self.split.armed { 0x80 } else { 0 };
             ram[0xD1..0xD3].copy_from_slice(&self.split.first_irq_cycles.to_le_bytes());

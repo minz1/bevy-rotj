@@ -14,6 +14,7 @@ use super::{
 use crate::actor::spawn::SpawnTable;
 use crate::actor::world::orientation;
 use crate::actors::{CELL_LOCK, CELL_PENDING, CELL_RECORD, SpawnRecord};
+use crate::render::Mirroring;
 use crate::rooms::{Arrival, Room, Start};
 use crate::terrain::Terrain;
 
@@ -477,9 +478,9 @@ fn import_room(
             scroll_lock: player_int("scroll_lock")?,
             scroll_mode: player_int("scroll_mode")?,
             mirroring: match (shape.vertical, camera_y >= 0x1000) {
-                (true, _) => 0,
-                (false, true) => 1,
-                (false, false) => 2,
+                (true, _) => Mirroring::SideBySide,
+                (false, true) => Mirroring::Stacked,
+                (false, false) => Mirroring::SingleLow,
             },
             first_spawn_column: pages[entry_under_camera] << 4,
             facing: player_int("facing")?,

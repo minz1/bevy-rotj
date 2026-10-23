@@ -111,6 +111,57 @@ pub mod mask {
     pub const SHOWN: u8 = RENDERING | LEFT_BACKGROUND | LEFT_SPRITES;
 }
 
+/// Which physical nametable each logical one uses (`$EC`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Mirroring {
+    /// `$2000`/`$2800` share a physical table and `$2400`/`$2C00` the other; the NES's
+    /// "vertical" mirroring.
+    #[default]
+    SideBySide,
+    /// `$2000`/`$2400` share a physical table and `$2800`/`$2C00` the other; the NES's
+    /// "horizontal" mirroring.
+    Stacked,
+    /// All four tables are the first physical table: single-screen low.
+    SingleLow,
+    /// All four tables are the second physical table: single-screen high.
+    SingleHigh,
+}
+
+impl Mirroring {
+    /// The arrangement `byte`'s low two bits select, as the mapper keeps them.
+    #[must_use]
+    pub const fn from_register(byte: u8) -> Self {
+        match byte & 3 {
+            0 => Self::SideBySide,
+            1 => Self::Stacked,
+            2 => Self::SingleLow,
+            _ => Self::SingleHigh,
+        }
+    }
+
+    /// The byte `$EC` holds for this arrangement.
+    #[must_use]
+    pub const fn register(self) -> u8 {
+        match self {
+            Self::SideBySide => 0,
+            Self::Stacked => 1,
+            Self::SingleLow => 2,
+            Self::SingleHigh => 3,
+        }
+    }
+
+    /// The physical nametable the logical `table` (0-3) maps onto.
+    #[must_use]
+    pub const fn physical(self, table: usize) -> usize {
+        match self {
+            Self::SideBySide => table & 1,
+            Self::Stacked => table >> 1,
+            Self::SingleLow => 0,
+            Self::SingleHigh => 1,
+        }
+    }
+}
+
 /// What the PPU draws one scanline with: the scroll, `$2000`/`$2001`, and the mapper's
 /// CHR banks and mirroring as they were when the line began.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -129,8 +180,8 @@ pub struct Line {
     pub chr: [u8; 8],
     /// The banks the line's sprites were fetched with (in the previous line's hblank).
     pub sprite_chr: [u8; 8],
-    /// 0 vertical, 1 horizontal, 2 single-screen low, 3 single-screen high.
-    pub mirroring: u8,
+    /// The nametable arrangement (`$EC`).
+    pub mirroring: Mirroring,
 }
 
 /// Where a line's background pixel `x` is fetched from.
@@ -164,12 +215,7 @@ impl Line {
         let column = (v & 0x1F) * 8 + usize::from(self.fine_x) + x;
         let coarse_x = (column / 8) % 32;
         let table = ((v >> 10) & 3) ^ ((column / 256) & 1);
-        let physical = match self.mirroring & 3 {
-            0 => table & 1,
-            1 => (table >> 1) & 1,
-            2 => 0,
-            _ => 1,
-        };
+        let physical = self.mirroring.physical(table);
         BackgroundCell {
             physical,
             tile_at: coarse_y * 32 + coarse_x,
@@ -400,6 +446,22 @@ mod tests {
 
     fn at(frame: &Frame, x: usize, y: usize) -> u8 {
         frame.indices()[y * SCREEN_W + x]
+    }
+
+    #[test]
+    fn mirroring_maps_each_logical_table() {
+        let expected = [
+            (Mirroring::SideBySide, [0, 1, 0, 1]),
+            (Mirroring::Stacked, [0, 0, 1, 1]),
+            (Mirroring::SingleLow, [0, 0, 0, 0]),
+            (Mirroring::SingleHigh, [1, 1, 1, 1]),
+        ];
+        for (mode, tables) in expected {
+            assert_eq!(Mirroring::from_register(mode.register()), mode);
+            for (table, physical) in tables.into_iter().enumerate() {
+                assert_eq!(mode.physical(table), physical, "{mode:?} table {table}");
+            }
+        }
     }
 
     #[test]
