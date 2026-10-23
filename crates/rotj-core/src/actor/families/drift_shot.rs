@@ -112,10 +112,10 @@ mod tests {
         assert!(checked > 0, "no $C4 or $C2 record");
     }
 
-    /// The area-20 `$C2` controller spawns one `$C4` at a time (`$97F0`); the
-    /// spawner is unported, so isolating the kind leaves the actors alive at the
-    /// lift. They all die off screen; 380 frames cover one whole life and the
-    /// freed tail. One phase (the spawn value 0), drawn all but the freeing loop.
+    /// The area-20 `$C2` controller spawns one `$C4` at a time (`$97F0`);
+    /// isolating the `$C4` kind frees the controller, leaving the actors alive
+    /// at the lift. They all die off screen; 380 frames cover one whole life and
+    /// the freed tail. One phase (the spawn value 0), drawn all but the freeing loop.
     #[test]
     fn matches_the_oracle() {
         let Some(scene) = Scene::tas(38250) else {

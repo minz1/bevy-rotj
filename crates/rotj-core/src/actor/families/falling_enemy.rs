@@ -132,8 +132,7 @@ mod tests {
     /// `$8C20`) puts it in slots 7-15 (`docs/ACTORS.md` §8b), so several run at
     /// once and the per-phase counts exceed the loops. All three `$7DD0` phases
     /// (0, 2 and 4) and the draw are exercised. The window stops at 405 frames,
-    /// before the room's schedule spawns a type `$C8` at frame 39199 whose
-    /// handler is unported.
+    /// before the room's schedule spawns a type `$C8` at frame 39199.
     #[test]
     fn matches_the_oracle() {
         let Some(scene) = Scene::tas(38793) else {

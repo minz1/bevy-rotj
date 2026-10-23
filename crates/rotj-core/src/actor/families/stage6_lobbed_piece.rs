@@ -107,8 +107,8 @@ mod tests {
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
 
     /// Area 1C:00, the frame the type `$96` parent spawns the `$9A` into slot 23
-    /// (its first loop head, `$7DD0` `$E8`). The `$96` parent is unported, so
-    /// `isolate` frees it; the spawned `$9A` then runs its whole life: the
+    /// (its first loop head, `$7DD0` `$E8`). `isolate` keeps only the `$9A`, so
+    /// the `$96` parent is freed; the `$9A` then runs its whole life: the
     /// `$7DD0` offset ramps `$E8`..`$FD`, `$00`..`$2D`, clamps at `$30`, the y
     /// reaches row `$0C` and the twelve-frame `$7D90` bit-7 dying animation frees
     /// the slot. `$FE`/`$FF` never occur: the offset steps by 3 from `$FD`.

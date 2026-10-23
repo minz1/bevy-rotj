@@ -11,7 +11,7 @@
 //! The spawner writes its contact byte `$50`, whose bit 6 makes `$A9C4` skip the
 //! player check: the `$96` never hurts the player, only the `$AA57` weapon scan
 //! acts, so a hit kills it. Its lobbing phase leaves a `$9A` child (bank 12 `$8208`,
-//! unported) in slots 16-23.
+//! a separate family) in slots 16-23.
 
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::{Body, Field};
@@ -152,7 +152,7 @@ mod tests {
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
 
     /// Clears the player's projectiles and any `$9A` child each loop, so the
-    /// actor lives through its whole phase cycle and the unported child never runs.
+    /// actor lives through its whole phase cycle and the `$9A` child never runs.
     fn without_weapons_and_children(frame: u64) -> Option<Scene> {
         let mut scene = Scene::tas(frame)?;
         for weapon in 0..16u16 {

@@ -89,8 +89,8 @@ mod tests {
     }
 
     /// The published TAS's bomber (`$2A`, area 12:02) drops a bomb whose real
-    /// landing is a *ride* on a `$0C` second-class platform, whose `$CE3E` ride
-    /// handler is unported (§9f), so `isolate` removes both; the falling phase,
+    /// landing is a *ride* on a `$0C` second-class platform; `isolate` frees that
+    /// platform, so the `$CE3E` ride (§9f) is never taken: the falling phase,
     /// the `ride_here` miss and the off-screen free are still compared.
     #[test]
     fn matches_the_oracle() {

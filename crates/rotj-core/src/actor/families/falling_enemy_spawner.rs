@@ -80,7 +80,7 @@ mod tests {
     /// Area 20:02 (stage 7), slot 0, from the frame it first spawns (38784) through
     /// its whole isolated life (288 loop frames, to 39072). The handler hands a `$AE`
     /// child to the highest free main slot every frame of spawning; the child is freed
-    /// at `$D450` each frame (slot 15) so the unported `$AE` handler never runs. The
+    /// at `$D450` each frame (slot 15) so the `$AE` handler never runs. The
     /// child bytes it does write are still compared, so the spawn is measured, not
     /// just sidestepped: spawning runs on the TAS's own `$7E90`/`$F9` values with no
     /// forced state.

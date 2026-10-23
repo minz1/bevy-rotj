@@ -262,10 +262,10 @@ mod tests {
 
     const FRAME: u64 = 28140;
 
-    /// The `$7A` (slots 0-15) and `$24` (slots 16-23) children belong to unported
-    /// families; freeing every main slot but slot 0 each loop keeps them from
-    /// running while the parent (which the isolated spawner puts in slot 0, the
-    /// lowest free one) still spawns them.
+    /// The `$7A` (slots 0-15) and `$24` (slots 16-23) children are other families;
+    /// freeing every main slot but slot 0 each loop keeps them from running while
+    /// the parent (which the isolated spawner puts in slot 0, the lowest free one)
+    /// still spawns them.
     fn free_children(scene: &mut Scene) {
         for slot in 1..24u16 {
             scene

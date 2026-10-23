@@ -2803,7 +2803,7 @@ mod tests {
         checked += draw_case(Scene::tas(351), 2030 - 351, &mut motions);
         checked += draw_case(Scene::route(640), 359, &mut motions);
         assert!(checked >= 1900, "$84AB: {checked} brackets compared");
-        // The states the two scenes reached; motions 7 and 9 are unported.
+        // The states the two scenes reached; motions 7 and 9 are not reached by them.
         println!("$84AB: {checked} brackets; motions {motions:?}");
         for handler in [0x9C2E, 0x9D2D, 0x9D6F, 0x9DA0] {
             assert!(

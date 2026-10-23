@@ -314,7 +314,7 @@ mod tests {
 
     /// Stage 1-1 room 4 (`$0400=0`, `$0402=4`): the `$0C` spawns at frame 1306
     /// in slot 0. The player's weapon hits would kill it at 1361 into the
-    /// unported `$89A6` path (§9c: `$0181`, `$AE0A`, `$A0CE`), so this keeps its
+    /// `$89A6` path (§9c: `$0181`, `$AE0A`, `$A0CE`), so this keeps its
     /// health up; the hits still set `$7D70` bit 6, so the flash draw is diffed.
     fn alive(frame: u64) -> Option<Scene> {
         let mut scene = Scene::tas(frame)?;

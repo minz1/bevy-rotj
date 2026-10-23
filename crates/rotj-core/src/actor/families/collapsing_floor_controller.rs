@@ -149,8 +149,8 @@ mod tests {
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
 
     /// Area 1C:00 from the level-start record in slot 0. The `$86` it drops every
-    /// 16th frame lands in the highest free main slot (15) and is unported, so the
-    /// poke frees it at the loop head.
+    /// 16th frame lands in the highest free main slot (15), so the poke frees it
+    /// at the loop head.
     fn scene() -> Option<Scene> {
         let mut scene = Scene::tas(33598)?;
         scene.machine.bus.trace.pokes.push((0xD450, 0x7CCF, 0));

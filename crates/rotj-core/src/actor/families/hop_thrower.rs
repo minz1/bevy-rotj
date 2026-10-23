@@ -165,7 +165,7 @@ mod tests {
 
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
 
-    /// The `$40` projectiles are unported, so each loop frees them at `$D450`.
+    /// The `$40` projectiles are freed at `$D450` each loop, so only the thrower runs.
     fn scene_at(frame: u64) -> Option<Scene> {
         let mut scene = Scene::tas(frame)?;
         for slot in 16..24 {

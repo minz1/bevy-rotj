@@ -55,9 +55,9 @@ mod tests {
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
 
     /// Area 1C:00, slot 1, from the load's last frame (33631): the first gameplay
-    /// loop frame is 33632. The `$96` child the handler hands to slot 15 is
-    /// unported, so a `$D450` poke frees it at the loop head each frame; that is
-    /// also what stops its death from re-arming the parent.
+    /// loop frame is 33632. The `$96` child the handler hands to slot 15 is freed
+    /// by a `$D450` poke at the loop head each frame; that is also what stops its
+    /// death from re-arming the parent.
     ///
     /// Phases: `$7DD0` 0 for the spawn frame, `$80` for the rest (the handler sets
     /// its own phase when it spawns and only the child's death clears it). The

@@ -245,7 +245,7 @@ mod tests {
         assert!(checked > 0, "no $B6 record");
     }
 
-    /// Frees every `$BA` child slot each loop, so the unported child never runs.
+    /// Frees every `$BA` child slot each loop, so the `$BA` never runs.
     fn without_children(frame: u64) -> Option<Scene> {
         let mut scene = Scene::tas(frame)?;
         for child in 0x7CD0..0x7CD8u16 {

@@ -290,7 +290,7 @@ mod tests {
 
     /// The area-14 `$42` slot at TAS 26808, replayed once for the whole module,
     /// with every other slot cleared each loop so the `$44` shots and `$46` child
-    /// it spawns never run unported.
+    /// it spawns never run.
     fn fight() -> Option<(Scene, usize)> {
         static SCENE: Mutex<Option<Scene>> = Mutex::new(None);
         let mut guard = SCENE.lock().expect("the scene lock");

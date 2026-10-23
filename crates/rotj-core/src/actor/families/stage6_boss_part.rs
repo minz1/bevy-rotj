@@ -73,8 +73,8 @@ mod tests {
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
 
     /// Area 1E:00 (the stage 6 boss room), the `$A6` boss's `$A8` parts in slots
-    /// 16-23, from frame 36967. `isolate` frees the unported `$A6` parent, so no
-    /// new parts spawn and the two alive here live out their 60-frame fall; both
+    /// 16-23, from frame 36967. `isolate` frees the `$A6` parent, so no new
+    /// parts spawn and the two alive here live out their 60-frame fall; both
     /// `$7DD0` x-velocity phases (`$10`, `$F0`) run and the part is drawn on 59 of
     /// them (`$A8` is never on screen without a draw).
     #[test]

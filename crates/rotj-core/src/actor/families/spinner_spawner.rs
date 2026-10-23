@@ -82,9 +82,9 @@ mod tests {
 
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
 
-    /// Frees the high main slots each frame, so the `$80`s' unported `$7E`
-    /// children (spawned into the highest free slot) never run. The spawner
-    /// places actors in slots 0-3, which are kept.
+    /// Frees the high main slots each frame, so the `$80`s' `$7E` children
+    /// (spawned into the highest free slot) never run. The spawner places actors
+    /// in slots 0-3, which are kept.
     fn free_children(scene: &mut Scene) {
         for slot in 4..16u16 {
             scene

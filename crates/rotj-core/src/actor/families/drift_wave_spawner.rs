@@ -136,10 +136,10 @@ mod tests {
     }
 
     /// Area 20:00. The runtime spawner hands the `$C2` controller its
-    /// highest-free slots; the `$C4` children it spawns (slots 13-15) are
-    /// unported, so a `$D450` poke frees them at the loop head each frame. The
-    /// three `$C2` slots (0/1/4) can each spawn one a frame, so all three are
-    /// cleared: no child ever runs and the diff is the controller's writes.
+    /// highest-free slots; the `$C4` children it spawns (slots 13-15) are freed
+    /// by a `$D450` poke at the loop head each frame. The three `$C2` slots
+    /// (0/1/4) can each spawn one a frame, so all three are cleared: no child
+    /// ever runs and the diff is the controller's writes.
     ///
     /// Phases: `$7DD0` 0 while it waits for the player's x page (`$9883[0]`),
     /// then 2 while it spawns a child every 9 frames. It never draws (the `$C4`

@@ -438,7 +438,7 @@ mod tests {
     /// `$9D13`: the `$90` burst of phase 3. The natural scene only reaches it on
     /// IRQ-dropped loops, so `$7DD0` = 3, `$7DF0` = `$80`, `$7E90` = `$4F` are
     /// held at `$D450`: the handler advances `$7E90` to `$50` and spawns five
-    /// shots. The shots are freed each loop, so the unported `$90` never runs.
+    /// shots. The shots are freed each loop, so the `$90` never runs.
     #[test]
     fn the_burst_spawns_shots() {
         let Some(mut scene) = Scene::tas(14672) else {

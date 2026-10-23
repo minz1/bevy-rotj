@@ -60,7 +60,7 @@ mod tests {
 
     /// Area 04:00 (the stage 1 boss room): the boss's parts spawn an 8-frame `$52`.
     /// The scene is seeded on the first frame one is alive and `isolate` drops the
-    /// unported parents, so only that `$52` is diffed; it is drawn every one of its
+    /// other kinds, so only that `$52` is diffed; it is drawn every one of its
     /// seven remaining loops.
     #[test]
     fn matches_the_oracle() {

@@ -783,8 +783,8 @@ mod tests {
     }
 
     /// Half a minute holding Right, jumping and firing: the loop, its column
-    /// streaming, the spawns, the actors and the shots run without an unported
-    /// path, through the room change at the end of the first room.
+    /// streaming, the spawns, the actors and the shots all run in the port,
+    /// through the room change at the end of the first room.
     #[test]
     fn the_game_runs_holding_right() {
         let Some(mut play) = play() else {

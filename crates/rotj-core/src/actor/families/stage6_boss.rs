@@ -282,7 +282,7 @@ mod tests {
     const SLOT: usize = 1;
 
     /// `Scene::tas(frame)` with every other slot freed each loop, so the `$A8`,
-    /// `$AA` and `$50` parts the boss spawns never run unported.
+    /// `$AA` and `$50` parts the boss spawns never run.
     fn fight(frame: u64) -> Option<Scene> {
         let mut scene = Scene::tas(frame)?;
         assert_eq!(scene.machine.bus.wram[0x1CC0 + SLOT], 0xA6);

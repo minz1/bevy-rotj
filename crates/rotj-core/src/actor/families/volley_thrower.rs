@@ -173,7 +173,7 @@ fn spawn_child(work: &Work, cx: &mut Cx<'_>) {
 mod tests {
     use crate::actor::oracle::{Scene, assert_actor_phases};
 
-    /// The `$4A` children belong to a separate, unported family. Keeping their
+    /// The `$4A` children belong to a separate family. Keeping their
     /// slots free each loop means the parent reuses the highest one and the
     /// children never run, exactly as the isolated port needs.
     fn free_children(scene: &mut Scene) {

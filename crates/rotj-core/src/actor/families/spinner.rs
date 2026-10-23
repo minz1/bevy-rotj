@@ -5,8 +5,8 @@
 //! (`integrate`), `$A7DD` (`collision::feet`), `$AF7D` (`collision::below`),
 //! `$A852` (`on_screen`), `$C247` (`draw`, bank 9 as `$84CA` maps it), `$AEE3`
 //! (`touch`) and `$A934` (`store`). Its spawning phase also calls the bank-0 helper
-//! `$8D84`, which spawns a type `$7A` child (bank 0 `$8DB5`, unported) at the
-//! parent's x and sets the parent's `$7D50` to `$40`.
+//! `$8D84`, which spawns a type `$7A` child (bank 0 `$8DB5`, another family) at
+//! the parent's x and sets the parent's `$7D50` to `$40`.
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work, anchor};

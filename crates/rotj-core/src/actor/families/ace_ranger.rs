@@ -363,7 +363,7 @@ mod tests {
     use crate::actor::oracle::{Scene, assert_actor_phases};
 
     /// The TAS boss fight (area 4, frames 6281-6771). Every non-boss slot is
-    /// cleared each loop so the `$3A`/`$3C` parts it spawns never run unported.
+    /// cleared each loop so the `$3A`/`$3C` parts it spawns never run.
     fn fight(frame: u64) -> Option<Scene> {
         let mut scene = Scene::tas(frame)?;
         let boss = (0..24)

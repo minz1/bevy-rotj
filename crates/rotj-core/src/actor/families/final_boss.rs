@@ -459,7 +459,7 @@ mod tests {
     const BOSS_SLOT: u16 = 1;
 
     /// Frees every slot but the boss's own at the loop head, so the parts it spawns
-    /// (all unported) never run; their spawn writes are still compared.
+    /// never run; their spawn writes are still compared.
     fn isolate_children(mut scene: Scene) -> Scene {
         let pokes = &mut scene.machine.bus.trace.pokes;
         for slot in (0..=15u16).filter(|&slot| slot != BOSS_SLOT) {

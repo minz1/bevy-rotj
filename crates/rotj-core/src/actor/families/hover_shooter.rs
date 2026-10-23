@@ -121,7 +121,7 @@ mod tests {
     use crate::actor::oracle::{Scene, assert_actor_phases};
 
     /// Runs `$1E` from `frame` of the TAS. The `$20` children it rears are cleared
-    /// each loop (unported type `$20`).
+    /// each loop, so their handler never runs.
     fn tas_at(frame: u64) -> Option<Scene> {
         let mut scene = Scene::tas(frame)?;
         for slot in 16..24 {

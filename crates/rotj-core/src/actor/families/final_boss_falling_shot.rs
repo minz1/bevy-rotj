@@ -108,9 +108,9 @@ mod tests {
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
 
     /// Area 22:00, the stage-7 boss room: the `$BC` part already alive at frame
-    /// 39834 (its `$B4` spawner is unported, so isolation frees it and no more
-    /// spawn). Its whole life: 30 loops of the phase-0 fall, then the parked
-    /// phase-`$FF` fall and the self-free.
+    /// 39834 (isolation frees its `$B4` spawner, so no more spawn). Its whole
+    /// life: 30 loops of the phase-0 fall, then the parked phase-`$FF` fall and
+    /// the self-free.
     #[test]
     fn matches_the_oracle() {
         let Some(scene) = Scene::tas(39834) else {

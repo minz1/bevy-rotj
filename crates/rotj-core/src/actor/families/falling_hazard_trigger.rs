@@ -56,8 +56,8 @@ mod tests {
     use crate::actor::oracle::{Coverage, Scene, assert_actor_phases};
 
     /// Area 1A:02 from the level-start record. The `$A2` children the handler
-    /// hands to slots 16-23 are unported, so a `$D450` poke frees them at the
-    /// loop head each frame, before their turn.
+    /// hands to slots 16-23 are freed by a `$D450` poke at the loop head each
+    /// frame, before their turn.
     ///
     /// The handler dispatches on nothing: its `$7DD0` "phase" (0) is never read
     /// or written, so [`Coverage::phases`] shows phase 0 only, over both slots.
