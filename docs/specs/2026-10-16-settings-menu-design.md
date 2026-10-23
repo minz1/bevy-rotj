@@ -1,7 +1,8 @@
 # Settings, the settings menu and frame pacing (1.1.0, part 1)
 
 Status: approved by the owner, 2026-10-16, after designing it with them in chat the same
-day (sections 1-4 approved one by one).
+day (sections 1-4 approved one by one). The palette's name in the menu (FirebrandX's condition):
+implemented in 1.1.38.
 
 ## Scope
 

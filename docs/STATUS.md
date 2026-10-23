@@ -1,4 +1,4 @@
-# Status — where 1.1.37 stands
+# Status — where 1.1.38 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -61,6 +61,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.35 | **done, tag `1.1.35`** (2026-10-23): the thirty-fifth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The counters named (`.orchestration/briefs/spec-counters.md`, the second survey's #2 and #11, the safe half): `Body`'s four counters tick with `Counter::tick_up`/`tick_down` instead of `wrapping_add(1)`/`wrapping_sub(1)` at 106 lines, the nine "went below zero" tests read `ran_out()`, `Projectile::count_down` uses both, and nine roundabout cadence tests on the frame counter are `is_multiple_of` or `u8::from(frame & M != 0)` (`DROP_PERIOD`, `ROLL_PERIOD`); bit 7's other meanings on those bytes stay raw for a later patch |
 | 1.1.36 | **done, tag `1.1.36`** (2026-10-23): the thirty-sixth modernisation patch, no behaviour change (the picture tests, the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). Duplicated helpers written once (`.orchestration/briefs/spec-duplicates.md`, the second survey's #8 and #9): the 2bpp tile decode is `chr::pixel` (was `tile_index`) in the app's ui, menu and Modern views; the 1 KiB CHR bank lookup is `chr::byte`/`chr::tile`, shared by the renderer, the app and Modern's blank check; the greyscale mask is `mask::colour_bits`; and the PRG `byte`/`word` readers that `collision.rs` and `levelmap.rs` each carried are `prg::byte`/`prg::word` |
 | 1.1.37 | **done, tag `1.1.37`** (2026-10-23): the thirty-seventh modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical; `rotj-tools sublevels` output byte-identical on six captures). The harness and app leftovers (`.orchestration/briefs/spec-leftovers.md`, the second survey's #18 and the owner's review list): the chain test's six counts are a named `ChainCounts` and `TapePlayer::injected` defaults to empty for replays; `levelmap::LevelMap` is gone, the capture reader renders through `Map::render_nametable(tables, scroll_x)`; and the app's systems take `Play` as a required resource. Modern's tilemap stays computed every frame: the paused menu's instant MODERN reads it |
+| 1.1.38 | **done, tag `1.1.38`** (2026-10-23): the thirty-eighth patch, no change to Classic (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The FirebrandX palette named where it is selectable: FirebrandX answered that anyone may use the palettes, provided a selectable one is named, so the settings menu shows COMPOSITE DIRECT FBX below its rows while Composite Direct is chosen; ATTRIBUTION, README, PLAN and the settings-menu spec record the answer |
 
 ## Verified working
 
@@ -131,7 +132,8 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    (2026-10-23). **1.1.34, mirroring, the OAM entry and the menu rows typed: tagged `1.1.34`**
    (2026-10-23). **1.1.35, the counters named: tagged `1.1.35`** (2026-10-23). **1.1.36, the duplicated
    helpers written once: tagged `1.1.36`** (2026-10-23). **1.1.37, the harness and app leftovers:
-   tagged `1.1.37`** (2026-10-23). Next: the fresh survey's list.
+   tagged `1.1.37`** (2026-10-23). **1.1.38, the FirebrandX palette named in the menu:
+   tagged `1.1.38`** (2026-10-23). Next: the fresh survey's list.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
