@@ -319,7 +319,8 @@ of its own, proven by the lockstep, ranked by payoff over risk:
 
 The second pass (`.orchestration/survey2.md`, 2026-10-18), as it lands: #4 the nametable
 mirroring, #16 the OAM entry and #10 the menu rows typed, done in 1.1.34; #2 and #11, the counters'
-ticks, their ran-out bit and the cadence tests named (the safe half), done in 1.1.35.
+ticks, their ran-out bit and the cadence tests named (the safe half), done in 1.1.35; #8 and #9, the
+app's tile decode and bank lookup and the PRG readers written once, done in 1.1.36.
 
 ### The owner's review of the passed-on candidates (2026-10-18)
 
