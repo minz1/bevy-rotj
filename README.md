@@ -47,8 +47,8 @@ workspace still builds and tests (the ROM tests skip). If you add the ROM later,
 
 Esc opens the settings menu anywhere, and so does Select while the game is paused:
 volume, overscan, palette, the sprite limit, vsync and the UI. Everything starts the way the NES
-looked: a TV's overscan hides 8 lines at the top and bottom and the scroll seam at the sides, the colours are Composite
-Direct, and more than 8 sprites on a line flicker. Turn the sprite limit off and the
+looked: a TV's overscan hides 8 lines at the top and bottom and the scroll seam at the sides, the colours are FirebrandX's
+Composite Direct (FBX), and more than 8 sprites on a line flicker. Turn the sprite limit off and the
 flicker from it goes. Pick FILE as the palette to use your own 64-colour `.pal`, saved
 as `palette.pal` next to the exe. UI set to FAITHFUL draws the game's own HUD, pause card
 and menus as Bevy UI, and the HUD's L/E letters stop flickering.
@@ -92,7 +92,8 @@ The code is MIT or Apache-2.0, at your option (`LICENSE-MIT`, `LICENSE-APACHE`).
 to its rights holders; this project ships none of it.
 
 Classic Mode's colours are FirebrandX's
-[Composite Direct](http://www.firebrandx.com/nespalette.html) palette
+[Composite Direct](http://www.firebrandx.com/nespalette.html) palette, used with his
+permission on the condition that the menu names it where it can be chosen
 (`assets/graphics/palette-sources/ATTRIBUTION.md`). The whole-game input the tests replay
 is Aglar's published TAS ([TASVideos 1087M](https://tasvideos.org/1087M), CC BY 2.0,
 `tools/emu/tas/ATTRIBUTION.md`).

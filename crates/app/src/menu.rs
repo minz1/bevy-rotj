@@ -154,6 +154,15 @@ impl Row {
     }
 }
 
+/// The name of the chosen palette when it is a third party's, which its author asks a
+/// selectable palette to show.
+fn credit(palette: PaletteChoice) -> &'static str {
+    match palette {
+        PaletteChoice::CompositeDirect => "COMPOSITE DIRECT FBX",
+        PaletteChoice::RgbPpu | PaletteChoice::Ntsc | PaletteChoice::File => "",
+    }
+}
+
 /// Where the values start, in glyphs.
 const VALUE_COLUMN: usize = 14;
 /// The widest line, in glyphs.
@@ -383,7 +392,8 @@ fn line(font: &Font, text: &str, tint: Color) -> impl Bundle {
     )
 }
 
-/// The menu's box: the title, then each row with its value, the cursor's row white.
+/// The menu's box: the title, then each row with its value, the cursor's row white, then
+/// the palette's credit.
 fn menu_box(picture: &mut ChildSpawnerCommands<'_>, font: &Font, shown: &Shown<'_>) {
     picture
         .spawn((
@@ -416,6 +426,12 @@ fn menu_box(picture: &mut ChildSpawnerCommands<'_>, font: &Font, shown: &Shown<'
                     tint,
                 ));
             }
+            menu_box.spawn(line(font, "", Color::WHITE));
+            menu_box.spawn(line(
+                font,
+                &format!("{:^COLUMNS$}", credit(shown.settings.palette)),
+                shown.colour(0x10),
+            ));
         });
 }
 
@@ -543,17 +559,20 @@ mod tests {
         assert!(!lit(BLANK));
     }
 
+    const PALETTES: [PaletteChoice; 4] = [
+        PaletteChoice::CompositeDirect,
+        PaletteChoice::RgbPpu,
+        PaletteChoice::Ntsc,
+        PaletteChoice::File,
+    ];
+
     #[test]
     fn every_menu_character_has_a_glyph() {
         let settings = Settings::default();
         let mut texts: Vec<String> = Row::ALL.iter().map(|row| row.label().to_string()).collect();
         texts.extend(["SETTINGS".into(), HINT.into()]);
-        for palette in [
-            PaletteChoice::CompositeDirect,
-            PaletteChoice::RgbPpu,
-            PaletteChoice::Ntsc,
-            PaletteChoice::File,
-        ] {
+        texts.extend(PALETTES.map(|palette| credit(palette).into()));
+        for palette in PALETTES {
             for file_missing in [false, true] {
                 let settings = Settings {
                     palette,
@@ -627,13 +646,23 @@ mod tests {
     #[test]
     fn the_box_fits_the_smallest_view() {
         let width = pixels(COLUMNS * 8) + 2.0 * (PAD + BORDER);
-        let height = pixels((Row::ALL.len() + 2) * 16) + 2.0 * (PAD + BORDER);
+        let height = pixels((Row::ALL.len() + 4) * 16) + 2.0 * (PAD + BORDER);
         assert!(width <= 256.0 && height <= 224.0, "{width}x{height}");
         let longest = Row::ALL
             .iter()
             .map(|row| VALUE_COLUMN.max(row.label().len()) + "COMPOSITE".len())
             .max();
         assert!(longest <= Some(COLUMNS));
+        assert!(PALETTES.iter().all(|&p| credit(p).len() <= COLUMNS));
+    }
+
+    #[test]
+    fn only_composite_direct_is_credited() {
+        let credited: Vec<_> = PALETTES
+            .into_iter()
+            .filter(|&p| !credit(p).is_empty())
+            .collect();
+        assert_eq!(credited, [PaletteChoice::CompositeDirect]);
     }
 
     /// The menu over the game at stage 1-1's start, keys pressed by hand, settings saved

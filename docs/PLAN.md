@@ -149,7 +149,8 @@ until outside contributors appear, then gets one from a private companion reposi
 (a read-only token, on pushes to main, tags and manual runs only). Before the orphan
 commit: the license files and the `repository` URL (added 2026-10-16; the public repo is
 `github.com/minz1/bevy-rotj`), the internal notes stay untracked, and FirebrandX's answer on
-the palette (asked; kept with attribution meanwhile).
+the palette (answered 2026-10-23: free to use, named where it is selectable; the menu
+names it since 1.1.38).
 
 The TAS input (`tools/emu/tas/`, CC BY 2.0 with attribution) and all original
 code and documentation stay.

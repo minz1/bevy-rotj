@@ -242,7 +242,8 @@ from the game's own requests.
     repo stays private with the history and the tags. Rewriting the history
     (`git filter-repo`, option B) may follow later.
   - **The palette stays, attributed** (`assets/graphics/palette-sources/ATTRIBUTION.md`,
-    README); the owner is asking FirebrandX.
+    README). FirebrandX answered on 2026-10-23: anyone may use it, provided a selectable
+    palette is named; the settings menu names it since 1.1.38.
   - **The Gemini cut-content survey is not committed** (untracked, git-ignored, kept
     locally); `docs/CUTCONTENT.md` holds what was verified from it.
   - **The lost fceux evidence is accepted**: four of twelve attribute-stream dump records

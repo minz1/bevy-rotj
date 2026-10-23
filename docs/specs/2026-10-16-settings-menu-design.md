@@ -95,6 +95,8 @@ a game pixel; the box always lies within the 224 lines visible with overscan hid
     SPRITE LIMIT    ON
     VSYNC           ON
     BACK
+
+     COMPOSITE DIRECT FBX    (Composite Direct chosen: its author asks for its name)
 ```
 
 Up/Down moves the cursor (wrapping), Left/Right changes the value and applies it at once
@@ -138,7 +140,8 @@ colours for the tests. In `rotj_core::palette`:
 - `File`: `palette.pal` beside the exe, read at start-up and when chosen; 192 bytes, or
   1536 (the emphasis variants, of which the first 192 are used); any other size is
   `NO FILE`. Players bring their own, so the repo ships no third-party palette beyond
-  Composite Direct (whose permission request is still pending, see its `ATTRIBUTION.md`).
+  Composite Direct (used with FirebrandX's permission, on condition that it is named where
+  selectable; see its `ATTRIBUTION.md`).
 
 **sprite_limit.** `Frame::render(&mut self, picture, sprites_per_line: usize)`, the only
 change to `rotj-core`'s API: the app passes 8 or 64; every existing caller passes
