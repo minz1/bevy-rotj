@@ -538,15 +538,35 @@ mod tests {
     }
 
     /// The chain's counts, which its tape's replay reproduces.
-    fn chain_counts(run: &GameRun) -> (usize, usize, usize, usize, usize, usize) {
-        (
-            run.frames,
-            run.room_changes,
-            run.stage_ends,
-            run.next_area,
-            run.script_frames,
-            run.endings,
-        )
+    #[derive(Debug, PartialEq, Eq)]
+    struct ChainCounts {
+        frames: usize,
+        room_changes: usize,
+        stage_ends: usize,
+        next_area: usize,
+        script_frames: usize,
+        endings: usize,
+    }
+
+    /// The chain's counts as its recording ran them.
+    const CHAIN_COUNTS: ChainCounts = ChainCounts {
+        frames: 35299,
+        room_changes: 12,
+        stage_ends: 1,
+        next_area: 17,
+        script_frames: 8901,
+        endings: 1,
+    };
+
+    fn chain_counts(run: &GameRun) -> ChainCounts {
+        ChainCounts {
+            frames: run.frames,
+            room_changes: run.room_changes,
+            stage_ends: run.stage_ends,
+            next_area: run.next_area,
+            script_frames: run.script_frames,
+            endings: run.endings,
+        }
     }
 
     /// Writes `tape` as `name`'s local tape, which the replay tests read.
@@ -569,7 +589,7 @@ mod tests {
             return;
         };
         let (run, tape) = assert_game_recording(scene, 47676);
-        assert_eq!(chain_counts(&run), (35299, 12, 1, 17, 8901, 1), "{run:?}");
+        assert_eq!(chain_counts(&run), CHAIN_COUNTS, "{run:?}");
         let pictures = run.pictures;
         assert_eq!(
             (
@@ -616,7 +636,7 @@ mod tests {
             return;
         };
         let run = replay_chain(&tape, rom);
-        assert_eq!(chain_counts(&run), (35299, 12, 1, 17, 8901, 1), "{run:?}");
+        assert_eq!(chain_counts(&run), CHAIN_COUNTS, "{run:?}");
         assert!(run.injected.is_empty(), "{run:?}");
     }
 

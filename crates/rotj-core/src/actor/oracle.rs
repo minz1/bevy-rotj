@@ -743,8 +743,11 @@ pub(crate) trait Environment {
     fn loop_wait(&mut self);
     /// Compares a loop frame's RAM and WRAM.
     fn check(&mut self, game: &State, checked: usize);
-    /// The routines injected, by name, with their call counts.
-    fn injected(&mut self) -> BTreeMap<&'static str, usize>;
+    /// The routines injected, by name, with their call counts; empty for a replay, whose
+    /// tape does not hold the interrupts' counts.
+    fn injected(&mut self) -> BTreeMap<&'static str, usize> {
+        BTreeMap::new()
+    }
     /// Frames whose lines were compared with the oracle's, and how many of them had a
     /// line only the IRQs' jitter explains.
     fn pictures(&self) -> Pictures {
@@ -1518,15 +1521,10 @@ impl Environment for TapePlayer<'_> {
             self.differs("loop frame", checked);
         }
     }
-
-    fn injected(&mut self) -> BTreeMap<&'static str, usize> {
-        BTreeMap::new()
-    }
 }
 
 /// Replays the tape `name` through the port alone: the game [`assert_game`] recorded it
-/// from, checked at every compare. The interrupts' counts are not on the tape, so
-/// `injected` is empty.
+/// from, checked at every compare.
 pub(crate) fn replay(name: &str, tape: &Tape, prg: &Prg, chr: &[u8]) -> GameRun {
     let mut player = TapePlayer {
         name,
