@@ -324,21 +324,20 @@ fn spawn_shots(body: &Body, work: &Work, cx: &mut Cx<'_>) {
         let Some(slot) = engine::free_child_slot(cx.slots) else {
             return;
         };
-        let child = &mut cx.slots.main[slot];
-        let missile = &mut child.body;
+        let left = work.attr & attr::FLIP_X != 0;
+        let x = if left {
+            work.x.wrapping_sub(0x80)
+        } else {
+            work.x.wrapping_add(0x80)
+        };
+        let missile = cx.slots.main[slot].spawn(SHOT_KIND, x, work.y.wrapping_sub(0x02C0));
         missile.flags = (work.attr & attr::FLIP_X) | attr::PALETTE;
         missile.phase = count;
-        let position = if work.attr & attr::FLIP_X == 0 {
-            work.x.wrapping_add(0x80)
-        } else {
+        if left {
             missile.phase = missile.phase.wrapping_add(5);
-            work.x.wrapping_sub(0x80)
-        };
-        missile.x = position;
-        missile.y = work.y.wrapping_sub(0x02C0);
+        }
         missile.chr_slot = body.chr_slot;
         missile.state = 0;
-        child.kind = SHOT_KIND;
         if count == 0 {
             return;
         }

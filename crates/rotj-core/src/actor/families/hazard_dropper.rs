@@ -8,7 +8,6 @@
 //! draws and never reads `$7DD0`/`$7D50`, so its phase is always the spawn value.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::families::Brain;
 use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
@@ -81,12 +80,8 @@ fn spawn_child(body: &Body, cx: &mut Cx<'_>) {
     let Some(slot) = engine::free_child_slot(cx.slots) else {
         return;
     };
-    let child = &mut cx.slots.main[slot];
-    child.kind = CHILD;
-    child.body.x = body.x;
-    child.body.y = body.y;
-    child.body.state = 0;
-    child.brain = Brain::new(CHILD);
+    let child = cx.slots.main[slot].spawn(CHILD, body.x, body.y);
+    child.state = 0;
 }
 
 /// `$84AA`: turn the patrol around and re-index from the far position.

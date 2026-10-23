@@ -6,7 +6,6 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::{Body, Counter, contact};
 use crate::actor::world::{Cx, Motion, sound};
@@ -302,7 +301,7 @@ fn third_draw(body: &Body, work: &mut Work, cx: &mut Cx<'_>) {
 
 /// `$8FB9`: spawn a type `$3A` part into the highest free slot 16-23.
 fn spawn_3a(body: &Body, work: &Work, cx: &mut Cx<'_>) {
-    let Some(slot) = (16..24).rev().find(|&i| cx.slots.main[i].kind == 0) else {
+    let Some(slot) = cx.slots.free_main(16..24) else {
         return;
     };
     cx.effects.sound[0] = sound::ENEMY_FIRES;
@@ -318,34 +317,31 @@ fn spawn_3a(body: &Body, work: &Work, cx: &mut Cx<'_>) {
         work.x.wrapping_add(dx)
     };
     let y = work.y.wrapping_sub(dy);
-    let part = &mut cx.slots.main[slot];
-    part.kind = PART;
-    part.body.flags = work.attr;
-    (part.body.x, part.body.y) = (x, y);
-    part.body.phase = phase;
-    part.body.sprite = frame;
-    part.body.chr_slot = body.chr_slot;
-    part.body.state = 0;
-    part.brain = Brain::new(PART);
+    let part = cx.slots.main[slot].spawn(PART, x, y);
+    part.flags = work.attr;
+    part.phase = phase;
+    part.sprite = frame;
+    part.chr_slot = body.chr_slot;
+    part.state = 0;
 }
 
 /// `$909B`: spawn up to three type `$3C` parts into the highest free slots 0-15.
 fn spawn_3c(cx: &mut Cx<'_>) {
     let mut count = 2u8;
     loop {
-        let Some(slot) = (0..16).rev().find(|&i| cx.slots.main[i].kind == 0) else {
+        let Some(slot) = cx.slots.free_main(0..16) else {
             return;
         };
         let x = cx.prg.families.ace_ranger.spawn_x[usize::from(count)];
         let y = cx.prg.families.ace_ranger.spawn_y[usize::from(count)];
-        let part = &mut cx.slots.main[slot];
-        part.kind = SHELL;
-        part.body.x = u16::from_be_bytes([x, 0]);
-        part.body.y = u16::from_be_bytes([y, 0]);
-        (part.body.state, part.body.hit, part.body.health) = (0, 0, 0x0008);
-        (part.body.timer, part.body.counter) = (0, 0);
-        part.body.contact = contact::SLIDE_HURTS;
-        part.brain = Brain::new(SHELL);
+        let part = cx.slots.main[slot].spawn(
+            SHELL,
+            u16::from_be_bytes([x, 0]),
+            u16::from_be_bytes([y, 0]),
+        );
+        (part.state, part.hit, part.health) = (0, 0, 0x0008);
+        (part.timer, part.counter) = (0, 0);
+        part.contact = contact::SLIDE_HURTS;
         if count == 0 {
             break;
         }

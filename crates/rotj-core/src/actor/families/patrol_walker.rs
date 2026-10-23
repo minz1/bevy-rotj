@@ -2,7 +2,6 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work, anchor};
-use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
@@ -252,24 +251,21 @@ fn flash(work: &mut Work, cx: &mut Cx<'_>) {
 
 /// Writes the `$24` child into the highest free slot 16-23, as `$9BB0` does.
 fn spawn_child(parent: &Body, cx: &mut Cx<'_>) {
-    let Some(slot) = (16..24).rev().find(|&slot| cx.slots.main[slot].kind == 0) else {
+    let Some(slot) = cx.slots.free_main(16..24) else {
         return;
     };
     let left = parent.flags & attr::FLIP_X != 0;
-    let child = &mut cx.slots.main[slot];
-    child.kind = CHILD;
-    child.body.flags = parent.flags;
-    child.body.phase = u8::from(left);
-    child.body.x = if left {
+    let x = if left {
         parent.x.wrapping_sub(0x1C0)
     } else {
         parent.x.wrapping_add(0x1C0)
     };
-    child.body.y = parent.y.wrapping_sub(0x220);
-    child.body.chr_slot = parent.chr_slot;
-    child.body.state = 0;
-    child.body.sprite = 2;
-    child.brain = Brain::new(CHILD);
+    let child = cx.slots.main[slot].spawn(CHILD, x, parent.y.wrapping_sub(0x220));
+    child.flags = parent.flags;
+    child.phase = u8::from(left);
+    child.chr_slot = parent.chr_slot;
+    child.state = 0;
+    child.sprite = 2;
 }
 
 #[cfg(test)]

@@ -10,7 +10,6 @@
 //! [`Body`].
 
 use crate::actor::engine::{self, Work};
-use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
@@ -155,18 +154,15 @@ fn spawn_child(work: &Work, cx: &mut Cx<'_>) {
         return;
     };
     let facing_left = facing_left(work);
-    let child = &mut cx.slots.main[slot];
-    child.kind = CHILD;
-    child.body.timer = 0;
-    child.body.flags = work.attr;
-    child.body.phase = u8::from(facing_left);
-    child.body.x = if facing_left {
+    let x = if facing_left {
         work.x.wrapping_add(SPAWN_OFFSET)
     } else {
         work.x.wrapping_sub(SPAWN_OFFSET)
     };
-    child.body.y = work.y.wrapping_add(SPAWN_OFFSET);
-    child.brain = Brain::new(CHILD);
+    let child = cx.slots.main[slot].spawn(CHILD, x, work.y.wrapping_add(SPAWN_OFFSET));
+    child.timer = 0;
+    child.flags = work.attr;
+    child.phase = u8::from(facing_left);
 }
 
 #[cfg(test)]

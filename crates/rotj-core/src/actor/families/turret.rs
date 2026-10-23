@@ -118,13 +118,9 @@ fn spawn_child(index: usize, work: &Work, chr_slot: u8, cx: &mut Cx<'_>) {
     } else {
         (LEFT, work.x.wrapping_sub(OFFSET))
     };
-    let child = &mut cx.slots.main[index];
-    child.kind = CHILD;
-    let child = &mut child.body;
+    let child = cx.slots.main[index].spawn(CHILD, x, work.y.wrapping_add(DROP));
     child.flags = flags;
     child.phase = phase;
-    child.x = x;
-    child.y = work.y.wrapping_add(DROP);
     child.chr_slot = chr_slot;
     child.state = 0;
     child.sprite = CHILD_SPRITE;

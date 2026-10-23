@@ -66,30 +66,27 @@ impl State {
                 if !body.counter.ran_out() {
                     return;
                 }
-                if let Some(index) = (0..16).rev().find(|&y| cx.slots.main[y].kind == 0) {
+                if let Some(index) = cx.slots.free_main(0..16) {
                     let (x, y, subtype) = (body.x, body.y, body.subtype);
                     let (drift, velocity) =
                         cx.prg.families.drift_wave_spawner.velocities[usize::from(subtype)];
-                    let child = &mut cx.slots.main[index];
-                    child.kind = CHILD;
-                    child.body.hit = 0;
-                    child.body.behaviour = 0;
-                    child.body.phase = 0;
-                    child.body.timer = 0;
-                    child.body.counter = 0;
-                    child.body.anim = 0;
-                    child.body.ref_vx = 0;
-                    child.body.vx = 0;
-                    child.body.contact = contact::SHIELDED | contact::SMITE_PROOF;
-                    child.body.health = 0x8888;
-                    child.body.state = STATE_UNTARGETED;
-                    child.body.flags = 1;
-                    child.body.chr_slot = 6;
-                    child.body.x = x;
-                    child.body.y = y;
-                    child.body.subtype = subtype;
-                    child.body.vx_drift = drift;
-                    child.body.vy = velocity;
+                    let child = cx.slots.main[index].spawn(CHILD, x, y);
+                    child.hit = 0;
+                    child.behaviour = 0;
+                    child.phase = 0;
+                    child.timer = 0;
+                    child.counter = 0;
+                    child.anim = 0;
+                    child.ref_vx = 0;
+                    child.vx = 0;
+                    child.contact = contact::SHIELDED | contact::SMITE_PROOF;
+                    child.health = 0x8888;
+                    child.state = STATE_UNTARGETED;
+                    child.flags = 1;
+                    child.chr_slot = 6;
+                    child.subtype = subtype;
+                    child.vx_drift = drift;
+                    child.vy = velocity;
                 }
                 body.counter = SPAWN_DELAY;
                 body.timer.tick_up();

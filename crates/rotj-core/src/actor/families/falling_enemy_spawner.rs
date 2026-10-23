@@ -42,32 +42,29 @@ impl State {
             body.phase = COUNTING;
             body.anim = 0xC0;
         }
-        let Some(index) = (0..16).rev().find(|&y| cx.slots.main[y].kind == 0) else {
+        let Some(index) = cx.slots.free_main(0..16) else {
             return;
         };
         // The 6502's `sbc #$03` at `$8C0A` is dead: its result is overwritten by
         // `lda #$FF` and its carry is never read.
         let random_lo = cx.world.rng[0];
         let random_hi = cx.world.rng[1];
-        let child = &mut cx.slots.main[index];
-        child.kind = CHILD;
-        child.body.x = body.x;
-        child.body.y = body.y;
-        child.body.vy = i16::from((random_lo & 0x3F) + 0x30);
-        child.body.vx_drift = if random_lo & 0x80 != 0 {
+        let child = cx.slots.main[index].spawn(CHILD, body.x, body.y);
+        child.vy = i16::from((random_lo & 0x3F) + 0x30);
+        child.vx_drift = if random_lo & 0x80 != 0 {
             i16::from_be_bytes([0xFF, random_hi | 0xF0])
         } else {
             i16::from_be_bytes([0, (random_hi & 0x0F) + 3])
         };
-        child.body.contact = contact::SMITE_PROOF;
-        child.body.state = 0;
-        child.body.hit = 0;
-        child.body.subtype = 0;
-        child.body.phase = 0;
-        child.body.flags = 0;
-        child.body.ref_vx = 0;
-        child.body.vx = 0;
-        child.body.health = 0;
+        child.contact = contact::SMITE_PROOF;
+        child.state = 0;
+        child.hit = 0;
+        child.subtype = 0;
+        child.phase = 0;
+        child.flags = 0;
+        child.ref_vx = 0;
+        child.vx = 0;
+        child.health = 0;
     }
 }
 

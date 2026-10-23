@@ -8,7 +8,6 @@
 //! draw.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::families::Brain;
 use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 
@@ -97,23 +96,12 @@ fn rest(body: &mut Body, work: &Work) {
 
 /// `$88BD`: the `$24` shot goes into main slot `slot` (16-23), `$80` up and left.
 fn spawn_child(body: &Body, work: &Work, round: u8, slot: usize, cx: &mut Cx<'_>) {
-    let [x_hi, x_lo] = work.x.to_be_bytes();
-    let [y_hi, y_lo] = work.y.to_be_bytes();
-    let child = &mut cx.slots.main[slot];
-    child.kind = CHILD;
-    child.body.x = u16::from_be_bytes([
-        x_hi.wrapping_sub(u8::from(x_lo < 0x80)),
-        x_lo.wrapping_sub(0x80),
-    ]);
-    child.body.y = u16::from_be_bytes([
-        y_hi.wrapping_add(u8::from(y_lo >= 0x80)),
-        y_lo.wrapping_sub(0x80),
-    ]);
-    child.body.chr_slot = body.chr_slot;
-    child.body.state = 0;
-    child.body.sprite = 4;
-    child.body.phase = 4 + round;
-    child.brain = Brain::new(CHILD);
+    let child =
+        cx.slots.main[slot].spawn(CHILD, work.x.wrapping_sub(0x80), work.y.wrapping_add(0x80));
+    child.chr_slot = body.chr_slot;
+    child.state = 0;
+    child.sprite = 4;
+    child.phase = 4 + round;
 }
 
 #[cfg(test)]

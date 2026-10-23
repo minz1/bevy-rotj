@@ -6,7 +6,6 @@
 //! the table at `$9022`; the metasprite tables are the four words from `$902A`.
 
 use crate::actor::engine::{self, Visibility, Work, anchor};
-use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
@@ -146,17 +145,13 @@ fn falling(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) -> 
 /// `$8D84`: puts a `$7A` in the highest free slot of 0-15 at `x`, row `$0C`,
 /// and sets the caller's state to `$40`; no free slot leaves both unchanged.
 fn spawn_marker(body: &mut Body, x: u16, cx: &mut Cx<'_>) {
-    let Some(index) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0) else {
+    let Some(index) = cx.slots.free_main(0..16) else {
         return;
     };
     body.state = STATE_UNTARGETED;
-    let child = &mut cx.slots.main[index];
-    child.kind = MARKER;
-    child.brain = Brain::new(MARKER);
-    child.body.phase = 0;
-    child.body.y = 0x0C00;
-    child.body.x = x;
-    child.body.chr_slot = 7;
+    let child = cx.slots.main[index].spawn(MARKER, x, 0x0C00);
+    child.phase = 0;
+    child.chr_slot = 7;
 }
 
 /// `$8FC0`: puts a `$24` in the highest free slot of 16-23 beside and above the
@@ -166,20 +161,17 @@ fn spawn_blast(body: &Body, cx: &mut Cx<'_>) {
         return;
     };
     let left = body.flags & attr::FLIP_X != 0;
-    let child = &mut cx.slots.main[index];
-    child.kind = BLAST;
-    child.brain = Brain::new(BLAST);
-    child.body.flags = body.flags;
-    child.body.phase = u8::from(left);
-    child.body.x = if left {
+    let x = if left {
         body.x.wrapping_sub(SIDE)
     } else {
         body.x.wrapping_add(SIDE)
     };
-    child.body.y = body.y.wrapping_sub(ABOVE);
-    child.body.chr_slot = body.chr_slot;
-    child.body.state = 0;
-    child.body.sprite = 5;
+    let child = cx.slots.main[index].spawn(BLAST, x, body.y.wrapping_sub(ABOVE));
+    child.flags = body.flags;
+    child.phase = u8::from(left);
+    child.chr_slot = body.chr_slot;
+    child.state = 0;
+    child.sprite = 5;
 }
 
 /// `$8EEE`: draws and contacts on screen, else only steps and stores; far off

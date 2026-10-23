@@ -1,5 +1,7 @@
 //! Actor slots: the 24 main slots the actor loop runs, and the 8 second-class slots.
 
+use std::ops::Range;
+
 use crate::actor::engine::{hi, lo};
 use crate::actor::families::{Brain, SecondBrain};
 use crate::actor::world::{PROJECTILE_ARRAYS, Projectile};
@@ -360,6 +362,12 @@ impl Slots {
             self.second[slot - 24].kind = kind;
         }
     }
+
+    /// The highest free main slot in `range`, where the game looks for room for a child or a shot.
+    #[must_use]
+    pub fn free_main(&self, range: Range<usize>) -> Option<usize> {
+        range.rev().find(|&slot| self.main[slot].kind == 0)
+    }
 }
 
 /// Who holds a slot-array byte.
@@ -628,6 +636,18 @@ pub struct Slot {
     pub body: Body,
     /// The family's own state.
     pub brain: Brain,
+}
+
+impl Slot {
+    /// Puts a new `kind` here at (`x`, `y`) and returns its body. Every other byte keeps what the
+    /// slot held when it was freed: the game's children read some of those stale bytes.
+    pub fn spawn(&mut self, kind: u8, x: u16, y: u16) -> &mut Body {
+        self.kind = kind;
+        self.brain = Brain::new(kind);
+        self.body.x = x;
+        self.body.y = y;
+        &mut self.body
+    }
 }
 
 /// Which routine spawned an actor; they differ in what they clear in slots 24-31.

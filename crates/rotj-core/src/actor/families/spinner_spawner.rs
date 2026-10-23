@@ -7,7 +7,6 @@
 //! It dispatches on no `$7DD0` phase, so the reported phase is always 0.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::families::Brain;
 use crate::actor::slots::{Body, Counter, contact};
 use crate::actor::world::Cx;
 use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
@@ -15,7 +14,7 @@ use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
 /// `$7E90 & $3F`: the 64-frame spawn period (`$92A1`).
 const SPAWN_MASK: u8 = 0x3F;
 /// The free-slot scan covers the 16 main slots, 15 down to 0 (`$92A8`).
-const SLOTS: u16 = 16;
+const SLOTS: usize = 16;
 /// The child's type (`$92CC`).
 const CHILD: u8 = 0x7E;
 /// The child's y (`$92C5`/`$92C7` = `$01`/`$40`).
@@ -48,10 +47,7 @@ impl State {
 
 /// `$92A8`: puts a `$7E` in the highest free main slot with the parent's x.
 fn spawn(body: &Body, work: &Work, cx: &mut Cx<'_>) {
-    let Some(index) = (0..SLOTS)
-        .rev()
-        .find(|&y| cx.slots.main[usize::from(y)].kind == 0)
-    else {
+    let Some(index) = cx.slots.free_main(0..SLOTS) else {
         return;
     };
     let behaviour = if body.behaviour & 0x80 == 0 {
@@ -59,12 +55,7 @@ fn spawn(body: &Body, work: &Work, cx: &mut Cx<'_>) {
     } else {
         CHILD_BEHAVIOUR | u8::from(engine::player_dx(work, &cx.effects.player) < 0)
     };
-    let child = &mut cx.slots.main[usize::from(index)];
-    child.kind = CHILD;
-    child.brain = Brain::new(CHILD);
-    let child = &mut child.body;
-    child.x = body.x;
-    child.y = CHILD_Y;
+    let child = cx.slots.main[index].spawn(CHILD, body.x, CHILD_Y);
     child.state = STATE_UNTARGETED;
     child.behaviour = behaviour;
     child.contact = CHILD_CONTACT;

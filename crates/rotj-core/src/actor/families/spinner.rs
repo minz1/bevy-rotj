@@ -10,7 +10,6 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work, anchor};
-use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::{Body, Counter, Field};
 use crate::actor::world::Cx;
@@ -210,17 +209,12 @@ fn descending(body: &mut Body, work: &mut Work) {
 /// `$8D84`: puts a type `$7A` in the highest free main slot at the parent's x,
 /// `$0C00` y and CHR `$7`. Returns whether one was free.
 fn spawn_child(parent: &Body, cx: &mut Cx<'_>) -> bool {
-    let Some(index) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0) else {
+    let Some(index) = cx.slots.free_main(0..16) else {
         return false;
     };
-    let child = &mut cx.slots.main[index];
-    let body = &mut child.body;
-    body.phase = 0;
-    body.y = 0x0C00;
-    body.x = parent.x;
-    body.chr_slot = 0x07;
-    child.kind = CHILD;
-    child.brain = Brain::new(CHILD);
+    let child = cx.slots.main[index].spawn(CHILD, parent.x, 0x0C00);
+    child.phase = 0;
+    child.chr_slot = 0x07;
     true
 }
 

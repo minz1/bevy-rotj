@@ -855,13 +855,10 @@ pub fn boss_defeated(timer: u8, cx: &mut Cx<'_>) {
     cx.effects.busy = busy::SCRIPTED;
     cx.effects.music = sound::music::FADE_OUT;
     // ponytail: no free slot spawns nothing; the game writes past the slot arrays then
-    let Some(slot) = cx.slots.main[..16]
-        .iter_mut()
-        .rev()
-        .find(|slot| slot.kind == 0)
-    else {
+    let Some(index) = cx.slots.free_main(0..16) else {
         return;
     };
+    let slot = &mut cx.slots.main[index];
     slot.body.counter = 0;
     slot.body.anim = 1;
     slot.body.timer = timer;
@@ -930,7 +927,7 @@ pub fn start_hurt(player: &mut Player) -> i16 {
 
 /// Spawns type `$08`'s four parts around the working position (`$AC16`); the slot used.
 pub fn spawn_parts(variant: u8, work: &Work, cx: &mut Cx<'_>) -> Option<usize> {
-    let index = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0)?;
+    let index = cx.slots.free_main(0..16)?;
     let groups = rom_word(cx.prg, 13, 0xADD8);
     let parts = rom_word(cx.prg, 13, 0xACC6 + 2 * u16::from(variant));
     let slot = &mut cx.slots.main[index];
@@ -1100,7 +1097,7 @@ pub fn tile_bits(work: &mut Work, prg: &[u8]) {
 /// The highest free slot among 16-23, where children go (`$AF38`).
 #[must_use]
 pub fn free_child_slot(slots: &super::slots::Slots) -> Option<usize> {
-    (16..24).rev().find(|&slot| slots.main[slot].kind == 0)
+    slots.free_main(16..24)
 }
 
 /// Picks up an item drop (`$AB39`): the weapon, or meter capsules up to the level end.

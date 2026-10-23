@@ -7,7 +7,6 @@
 //! (`store`). It never integrates.
 
 use crate::actor::engine::{self, Visibility, Work, anchor};
-use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
@@ -113,29 +112,24 @@ fn spit(body: &mut Body, cx: &mut Cx<'_>) {
 /// `$9822`: the `$8C` child goes into main slot `slot` (16-23), one tile ahead
 /// of the parent's facing.
 fn spawn_child(body: &mut Body, slot: usize, cx: &mut Cx<'_>) {
-    let [x_hi, x_lo] = body.x.to_be_bytes();
-    let x_hi = if body.flags & attr::FLIP_X == 0 {
-        x_hi.wrapping_add(1)
+    let x = if body.flags & attr::FLIP_X == 0 {
+        body.x.wrapping_add(0x0100)
     } else {
-        x_hi.wrapping_sub(1)
+        body.x.wrapping_sub(0x0100)
     };
     let rng = cx.world.rng[0];
     let child_phase = cx.prg.families.spitter.child_phases[usize::from(rng & 3)];
-    let child = &mut cx.slots.main[slot];
-    child.kind = CHILD;
-    child.body.flags = body.flags;
-    child.body.x = u16::from_be_bytes([x_hi, x_lo]);
-    child.body.y = body.y;
-    child.body.chr_slot = body.chr_slot;
-    child.body.state = 0;
-    child.body.phase = 0;
-    child.body.timer = 0;
-    child.body.behaviour = body.behaviour;
-    child.brain = Brain::new(CHILD);
+    let child = cx.slots.main[slot].spawn(CHILD, x, body.y);
+    child.flags = body.flags;
+    child.chr_slot = body.chr_slot;
+    child.state = 0;
+    child.phase = 0;
+    child.timer = 0;
+    child.behaviour = body.behaviour;
     body.timer = REST_AFTER_SPIT;
     if body.behaviour != 0 {
-        child.body.subtype = rng & 3;
-        child.body.phase = child_phase;
+        child.subtype = rng & 3;
+        child.phase = child_phase;
         body.timer = REST_AFTER_SPIT_WITH_BEHAVIOUR;
     }
 }

@@ -31,9 +31,6 @@ const SCREEN_Y: u8 = 0x75;
 /// The camera offsets the working position is set to (`$8086`/`$8093`).
 const CAMERA_X_OFFSET: u16 = 0x0780;
 const CAMERA_Y_OFFSET: u16 = 0x0750;
-/// The child's offset from the working position (`$8165`/`$8179`).
-const CHILD_X_OFFSET: u8 = 0xD0;
-const CHILD_Y_OFFSET: u8 = 0x02;
 /// The phase each `$7DD0` counter change sets (`$80C2`, `$80DE`, `$8106`).
 const NEXT_PHASE: u8 = 0x10;
 const LOOP_PHASE: u8 = 0x18;
@@ -123,26 +120,21 @@ impl State {
 /// `$200` above the working position, its phase and timer from the table, its
 /// counter and animation from the RNG.
 fn spawn_child(work: &Work, slot: usize, cx: &mut Cx<'_>) {
-    let [x_hi, x_lo] = work.x.to_be_bytes();
-    let (x_lo, borrow) = x_lo.overflowing_sub(CHILD_X_OFFSET);
-    let x_hi = x_hi.wrapping_sub(u8::from(borrow));
-    let [y_hi, y_lo] = work.y.to_be_bytes();
-    let y_hi = y_hi.wrapping_sub(CHILD_Y_OFFSET);
-    let child = &mut cx.slots.main[slot];
-    child.kind = CHILD;
-    let part = &mut child.body;
-    part.x = u16::from_be_bytes([x_hi, x_lo]);
-    part.y = u16::from_be_bytes([y_hi, y_lo]);
-    (part.state, part.subtype, part.behaviour) = (0, 0, 0);
-    (part.phase, part.timer) = (CHILD_PHASE, CHILD_TIMER);
+    let child = cx.slots.main[slot].spawn(
+        CHILD,
+        work.x.wrapping_sub(0xD0),
+        work.y.wrapping_sub(0x0200),
+    );
+    (child.state, child.subtype, child.behaviour) = (0, 0, 0);
+    (child.phase, child.timer) = (CHILD_PHASE, CHILD_TIMER);
     let [seed, noise] = cx.world.rng;
     let (counter, anim) = if seed & 0x80 == 0 {
         (noise & 0x0F, 0)
     } else {
         (noise | 0xE0, 0xFF)
     };
-    cx.slots.main[slot].body.counter = counter;
-    cx.slots.main[slot].body.anim = anim;
+    child.counter = counter;
+    child.anim = anim;
 }
 
 #[cfg(test)]

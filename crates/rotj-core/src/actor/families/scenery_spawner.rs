@@ -1,7 +1,6 @@
 //! Type `$12`, the stage-1-2 controller that seeds type `$14` scenery (bank 8 `$8C56`).
 
 use crate::actor::engine::{self, Work};
-use crate::actor::families::Brain;
 use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
 use crate::actors::STATE_UNTARGETED;
@@ -92,15 +91,12 @@ fn spawn(slot: usize, phase: u8, cx: &mut Cx<'_>) {
     let hi = hi
         .wrapping_add(if table & 0x80 != 0 { 0x08 } else { 0x0A })
         .wrapping_add(u8::from(carry));
-    let child = &mut cx.slots.main[slot];
-    child.body.x = u16::from_be_bytes([hi, lo]);
-    child.body.y = 0x0400;
-    child.body.phase = 0;
-    child.body.timer = 0;
-    child.body.counter = 0;
-    child.body.state = STATE_UNTARGETED;
-    child.kind = CHILD;
-    child.brain = Brain::new(CHILD);
+    let x = u16::from_be_bytes([hi, lo]);
+    let child = cx.slots.main[slot].spawn(CHILD, x, 0x0400);
+    child.phase = 0;
+    child.timer = 0;
+    child.counter = 0;
+    child.state = STATE_UNTARGETED;
 }
 
 #[cfg(test)]

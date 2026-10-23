@@ -18,8 +18,6 @@ use crate::actor::world::Cx;
 const SPAWN_MASK: u8 = 0x0F;
 /// `$8702`: the free-slot scan covers the 16 main slots (15 down to 0).
 const SLOTS: usize = 16;
-/// Child x high = camera x high + `$10`, i.e. 256 px right of the camera.
-const CHILD_DX: u8 = 0x10;
 /// Child `$7C00`.
 const CHILD_FLAGS: u8 = attr::FLIP_X | 0x01;
 /// Child velocity drift `$7E50:$7E60` = `$FFF0`.
@@ -39,22 +37,18 @@ impl State {
         if body.timer & SPAWN_MASK != 0 {
             return;
         }
-        let Some(child) = (0..SLOTS).rev().find(|&slot| cx.slots.kind(slot) == 0) else {
+        let Some(child) = cx.slots.free_main(0..SLOTS) else {
             return;
         };
-        let [camera_high, camera_low] = cx.world.camera_x.to_be_bytes();
-        let slot = &mut cx.slots.main[child];
-        let child = &mut slot.body;
+        let x = cx.world.camera_x.wrapping_add(0x1000);
+        let child = cx.slots.main[child].spawn(body.subtype, x, body.y);
         child.behaviour = body.behaviour;
-        child.y = body.y;
-        child.x = u16::from_be_bytes([camera_high.wrapping_add(CHILD_DX), camera_low]);
         (child.vy, child.contact, child.health) = (0, 0, 0);
         (child.state, child.hit, child.phase) = (0, 0, 0);
         (child.timer, child.counter, child.anim) = (0, 0, 0);
         child.flags = CHILD_FLAGS;
         child.vx_drift = i16::from_be_bytes(CHILD_DRIFT);
         child.chr_slot = body.chr_slot;
-        slot.kind = body.subtype;
         body.phase = body.phase.wrapping_add(1);
         if body.phase >= SPAWN_LIMIT {
             *kind = 0;

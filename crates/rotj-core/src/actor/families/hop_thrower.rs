@@ -8,7 +8,6 @@
 //! integrates: its position only changes through the other handlers' writes.
 
 use crate::actor::engine::{self, Visibility, Work, anchor};
-use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::{Body, Counter, contact};
 use crate::actor::world::{Cx, sound};
@@ -143,20 +142,17 @@ fn spawn_projectile(body: &Body, work: &Work, cx: &mut Cx<'_>) {
     };
     let facing = work.attr & (attr::FLIP_X | attr::FLIP_Y);
     let facing_left = facing & attr::FLIP_X != 0;
-    let child = &mut cx.slots.main[slot];
-    child.kind = PROJECTILE;
-    child.body.flags = facing;
-    child.body.phase = u8::from(facing_left);
-    child.body.x = if facing_left {
+    let x = if facing_left {
         work.x.wrapping_sub(THROW_OFFSET_X)
     } else {
         work.x.wrapping_add(THROW_OFFSET_X)
     };
-    child.body.y = work.y.wrapping_sub(THROW_OFFSET_Y);
-    child.body.chr_slot = body.chr_slot;
-    child.body.state = 0;
-    child.body.timer = 0;
-    child.brain = Brain::new(PROJECTILE);
+    let child = cx.slots.main[slot].spawn(PROJECTILE, x, work.y.wrapping_sub(THROW_OFFSET_Y));
+    child.flags = facing;
+    child.phase = u8::from(facing_left);
+    child.chr_slot = body.chr_slot;
+    child.state = 0;
+    child.timer = 0;
 }
 
 #[cfg(test)]

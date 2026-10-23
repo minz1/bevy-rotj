@@ -1,7 +1,6 @@
 //! Type `$2A` (bank 11 `$8284`), a three-phase flyer that drops `$2C` bombs.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::families::Brain;
 use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
 use crate::actors::STATE_UNTARGETED;
@@ -170,20 +169,16 @@ fn advance_blast(body: &mut Body) {
 
 /// `$84BD`: writes the `$2C` bomb into the highest free slot 0-15.
 fn spawn_bomb(parent: &mut Body, work: &Work, cx: &mut Cx<'_>) {
-    let Some(slot) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0) else {
+    let Some(slot) = cx.slots.free_main(0..16) else {
         return;
     };
-    let child = &mut cx.slots.main[slot];
-    child.body.x = work.x;
-    child.body.y = work.y.wrapping_add(0x02B0);
-    child.body.vy = 0x40;
-    child.body.state = STATE_UNTARGETED;
-    child.body.phase = 0;
+    let child = cx.slots.main[slot].spawn(CHILD, work.x, work.y.wrapping_add(0x02B0));
+    child.vy = 0x40;
+    child.state = STATE_UNTARGETED;
+    child.phase = 0;
     parent.vx = 0;
-    child.body.chr_slot = parent.chr_slot;
-    child.kind = CHILD;
-    child.body.contact = CHILD;
-    child.brain = Brain::new(CHILD);
+    child.chr_slot = parent.chr_slot;
+    child.contact = CHILD;
 }
 
 /// `$841C`: draw the body, its part and the blast flash, test contact, then

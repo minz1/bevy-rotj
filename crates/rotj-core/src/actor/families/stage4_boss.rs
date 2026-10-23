@@ -10,7 +10,6 @@
 //! (`store`).
 
 use crate::actor::engine::{self, Work};
-use crate::actor::families::Brain;
 use crate::actor::slots::hit;
 use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, Motion};
@@ -190,16 +189,9 @@ fn charge(body: &mut Body, cx: &mut Cx<'_>) {
 
 /// `$957E`: a type `$46` in slot 23, one screen below the boss.
 fn spawn_child(body: &Body, own: u8, cx: &mut Cx<'_>) {
-    let [x_high, x_low] = body.x.to_be_bytes();
-    let [y_high, y_low] = body.y.to_be_bytes();
-    let child = &mut cx.slots.main[CHILD_SLOT];
-    child.kind = CHILD_KIND;
-    let part = &mut child.body;
+    let part = cx.slots.main[CHILD_SLOT].spawn(CHILD_KIND, body.x, body.y.wrapping_add(0x0100));
     (part.behaviour, part.subtype, part.phase, part.timer) = (0, 0, 0, 0);
     part.anim = own;
-    part.x = u16::from_be_bytes([x_high, x_low]);
-    part.y = u16::from_be_bytes([y_high.wrapping_add(1), y_low]);
-    child.brain = Brain::new(CHILD_KIND);
 }
 
 /// `$96BB`: a type `$44` shot in the highest free slot 16-23, at one of eight places.
@@ -210,16 +202,11 @@ fn spawn_shot(cx: &mut Cx<'_>) {
     let place = cx.world.rng[0] & 0x07;
     let x = cx.prg.families.stage4_boss.shot_x[usize::from(place)];
     let own = own_slot(cx);
-    let child = &mut cx.slots.main[index];
-    child.kind = SHOT_KIND;
-    let part = &mut child.body;
-    part.y = 0x0080;
-    (part.anim, part.behaviour, part.subtype) = (0, 0, 0);
-    (part.phase, part.timer) = (0, 0);
-    part.counter = place;
-    part.x = x;
-    part.sprite = own;
-    child.brain = Brain::new(SHOT_KIND);
+    let child = cx.slots.main[index].spawn(SHOT_KIND, x, 0x0080);
+    (child.anim, child.behaviour, child.subtype) = (0, 0, 0);
+    (child.phase, child.timer) = (0, 0);
+    child.counter = place;
+    child.sprite = own;
 }
 
 /// `$95B3`: draw the body and the bar, run the boss contact and store.

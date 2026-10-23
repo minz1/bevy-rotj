@@ -31,11 +31,8 @@ impl State {
             return;
         }
         if let Some(index) = engine::free_child_slot(cx.slots) {
-            let child = &mut cx.slots.main[index];
-            child.body.x = body.x;
-            child.body.y = body.y;
-            child.kind = CHILD;
-            child.body.state = 0;
+            let child = cx.slots.main[index].spawn(CHILD, body.x, body.y);
+            child.state = 0;
         }
         if dx >= NEAR {
             body.counter = 0x28;

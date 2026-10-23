@@ -2,7 +2,6 @@
 //! and dives at the player. Its [`Phase`]s run through `$8C74`.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::families::Brain;
 use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 
@@ -116,17 +115,17 @@ fn spawn_parts(parent: &Body, work: &Work, cx: &mut Cx<'_>) -> u8 {
         let Some(slot) = engine::free_child_slot(cx.slots) else {
             return cx.slots.main[16].kind;
         };
-        let child = &mut cx.slots.main[slot];
-        child.kind = PART;
-        child.body.x = work.x.wrapping_add_signed(PART_DX[part]);
-        child.body.y = work.y.wrapping_add_signed(PART_DY);
-        child.body.timer = PART_TIMER[part];
-        child.body.counter = PART_COUNTER[part];
-        child.body.phase = PART_PHASE[part];
-        child.body.state = 0;
-        child.body.anim = 0;
-        child.body.chr_slot = parent.chr_slot;
-        child.brain = Brain::new(PART);
+        let child = cx.slots.main[slot].spawn(
+            PART,
+            work.x.wrapping_add_signed(PART_DX[part]),
+            work.y.wrapping_add_signed(PART_DY),
+        );
+        child.timer = PART_TIMER[part];
+        child.counter = PART_COUNTER[part];
+        child.phase = PART_PHASE[part];
+        child.state = 0;
+        child.anim = 0;
+        child.chr_slot = parent.chr_slot;
         result = parent.chr_slot;
     }
     result

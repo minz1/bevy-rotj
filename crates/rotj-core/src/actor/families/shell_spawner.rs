@@ -54,7 +54,7 @@ impl State {
             body.counter += 1;
             return;
         }
-        let Some(child) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0) else {
+        let Some(child) = cx.slots.free_main(0..16) else {
             body.counter = 0;
             return;
         };
@@ -63,12 +63,8 @@ impl State {
         body.timer ^= 1;
         let tables = &cx.prg.families.shell_spawner;
         let side = usize::from(body.timer);
-        let slot = &mut cx.slots.main[child];
-        slot.kind = CHILD;
-        slot.brain = Brain::new(CHILD);
-        let spawned = &mut slot.body;
-        spawned.x = u16::from_be_bytes([tables.side_x_high[side], CHILD_X_LOW]);
-        spawned.y = CHILD_Y;
+        let x = u16::from_be_bytes([tables.side_x_high[side], CHILD_X_LOW]);
+        let spawned = cx.slots.main[child].spawn(CHILD, x, CHILD_Y);
         spawned.vy = 0;
         spawned.health = CHILD_HEALTH;
         spawned.counter = 0;

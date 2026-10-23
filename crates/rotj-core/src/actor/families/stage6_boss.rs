@@ -223,14 +223,10 @@ fn spawn_a8(work: &Work, cx: &mut Cx<'_>) -> u8 {
             tables.child_phases[usize::from(part)],
             tables.child_timers[usize::from(part)],
         );
-        let child = &mut cx.slots.main[slot];
-        let part_body = &mut child.body;
-        (part_body.phase, part_body.timer) = (phase, timer);
-        (part_body.counter, part_body.anim) = (0xC0, 0xFF);
-        part_body.x = work.x;
-        part_body.y = work.y.wrapping_sub(0x0100);
-        part_body.state = 0;
-        child.kind = PART;
+        let child = cx.slots.main[slot].spawn(PART, work.x, work.y.wrapping_sub(0x0100));
+        (child.phase, child.timer) = (phase, timer);
+        (child.counter, child.anim) = (0xC0, 0xFF);
+        child.state = 0;
         part = part.wrapping_sub(1);
         if part & 0x80 != 0 {
             return spawn_index;
@@ -241,15 +237,12 @@ fn spawn_a8(work: &Work, cx: &mut Cx<'_>) -> u8 {
 /// `$8785`: drop one `$AA` part into the highest free main slot 0-15 and mark
 /// the dying boss's `$7C30` so its second draw is skipped.
 fn spawn_aa(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
-    let Some(slot) = (0..16).rev().find(|&i| cx.slots.main[i].kind == 0) else {
+    let Some(slot) = cx.slots.free_main(0..16) else {
         return;
     };
     body.sprite = 0x80;
-    let child = &mut cx.slots.main[slot];
-    let part = &mut child.body;
+    let part = cx.slots.main[slot].spawn(DEATH_PART, work.x, work.y);
     (part.sprite, part.phase, part.counter, part.anim) = (0, 0, 0, 0);
-    (part.x, part.y) = (work.x, work.y);
-    child.kind = DEATH_PART;
 }
 
 /// `$86CB`: project, draw the flash and both metasprites, and contact the player.

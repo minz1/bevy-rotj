@@ -9,7 +9,6 @@
 //! (`$0462`) and motion (`$046E`).
 
 use crate::actor::engine::Work;
-use crate::actor::families::Brain;
 use crate::actor::slots::Body;
 use crate::actor::world::{Cx, Motion};
 use crate::actors::STATE_UNTARGETED;
@@ -52,17 +51,13 @@ impl State {
 /// `$0C`, CHR `$07`, and sets the caller's state to `$40`; no free slot leaves
 /// both unchanged.
 fn spawn_marker(body: &mut Body, x: u16, cx: &mut Cx<'_>) {
-    let Some(index) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0) else {
+    let Some(index) = cx.slots.free_main(0..16) else {
         return;
     };
     body.state = STATE_UNTARGETED;
-    let child = &mut cx.slots.main[index];
-    child.kind = MARKER;
-    child.brain = Brain::new(MARKER);
-    child.body.phase = 0;
-    child.body.y = 0x0C00;
-    child.body.x = x;
-    child.body.chr_slot = 0x07;
+    let child = cx.slots.main[index].spawn(MARKER, x, 0x0C00);
+    child.phase = 0;
+    child.chr_slot = 0x07;
 }
 
 #[cfg(test)]

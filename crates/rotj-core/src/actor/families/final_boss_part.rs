@@ -187,13 +187,10 @@ fn spawn_child(body: &Body, work: &Work, cx: &mut Cx<'_>) {
     let pair = usize::from(index >> 1);
     let (subtype, timer) = tables.spawn_types[pair];
     let (phase, counter) = tables.spawn_states[pair];
-    let child = &mut cx.slots.main[slot];
-    child.kind = CHILD;
-    let part = &mut child.body;
-    (part.x, part.y) = (work.x, work.y);
-    (part.state, part.anim) = (0, 0);
-    (part.subtype, part.timer) = (subtype, timer);
-    (part.phase, part.counter) = (phase, counter);
+    let child = cx.slots.main[slot].spawn(CHILD, work.x, work.y);
+    (child.state, child.anim) = (0, 0);
+    (child.subtype, child.timer) = (subtype, timer);
+    (child.phase, child.counter) = (phase, counter);
 }
 
 /// The `$938C`/`$93C4` index (`$9305`): the parent's `$7DB0` doubled plus the

@@ -7,7 +7,7 @@
 //! it back: the parent then draws and stores with the child's position.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::families::{Brain, dropper_payload};
+use crate::actor::families::dropper_payload;
 use crate::actor::oam::attr;
 use crate::actor::slots::{Body, Counter, contact};
 use crate::actor::world::Cx;
@@ -107,16 +107,12 @@ fn waiting(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 
 /// `$86D1`: puts a `$30` in the highest free slot of 0-15; false when none is free.
 fn spawn_child(body: &mut Body, work: &Work, cx: &mut Cx<'_>) -> bool {
-    let Some(index) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0) else {
+    let Some(index) = cx.slots.free_main(0..16) else {
         return false;
     };
     body.anim = u8::try_from(index).expect("< 16");
-    let child = &mut cx.slots.main[index];
-    child.kind = CHILD;
-    child.brain = Brain::new(CHILD);
-    let child = &mut child.body;
-    child.x = work.x;
-    child.y = cx.world.camera_y;
+    let camera_y = cx.world.camera_y;
+    let child = cx.slots.main[index].spawn(CHILD, work.x, camera_y);
     child.chr_slot = body.chr_slot;
     child.vy = 0x40;
     child.contact = contact::PASSIVE;

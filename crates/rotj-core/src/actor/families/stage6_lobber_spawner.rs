@@ -27,7 +27,7 @@ impl State {
         if !body.anim.ran_out() {
             return;
         }
-        let Some(index) = (0..16).rev().find(|&y| cx.slots.main[y].kind == 0) else {
+        let Some(index) = cx.slots.free_main(0..16) else {
             return;
         };
         body.phase = SPAWNED;

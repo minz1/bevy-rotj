@@ -72,12 +72,9 @@ fn spawn_52(body: &mut Body, cx: &mut Cx<'_>) {
         cx.effects.sound[0] = sound::EXPLOSION;
     }
     if let Some((child, x, y)) = child_slot(body, cx) {
-        let part = &mut cx.slots.main[child];
-        part.kind = CHILD;
-        part.body.anim = 0;
-        part.body.chr_slot = 0x04;
-        part.body.x = x;
-        part.body.y = y;
+        let part = cx.slots.main[child].spawn(CHILD, x, y);
+        part.anim = 0;
+        part.chr_slot = 0x04;
     }
     body.counter.tick_up();
     if body.counter >= 6 {
@@ -96,7 +93,7 @@ fn child_slot(body: &Body, cx: &Cx<'_>) -> Option<(usize, u16, u16)> {
     if x.to_be_bytes()[0] & 0xF0 != 0 || y.to_be_bytes()[0] & 0xF0 != 0 {
         return None;
     }
-    let child = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0)?;
+    let child = cx.slots.free_main(0..16)?;
     Some((child, x, y))
 }
 

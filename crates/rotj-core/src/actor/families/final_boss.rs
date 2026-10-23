@@ -354,7 +354,7 @@ fn queue_palette(cx: &mut Cx<'_>) {
 /// `$8F37`: palette `$0F`, then a type `$B8` into the highest free slot 0-15.
 fn spawn_b8(body: &mut Body, cx: &mut Cx<'_>) {
     set_first_colours(&mut cx.effects.palette, 0x0F);
-    let Some(slot) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0) else {
+    let Some(slot) = cx.slots.free_main(0..16) else {
         return;
     };
     cx.slots.main[slot].kind = DEFEAT;
@@ -367,12 +367,9 @@ fn spawn_bc(cx: &mut Cx<'_>) {
     let Some(slot) = engine::free_child_slot(cx.slots) else {
         return;
     };
-    let child = &mut cx.slots.main[slot];
-    child.kind = FALLING_SHOT;
-    let body = &mut child.body;
-    (body.x, body.y) = (0x0800, 0x0580);
-    (body.state, body.subtype, body.phase) = (0, 0, 0);
-    (body.timer, body.counter, body.anim) = (0, 0, 0);
+    let child = cx.slots.main[slot].spawn(FALLING_SHOT, 0x0800, 0x0580);
+    (child.state, child.subtype, child.phase) = (0, 0, 0);
+    (child.timer, child.counter, child.anim) = (0, 0, 0);
 }
 
 /// `$8F89`: up to four type `$BE` children at the `$9143` offsets.
@@ -389,12 +386,9 @@ fn spawn_be(body: &Body, cx: &mut Cx<'_>) {
         } else {
             (if count < 2 { 0x28 } else { 0x10 }, 0)
         };
-        let child = &mut cx.slots.main[slot];
-        child.kind = FALLING_PART;
-        let part = &mut child.body;
-        (part.x, part.y) = (x, y);
-        (part.state, part.timer, part.counter, part.anim) = (0, 0, 0, 0);
-        (part.subtype, part.phase) = (subtype, phase);
+        let child = cx.slots.main[slot].spawn(FALLING_PART, x, y);
+        (child.state, child.timer, child.counter, child.anim) = (0, 0, 0, 0);
+        (child.subtype, child.phase) = (subtype, phase);
     }
 }
 
@@ -414,14 +408,11 @@ fn spawn_c0(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
             body.behaviour |= 0x40;
             (count, 0xE0, 0xFF)
         };
-        let child = &mut cx.slots.main[slot];
-        child.kind = BOUNCER;
-        let part = &mut child.body;
-        (part.x, part.y) = (0x0800, 0x0580);
-        (part.state, part.anim, part.chr_slot, part.cell) = (0, 0, 0, 0);
-        (part.timer, part.counter) = (0x14, 0);
-        (part.behaviour, part.subtype, part.phase) = (behaviour, subtype, phase);
-        part.sprite = work.slot;
+        let child = cx.slots.main[slot].spawn(BOUNCER, 0x0800, 0x0580);
+        (child.state, child.anim, child.chr_slot, child.cell) = (0, 0, 0, 0);
+        (child.timer, child.counter) = (0x14, 0);
+        (child.behaviour, child.subtype, child.phase) = (behaviour, subtype, phase);
+        child.sprite = work.slot;
     }
 }
 
@@ -434,14 +425,11 @@ fn spawn_52(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     let y = work.y.wrapping_add(tables.spot_y[n]);
     if x & 0xF000 == 0
         && y & 0xF000 == 0
-        && let Some(slot) = (0..16).rev().find(|&slot| cx.slots.main[slot].kind == 0)
+        && let Some(slot) = cx.slots.free_main(0..16)
     {
-        let part = &mut cx.slots.main[slot];
-        part.kind = EXPLOSION;
-        part.body.chr_slot = 0x06;
-        part.body.x = x;
-        part.body.y = y;
-        part.body.anim = 0;
+        let part = cx.slots.main[slot].spawn(EXPLOSION, x, y);
+        part.chr_slot = 0x06;
+        part.anim = 0;
     }
     body.counter.tick_up();
     if body.counter >= 6 {

@@ -7,7 +7,6 @@
 //! instead of falling.
 
 use crate::actor::engine::{self, Visibility, Work, anchor};
-use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
@@ -179,33 +178,22 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 
 /// Writes a `$24` child into slot `slot` (16-23), as `$8C59` does.
 fn spawn_child(body: &Body, work: &Work, slot: usize, cx: &mut Cx<'_>) {
-    let child = &mut cx.slots.main[slot];
     let facing_left = work.attr & attr::FLIP_X != 0;
-    child.kind = CHILD;
-    child.body.flags = 0;
-    child.body.phase = u8::from(facing_left);
-    child.body.x = if facing_left {
+    let x = if facing_left {
         // `$8C8A: $91 - $80`, then `$7B00,x` (the *stored* x high) `- $01`.
         let [body_hi, _] = body.x.to_be_bytes();
         let (lo, carry) = work.x.to_be_bytes()[1].overflowing_sub(0x80);
         let hi = body_hi.wrapping_sub(1).wrapping_sub(u8::from(carry));
         u16::from_be_bytes([hi, lo])
     } else {
-        let (lo, carry) = work.x.to_be_bytes()[1].overflowing_add(0x80);
-        let hi = work.x.to_be_bytes()[0]
-            .wrapping_add(1)
-            .wrapping_add(u8::from(carry));
-        u16::from_be_bytes([hi, lo])
+        work.x.wrapping_add(0x180)
     };
-    let (lo, carry) = work.y.to_be_bytes()[1].overflowing_sub(0xD0);
-    let hi = work.y.to_be_bytes()[0]
-        .wrapping_sub(1)
-        .wrapping_sub(u8::from(carry));
-    child.body.y = u16::from_be_bytes([hi, lo]);
-    child.body.chr_slot = body.chr_slot;
-    child.body.state = 0;
-    child.body.sprite = 3;
-    child.brain = Brain::new(CHILD);
+    let child = cx.slots.main[slot].spawn(CHILD, x, work.y.wrapping_sub(0x1D0));
+    child.flags = 0;
+    child.phase = u8::from(facing_left);
+    child.chr_slot = body.chr_slot;
+    child.state = 0;
+    child.sprite = 3;
 }
 
 #[cfg(test)]

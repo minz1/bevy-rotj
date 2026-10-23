@@ -2,7 +2,6 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work, anchor};
-use crate::actor::families::Brain;
 use crate::actor::oam::attr;
 use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
@@ -243,21 +242,18 @@ fn shot_x(work: &Work) -> Option<u8> {
 
 /// Writes the `$24` child into main slot `slot` (16-23) as `$97B1` does.
 fn spawn_child(parent: &Body, slot: usize, cx: &mut Cx<'_>) {
-    let child = &mut cx.slots.main[slot];
     let facing_left = parent.flags & attr::FLIP_X != 0;
-    child.kind = CHILD;
-    child.body.flags = parent.flags;
-    child.body.x = if facing_left {
+    let x = if facing_left {
         parent.x.wrapping_sub(0x180)
     } else {
         parent.x.wrapping_add(0x180)
     };
-    child.body.y = parent.y.wrapping_sub(0x17F);
-    child.body.chr_slot = parent.chr_slot;
-    child.body.phase = u8::from(facing_left);
-    child.body.state = 0;
-    child.body.sprite = 0;
-    child.brain = Brain::new(CHILD);
+    let child = cx.slots.main[slot].spawn(CHILD, x, parent.y.wrapping_sub(0x17F));
+    child.flags = parent.flags;
+    child.chr_slot = parent.chr_slot;
+    child.phase = u8::from(facing_left);
+    child.state = 0;
+    child.sprite = 0;
 }
 
 #[cfg(test)]

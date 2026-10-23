@@ -5,7 +5,6 @@
 //! position itself and never runs `$A8E4`, and any frame it is not on screen frees it.
 
 use crate::actor::engine::{self, Visibility, Work, anchor};
-use crate::actor::families::Brain;
 use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
 
@@ -123,20 +122,17 @@ fn spawn_children(body: &Body, cx: &mut Cx<'_>) {
             return;
         };
         cx.effects.sound[0] = sound::SPAWN;
-        let child = &mut cx.slots.main[slot];
-        child.kind = CHILD;
-        child.body.x = if right {
+        let x = if right {
             body.x.wrapping_add(0x80)
         } else {
             body.x.wrapping_sub(0x80)
         };
-        child.body.phase = if right { 3 } else { 2 };
-        child.body.y = body.y;
-        child.body.chr_slot = body.chr_slot;
-        child.body.state = 0;
-        child.body.sprite = 1;
-        child.body.flags = 3;
-        child.brain = Brain::new(CHILD);
+        let child = cx.slots.main[slot].spawn(CHILD, x, body.y);
+        child.phase = if right { 3 } else { 2 };
+        child.chr_slot = body.chr_slot;
+        child.state = 0;
+        child.sprite = 1;
+        child.flags = 3;
     }
 }
 
