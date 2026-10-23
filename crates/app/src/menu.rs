@@ -14,17 +14,145 @@ use crate::play::Play;
 use crate::screen::{Colours, pixels, visible};
 use crate::settings::{Overscan, PaletteChoice, Picture, Settings, SettingsDir, UiStyle, save};
 
-/// The menu's lines, in order.
-const ROWS: [&str; 8] = [
-    "VOLUME",
-    "OVERSCAN",
-    "PALETTE",
-    "SPRITE LIMIT",
-    "VSYNC",
-    "UI",
-    "PICTURE",
-    "BACK",
-];
+/// One line of the settings menu, in order.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Row {
+    #[default]
+    Volume,
+    Overscan,
+    Palette,
+    SpriteLimit,
+    Vsync,
+    Ui,
+    Picture,
+    Back,
+}
+
+impl Row {
+    /// The rows, in the order the menu shows them.
+    const ALL: [Self; 8] = [
+        Self::Volume,
+        Self::Overscan,
+        Self::Palette,
+        Self::SpriteLimit,
+        Self::Vsync,
+        Self::Ui,
+        Self::Picture,
+        Self::Back,
+    ];
+
+    /// The row's label.
+    fn label(self) -> &'static str {
+        match self {
+            Self::Volume => "VOLUME",
+            Self::Overscan => "OVERSCAN",
+            Self::Palette => "PALETTE",
+            Self::SpriteLimit => "SPRITE LIMIT",
+            Self::Vsync => "VSYNC",
+            Self::Ui => "UI",
+            Self::Picture => "PICTURE",
+            Self::Back => "BACK",
+        }
+    }
+
+    /// The row after this one, wrapping past the last.
+    fn next(self) -> Self {
+        Self::ALL[(self as usize + 1) % Self::ALL.len()]
+    }
+
+    /// The row before this one, wrapping past the first.
+    fn previous(self) -> Self {
+        Self::ALL[(self as usize + Self::ALL.len() - 1) % Self::ALL.len()]
+    }
+
+    /// The text the row shows for its setting.
+    fn value(self, settings: &Settings, colours: &Colours) -> String {
+        let on = |on: bool| if on { "ON" } else { "OFF" };
+        match self {
+            Self::Volume => settings.volume.to_string(),
+            Self::Overscan => match settings.overscan {
+                Overscan::Hidden => "HIDE",
+                Overscan::Shown => "SHOW",
+            }
+            .into(),
+            Self::Palette => match settings.palette {
+                PaletteChoice::CompositeDirect => "COMPOSITE",
+                PaletteChoice::RgbPpu => "RGB PPU",
+                PaletteChoice::Ntsc => "NTSC",
+                PaletteChoice::File if colours.file_missing => "NO FILE",
+                PaletteChoice::File => "FILE",
+            }
+            .into(),
+            Self::SpriteLimit => on(settings.sprite_limit).into(),
+            Self::Vsync => on(settings.vsync).into(),
+            Self::Ui => match settings.ui {
+                UiStyle::Classic => "CLASSIC",
+                UiStyle::Faithful => "FAITHFUL",
+            }
+            .into(),
+            Self::Picture => match settings.picture {
+                Picture::Classic => "CLASSIC",
+                Picture::Modern => "MODERN",
+            }
+            .into(),
+            Self::Back => String::new(),
+        }
+    }
+
+    /// Changes the row's setting one step left (`-1`) or right (`1`): volume by 5 within
+    /// 0-100, the others cycling.
+    fn step(self, settings: &mut Settings, step: i8) {
+        match self {
+            Self::Volume => {
+                settings.volume = if step < 0 {
+                    settings.volume.saturating_sub(5)
+                } else {
+                    settings.volume.saturating_add(5).min(100)
+                };
+            }
+            Self::Overscan => {
+                settings.overscan = match settings.overscan {
+                    Overscan::Hidden => Overscan::Shown,
+                    Overscan::Shown => Overscan::Hidden,
+                };
+            }
+            Self::Palette => {
+                const ORDER: [PaletteChoice; 4] = [
+                    PaletteChoice::CompositeDirect,
+                    PaletteChoice::RgbPpu,
+                    PaletteChoice::Ntsc,
+                    PaletteChoice::File,
+                ];
+                let at = ORDER
+                    .iter()
+                    .position(|&p| p == settings.palette)
+                    .unwrap_or(0);
+                let next = if step < 0 {
+                    at + ORDER.len() - 1
+                } else {
+                    at + 1
+                };
+                settings.palette = ORDER[next % ORDER.len()];
+            }
+            Self::SpriteLimit => settings.sprite_limit = !settings.sprite_limit,
+            Self::Vsync => settings.vsync = !settings.vsync,
+            Self::Ui => {
+                settings.ui = match settings.ui {
+                    UiStyle::Classic => UiStyle::Faithful,
+                    UiStyle::Faithful => UiStyle::Classic,
+                };
+            }
+            Self::Picture => {
+                settings.picture = match settings.picture {
+                    Picture::Classic => Picture::Modern,
+                    Picture::Modern => Picture::Classic,
+                };
+            }
+            Self::Back => {}
+        }
+    }
+}
+
 /// Where the values start, in glyphs.
 const VALUE_COLUMN: usize = 14;
 /// The widest line, in glyphs.
@@ -47,7 +175,7 @@ const BLANK: usize = 64;
 pub struct Menu {
     /// The game is frozen under the menu.
     pub open: bool,
-    row: usize,
+    row: Row,
     save_failed: bool,
 }
 
@@ -122,93 +250,6 @@ fn with_alpha([r, g, b]: [u8; 3]) -> [u8; 4] {
     [r, g, b, 0xFF]
 }
 
-/// The text `row` shows for its setting.
-fn value(settings: &Settings, colours: &Colours, row: usize) -> String {
-    let on = |on: bool| if on { "ON" } else { "OFF" };
-    match row {
-        0 => settings.volume.to_string(),
-        1 => match settings.overscan {
-            Overscan::Hidden => "HIDE",
-            Overscan::Shown => "SHOW",
-        }
-        .into(),
-        2 => match settings.palette {
-            PaletteChoice::CompositeDirect => "COMPOSITE",
-            PaletteChoice::RgbPpu => "RGB PPU",
-            PaletteChoice::Ntsc => "NTSC",
-            PaletteChoice::File if colours.file_missing => "NO FILE",
-            PaletteChoice::File => "FILE",
-        }
-        .into(),
-        3 => on(settings.sprite_limit).into(),
-        4 => on(settings.vsync).into(),
-        5 => match settings.ui {
-            UiStyle::Classic => "CLASSIC",
-            UiStyle::Faithful => "FAITHFUL",
-        }
-        .into(),
-        6 => match settings.picture {
-            Picture::Classic => "CLASSIC",
-            Picture::Modern => "MODERN",
-        }
-        .into(),
-        _ => String::new(),
-    }
-}
-
-/// Changes `row`'s setting one step left (`-1`) or right (`1`): volume by 5 within 0-100,
-/// the others cycling.
-fn change(settings: &mut Settings, row: usize, step: i8) {
-    match row {
-        0 => {
-            settings.volume = if step < 0 {
-                settings.volume.saturating_sub(5)
-            } else {
-                settings.volume.saturating_add(5).min(100)
-            };
-        }
-        1 => {
-            settings.overscan = match settings.overscan {
-                Overscan::Hidden => Overscan::Shown,
-                Overscan::Shown => Overscan::Hidden,
-            };
-        }
-        2 => {
-            const ORDER: [PaletteChoice; 4] = [
-                PaletteChoice::CompositeDirect,
-                PaletteChoice::RgbPpu,
-                PaletteChoice::Ntsc,
-                PaletteChoice::File,
-            ];
-            let at = ORDER
-                .iter()
-                .position(|&p| p == settings.palette)
-                .unwrap_or(0);
-            let next = if step < 0 {
-                at + ORDER.len() - 1
-            } else {
-                at + 1
-            };
-            settings.palette = ORDER[next % ORDER.len()];
-        }
-        3 => settings.sprite_limit = !settings.sprite_limit,
-        4 => settings.vsync = !settings.vsync,
-        5 => {
-            settings.ui = match settings.ui {
-                UiStyle::Classic => UiStyle::Faithful,
-                UiStyle::Faithful => UiStyle::Classic,
-            };
-        }
-        6 => {
-            settings.picture = match settings.picture {
-                Picture::Classic => Picture::Modern,
-                Picture::Modern => Picture::Classic,
-            };
-        }
-        _ => {}
-    }
-}
-
 /// Opens and drives the menu: Esc, F1, a pad's Guide or right stick anywhere, Select on
 /// the game's pause; the same, B, or A or Start on BACK close it.
 #[expect(
@@ -233,11 +274,11 @@ pub fn steer(
         let paused = play.is_some_and(|play| play.paused());
         if toggle || paused && pressed(NesButtons::SELECT) {
             menu.open = true;
-            menu.row = 0;
+            menu.row = Row::Volume;
         }
         return;
     }
-    let back = menu.row == ROWS.len() - 1;
+    let back = menu.row == Row::Back;
     if toggle || pressed(NesButtons::B) || back && pressed(NesButtons::A | NesButtons::START) {
         menu.open = false;
         input.hide_held();
@@ -251,16 +292,16 @@ pub fn steer(
         return;
     }
     if pressed(NesButtons::UP) {
-        menu.row = (menu.row + ROWS.len() - 1) % ROWS.len();
+        menu.row = menu.row.previous();
     }
     if pressed(NesButtons::DOWN) {
-        menu.row = (menu.row + 1) % ROWS.len();
+        menu.row = menu.row.next();
     }
     if pressed(NesButtons::LEFT) {
-        change(&mut settings, menu.row, -1);
+        menu.row.step(&mut settings, -1);
     }
     if pressed(NesButtons::RIGHT) {
-        change(&mut settings, menu.row, 1);
+        menu.row.step(&mut settings, 1);
     }
 }
 
@@ -362,14 +403,18 @@ fn menu_box(picture: &mut ChildSpawnerCommands<'_>, font: &Font, shown: &Shown<'
                 Color::WHITE,
             ));
             menu_box.spawn(line(font, "", Color::WHITE));
-            for (row, label) in ROWS.iter().enumerate() {
-                let value = value(&shown.settings, &shown.colours, row);
+            for row in Row::ALL {
+                let value = row.value(&shown.settings, &shown.colours);
                 let tint = if row == shown.menu.row {
                     Color::WHITE
                 } else {
                     shown.colour(0x10)
                 };
-                menu_box.spawn(line(font, &format!("{label:<VALUE_COLUMN$}{value}"), tint));
+                menu_box.spawn(line(
+                    font,
+                    &format!("{:<VALUE_COLUMN$}{value}", row.label()),
+                    tint,
+                ));
             }
         });
 }
@@ -501,7 +546,7 @@ mod tests {
     #[test]
     fn every_menu_character_has_a_glyph() {
         let settings = Settings::default();
-        let mut texts: Vec<String> = ROWS.iter().map(ToString::to_string).collect();
+        let mut texts: Vec<String> = Row::ALL.iter().map(|row| row.label().to_string()).collect();
         texts.extend(["SETTINGS".into(), HINT.into()]);
         for palette in [
             PaletteChoice::CompositeDirect,
@@ -521,7 +566,7 @@ mod tests {
                     file_missing,
                     ..Colours::default()
                 };
-                texts.extend((0..ROWS.len()).map(|row| value(&settings, &colours, row)));
+                texts.extend(Row::ALL.iter().map(|row| row.value(&settings, &colours)));
             }
         }
         for text in &texts {
@@ -530,13 +575,63 @@ mod tests {
     }
 
     #[test]
+    fn each_row_shows_its_setting_and_steps_alone() {
+        const LINES: [(&str, &str); 8] = [
+            ("VOLUME", "100"),
+            ("OVERSCAN", "HIDE"),
+            ("PALETTE", "COMPOSITE"),
+            ("SPRITE LIMIT", "ON"),
+            ("VSYNC", "ON"),
+            ("UI", "CLASSIC"),
+            ("PICTURE", "CLASSIC"),
+            ("BACK", ""),
+        ];
+        let settings = Settings::default();
+        let colours = Colours::default();
+        let shown: Vec<(&str, String)> = Row::ALL
+            .iter()
+            .map(|row| (row.label(), row.value(&settings, &colours)))
+            .collect();
+        let expected: Vec<(&str, String)> = LINES
+            .iter()
+            .map(|&(label, value)| (label, value.to_owned()))
+            .collect();
+        assert_eq!(shown, expected);
+
+        let base = Settings {
+            volume: 95,
+            ..Settings::default()
+        };
+        for row in Row::ALL {
+            let mut stepped = base.clone();
+            row.step(&mut stepped, 1);
+            let changed: Vec<&str> = Row::ALL
+                .iter()
+                .filter(|&&other| other.value(&base, &colours) != other.value(&stepped, &colours))
+                .map(|row| row.label())
+                .collect();
+            if row == Row::Back {
+                assert!(changed.is_empty(), "BACK changed {changed:?}");
+            } else {
+                assert_eq!(changed, [row.label()]);
+            }
+        }
+    }
+
+    #[test]
+    fn the_cursor_wraps_at_both_ends() {
+        assert_eq!(Row::Volume.previous(), Row::Back);
+        assert_eq!(Row::Back.next(), Row::Volume);
+    }
+
+    #[test]
     fn the_box_fits_the_smallest_view() {
         let width = pixels(COLUMNS * 8) + 2.0 * (PAD + BORDER);
-        let height = pixels((ROWS.len() + 2) * 16) + 2.0 * (PAD + BORDER);
+        let height = pixels((Row::ALL.len() + 2) * 16) + 2.0 * (PAD + BORDER);
         assert!(width <= 256.0 && height <= 224.0, "{width}x{height}");
-        let longest = ROWS
+        let longest = Row::ALL
             .iter()
-            .map(|label| VALUE_COLUMN.max(label.len()) + "COMPOSITE".len())
+            .map(|row| VALUE_COLUMN.max(row.label().len()) + "COMPOSITE".len())
             .max();
         assert!(longest <= Some(COLUMNS));
     }
@@ -690,13 +785,13 @@ mod tests {
             volume: 7,
             ..Settings::default()
         };
-        change(&mut settings, 0, 1);
+        Row::Volume.step(&mut settings, 1);
         assert_eq!(settings.volume, 12);
         settings.volume = 98;
-        change(&mut settings, 0, 1);
+        Row::Volume.step(&mut settings, 1);
         assert_eq!(settings.volume, 100);
         settings.volume = 3;
-        change(&mut settings, 0, -1);
+        Row::Volume.step(&mut settings, -1);
         assert_eq!(settings.volume, 0);
     }
 }
