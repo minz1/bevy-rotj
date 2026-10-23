@@ -1,4 +1,4 @@
-# Status — where 1.1.34 stands
+# Status — where 1.1.35 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -58,6 +58,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.32 | **done, tag `1.1.32`** (2026-10-19): the thirty-second modernisation patch, no behaviour change (the music test's per-frame register-write streams, the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The APU registers named and the driver's voice typed (`docs/specs/2026-10-18-apu-registers-design.md`, the survey loop's #10, first half): `rotj-apu`'s per-channel register modules and `status` bits replace raw `$40xx` addresses in the APU, the driver and their tests; the driver's voice is `Voice` instead of a `u8` and a register base |
 | 1.1.33 | **done, tag `1.1.33`** (2026-10-23): the thirty-third modernisation patch, no behaviour change (the music test's per-frame register-write streams, a new 3,600-frame sweep of every song with its committed coverage record, the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The music driver's commands as enums (`docs/specs/2026-10-18-music-commands-design.md`, the survey loop's #10, second half): each stream byte decodes with its fixed operands into a typed `Command` (`FF` an explicit `Unhandled`), the SFX engine's into `SfxCommand`; the mid-note gate stays on the raw byte; `docs/MUSIC.md` records the unhandled `FF` and the commands no song reaches |
 | 1.1.34 | **done, tag `1.1.34`** (2026-10-23): the thirty-fourth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). Three small types (`.orchestration/briefs/spec-small-types.md`, the second survey's #4, #16 and #10): the FME-7's nametable layout is `render::Mirroring` instead of a `u8` read through four maskings (the lift asserts `$EC < 4`); an OAM entry is `oam::OamEntry` (`From<[u8; 4]>`, `is_visible`, `PARKED_Y`) instead of a `[u8; 4]`; the settings menu's rows are an enum instead of an index, pinned by a characterization test; and the stale "unported" claims in the family tests' docs reworded |
+| 1.1.35 | **done, tag `1.1.35`** (2026-10-23): the thirty-fifth modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The counters named (`.orchestration/briefs/spec-counters.md`, the second survey's #2 and #11, the safe half): `Body`'s four counters tick with `Counter::tick_up`/`tick_down` instead of `wrapping_add(1)`/`wrapping_sub(1)` at 106 lines, the nine "went below zero" tests read `ran_out()`, `Projectile::count_down` uses both, and nine roundabout cadence tests on the frame counter are `is_multiple_of` or `u8::from(frame & M != 0)` (`DROP_PERIOD`, `ROLL_PERIOD`); bit 7's other meanings on those bytes stay raw for a later patch |
 
 ## Verified working
 
@@ -126,7 +127,8 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    camera and scroll fixed: tagged `1.1.31`** (2026-10-19). **1.1.32, the APU registers named: tagged
    `1.1.32`** (2026-10-19). **1.1.33, the music driver's commands as enums: tagged `1.1.33`**
    (2026-10-23). **1.1.34, mirroring, the OAM entry and the menu rows typed: tagged `1.1.34`**
-   (2026-10-23). Next: the fresh survey's list.
+   (2026-10-23). **1.1.35, the counters named: tagged `1.1.35`** (2026-10-23). Next: the fresh
+   survey's list.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
@@ -151,37 +153,24 @@ from the game's own requests.
 
 ## Owner decisions pending
 
-- **Level packs, `first_spawn_column` in two rooms** (`docs/specs/2026-10-18-level-packs-release-1-design.md`):
-  area 11 rooms 2 and 3 (`rooms/5-1-3.tmj`, `5-1-4.tmj`) start their spawn schedule at a column
-  no approved field carries and no rule derives (the rule fits the other 34 rooms). Release 1 ships
-  with the derived value and its proof skips those two fields by name; release 3 (the game loading
-  packs) waits for the answer: a `player-start` property, or accept the derived column there.
-- **Level packs, bit 6 of 24 pending schedule cells** (stage 7-2, area 17): they read `$C0|id`;
-  the format carries the trigger, not that bit, so they import as `$80|id`. The spawner reads
-  only bit 7 and the id, so play is the same; release 3's lockstep would see the byte at
-  `$7410`. Release 1's proof compares those cells on bit 7 and the id and pins the count.
-- **Level packs, `no_handler` in user packs** (`docs/specs/2026-10-18-empty-slot-design.md`): the
-  original game's pack names three second-class kinds the ROM has no handler for (ids past area 17
-  room 0's records, never reached in play); should the importer refuse them in other packs, since
-  placing one would stop the game once it loads packs?
-- **Level packs, release 2's knobs** (the survey in `docs/specs/2026-10-18-stage-descriptor-design.md`):
-  the engine reads per stage its song, banner/pause digits, the picture before the banner, whether
-  it is a continue checkpoint and its password (the pause screen's four letters), and what clearing
-  it does. New public names to approve for `pack.json`: `password` (on checkpoints), `cutscene`,
-  and the values
-  `song-xx`/`keep` (songs are shared between stages, so `"music": "stage-1"` can't name them),
-  `picture-xx`, `ending`. The approved `sprite_palettes` has nothing to carry (no sprite palette is
-  read by area; rooms carry theirs): drop it? The approved `boss` knob: the boss intro comes from
-  the next-area gate's spawn record (stage 3-1 mixes plain and intro gates), so a stage-level
-  `boss` can't express it; drop it or keep it as an editor-wizard field (recommended), with typed
-  gate properties later. And the password screen's fourteenth password (one the pause never shows,
-  starting the last level): carry it as an extra password list in `pack.json`, or keep it Classic's
-  alone? The engine side of release 2 shipped in 1.1.23 without these.
 - **Level packs, the schedule residue in release 3**: dropping the residue (the owner's answer)
   changes WRAM bytes the lockstep compares (`$7410-$750F`); release 3's spec will propose how the
   proof treats them.
 
 ## Owner decisions made
+
+- **Level packs, releases 2 and 3 (2026-10-23)**, answering the questions that stood under
+  "Owner decisions pending": (1) `first_spawn_column` in area 11 rooms 2 and 3 becomes an optional
+  per-room override property, defaulting to the derived rule, so the original pack stays
+  byte-exact; (2) bit 6 of the 24 stage 7-2 schedule cells: a test shows nothing reads it, and
+  whether the format carries it is the implementer's call, documented either way; (3) the importer
+  refuses `no_handler` kinds by name in user packs, and only the original game's export keeps them;
+  (4) release 2's names approved: `password` (on checkpoints), `cutscene`, `song-xx`/`keep`,
+  `picture-xx`, `ending`; (5) `sprite_palettes` dropped; (6) `boss` stays an editor-wizard field,
+  not runtime format, with typed gate properties later; (7) the password screen's fourteenth
+  password: packs may carry an extra password list in `pack.json`. The names for (1) and (7) are
+  proposed in release 2's spec. Release 3 (the game loading packs, with `bevy_asset_loader`) is
+  cleared to go ahead; its spec proposes how the proof treats the schedule residue.
 
 - **Level packs, release 1 (2026-10-18)**, answering the schema questions in
   `docs/specs/2026-10-18-level-packs-design.md`: a stage carries its area's physical page map

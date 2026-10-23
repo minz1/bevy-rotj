@@ -318,7 +318,8 @@ of its own, proven by the lockstep, ranked by payoff over risk:
     2026-10-18): the registers and the driver's voice done in 1.1.32, the commands done in 1.1.33.
 
 The second pass (`.orchestration/survey2.md`, 2026-10-18), as it lands: #4 the nametable
-mirroring, #16 the OAM entry and #10 the menu rows typed, done in 1.1.34.
+mirroring, #16 the OAM entry and #10 the menu rows typed, done in 1.1.34; #2 and #11, the counters'
+ticks, their ran-out bit and the cadence tests named (the safe half), done in 1.1.35.
 
 ### The owner's review of the passed-on candidates (2026-10-18)
 
