@@ -56,6 +56,20 @@ impl Deref for Prg {
     }
 }
 
+/// One PRG ROM byte, addressed inside an 8 KiB window mapped from `bank`.
+pub(crate) fn byte(prg: &[u8], bank: usize, addr: usize) -> Option<u8> {
+    prg.get(bank.checked_mul(0x2000)? + (addr & 0x1FFF))
+        .copied()
+}
+
+/// A little-endian 16-bit word, addressed as in [`byte`].
+pub(crate) fn word(prg: &[u8], bank: usize, addr: usize) -> Option<u16> {
+    Some(u16::from_le_bytes([
+        byte(prg, bank, addr)?,
+        byte(prg, bank, addr + 1)?,
+    ]))
+}
+
 /// The test ROM's `Prg`, imported once; `None` as [`rotj_rom::for_test`] has no ROM.
 #[cfg(test)]
 pub(crate) fn for_test() -> Option<&'static Prg> {

@@ -8,6 +8,7 @@ use super::world::{
 };
 use crate::actors::{STATE_DROPS_PICKUP, bank_slice};
 use crate::levelmap::Cell;
+use crate::prg;
 
 /// The bits of [`Work::probe_flags`] (`$9F`), which [`Player::hit`](super::world::Player::hit)
 /// also receives whole.
@@ -93,7 +94,7 @@ pub const DRAWN: u8 = 0x80;
 
 /// A byte of PRG `bank` at a CPU address.
 pub(crate) fn rom_byte(prg: &[u8], bank: u8, addr: u16) -> u8 {
-    bank_slice(prg, bank, addr & 0x1FFF).expect("address inside PRG")[0]
+    prg::byte(prg, usize::from(bank), usize::from(addr)).expect("address inside PRG")
 }
 
 /// A little-endian word of PRG `bank` at a CPU address.

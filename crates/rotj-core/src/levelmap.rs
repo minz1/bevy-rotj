@@ -34,6 +34,8 @@
 
 use thiserror::Error;
 
+use crate::prg::{byte, word};
+
 /// Metatile rows in the map (`$6000-$6EFF`), one 256-byte page each.
 pub const MAP_ROWS: usize = 15;
 /// Metatile columns in the map, one byte per page.
@@ -88,18 +90,6 @@ const AREA_BANK: usize = 0x8B63;
 /// stream is read from, one 16-bit little-endian entry per area (`$8B75-$8B98`),
 /// matching [`AREA_BANK`].
 const AREA_PPU: usize = 0x8B75;
-
-fn byte(prg: &[u8], bank: usize, addr: usize) -> Option<u8> {
-    prg.get(bank.checked_mul(0x2000)? + (addr & 0x1FFF))
-        .copied()
-}
-
-fn word(prg: &[u8], bank: usize, addr: usize) -> Option<u16> {
-    Some(u16::from_le_bytes([
-        byte(prg, bank, addr)?,
-        byte(prg, bank, addr + 1)?,
-    ]))
-}
 
 /// Bank 02 `$8B63[$0400/2]`: the CHR 1 KiB base bank the loader maps for `area`.
 #[must_use]

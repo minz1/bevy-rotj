@@ -22,6 +22,7 @@
 //! ```
 
 use crate::levelmap::{Cell, Map};
+use crate::prg::word;
 
 /// The loader fills `$D0` = 208 entries; ids `>= 208` are outside the level.
 pub const CLASS_COUNT: usize = 208;
@@ -40,20 +41,6 @@ const CLASS_RLE_BASE: usize = 0x02A5;
 
 /// Bytes of the class blobs (`$02A5-$0322`).
 const CLASS_RLE_BYTES: usize = 126;
-
-/// One PRG ROM byte, addressed inside an 8 KiB window mapped from `bank`.
-fn byte(prg: &[u8], bank: usize, addr: usize) -> Option<u8> {
-    prg.get(bank.checked_mul(0x2000)? + (addr & 0x1FFF))
-        .copied()
-}
-
-/// A little-endian 16-bit word, addressed as in [`byte`].
-fn word(prg: &[u8], bank: usize, addr: usize) -> Option<u16> {
-    Some(u16::from_le_bytes([
-        byte(prg, bank, addr)?,
-        byte(prg, bank, addr + 1)?,
-    ]))
-}
 
 /// What a metatile's collision class does to the game's three probes: the wall probe
 /// (`$C99D`, handlers at `$CADC`), the floor probe (`$CAFE`, `$CD2E`) and the point test
@@ -322,6 +309,7 @@ impl Level {
 mod tests {
     use super::*;
     use crate::digest::{fnv1a, table};
+    use crate::prg::byte;
 
     /// The decoder `Level::loaded` had before the terrain import: the reference.
     fn loaded_from_rom(
