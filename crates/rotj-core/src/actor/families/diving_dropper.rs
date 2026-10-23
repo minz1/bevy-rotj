@@ -3,7 +3,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 
 const SPRITES: u16 = 0x8C7C;
@@ -60,7 +60,7 @@ impl State {
             return;
         }
         body.anim = DRAWN;
-        let index = 2 * u16::from((cx.world.frame & 0x08) >> 3);
+        let index = 2 * u16::from(cx.world.frame & 0x08 != 0);
         work.pointer = engine::rom_word(cx.prg, 0, SPRITES + index);
         engine::tile_bits(work, cx.prg);
         engine::draw(work, SPRITE_BANK, cx);
@@ -91,7 +91,7 @@ fn drifting(body: &mut Body, work: &Work) {
 /// Shedding (`$8B00`): the parts leave at timer `$40` and `$60`, the dive is picked at `$80`.
 fn shedding(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     body.vy = 0;
-    body.timer = body.timer.wrapping_add(1);
+    body.timer.tick_up();
     let mut result = body.timer;
     if result == 0x40 || result == 0x60 {
         result = spawn_parts(body, work, cx);
@@ -143,7 +143,7 @@ fn diving(body: &mut Body, work: &Work) {
         body.timer ^= 0x80;
         body.vy = body.vy.wrapping_neg();
     }
-    body.counter = body.counter.wrapping_sub(1);
+    body.counter.tick_down();
     if body.counter == 0 {
         body.subtype = body.subtype.wrapping_add(1);
         if body.subtype < 3 {

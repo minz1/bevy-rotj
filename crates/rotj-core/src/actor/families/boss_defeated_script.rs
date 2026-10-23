@@ -6,7 +6,7 @@
 //! loads the working set, draws or collides.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::{Body, Field};
+use crate::actor::slots::{Body, Counter, Field};
 use crate::actor::stage::{self, OnClear};
 use crate::actor::world::{Cx, Motion, attack, hurt, sound, stage_script};
 
@@ -51,7 +51,7 @@ impl State {
         if body.anim.is_multiple_of(4) {
             spawn_52(body, cx);
         }
-        body.anim = body.anim.wrapping_add(1);
+        body.anim.tick_up();
         if body.anim < COUNTDOWN {
             return;
         }
@@ -79,7 +79,7 @@ fn spawn_52(body: &mut Body, cx: &mut Cx<'_>) {
         part.body.x = x;
         part.body.y = y;
     }
-    body.counter = body.counter.wrapping_add(1);
+    body.counter.tick_up();
     if body.counter >= 6 {
         body.counter = 0;
     }

@@ -6,7 +6,7 @@
 //! it), `$AEE3` (`touch`) and `$A934` (`store`).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 
 const HOME_BANK: u8 = 11;
@@ -54,7 +54,7 @@ impl State {
         engine::draw(work, DRAW_BANK, cx);
         work.hitbox = HITBOX;
         engine::touch(work, DAMAGE, cx);
-        body.timer = body.timer.wrapping_add(1);
+        body.timer.tick_up();
         if body.timer < LIFETIME {
             engine::store(body, work);
         } else {

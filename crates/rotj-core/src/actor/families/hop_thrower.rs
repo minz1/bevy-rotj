@@ -10,7 +10,7 @@
 use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, contact};
+use crate::actor::slots::{Body, Counter, contact};
 use crate::actor::world::{Cx, sound};
 use crate::actors::CELL_PENDING;
 
@@ -83,7 +83,7 @@ fn standing(body: &mut Body, work: &Work, cx: &Cx<'_>) {
 /// Crouching (`$9302`): crouch for eight frames, then hold until it throws or is hurt.
 fn crouching(body: &mut Body) {
     body.contact = contact::SLIDE_HURTS;
-    body.timer = body.timer.wrapping_add(1);
+    body.timer.tick_up();
     if body.timer < 8 {
         body.sprite = 1;
         return;
@@ -106,7 +106,7 @@ fn throwing(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
         spawn_projectile(body, work, cx);
     }
     body.sprite = if body.timer & 0x08 == 0 { 2 } else { 3 };
-    body.timer = body.timer.wrapping_add(1);
+    body.timer.tick_up();
     if body.timer >= THROW_FRAMES {
         body.anim = 0x80;
         body.phase = Phase::Crouching.byte();

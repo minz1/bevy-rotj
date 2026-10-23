@@ -13,7 +13,7 @@
 //! which `$826F` maps bank 9 for) and `$A934` (`store`).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Field, hit};
+use crate::actor::slots::{Body, Counter, Field, hit};
 use crate::actor::world::{Cx, sound};
 
 const HOME_BANK: u8 = 11;
@@ -53,7 +53,7 @@ impl State {
             return;
         }
         engine::integrate(body, work);
-        body.counter = body.counter.wrapping_add(1);
+        body.counter.tick_up();
         if body.counter == 0 {
             kill(body, work, cx);
         } else if engine::on_screen(work, cx.world) == Visibility::On {

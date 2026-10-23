@@ -4,7 +4,7 @@ use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
 use crate::actors::CELL_PENDING;
 
@@ -92,7 +92,7 @@ fn idling(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
     if on_ground(work, probe, cx) {
         body.vx_drift = drift(*probe);
     }
-    body.timer = body.timer.wrapping_sub(1);
+    body.timer.tick_down();
     if body.timer != 0 {
         anim(body);
         return;
@@ -122,7 +122,7 @@ fn firing(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
     if on_ground(work, probe, cx) {
         body.vx_drift = drift(*probe);
     }
-    body.timer = body.timer.wrapping_add(1);
+    body.timer.tick_up();
     if body.timer < 0x18 {
         body.sprite = 4;
         return;
@@ -131,7 +131,7 @@ fn firing(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
         body.sprite = 6;
         return;
     }
-    body.counter = body.counter.wrapping_add(1);
+    body.counter.tick_up();
     if body.counter >= 4 {
         body.phase = Phase::Idling.byte();
         body.anim = 1;
@@ -227,7 +227,7 @@ fn anim(body: &mut Body) {
         frame = 2;
     }
     body.sprite = frame;
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
 }
 
 /// The muzzle-flash screen x at `$9747`; `None` skips the second draw as on a borrow.

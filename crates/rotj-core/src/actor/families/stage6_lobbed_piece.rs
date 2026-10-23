@@ -9,7 +9,7 @@
 //! draw, so the port passes bank 9 to `engine::draw`.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
 
 /// The `$96:$97` metasprite table the moving phase selects (bank 12 `$82E5`).
@@ -42,7 +42,7 @@ impl State {
             work.attr = 3;
             let frame = (body.anim >> 1) & 0x06;
             work.pointer = engine::rom_word(cx.prg, 12, DYING_METASPRITES + u16::from(frame));
-            body.anim = body.anim.wrapping_add(1);
+            body.anim.tick_up();
             if body.anim >= DYING_FRAMES {
                 *kind = 0;
                 return;

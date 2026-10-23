@@ -1,7 +1,7 @@
 //! Type `$0A`, the green enemy of stage 1-1 (bank 8 `$85FD`).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
 
 const METASPRITES: u16 = 0x8763;
@@ -65,8 +65,8 @@ impl State {
             }
             Some(Phase::Landed) => {
                 work.vy = HOVER;
-                body.timer = body.timer.wrapping_sub(1);
-                if body.timer & 0x80 != 0 {
+                body.timer.tick_down();
+                if body.timer.ran_out() {
                     body.phase = Phase::Rising.byte();
                     work.vy = 0;
                 }

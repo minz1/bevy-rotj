@@ -1,7 +1,7 @@
 //! Type `$C2`, the area-20:00 `$C4` wave spawner (bank 12 `$97B6`).
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::{Body, contact};
+use crate::actor::slots::{Body, Counter, contact};
 use crate::actor::world::Cx;
 use crate::actors::STATE_UNTARGETED;
 
@@ -62,8 +62,8 @@ impl State {
                 }
             }
             Some(Phase::Spawning) => {
-                body.counter = body.counter.wrapping_sub(1);
-                if body.counter & 0x80 == 0 {
+                body.counter.tick_down();
+                if !body.counter.ran_out() {
                     return;
                 }
                 if let Some(index) = (0..16).rev().find(|&y| cx.slots.main[y].kind == 0) {
@@ -92,7 +92,7 @@ impl State {
                     child.body.vy = velocity;
                 }
                 body.counter = SPAWN_DELAY;
-                body.timer = body.timer.wrapping_add(1);
+                body.timer.tick_up();
                 if body.timer >= SPAWN_LIMIT {
                     *kind = 0;
                 }

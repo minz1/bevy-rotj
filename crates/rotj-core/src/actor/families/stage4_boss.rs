@@ -11,8 +11,8 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::families::Brain;
-use crate::actor::slots::Body;
 use crate::actor::slots::hit;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, Motion};
 
 const KIND: u8 = 0x42;
@@ -121,7 +121,7 @@ fn own_slot(cx: &Cx<'_>) -> u8 {
 
 /// `$94D0`: step the animation and take this step's timer.
 fn wait(body: &mut Body, cx: &mut Cx<'_>) {
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
     let step = usize::from((body.anim & 0x7F) >> 3);
     body.timer = cx.prg.families.stage4_boss.step_timers[step];
 }
@@ -174,7 +174,7 @@ fn charge(body: &mut Body, cx: &mut Cx<'_>) {
         spawn_shot(cx);
         return;
     }
-    body.counter = body.counter.wrapping_add(1);
+    body.counter.tick_up();
     if body.counter != CHARGED {
         return;
     }

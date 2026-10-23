@@ -8,7 +8,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
-use crate::actor::slots::{Body, contact};
+use crate::actor::slots::{Body, Counter, contact};
 use crate::actor::world::Cx;
 use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
 
@@ -38,9 +38,9 @@ impl State {
                 if body.anim & SPAWN_MASK == 0 {
                     spawn(body, work, cx);
                 }
-                body.anim = body.anim.wrapping_add(1);
+                body.anim.tick_up();
             }
-            Visibility::Near => body.anim = body.anim.wrapping_add(1),
+            Visibility::Near => body.anim.tick_up(),
             Visibility::Far => engine::despawn(kind, body, CELL_PENDING, cx.schedule),
         }
     }

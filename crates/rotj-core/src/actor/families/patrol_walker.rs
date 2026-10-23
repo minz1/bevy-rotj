@@ -4,7 +4,7 @@ use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
 use crate::actors::CELL_PENDING;
 
@@ -149,7 +149,7 @@ fn charging(body: &mut Body, work: &mut Work, flags: u8, cx: &mut Cx<'_>) {
         work.ax = 0;
     }
     body.sprite = 7;
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
     if body.anim >= 0x20 {
         body.anim = 0x20;
         let dx = engine::player_dx(work, &cx.effects.player);
@@ -168,7 +168,7 @@ fn charging(body: &mut Body, work: &mut Work, flags: u8, cx: &mut Cx<'_>) {
             return;
         }
     }
-    body.ref_vx = if cx.world.frame & 0x3F != 0 {
+    body.ref_vx = if !cx.world.frame.is_multiple_of(0x40) {
         0
     } else if cx.world.frame & 0x40 == 0 {
         0x20
@@ -180,13 +180,13 @@ fn charging(body: &mut Body, work: &mut Work, flags: u8, cx: &mut Cx<'_>) {
 /// Biting (`$9AC5`): two 16-frame bites, each spawning a `$24` child on its 8th frame.
 fn biting(body: &mut Body, cx: &mut Cx<'_>) {
     body.counter = 0;
-    body.timer = body.timer.wrapping_add(1);
+    body.timer.tick_up();
     if body.timer == 8 {
         cx.effects.sound[0] = sound::ENEMY_FIRES;
         spawn_child(body, cx);
     }
     if body.timer >= 0x10 {
-        body.anim = body.anim.wrapping_add(1);
+        body.anim.tick_up();
         body.timer = 0;
         if body.anim >= 2 {
             body.phase = Phase::Walking.byte();

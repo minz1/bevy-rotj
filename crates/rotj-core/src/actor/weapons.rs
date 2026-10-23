@@ -405,7 +405,7 @@ fn homing(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         flying_shot(slot, work, cx, |cx| homing_steer(slot, cx), 0x8477);
         return;
     }
-    if cx.world.frame.trailing_zeros() >= 5 {
+    if cx.world.frame.is_multiple_of(0x20) {
         cx.effects.sound[0] = sound::CHARGE;
     }
     match kind {

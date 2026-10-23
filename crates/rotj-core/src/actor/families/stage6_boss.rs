@@ -7,7 +7,7 @@
 //! (`$B1C4`) and an `$AA` (`$8785`) once, when `$7F00` reaches 1.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, Motion, sound};
 
 /// The `stage6_boss_part` kind.
@@ -176,7 +176,7 @@ fn clamp_x(body: &mut Body, work: &mut Work) {
 /// `$85D0`: count and re-arm the dive, then check for the animating hand-off.
 fn dive(body: &mut Body, work: &mut Work) {
     work.x = u16::from_be_bytes([work.x.to_be_bytes()[0], 0]);
-    body.counter = body.counter.wrapping_add(1);
+    body.counter.tick_up();
     if body.counter & 0x02 == 0 {
         body.timer = 1;
         body.vy = 0x28;

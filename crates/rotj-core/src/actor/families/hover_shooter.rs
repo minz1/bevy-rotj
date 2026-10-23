@@ -4,7 +4,7 @@
 use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
 
@@ -12,8 +12,8 @@ use crate::actors::CELL_PENDING;
 const METASPRITES: u16 = 0x94A0;
 /// The companion slot type the `$9457` routine rears.
 const CHILD: u8 = 0x20;
-/// `$937F`'s gate: the sprite only rolls on frames where `$F1 & 3` is clear.
-const FRAME_MASK: u8 = 0x03;
+/// `$937F`'s gate: the sprite only rolls every fourth frame.
+const ROLL_PERIOD: u8 = 4;
 /// `$7DD0` while it hovers; any other value rears a child.
 const HOVERING: u8 = 0;
 /// `$7DD0` while it rears a child.
@@ -54,7 +54,7 @@ impl State {
 /// Hovering (`$937F`): the RNG picks a sprite until the player comes level, then
 /// the actor rears a child.
 fn hovering(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-    if cx.world.frame & FRAME_MASK == 0 {
+    if cx.world.frame.is_multiple_of(ROLL_PERIOD) {
         body.counter = if cx.world.rng[0] >= 0xE8 { 8 } else { 0 };
     }
     let dx = engine::player_dx(work, &cx.effects.player);
@@ -77,7 +77,7 @@ fn rearing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if body.anim == 0 {
         face(work, engine::player_dx(work, &cx.effects.player));
     }
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
     if body.anim == 4
         && let Some(slot) = engine::free_child_slot(cx.slots)
     {

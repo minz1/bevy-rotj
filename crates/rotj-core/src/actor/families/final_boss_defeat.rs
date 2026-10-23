@@ -3,7 +3,7 @@
 //! sinks, and arms the ending (`$BA` 6).
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 
 /// The metasprite per `$7C30` frame (`$94B0`) and the CHR bank it puts in `$E7` (`$94B8`).
@@ -52,7 +52,7 @@ impl State {
                 body.sprite = 0;
                 body.behaviour = 0x80;
                 body.subtype = 0x58;
-                body.anim = body.anim.wrapping_add(1);
+                body.anim.tick_up();
                 if body.anim >= 0x80 {
                     body.phase = Phase::Flickering.byte();
                     body.counter = 0;
@@ -64,14 +64,14 @@ impl State {
                 if body.anim.is_multiple_of(4) {
                     body.subtype = body.subtype.wrapping_add(1);
                 }
-                body.anim = body.anim.wrapping_add(1);
+                body.anim.tick_up();
                 if body.anim >= 0x80 {
                     cx.effects.transition = ENDING;
                 }
             }
             Some(Phase::Flickering) => {
                 body.sprite = ((body.anim & 8) >> 3) + 1;
-                body.anim = body.anim.wrapping_add(1);
+                body.anim.tick_up();
                 if body.anim >= 0x10 {
                     body.counter = 0x80;
                     body.anim = 0;

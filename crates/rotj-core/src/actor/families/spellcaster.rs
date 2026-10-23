@@ -9,7 +9,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 
 /// The four metasprite pointers, indexed by `$7C30` (bank 0 `$8900`).
@@ -60,7 +60,7 @@ impl State {
 /// `$882E`: the spell. The sprite advances every eighth count and a shot leaves
 /// on each of the first four.
 fn shoot(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
     if body.anim & 0x80 == 0 || body.anim & 0x07 != 0 {
         return;
     }

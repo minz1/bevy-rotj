@@ -2,7 +2,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
 use crate::actors::STATE_UNTARGETED;
 
@@ -100,7 +100,7 @@ fn sweeping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
         } else if column < 0x04 {
             work.step_x = 4;
         }
-        body.anim = body.anim.wrapping_add(1);
+        body.anim.tick_up();
         if body.anim < 0xC0 {
             return;
         }
@@ -117,7 +117,7 @@ fn sweeping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
         work.step_x = if work.x.to_be_bytes()[0] >= 8 { -8 } else { 8 };
     } else {
         body.sprite = u8::from(body.anim & 8 == 0);
-        body.anim = body.anim.wrapping_add(1);
+        body.anim.tick_up();
     }
 }
 
@@ -132,7 +132,7 @@ fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         } else {
             advance_blast(body);
         }
-        body.anim = body.anim.wrapping_add(1);
+        body.anim.tick_up();
         if body.anim >= 0x40 {
             body.timer = 0x80;
         }
@@ -140,9 +140,9 @@ fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     }
     work.vy = work.vy.wrapping_sub(8);
     if body.counter & 0x80 != 0 {
-        body.counter = body.counter.wrapping_add(1);
+        body.counter.tick_up();
         if body.counter < 0x86 {
-            body.anim = body.anim.wrapping_add(1);
+            body.anim.tick_up();
             if body.anim >= 0x40 {
                 body.timer = 0x80;
             }
@@ -161,7 +161,7 @@ fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 
 /// `$83B6`: step the blast flash, ending it at `$86`.
 fn advance_blast(body: &mut Body) {
-    body.counter = body.counter.wrapping_add(1);
+    body.counter.tick_up();
     if body.counter >= 0x86 {
         body.counter = 0;
         body.subtype = 0;

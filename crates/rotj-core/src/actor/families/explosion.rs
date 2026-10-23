@@ -6,7 +6,7 @@
 //! frees its slot after eight loops.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 
 const METASPRITES: u16 = 0x9D41;
@@ -22,7 +22,7 @@ impl State {
     /// One frame of the handler (`$9CFC`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
-        body.anim = body.anim.wrapping_add(1);
+        body.anim.tick_up();
         let index = (body.anim >> 1) & 0xFE;
         work.pointer = engine::rom_word(cx.prg, HOME_BANK, METASPRITES + u16::from(index));
         work.chr_slot = body.chr_slot;
@@ -31,7 +31,7 @@ impl State {
             engine::tile_bits(work, cx.prg);
             engine::draw(work, DRAW_BANK, cx);
         }
-        body.anim = body.anim.wrapping_add(1);
+        body.anim.tick_up();
         if body.anim >= LIFETIME {
             *kind = 0;
         } else {

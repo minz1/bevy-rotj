@@ -2,7 +2,7 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::families::Brain;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
 use crate::actors::STATE_UNTARGETED;
 
@@ -51,7 +51,7 @@ impl State {
             let (timer, carry) = body.timer.overflowing_add(1);
             body.timer = timer;
             if carry {
-                body.counter = body.counter.wrapping_add(1);
+                body.counter.tick_up();
             }
             return;
         }

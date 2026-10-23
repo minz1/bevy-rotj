@@ -7,7 +7,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, Field, contact};
+use crate::actor::slots::{Body, Counter, Field, contact};
 use crate::actor::world::{Cx, sound};
 
 const BANK: u8 = 11;
@@ -70,7 +70,7 @@ impl State {
             work.pointer =
                 engine::rom_word(cx.prg, BANK, FALL_POINTERS + u16::from(body.anim & 0x06));
             work.hitbox = HITBOX;
-            body.anim = body.anim.wrapping_add(1);
+            body.anim.tick_up();
         }
         engine::tile_bits(work, cx.prg);
         engine::draw(work, 1, cx);

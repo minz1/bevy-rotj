@@ -14,7 +14,7 @@
 //! a separate family) in slots 16-23.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::{Body, Field};
+use crate::actor::slots::{Body, Counter, Field};
 use crate::actor::world::Cx;
 
 /// The metasprite pointer table, read in the handler's own bank (`$81B4`).
@@ -74,7 +74,7 @@ impl State {
         match Phase::from_byte(body.phase) {
             Some(Phase::Appearing) => {
                 body.sprite = body.anim >> 3;
-                body.anim = body.anim.wrapping_add(1);
+                body.anim.tick_up();
                 if body.anim >= NEXT_PHASE {
                     body.phase = Phase::Holding.byte();
                     body.anim = 0;
@@ -82,14 +82,14 @@ impl State {
             }
             Some(Phase::Holding) => {
                 body.sprite = 2;
-                body.anim = body.anim.wrapping_add(1);
+                body.anim.tick_up();
                 if body.anim >= NEXT_PHASE {
                     body.phase = Phase::Lobbing.byte();
                     body.anim = 0;
                 }
             }
             Some(Phase::Lobbing) => {
-                body.anim = body.anim.wrapping_add(1);
+                body.anim.tick_up();
                 if body.anim == NEXT_PHASE
                     && let Some(slot) = engine::free_child_slot(cx.slots)
                 {

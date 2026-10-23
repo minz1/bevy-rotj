@@ -9,8 +9,8 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
 use crate::actor::slots::hit;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 
 /// The `$7C30` -> metasprite pointer table (bank 12, indexed by `$7C30*2`).
@@ -63,7 +63,7 @@ impl State {
                 body.sprite = 1;
             }
             Some(Phase::Falling) => {
-                body.sprite = (cx.world.frame & 0x10) >> 4;
+                body.sprite = u8::from(cx.world.frame & 0x10 != 0);
                 if cx.world.frame_odd {
                     let mut probe = Probe {
                         x: work.x,
@@ -79,7 +79,7 @@ impl State {
             }
             Some(Phase::Dying) => {
                 body.sprite = ((body.anim & 0x0C) >> 2) + 2;
-                body.anim = body.anim.wrapping_add(1);
+                body.anim.tick_up();
                 if body.anim == 0x0C {
                     *kind = 0;
                     return;

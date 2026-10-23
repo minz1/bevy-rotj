@@ -10,7 +10,7 @@
 //! metasprite index.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 
 const BANK: u8 = 11;
@@ -55,7 +55,7 @@ impl State {
         engine::load(body, work);
         if body.timer & 0x80 != 0 {
             let frame = body.counter & 0xFE;
-            body.timer = body.timer.wrapping_add(1);
+            body.timer.tick_up();
             if body.timer >= DEAD {
                 *kind = 0;
                 return;

@@ -2,7 +2,7 @@
 //! through three phases (the dispatch table at bank 8 `$8A68`).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, contact, hit};
+use crate::actor::slots::{Body, Counter, contact, hit};
 use crate::actor::world::{Cx, sound};
 
 /// The overlay metasprites (bank 8 `$8A64`, by Y = 0 or 2).
@@ -144,7 +144,7 @@ fn hovering(
     }
     let mut wake = true;
     if body.anim & 0x80 != 0 {
-        body.counter = body.counter.wrapping_sub(1);
+        body.counter.tick_down();
         if body.counter != 0 {
             wake = false;
         } else {
@@ -194,7 +194,7 @@ fn landing(
             overlay(work, 2, cx);
         }
     }
-    body.counter = body.counter.wrapping_sub(1);
+    body.counter.tick_down();
     if body.counter == 0 {
         cx.effects.sound[0] = sound::STOMP;
         body.phase = Phase::Stomping.byte();
@@ -240,7 +240,7 @@ fn stomping(
         engine::draw(work, 1, cx);
         overlay(work, 2, cx);
     }
-    body.counter = body.counter.wrapping_add(1);
+    body.counter.tick_up();
     if body.counter < tables.step_counts[anim] {
         if body.counter != tables.stomp_steps[anim] || visibility != Visibility::On {
             return;
@@ -258,7 +258,7 @@ fn stomping(
     body.anim = 0x80;
     body.phase = Phase::Hovering.byte();
     body.counter = 0x20;
-    body.timer = body.timer.wrapping_add(1);
+    body.timer.tick_up();
     if body.timer >= 8 {
         body.timer = 0;
     }

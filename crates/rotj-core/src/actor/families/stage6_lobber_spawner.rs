@@ -1,7 +1,7 @@
 //! Type `$94`, an area-1C stage controller (bank 12 `$8000`).
 
 use crate::actor::engine::Work;
-use crate::actor::slots::{Body, contact};
+use crate::actor::slots::{Body, Counter, contact};
 use crate::actor::world::Cx;
 
 /// The type the handler hands to the highest free main slot.
@@ -23,8 +23,8 @@ impl State {
         if body.phase & SPAWNED != 0 || !cx.world.frame_odd {
             return;
         }
-        body.anim = body.anim.wrapping_sub(1);
-        if body.anim & 0x80 == 0 {
+        body.anim.tick_down();
+        if !body.anim.ran_out() {
             return;
         }
         let Some(index) = (0..16).rev().find(|&y| cx.slots.main[y].kind == 0) else {

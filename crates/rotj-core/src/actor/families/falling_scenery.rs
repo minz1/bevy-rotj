@@ -2,7 +2,7 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, contact};
+use crate::actor::slots::{Body, Counter, contact};
 use crate::actor::world::{Cx, sound};
 
 /// The appearing phase's metasprite table (bank 8 `$8EC3`).
@@ -56,7 +56,7 @@ fn appearing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     let frame = u16::from((body.counter >> 1) & 0xFE);
     work.pointer = engine::rom_word(cx.prg, 8, APPEARING_SPRITES + frame);
     engine::draw(work, 1, cx);
-    body.counter = body.counter.wrapping_add(1);
+    body.counter.tick_up();
     if body.counter >= 0x0C {
         body.counter = 0x40;
         body.phase = Phase::Waiting.byte();
@@ -66,7 +66,7 @@ fn appearing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 
 /// Waiting (`$8DC6`): count down, then drop from the camera plus the saved screen x.
 fn waiting(body: &mut Body, cx: &Cx<'_>) {
-    body.counter = body.counter.wrapping_sub(1);
+    body.counter.tick_down();
     if body.counter != 0 {
         return;
     }
@@ -118,7 +118,7 @@ fn landed(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     work.pointer = engine::rom_word(cx.prg, 8, LANDED_SPRITES + frame);
     engine::draw(work, 1, cx);
     engine::touch(work, 2, cx);
-    body.counter = body.counter.wrapping_add(1);
+    body.counter.tick_up();
     if body.counter >= 0x14 {
         *kind = 0;
         return;

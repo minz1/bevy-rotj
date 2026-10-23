@@ -3,7 +3,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::oam::attr;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
 
@@ -109,7 +109,7 @@ fn walking(body: &mut Body, work: &mut Work, flags: u8, probe: &mut Probe, cx: &
     } else {
         let facing = usize::from(facing_left);
         body.ref_vx = cx.prg.families.ledge_walker.walk_velocity[facing];
-        body.anim = body.anim.wrapping_add(1);
+        body.anim.tick_up();
         body.sprite = (body.anim & 0x18) >> 2;
     }
 }
@@ -117,7 +117,7 @@ fn walking(body: &mut Body, work: &mut Work, flags: u8, probe: &mut Probe, cx: &
 /// Turning (`$96E4`): stand still, flip the facing, then go back to walking.
 fn turning(body: &mut Body, work: &mut Work) {
     body.sprite = TURNING_SPRITE;
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
     if body.anim == TURN_FLIP {
         work.attr ^= attr::FLIP_X;
     } else if body.anim >= TURN_LENGTH {

@@ -1,7 +1,7 @@
 //! Type `$A0`, an area-1A proximity spawner (bank 12 `$83CD`).
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
 
@@ -26,8 +26,8 @@ impl State {
             engine::despawn(kind, body, CELL_PENDING, cx.schedule);
             return;
         }
-        body.anim = body.anim.wrapping_sub(1);
-        if body.anim & 0x80 == 0 {
+        body.anim.tick_down();
+        if !body.anim.ran_out() {
             return;
         }
         if let Some(index) = engine::free_child_slot(cx.slots) {

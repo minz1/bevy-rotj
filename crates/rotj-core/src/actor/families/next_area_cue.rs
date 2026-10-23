@@ -6,7 +6,7 @@
 //! player, and it calls no engine or collision routine.
 
 use crate::actor::engine::Work;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
 
 /// The `$7E10` guard written with it (`$932A`).
@@ -31,7 +31,7 @@ impl State {
             cx.effects.music = sound::music::STOP;
             body.counter = GUARD;
         }
-        body.anim = body.anim.wrapping_add(1);
+        body.anim.tick_up();
         if body.anim < 0x40 {
             return;
         }

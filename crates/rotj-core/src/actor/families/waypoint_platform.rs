@@ -6,7 +6,7 @@
 
 use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
 
 const WAYPOINTS: u16 = 0x81DF;
@@ -94,7 +94,7 @@ impl State {
         engine::draw(work, 11, cx);
         work.hitbox = 1;
         engine::contact(kind, body, work, 2, cx);
-        body.anim = body.anim.wrapping_add(1);
+        body.anim.tick_up();
         if body.anim.is_multiple_of(0x40) {
             spawn_children(body, cx);
         }
@@ -105,7 +105,7 @@ impl State {
 
 /// `$8134`: the next waypoint and the velocity its sequence entry names.
 fn advance(body: &mut Body, cx: &Cx<'_>) {
-    body.timer = body.timer.wrapping_add(1);
+    body.timer.tick_up();
     let table = engine::rom_word(
         cx.prg,
         11,

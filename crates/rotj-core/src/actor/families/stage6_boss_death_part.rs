@@ -1,7 +1,7 @@
 //! Type `$AA`, a stage 6 boss part (bank 12 `$8870`).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 
 /// The first draw's metasprite pointers, indexed by `$7C30` (`$8944`, bank 9).
@@ -52,7 +52,7 @@ impl State {
                 body.sprite =
                     cx.prg.families.stage6_boss_death_part.selector[usize::from(body.anim >> 3)];
                 body.counter = 0;
-                body.anim = body.anim.wrapping_add(1);
+                body.anim.tick_up();
                 if body.anim >= WAIT_FRAMES {
                     body.vy = 0;
                     body.phase = Phase::Rising.byte();
@@ -60,7 +60,7 @@ impl State {
             }
             Some(Phase::Rising) => {
                 body.counter = 1;
-                body.sprite = 3 + ((cx.world.frame & 0x04) >> 2);
+                body.sprite = 3 + u8::from(cx.world.frame & 0x04 != 0);
                 work.y = work.y.wrapping_add_signed(body.vy);
                 let [hi, lo] = body.vy.to_be_bytes();
                 let (lo, borrow) = lo.overflowing_sub(1);

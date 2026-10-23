@@ -5,7 +5,7 @@
 //! (`boss_contact`); it never calls `$A79B` (`integrate`) or `$A9C4`.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 
 /// The handler and its tables live in bank 12.
@@ -53,7 +53,7 @@ impl State {
         engine::draw(work, DRAW_BANK, cx);
         work.hitbox = HITBOX;
         engine::boss_contact(CONTACT_AMOUNT, CONTACT_MODE, body, work, cx);
-        body.anim = body.anim.wrapping_add(1);
+        body.anim.tick_up();
         engine::store(body, work);
     }
 }

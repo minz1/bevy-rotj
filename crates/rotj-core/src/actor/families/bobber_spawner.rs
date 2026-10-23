@@ -11,7 +11,7 @@
 
 use crate::actor::engine::Work;
 use crate::actor::oam::attr;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 
 /// `$7DF0 & $0F`: the frame within the 16-frame spawn period.
@@ -35,7 +35,7 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$86F5`; the `$7DD0` phase is 0-5).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
-        body.timer = body.timer.wrapping_add(1);
+        body.timer.tick_up();
         if body.timer & SPAWN_MASK != 0 {
             return;
         }

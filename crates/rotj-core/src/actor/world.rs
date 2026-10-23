@@ -3,7 +3,7 @@
 use super::button::Buttons;
 use super::oam::{OamBuilder, attr};
 use super::scroll::Scroll;
-use super::slots::Slots;
+use super::slots::{Counter, Slots};
 use crate::render::Mirroring;
 
 /// The live spawn schedule (`$7410`) and its page -> row table (`$0440`).
@@ -746,8 +746,8 @@ pub const PROJECTILE_ARRAYS: [u16; 19] = [
 impl Projectile {
     /// The timer down by one; frees the slot (true) when that sets bit 7.
     pub fn count_down(&mut self) -> bool {
-        self.timer = self.timer.wrapping_sub(1);
-        if self.timer & 0x80 != 0 {
+        self.timer.tick_down();
+        if self.timer.ran_out() {
             self.kind = 0;
             true
         } else {

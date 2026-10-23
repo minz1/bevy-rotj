@@ -9,7 +9,7 @@
 use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
 
 /// Metasprites indexed by `$7C30` (bank 11 `$8D0F`, 2-byte entries).
@@ -58,7 +58,7 @@ fn drifting(body: &mut Body, work: &mut Work) {
     if body.behaviour == 0 || body.timer & 0x80 != 0 {
         return;
     }
-    body.counter = body.counter.wrapping_add(1);
+    body.counter.tick_up();
     if body.counter < 0x20 {
         return;
     }
@@ -71,7 +71,7 @@ fn drifting(body: &mut Body, work: &mut Work) {
 /// Bombing (`$8AF0`): drop a `$24` bomb, then drift until the facing settles.
 fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if body.timer == 0 {
-        body.counter = body.counter.wrapping_add(1);
+        body.counter.tick_up();
         if body.counter < 0x10 {
             body.sprite = 2;
             return;
@@ -153,7 +153,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if body.anim & 0x80 != 0 {
         let frame = u16::from(body.anim & 0x7E);
         work.pointer = engine::rom_word(cx.prg, 11, ANIMATION + frame);
-        body.anim = body.anim.wrapping_add(1);
+        body.anim.tick_up();
         if body.anim >= 0x86 {
             body.anim = 0;
         }

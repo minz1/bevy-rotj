@@ -11,7 +11,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::oam::attr;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, Motion};
 
 /// Metasprite pointers (`$9D85`), indexed by `$7C30`.
@@ -159,7 +159,7 @@ fn opening(body: &mut Body, cx: &Cx<'_>) {
     if body.sprite == 0 {
         body.counter = 0x40;
     }
-    body.timer = body.timer.wrapping_add(1);
+    body.timer.tick_up();
     if body.timer >= 0x0C {
         body.phase = Phase::Dropping.byte();
         body.timer = 0;
@@ -171,7 +171,7 @@ fn opening(body: &mut Body, cx: &Cx<'_>) {
 fn dropping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
     if body.anim & 0x80 != 0 {
         body.sprite = 5;
-        body.anim = body.anim.wrapping_sub(1);
+        body.anim.tick_down();
         return;
     }
     if work.y.to_be_bytes()[0] < 0x08 {
@@ -246,7 +246,7 @@ fn firing(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
         if body.sprite == 0 {
             body.counter = 0x40;
         }
-        body.timer = body.timer.wrapping_add(1);
+        body.timer.tick_up();
         if body.timer >= 0x14 {
             body.timer = 0x80;
             body.anim = 0;
@@ -254,7 +254,7 @@ fn firing(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
         return;
     }
     body.counter = 0x40;
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
     if body.anim < 0x20 {
         if body.anim.is_multiple_of(8) {
             body.counter = 0x41;
@@ -279,7 +279,7 @@ fn bracing(body: &mut Body, work: &mut Work, grounded: bool, cx: &Cx<'_>) {
     if body.timer & 0x80 != 0 {
         body.counter = 0;
         body.sprite = 5;
-        body.anim = body.anim.wrapping_add(1);
+        body.anim.tick_up();
         if body.anim >= 0x10 {
             body.phase = Phase::Firing.byte();
             body.timer = 0;

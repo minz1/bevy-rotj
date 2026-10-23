@@ -1,7 +1,7 @@
 //! The bank-13 routines handlers share, each called where the 6502 calls it.
 
 use super::oam::{DrawCall, Metasprite, attr};
-use super::slots::{Body, Field, contact, hit};
+use super::slots::{Body, Counter, Field, contact, hit};
 use super::world::{
     Cx, Effects, Level, Motion, Player, Schedule, Weapon, World, attack, busy, hurt, orientation,
     pose, power_up, shot_flags, shot_state, sliding, sound, stage_script,
@@ -762,7 +762,7 @@ pub fn copy_metatiles(cell: u16, width: u8, metatiles: &[u8], level: &mut Level)
 /// A boss's hit flash or dying count (`$AF97`): 0 alive, else bit 7 with bit 6 on odd frames.
 pub fn boss_flash(body: &mut Body, work: &mut Work, world: &World) -> u8 {
     if body.hit & hit::DYING != 0 {
-        body.dying_timer = body.dying_timer.wrapping_add(1);
+        body.dying_timer.tick_up();
         if body.dying_timer >= 0x40 {
             body.dying_timer = 0x80;
             return 0x80;
@@ -1072,7 +1072,7 @@ pub fn dying(
     if on_screen(work, cx.world) == Visibility::On {
         draw(work, 13, cx);
     }
-    body.dying_timer = body.dying_timer.wrapping_add(1);
+    body.dying_timer.tick_up();
     if body.dying_timer < limit {
         return true;
     }

@@ -4,7 +4,7 @@
 //! draws and never touches the player.
 
 use crate::actor::engine::Work;
-use crate::actor::slots::{Body, contact};
+use crate::actor::slots::{Body, Counter, contact};
 use crate::actor::world::Cx;
 
 /// The type the handler hands to the highest free main slot.
@@ -29,16 +29,16 @@ impl State {
                 body.anim = 0;
                 body.counter = 8;
             } else {
-                body.anim = body.anim.wrapping_sub(1);
+                body.anim.tick_down();
             }
             return;
         }
         if body.anim & 0x0F != 0 {
-            body.anim = body.anim.wrapping_sub(1);
+            body.anim.tick_down();
             return;
         }
-        body.counter = body.counter.wrapping_sub(1);
-        if body.counter & 0x80 != 0 {
+        body.counter.tick_down();
+        if body.counter.ran_out() {
             body.phase = COUNTING;
             body.anim = 0xC0;
         }

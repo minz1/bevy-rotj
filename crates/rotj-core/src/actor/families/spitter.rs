@@ -9,7 +9,7 @@
 use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
 
@@ -95,7 +95,7 @@ fn wait(body: &mut Body, work: &Work, cx: &Cx<'_>) {
 /// `$97A6`: the spit. The child leaves on the first count; the sprite then
 /// cycles until the count reaches `$10`.
 fn spit(body: &mut Body, cx: &mut Cx<'_>) {
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
     if body.anim == SPIT_FRAME {
         match engine::free_child_slot(cx.slots) {
             Some(slot) => spawn_child(body, slot, cx),

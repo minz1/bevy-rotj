@@ -2,7 +2,7 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, Motion};
 
 const METASPRITES: u16 = 0x9A16;
@@ -47,7 +47,7 @@ impl State {
                 work.y = WARP_Y;
                 body.y = WARP_Y;
                 body.sprite = ((body.anim & 0xFC) >> 2).wrapping_add(2);
-                body.anim = body.anim.wrapping_add(1);
+                body.anim.tick_up();
                 if body.anim >= LAST_FRAME {
                     let player = &mut cx.effects.player;
                     player.x = body.x;

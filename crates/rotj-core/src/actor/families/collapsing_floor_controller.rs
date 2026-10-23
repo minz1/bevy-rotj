@@ -21,8 +21,8 @@ const READY_PHASE: u8 = 0x02;
 const ARMED: u8 = 0x80;
 /// `$7DF0`'s value the first helper call arms.
 const TIMER: u8 = 0x18;
-/// The `$F1` mask for the `$86` drop: every 16th frame.
-const DROP_MASK: u8 = 0x0F;
+/// The `$F1` period for the `$86` drop: every 16th frame.
+const DROP_PERIOD: u8 = 0x10;
 /// The dropped child's type.
 const CHILD_KIND: u8 = 0x86;
 /// `$AC16`'s variant for the drop.
@@ -78,7 +78,7 @@ impl State {
         if body.phase >= READY_PHASE {
             helper(body, cx);
         }
-        if cx.world.frame & DROP_MASK == 0 {
+        if cx.world.frame.is_multiple_of(DROP_PERIOD) {
             work.x = cx.world.camera_x.wrapping_add(0x0380);
             work.y = 0x0C80;
             // shortcut: no free main slot leaves $AC16's stale Y unwritten, as in

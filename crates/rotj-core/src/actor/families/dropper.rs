@@ -9,7 +9,7 @@
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::{Brain, dropper_payload};
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, contact};
+use crate::actor::slots::{Body, Counter, contact};
 use crate::actor::world::Cx;
 use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
 
@@ -89,8 +89,8 @@ fn free_child(body: &Body, cx: &mut Cx<'_>) {
 
 /// Waiting (`$85DA`): count down, then face the player and spawn the child.
 fn waiting(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-    body.timer = body.timer.wrapping_sub(1);
-    if body.timer & 0x80 == 0 {
+    body.timer.tick_down();
+    if !body.timer.ran_out() {
         body.sprite = 0;
         return;
     }
@@ -132,12 +132,12 @@ fn lowering(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         let (sprite, landed) = lower_child(body, work, cx);
         draw_child(body, work, sprite, cx);
         if landed {
-            body.timer = body.timer.wrapping_add(1);
+            body.timer.tick_up();
         }
         body.sprite = 2;
         return;
     }
-    body.counter = body.counter.wrapping_add(1);
+    body.counter.tick_up();
     if body.counter & 0x80 == 0 {
         if body.counter >= 4 {
             body.counter = 0x80;
@@ -211,8 +211,8 @@ fn throw_child(body: &Body, work: &mut Work, cx: &mut Cx<'_>) {
 /// Recovering (`$8678`): wait out the throw.
 fn recovering(body: &mut Body) {
     body.sprite = 3;
-    body.timer = body.timer.wrapping_sub(1);
-    if body.timer & 0x80 != 0 {
+    body.timer.tick_down();
+    if body.timer.ran_out() {
         body.phase = Phase::Waiting.byte();
         body.timer = 0x40;
     }

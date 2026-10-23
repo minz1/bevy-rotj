@@ -8,7 +8,7 @@
 use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
 
@@ -104,7 +104,7 @@ fn dwelling(body: &mut Body, work: &Work) {
         body.timer = 0x80;
         body.sprite = 2;
     } else {
-        body.counter = body.counter.wrapping_sub(1);
+        body.counter.tick_down();
         if body.counter == 0 {
             body.phase = Phase::Blasting.byte();
             body.counter = 0;
@@ -191,7 +191,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             engine::tile_bits(work, cx.prg);
             engine::draw(work, DRAW_BANK, cx);
             if body.anim != 0 {
-                body.anim = body.anim.wrapping_sub(1);
+                body.anim.tick_down();
                 draw_spark(work, cx);
             }
             if work.anchor & anchor::BOTTOM == 0 {

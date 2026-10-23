@@ -11,7 +11,7 @@
 //! arrays.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, Motion};
 
 /// The metasprite pointer table, read in the handler's own bank (`$932A`),
@@ -114,7 +114,7 @@ impl State {
             }
             Some(Phase::Cycling) => {
                 body.sprite = (cx.world.frame >> 2) & 3;
-                body.anim = body.anim.wrapping_add(1);
+                body.anim.tick_up();
                 if body.anim >= 0xC0 && cx.world.frame & 0x0C == 0 {
                     body.phase = Phase::Spawning.byte();
                     body.anim = 0;
@@ -124,14 +124,14 @@ impl State {
             Some(Phase::Spawning) => {
                 if body.counter != 0 {
                     body.sprite = ((body.anim & 0x1C) >> 2) + 4;
-                    body.anim = body.anim.wrapping_add(1);
+                    body.anim.tick_up();
                     if body.anim >= 0x1C {
                         body.phase = Phase::Cycling.byte();
                         body.anim = 0;
                     }
                 } else {
                     body.sprite = ((body.anim & 0x0C) >> 2) + 4;
-                    body.anim = body.anim.wrapping_add(1);
+                    body.anim.tick_up();
                     if body.anim >= 0x10 {
                         body.counter = 0x80;
                         spawn_child(body, work, cx);

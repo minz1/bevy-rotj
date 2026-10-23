@@ -10,7 +10,7 @@
 //! scroll x; see `REPORT.md` and the tests.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, Motion, set_first_colours, sound};
 
 /// The `final_boss_defeat` kind (`$8F37`).
@@ -160,7 +160,7 @@ fn waiting(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 fn animating(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     cx.oam.chr[7] = 0xD1;
     body.sprite = (body.anim >> 2) & 0x06;
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
     if body.anim >= 0x10 {
         body.phase = Phase::Holding.byte();
         body.anim = 0;
@@ -175,7 +175,7 @@ fn holding(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if body.anim == 0 {
         body.phase = Phase::Dropping.byte();
     } else {
-        body.anim = body.anim.wrapping_sub(1);
+        body.anim.tick_down();
     }
     gate(body, work, cx);
 }
@@ -193,7 +193,7 @@ fn dropping(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     } else if anim >= 0x40 {
         cx.oam.chr[2] = ramp[3 + usize::from((anim - 0x40) >> 3)];
     }
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
     if body.anim >= 0x10 && body.anim.is_multiple_of(0x10) {
         spawn_bc(cx);
     }
@@ -220,7 +220,7 @@ fn shedding(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 /// Resting (`$8D50`): count `$7E90` to `$C0`, then hand over to summoning with the y offset.
 fn resting(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     cx.oam.chr[7] = 0xD4;
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
     if body.anim == 0xC0 {
         body.phase = Phase::Summoning.byte();
         body.anim = 0;
@@ -234,7 +234,7 @@ fn resting(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 fn summoning(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     cx.oam.chr[7] = 0xD4;
     body.sprite = ((body.anim & 0x08) >> 2).wrapping_add(2);
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
     if body.anim & 0x3F == 0x3F {
         body.scratch ^= 0x80;
         if body.scratch & 0x80 != 0 {
@@ -254,7 +254,7 @@ fn count_up(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
         spawn_52(body, work, cx);
     }
     cx.scroll.scroll_x = u8::from(cx.world.frame & 0x04 != 0);
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
     if body.anim >= 0xC0 {
         body.phase = Phase::Resting.byte();
         body.counter = 0;
@@ -443,7 +443,7 @@ fn spawn_52(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
         part.body.y = y;
         part.body.anim = 0;
     }
-    body.counter = body.counter.wrapping_add(1);
+    body.counter.tick_up();
     if body.counter >= 6 {
         body.counter = 0;
     }

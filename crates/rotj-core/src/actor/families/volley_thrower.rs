@@ -12,7 +12,7 @@
 use crate::actor::engine::{self, Work};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, sound};
 
 const HOME_BANK: u8 = 11;
@@ -146,7 +146,7 @@ fn throw(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
             spawn_child(work, cx);
         }
     }
-    body.counter = body.counter.wrapping_add(1);
+    body.counter.tick_up();
 }
 
 /// Spawns the `$4A` child `$80` to the side and below (`$99D9`).

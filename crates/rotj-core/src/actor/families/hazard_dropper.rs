@@ -9,7 +9,7 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::families::Brain;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Counter};
 use crate::actor::world::Cx;
 use crate::actors::CELL_PENDING;
 
@@ -52,8 +52,8 @@ impl State {
             engine::despawn(kind, body, CELL_PENDING, cx.schedule);
             return;
         }
-        body.anim = body.anim.wrapping_sub(1);
-        if body.anim & 0x80 == 0 {
+        body.anim.tick_down();
+        if !body.anim.ran_out() {
             return;
         }
         body.x = u16::from_be_bytes([
@@ -62,12 +62,12 @@ impl State {
         ]);
         spawn_child(body, cx);
         if body.timer & 0x80 != 0 {
-            body.counter = body.counter.wrapping_sub(1);
-            if body.counter & 0x80 != 0 {
+            body.counter.tick_down();
+            if body.counter.ran_out() {
                 flip(body);
             }
         } else {
-            body.counter = body.counter.wrapping_add(1);
+            body.counter.tick_up();
             if body.counter >= TURN {
                 flip(body);
             }

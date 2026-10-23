@@ -12,7 +12,7 @@ use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, Field};
+use crate::actor::slots::{Body, Counter, Field};
 use crate::actor::world::Cx;
 use crate::actors::STATE_UNTARGETED;
 
@@ -104,7 +104,7 @@ impl State {
 
 /// `$9053`: count `$7E90` up; set the idle vy, a slight one, then wake.
 fn idling(body: &mut Body, cx: &Cx<'_>) {
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
     let timer = body.anim;
     if timer < 0x08 {
         body.vy = 0;
@@ -139,7 +139,7 @@ fn rising(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 
 /// `$90C9`: swing through the vy table for `$7D90 & $80` frames, then fall.
 fn swinging(body: &mut Body, cx: &Cx<'_>) {
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
     let time = body.anim;
     let vy_table: &[i16] = if body.behaviour & 0x80 == 0 {
         if time >= 0x0C {
@@ -186,7 +186,7 @@ fn flashing(body: &mut Body, work: &mut Work) {
     if body.behaviour & 0x01 == 0 {
         work.attr |= attr::FLIP_X;
     }
-    body.anim = body.anim.wrapping_add(1);
+    body.anim.tick_up();
     if body.anim >= 0x08 {
         body.phase = Phase::Descending.byte();
         body.vx_drift = 0;

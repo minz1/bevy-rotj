@@ -8,7 +8,7 @@ use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, contact};
+use crate::actor::slots::{Body, Counter, contact};
 use crate::actor::world::{Cx, Motion, sound};
 
 /// The `$3A` part (`ace_ranger_shot` family), spawned by `$8FB9`.
@@ -148,7 +148,7 @@ fn spawning(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     face(work, cx);
     if body.timer & 0x80 == 0 {
         let old = body.timer;
-        body.timer = body.timer.wrapping_add(1);
+        body.timer.tick_up();
         if old.is_multiple_of(8) {
             spawn_3a(body, work, cx);
             if body.timer & 0x40 != 0 {
@@ -161,7 +161,7 @@ fn spawning(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         body.sprite = 4;
     } else {
         body.sprite = if body.timer & 0x08 != 0 { 5 } else { 4 };
-        body.timer = body.timer.wrapping_add(1);
+        body.timer.tick_up();
         if body.timer >= 0xA0 {
             advance(body, cx);
         }
@@ -172,7 +172,7 @@ fn spawning(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 fn hovering(body: &mut Body, cx: &mut Cx<'_>) {
     body.counter = DRAWS_SECOND | ((body.timer & 0x04) >> 2);
     body.sprite = 0x0A;
-    body.timer = body.timer.wrapping_add(1);
+    body.timer.tick_up();
     if body.timer >= 0x40 {
         advance(body, cx);
         spawn_3c(cx);
@@ -186,7 +186,7 @@ fn lingering(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if body.timer >= 0x20 && body.timer.is_multiple_of(8) {
         spawn_3a(body, work, cx);
     }
-    body.timer = body.timer.wrapping_add(1);
+    body.timer.tick_up();
     if body.timer >= 0x50 {
         advance(body, cx);
     } else if body.timer >= 0x20 && body.timer.is_multiple_of(4) {
@@ -209,7 +209,7 @@ fn jumping(body: &mut Body, work: &mut Work, grounded: bool, cx: &mut Cx<'_>) {
     }
     body.sprite = 6;
     if body.subtype & LANDED != 0 {
-        body.timer = body.timer.wrapping_add(1);
+        body.timer.tick_up();
         if body.timer >= 0x10 {
             advance(body, cx);
         }
@@ -218,7 +218,7 @@ fn jumping(body: &mut Body, work: &mut Work, grounded: bool, cx: &mut Cx<'_>) {
     if body.timer == 0 {
         face(work, cx);
     }
-    body.timer = body.timer.wrapping_add(1);
+    body.timer.tick_up();
     if body.timer >= 0x20 {
         work.vy = -0xA0;
         body.vx_drift = if work.attr & attr::FLIP_X != 0 {

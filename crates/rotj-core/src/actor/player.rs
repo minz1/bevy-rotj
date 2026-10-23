@@ -1335,7 +1335,7 @@ impl Port<'_, '_> {
 
     /// `$9359`: the fire button's spawn and muzzle handling.
     fn fire(&mut self) {
-        if self.cx.world.frame.trailing_zeros() >= 2 {
+        if self.cx.world.frame.is_multiple_of(4) {
             self.spawn_shot();
         }
         if self.cx.effects.attack & attack::CHARGING != 0 {
@@ -2539,7 +2539,7 @@ impl Port<'_, '_> {
             self.player.stage_script = stage_script::FROZEN | stage_script::HIDDEN;
         } else {
             self.player.stage_script = stage_script::FROZEN;
-            let x = u16::from((self.cx.world.frame >> 1) & 0x01);
+            let x = u16::from(self.cx.world.frame & 0x02 != 0);
             self.player.facing = (self.player.facing & !attr::PALETTE)
                 | self.cx.prg.player.power_up_facings[usize::from(x)];
         }

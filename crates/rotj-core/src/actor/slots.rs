@@ -73,6 +73,33 @@ pub struct Body {
     pub vy: i16,
 }
 
+/// A counting byte's tick and its run-out.
+pub trait Counter {
+    /// Up by one, wrapping `$FF` to zero.
+    fn tick_up(&mut self);
+
+    /// Down by one, wrapping below zero into bit 7.
+    fn tick_down(&mut self);
+
+    /// Bit 7: the count went below zero.
+    #[must_use]
+    fn ran_out(self) -> bool;
+}
+
+impl Counter for u8 {
+    fn tick_up(&mut self) {
+        *self = self.wrapping_add(1);
+    }
+
+    fn tick_down(&mut self) {
+        *self = self.wrapping_sub(1);
+    }
+
+    fn ran_out(self) -> bool {
+        self & 0x80 != 0
+    }
+}
+
 /// The arrays every main slot keeps (32 wide).
 pub const WIDE: [u16; 19] = [
     0x7B00, 0x7B20, 0x7B40, 0x7B60, 0x7C00, 0x7C90, 0x7D50, 0x7D90, 0x7DB0, 0x7D70, 0x7DD0, 0x7DF0,
