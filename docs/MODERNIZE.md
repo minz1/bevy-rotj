@@ -255,7 +255,8 @@ New candidates, each to be classified (state, flags, table index) before it chan
 - Released as 1.1.13: the level's live map typed (`levelmap::{Cell, Map, page_index}`,
   `Schedule::page_columns`; `docs/specs/2026-10-18-live-map-design.md`). **Cleanup lead:**
   `levelmap::LevelMap`, the capture reader `rotj-tools sublevels` uses, is a second map type
-  (15 rows, its own `metatile` and nametable render); folding it into `Map` would leave one.
+  (15 rows, its own `metatile` and nametable render); folding it into `Map` would leave one
+  (done in 1.1.37: `Map::render_nametable`).
 - Released as 1.1.14: Phase C's C3, the `Modern` picture (`app/src/modern.rs`, `actor::modern`).
   Next for it, each its own release: the `$D3` 4 boss rooms (the bar as a strip layer), then the
   band rooms.
@@ -320,7 +321,8 @@ of its own, proven by the lockstep, ranked by payoff over risk:
 The second pass (`.orchestration/survey2.md`, 2026-10-18), as it lands: #4 the nametable
 mirroring, #16 the OAM entry and #10 the menu rows typed, done in 1.1.34; #2 and #11, the counters'
 ticks, their ran-out bit and the cadence tests named (the safe half), done in 1.1.35; #8 and #9, the
-app's tile decode and bank lookup and the PRG readers written once, done in 1.1.36.
+app's tile decode and bank lookup and the PRG readers written once, done in 1.1.36; #18, the
+harness and app leftovers, done in 1.1.37.
 
 ### The owner's review of the passed-on candidates (2026-10-18)
 
@@ -333,7 +335,8 @@ To do, in the survey loop's order after #1-#3 above, level packs release 1 along
   by the background gate and the headless pixel comparison with Classic; Classic's own picture
   stays the software `Frame`, the exact NES picture and the reference.
 - **`LevelMap` folded into `Map`**; **the test harness's chain counts as a named struct** (and
-  `TapePlayer::injected` gone); **Modern's tilemap computed only when `picture: Modern`**.
+  `TapePlayer::injected` gone) (both done in 1.1.37; `injected` stays with an empty default);
+  **Modern's tilemap computed only when `picture: Modern`** (kept: the paused menu's MODERN reads it).
 - **Modern's per-frame sprite and atlas churn**: measure on the headless render; reuse only if
   it costs.
 - **Leads to probe**: `path_platform`'s and the splitter orbit's table sizes; later, the odd-energy HUD and the

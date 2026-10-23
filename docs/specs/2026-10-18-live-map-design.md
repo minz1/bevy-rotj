@@ -30,7 +30,7 @@ change: the lockstep proves it, tapes unchanged.
   `row_table_tail_set`, `row_table_tail_clear`, `row_base_reset`.
 - `levelmap.rs` already owns the map's layout (`MAP_ADDR`, `MAP_COLUMNS`, `ROM_MAP_ROWS`),
   `transpose` (which returns `[[u8; 256]; 16]`) and `LevelMap`, the capture reader `rotj-tools`
-  uses.
+  uses (folded into `Map` in 1.1.37).
 - The flat buffer carries: one column past `$FF` is the next row's column 0
   (`crumbling_block`'s `at..at + 2`, `collapsing_floor_controller`'s `at + 1`, the address sums in
   `copy_metatiles` and `breakable_block`).
@@ -77,4 +77,5 @@ change: the lockstep proves it, tapes unchanged.
 ## Not here
 
 C3's tilemap and the accessors it adds; typing the spawn schedule's cells and the attribute pages
-(`Level::attributes`); folding `LevelMap` (the capture reader) into `Map` (logged in MODERNIZE).
+(`Level::attributes`); folding `LevelMap` (the capture reader) into `Map` (logged in MODERNIZE; done
+in 1.1.37).
