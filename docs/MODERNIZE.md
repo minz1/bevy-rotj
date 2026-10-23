@@ -322,7 +322,8 @@ The second pass (`.orchestration/survey2.md`, 2026-10-18), as it lands: #4 the n
 mirroring, #16 the OAM entry and #10 the menu rows typed, done in 1.1.34; #2 and #11, the counters'
 ticks, their ran-out bit and the cadence tests named (the safe half), done in 1.1.35; #8 and #9, the
 app's tile decode and bank lookup and the PRG readers written once, done in 1.1.36; #18, the
-harness and app leftovers, done in 1.1.37.
+harness and app leftovers, done in 1.1.37; #1, child and shot spawning written once
+(`Slots::free_main`, `Slot::spawn`), done in 1.1.39.
 
 ### The owner's review of the passed-on candidates (2026-10-18)
 
