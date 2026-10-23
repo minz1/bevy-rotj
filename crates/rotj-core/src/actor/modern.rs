@@ -3,6 +3,7 @@
 
 use super::world::{Ppu, orientation};
 use super::{Game, Script};
+use crate::chr;
 use crate::levelmap::Cell;
 use crate::render::{Line, ctrl, mask};
 
@@ -141,9 +142,9 @@ pub fn check_background(
 
 /// Whether background tile `tile` of `banks` is colour 0 throughout.
 fn blank(chr: &[u8], banks: [u8; 4], tile: u8) -> bool {
-    let bank = usize::from(banks[usize::from(tile >> 6)]) * 1024 % chr.len();
-    let at = bank + usize::from(tile & 0x3F) * 16;
-    chr[at..at + 16].iter().all(|&byte| byte == 0)
+    chr::tile(chr, &banks, usize::from(tile) * 16)
+        .iter()
+        .all(|&byte| byte == 0)
 }
 
 #[cfg(test)]

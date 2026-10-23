@@ -17,11 +17,29 @@ pub const TILE_SHEET_H: usize = (TILES_PER_BANK / TILE_SHEET_COLS) * 8;
 /// 2-bit color index (`0..=3`) of pixel (`x`, `y`) within one 16-byte tile
 /// pattern. Pixel (0, 0) is top-left.
 #[must_use]
-pub fn tile_index(tile: &[u8], x: usize, y: usize) -> u8 {
+pub fn pixel(tile: &[u8], x: usize, y: usize) -> u8 {
     debug_assert_eq!(tile.len(), TILE_BYTES);
     let lo = (tile[y] >> (7 - x)) & 1; // first plane is LSB, second plane is MSB
     let hi = (tile[8 + y] >> (7 - x)) & 1;
     (hi << 1) | lo
+}
+
+/// The offset of 1 KiB `bank` in `chr`, wrapped to the ROM's length.
+fn bank_start(chr: &[u8], bank: u8) -> usize {
+    usize::from(bank) * 1024 % chr.len()
+}
+
+/// The byte at `addr` in the pattern table `banks` picks from `chr`.
+#[must_use]
+pub fn byte(chr: &[u8], banks: &[u8], addr: usize) -> u8 {
+    chr[bank_start(chr, banks[(addr >> 10) & 7]) + (addr & 0x3FF)]
+}
+
+/// The 16 bytes of the tile at `addr` in the pattern table `banks` picks from `chr`.
+#[must_use]
+pub fn tile<'a>(chr: &'a [u8], banks: &[u8], addr: usize) -> &'a [u8] {
+    let at = bank_start(chr, banks[(addr >> 10) & 7]) + (addr & 0x3FF);
+    &chr[at..at + TILE_BYTES]
 }
 
 /// Decode one 8x8 2bpp tile into `out` (RGBA), `stride` bytes per row.
@@ -29,7 +47,7 @@ fn blit_tile(tile: &[u8], out: &mut [u8], stride: usize, palette: [u8; 4]) {
     debug_assert_eq!(tile.len(), TILE_BYTES);
     for row in 0..8usize {
         for col in 0..8usize {
-            let idx = usize::from(tile_index(tile, col, row));
+            let idx = usize::from(pixel(tile, col, row));
             let px = &mut out[row * stride + col * 4..][..4];
             px[0..3].copy_from_slice(&[palette[idx], palette[idx], palette[idx]]);
             px[3] = 0xff;

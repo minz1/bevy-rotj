@@ -5,7 +5,7 @@
 //! and CHR banks, so mid-frame changes show up exactly where the hardware shows them.
 
 use crate::actor::oam::attr;
-use crate::chr::TILE_BYTES;
+use crate::chr::{self, TILE_BYTES};
 use crate::palette;
 
 /// Picture width in NES pixels.
@@ -109,6 +109,12 @@ pub mod mask {
     pub const RENDERING: u8 = BACKGROUND | SPRITES;
     /// Both layers drawn across all 256 columns.
     pub const SHOWN: u8 = RENDERING | LEFT_BACKGROUND | LEFT_SPRITES;
+
+    /// The bits of a palette entry the PPU lets through.
+    #[must_use]
+    pub const fn colour_bits(greyscale: bool) -> u8 {
+        if greyscale { 0x30 } else { 0x3F }
+    }
 }
 
 /// Which physical nametable each logical one uses (`$EC`).
@@ -242,26 +248,16 @@ pub struct Picture<'a> {
 }
 
 impl Picture<'_> {
-    fn pattern(&self, banks: [u8; 8], addr: usize) -> u8 {
-        let bank = usize::from(banks[(addr >> 10) & 7]) * 1024 % self.chr.len();
-        self.chr[bank + (addr & 0x3FF)]
-    }
-
     fn nametable(&self, physical: usize, at: usize) -> u8 {
         self.vram[physical * NAMETABLE_BYTES + at]
     }
 
     fn colour(&self, line: &Line, entry: usize) -> u8 {
-        let value = self.palette[if entry.trailing_zeros() >= 2 {
+        self.palette[if entry.trailing_zeros() >= 2 {
             0
         } else {
             entry
-        }] & 0x3F;
-        if line.mask & mask::GREYSCALE != 0 {
-            value & 0x30
-        } else {
-            value
-        }
+        }] & mask::colour_bits(line.mask & mask::GREYSCALE != 0)
     }
 }
 
@@ -300,8 +296,8 @@ impl Frame {
             let shift = cell.shift;
             let addr = base + usize::from(tile) * TILE_BYTES + fine_y;
             let bit = 7 - cell.column;
-            let low = (picture.pattern(line.chr, addr) >> bit) & 1;
-            let high = (picture.pattern(line.chr, addr + 8) >> bit) & 1;
+            let low = (chr::byte(picture.chr, &line.chr, addr) >> bit) & 1;
+            let high = (chr::byte(picture.chr, &line.chr, addr + 8) >> bit) & 1;
             let shown = line.mask & mask::BACKGROUND != 0
                 && (x >= 8 || line.mask & mask::LEFT_BACKGROUND != 0);
             let value = if shown { high << 1 | low } else { 0 };
@@ -349,8 +345,8 @@ impl Frame {
                 table + usize::from(oam[1]) * TILE_BYTES + row
             };
             let (low, high) = (
-                picture.pattern(line.sprite_chr, addr),
-                picture.pattern(line.sprite_chr, addr + 8),
+                chr::byte(picture.chr, &line.sprite_chr, addr),
+                chr::byte(picture.chr, &line.sprite_chr, addr + 8),
             );
             for col in 0..8 {
                 let x = x0 + col;

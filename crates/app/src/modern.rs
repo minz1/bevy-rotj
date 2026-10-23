@@ -17,6 +17,7 @@ use bevy::sprite_render::{
 use rotj_core::actor::Game;
 use rotj_core::actor::modern::{View, tile_at, view};
 use rotj_core::actor::oam::attr;
+use rotj_core::chr;
 use rotj_core::palette::Rgb;
 use rotj_core::render::{Line, SCREEN_H, SCREEN_W, mask};
 
@@ -170,12 +171,10 @@ fn tileset(chr: &[u8], banks: [u8; 4], colours: Set) -> Image {
     let mut data = vec![0; 8 * 8 * 4 * 256];
     if !chr.is_empty() {
         for tile in 0..256 {
-            let bank = usize::from(banks[tile >> 6]) * 1024 % chr.len();
-            let bytes = &chr[bank + (tile & 0x3F) * 16..][..16];
+            let bytes = chr::tile(chr, &banks, tile * 16);
             for row in 0..8 {
                 for column in 0..8 {
-                    let value = (bytes[row] >> (7 - column)) & 1
-                        | ((bytes[row + 8] >> (7 - column)) & 1) << 1;
+                    let value = chr::pixel(bytes, column, row);
                     if value != 0 {
                         let [r, g, b] = colours[usize::from(value)];
                         let at = ((tile * 8 + row) * 8 + column) * 4;
@@ -204,7 +203,7 @@ fn tileset(chr: &[u8], banks: [u8; 4], colours: Set) -> Image {
 
 /// A palette's four colours as `rgb` shows them.
 fn colours(palette: &[u8; 32], first: usize, greyscale: bool, rgb: &Rgb) -> Set {
-    let grey = if greyscale { 0x30 } else { 0x3F };
+    let grey = mask::colour_bits(greyscale);
     std::array::from_fn(|v| rgb[usize::from(palette[first + v] & grey)])
 }
 
@@ -533,5 +532,34 @@ mod tests {
             .filter(|&(x, y)| modern.get_pixel(x, y).0[..3] != classic.get_pixel(x, y).0[..3])
             .count();
         assert_eq!(differing, 0, "pixels differing from the Classic picture");
+    }
+
+    #[test]
+    fn tileset_draws_the_banks_pixels_in_its_colours() {
+        let mut chr = vec![0u8; 2 * 1024];
+        chr[1024] = 0b1000_0000;
+        chr[1024 + 8] = 0b1000_0000; // bank 1, tile 0: value 3 at its first pixel
+        chr[1] = 0b0100_0000; // bank 0, tile 64: value 1 one pixel in
+        let set: Set = [[9; 3], [1; 3], [2; 3], [3; 3]];
+        let image = tileset(&chr, [1, 0, 1, 0], set);
+        let data = image.data.expect("pixels");
+        let at = |tile: usize, row: usize, column: usize| {
+            let at = ((tile * 8 + row) * 8 + column) * 4;
+            &data[at..at + 4]
+        };
+        assert_eq!(at(0, 0, 0), [3, 3, 3, 0xFF], "value 3 from bank 1");
+        assert_eq!(at(64, 1, 1), [1, 1, 1, 0xFF], "value 1 from bank 0");
+        assert_eq!(at(0, 0, 1), [0, 0, 0, 0], "colour 0 clear");
+
+        // Bank 3 runs past two banks of CHR, so it wraps onto bank 1's bytes.
+        let wrapped = tileset(&chr, [3, 0, 1, 0], set);
+        let data = wrapped.data.expect("pixels");
+        assert_eq!(&data[..4], [3, 3, 3, 0xFF]);
+
+        let mut palette = [0u8; 32];
+        palette[0] = 0x2A;
+        let rgb = rotj_core::palette::NES_PALETTE;
+        assert_eq!(colours(&palette, 0, false, &rgb)[0], rgb[0x2A]);
+        assert_eq!(colours(&palette, 0, true, &rgb)[0], rgb[0x20]);
     }
 }

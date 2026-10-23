@@ -5,6 +5,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use rotj_core::chr;
 use rotj_core::palette::Rgb;
 
 use crate::RomData;
@@ -225,7 +226,7 @@ pub fn font_atlas(chr: &[u8], rgb: &Rgb) -> Image {
             let bytes = &font[tile * 16..tile * 16 + 16];
             for y in 0..8 {
                 for x in 0..8 {
-                    let value = (bytes[y] >> (7 - x)) & 1 | ((bytes[y + 8] >> (7 - x)) & 1) << 1;
+                    let value = chr::pixel(bytes, x, y);
                     let (px, py) = ((pair % 8) * 8 + x, (pair / 8) * 16 + half * 8 + y);
                     let at = (py * WIDTH + px) * 4;
                     data[at..at + 4].copy_from_slice(&colour(value));

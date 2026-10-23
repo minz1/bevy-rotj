@@ -9,6 +9,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use rotj_core::actor::oam::{Mark, OamEntry, attr};
+use rotj_core::chr;
 use rotj_core::palette::Rgb;
 use rotj_core::render::{Line, mask};
 
@@ -91,11 +92,7 @@ pub fn sprite_key(entry: OamEntry, lines: &[Line], palette: &[u8; 32], rgb: &Rgb
     let banks = line.sprite_chr[table..table + 4]
         .try_into()
         .expect("4 banks");
-    let grey = if line.mask & mask::GREYSCALE != 0 {
-        0x30
-    } else {
-        0x3F
-    };
+    let grey = mask::colour_bits(line.mask & mask::GREYSCALE != 0);
     let colours = std::array::from_fn(|v| {
         let colour = palette[0x10 + 4 * usize::from(entry.attr & attr::PALETTE) + v] & grey;
         if v == 0 {
@@ -115,12 +112,10 @@ pub fn tiles(chr: &[u8], key: &Key) -> Image {
     for cell in 0..128 {
         for half in 0..2 {
             let addr = (2 * cell + half) * 16;
-            let bank = usize::from(key.banks[addr >> 10]) * 1024 % chr.len();
-            let bytes = &chr[bank + (addr & 0x3FF)..][..16];
+            let bytes = chr::tile(chr, &key.banks, addr);
             for row in 0..8 {
                 for column in 0..8 {
-                    let value = (bytes[row] >> (7 - column)) & 1
-                        | ((bytes[row + 8] >> (7 - column)) & 1) << 1;
+                    let value = chr::pixel(bytes, column, row);
                     if value == 0 {
                         continue;
                     }
