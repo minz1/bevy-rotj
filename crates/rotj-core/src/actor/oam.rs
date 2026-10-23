@@ -138,6 +138,36 @@ impl Mark {
     }
 }
 
+/// One entry of the OAM page, `[y, tile, attribute, x]`, which the PPU shows as an 8x16 sprite.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct OamEntry {
+    /// OAM y, one less than the sprite's top line.
+    pub y: u8,
+    /// Tile byte.
+    pub tile: u8,
+    /// Attribute byte.
+    pub attr: u8,
+    /// OAM x.
+    pub x: u8,
+}
+
+impl OamEntry {
+    /// An OAM y below every line the PPU draws.
+    pub const PARKED_Y: u8 = 0xF4;
+
+    /// Whether the sprite is above the last line the PPU draws.
+    #[must_use]
+    pub fn is_visible(self) -> bool {
+        self.y < 0xEF
+    }
+}
+
+impl From<[u8; 4]> for OamEntry {
+    fn from([y, tile, attr, x]: [u8; 4]) -> OamEntry {
+        OamEntry { y, tile, attr, x }
+    }
+}
+
 /// One draw the builder took, as it was asked, before any piece was clipped or dropped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DrawRecord {
@@ -152,7 +182,7 @@ pub struct DrawRecord {
 impl DrawRecord {
     /// The OAM entries (`[y, tile, attribute, x]`) the record's pieces become on a page `width`
     /// pixels wide, without the allocator: one lap of an endless metasprite, nothing dropped.
-    pub fn sprites(&self, width: i16) -> impl Iterator<Item = [u8; 4]> + '_ {
+    pub fn sprites(&self, width: i16) -> impl Iterator<Item = OamEntry> + '_ {
         self.sprite.pieces.iter().filter_map(move |&piece| {
             let placed = place(self.call, piece)?;
             (0..width).contains(&placed.x).then(|| placed.entry())
@@ -177,8 +207,8 @@ pub struct Placed {
 impl Placed {
     /// The OAM entry's four bytes.
     #[must_use]
-    pub fn entry(self) -> [u8; 4] {
-        [self.y, self.tile, self.attr, self.x.to_le_bytes()[0]]
+    pub fn entry(self) -> OamEntry {
+        [self.y, self.tile, self.attr, self.x.to_le_bytes()[0]].into()
     }
 }
 
@@ -245,7 +275,7 @@ impl OamBuilder {
     #[must_use]
     pub fn new() -> OamBuilder {
         OamBuilder {
-            page: [PARKED_Y; 256],
+            page: [OamEntry::PARKED_Y; 256],
             next: 0,
             left: ENTRIES - 1,
             overflow: false,
@@ -291,22 +321,22 @@ impl OamBuilder {
                 super::oracle::seen(0xC2A3);
                 lap_placed = false;
             }
-            let entry = usize::from(next);
+            let at = usize::from(next);
             cpu_overflow = y_overflow(call, piece.dy);
             let Some(placed) = place(call, *piece) else {
                 continue;
             };
             let dx = piece_dx(placed.attr, piece.dx);
             cpu_overflow = adc_overflows(dx.cast_unsigned(), call.x.to_le_bytes()[0], false);
-            let [y, tile, attr, x] = placed.entry();
-            self.page[entry] = y;
-            self.marks[entry >> 2] = self.marking;
-            self.page[entry + 2] = attr;
-            self.page[entry + 3] = x;
+            let entry = placed.entry();
+            self.page[at] = entry.y;
+            self.marks[at >> 2] = self.marking;
+            self.page[at + 2] = entry.attr;
+            self.page[at + 3] = entry.x;
             if !(0..self.width).contains(&placed.x) {
                 continue;
             }
-            self.page[entry + 1] = tile;
+            self.page[at + 1] = entry.tile;
             lap_placed = true;
             next = next.wrapping_add(NEXT_ENTRY);
             self.left = self.left.wrapping_sub(1);
@@ -336,7 +366,7 @@ impl OamBuilder {
             let mut entry = self.next;
             let mut count = self.left;
             loop {
-                self.page[usize::from(entry)] = PARKED_Y;
+                self.page[usize::from(entry)] = OamEntry::PARKED_Y;
                 self.marks[usize::from(entry >> 2)] = Mark::Scene;
                 entry = entry.wrapping_add(NEXT_ENTRY);
                 count = count.wrapping_sub(1);
@@ -386,7 +416,6 @@ pub fn undrawable(page: &[u8; 256], marks: &[Mark; 64], lines: &[Line]) -> Optio
 
 const NEXT_ENTRY: u8 = 0xC4;
 const START_STEP: u8 = 0x4C;
-const PARKED_Y: u8 = 0xF4;
 const ENTRIES: u8 = 64;
 
 /// The overflow flag `$C247`'s y step leaves: `BIT $9A`, then the bottom anchor's `SBC #$0F`.
@@ -704,10 +733,37 @@ mod tests {
             sprite: sprite(vec![one_piece_at(0), one_piece_at(8), flipped]),
         };
         // x 258 is off the page; the flip mirrors dx 4 to -12.
-        let sprites: Vec<[u8; 4]> = record.sprites(256).collect();
-        assert_eq!(sprites, [[0x30, 1, 0, 250], [0x30, 2, 0x40, 238]]);
+        let sprites: Vec<OamEntry> = record.sprites(256).collect();
+        assert_eq!(
+            sprites,
+            [
+                OamEntry {
+                    y: 0x30,
+                    tile: 1,
+                    attr: 0,
+                    x: 250
+                },
+                OamEntry {
+                    y: 0x30,
+                    tile: 2,
+                    attr: 0x40,
+                    x: 238
+                }
+            ]
+        );
         let clipped = place(record.call, one_piece_at(8)).expect("y keeps it");
-        assert_eq!((clipped.x, clipped.entry()), (258, [0x30, 1, 0, 2]));
+        assert_eq!(
+            (clipped.x, clipped.entry()),
+            (
+                258,
+                OamEntry {
+                    y: 0x30,
+                    tile: 1,
+                    attr: 0,
+                    x: 2
+                }
+            )
+        );
     }
 
     #[test]

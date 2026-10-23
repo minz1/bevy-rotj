@@ -360,8 +360,7 @@ fn spawn_sprites(
             .iter()
             .find(|(_, drawer)| drawer.0 == record.mark)
             .map(|(entity, _)| entity);
-        for entry in record.sprites(256).filter(|entry| entry[0] < 0xEF) {
-            let [y, tile, attr, x] = entry;
+        for entry in record.sprites(256).filter(|entry| entry.is_visible()) {
             let Some(key) = sprite_key(entry, &play.lines, &play.ppu.palette, rgb) else {
                 continue;
             };
@@ -375,19 +374,23 @@ fn spawn_sprites(
                 atlas,
                 TextureAtlas {
                     layout: modern.layout.clone(),
-                    index: usize::from(tile >> 1),
+                    index: usize::from(entry.tile >> 1),
                 },
             );
-            sprite.flip_x = attr & attr::FLIP_X != 0;
-            sprite.flip_y = attr & attr::FLIP_Y != 0;
-            let depth = if attr & attr::BEHIND != 0 { 1.5 } else { 3.5 };
+            sprite.flip_x = entry.attr & attr::FLIP_X != 0;
+            sprite.flip_y = entry.attr & attr::FLIP_Y != 0;
+            let depth = if entry.attr & attr::BEHIND != 0 {
+                1.5
+            } else {
+                3.5
+            };
             let mut spawned = commands.spawn((
                 ModernSprite,
                 sprite,
                 Anchor::TOP_LEFT,
                 Transform::from_xyz(
-                    f32::from(x),
-                    -f32::from(y) - 1.0,
+                    f32::from(entry.x),
+                    -f32::from(entry.y) - 1.0,
                     depth - f32::from(order) / 1024.0,
                 ),
                 RenderLayers::layer(LAYER),

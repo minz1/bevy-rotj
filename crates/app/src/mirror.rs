@@ -176,6 +176,7 @@ impl Plugin for MirrorPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rotj_core::actor::oam::OamEntry;
 
     /// Batman walking right and firing every other pair of frames.
     fn pad(frame: usize) -> u8 {
@@ -278,8 +279,13 @@ mod tests {
                 .map(|(mark, _, _, draws)| (mark, draws))
                 .collect();
             for (mark, records) in &draws {
-                let shown = (0..64)
-                    .filter(|&entry| play.marks[entry] == *mark && play.oam[entry * 4] < 0xEF)
+                let shown = play
+                    .oam
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(play.marks)
+                    .filter(|&(bytes, at)| at == *mark && OamEntry::from(*bytes).is_visible())
                     .count();
                 let pieces: usize = records.0.iter().map(|r| r.sprite.pieces.len()).sum();
                 assert!(

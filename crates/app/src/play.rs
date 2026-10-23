@@ -9,7 +9,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::*;
-use rotj_core::actor::oam::Mark;
+use rotj_core::actor::oam::{Mark, OamEntry};
 use rotj_core::actor::world::Ppu;
 use rotj_core::actor::{Game, Script, raster};
 use rotj_core::prg::Prg;
@@ -56,7 +56,7 @@ pub struct Play {
     /// The game as the mirror shows it, taken with those sprites.
     pub(crate) shown: Snapshot,
     /// The HUD label's sprites the step before showed, which the game draws every other frame.
-    pub(crate) label: Vec<[u8; 4]>,
+    pub(crate) label: Vec<OamEntry>,
     /// The level forced at `$D3D8`, kept for the boot after a reset.
     forced: Option<u8>,
 }
@@ -190,7 +190,7 @@ impl Play {
         if park {
             for (entry, mark) in self.marks.iter().enumerate() {
                 if mark.is_ui() {
-                    oam[entry * 4] = PARKED;
+                    oam[entry * 4] = OamEntry::PARKED_Y;
                 }
             }
         }
@@ -198,14 +198,12 @@ impl Play {
     }
 }
 
-/// An OAM y below every line the PPU draws.
-const PARKED: u8 = 0xF4;
-
 /// The entries of `oam` that `mark` placed.
-fn marked(oam: &[u8; 256], marks: &[Mark; 64], mark: Mark) -> Vec<[u8; 4]> {
+fn marked(oam: &[u8; 256], marks: &[Mark; 64], mark: Mark) -> Vec<OamEntry> {
+    let entries = oam.as_chunks::<4>().0;
     (0..64)
         .filter(|&entry| marks[entry] == mark)
-        .map(|entry| oam[entry * 4..entry * 4 + 4].try_into().expect("4 bytes"))
+        .map(|entry| OamEntry::from(entries[entry]))
         .collect()
 }
 
@@ -508,8 +506,12 @@ mod tests {
 
     /// The shown sprites `mark` placed, on screen.
     fn shown(play: &Play, mark: Mark) -> usize {
-        (0..64)
-            .filter(|&entry| play.marks[entry] == mark && play.oam[entry * 4] < 0xEF)
+        play.oam
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(play.marks)
+            .filter(|&(bytes, at)| at == mark && OamEntry::from(*bytes).is_visible())
             .count()
     }
 
@@ -542,7 +544,7 @@ mod tests {
                 &play.oam[entry * 4..entry * 4 + 4],
             );
             if play.marks[entry].is_ui() {
-                assert_eq!((ours[0], &ours[1..]), (PARKED, &game[1..]));
+                assert_eq!((ours[0], &ours[1..]), (OamEntry::PARKED_Y, &game[1..]));
             } else {
                 assert_eq!(ours, game);
             }
@@ -577,7 +579,13 @@ mod tests {
         for (i, pad) in [0x01, 0, 0x02, 0, 0x20, 0, 0, 0].into_iter().enumerate() {
             let title = on_title(&play);
             checked_step(&mut play, pad);
-            let visible = (0..64).filter(|&e| play.oam[e * 4] < 0xEF).count();
+            let visible = play
+                .oam
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|&&bytes| OamEntry::from(bytes).is_visible())
+                .count();
             if title {
                 assert!(shown(&play, Mark::Title) > 0, "step {i}");
                 assert_eq!(shown(&play, Mark::Title), visible, "step {i}");
@@ -626,7 +634,13 @@ mod tests {
             let was = play.paused();
             checked_step(&mut play, 0);
             if was {
-                let visible = (0..64).filter(|&e| play.oam[e * 4] < 0xEF).count();
+                let visible = play
+                    .oam
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .filter(|&&bytes| OamEntry::from(bytes).is_visible())
+                    .count();
                 assert_eq!(shown(&play, Mark::Pause), visible);
                 paused += 1;
             }

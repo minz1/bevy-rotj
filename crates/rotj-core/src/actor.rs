@@ -1918,15 +1918,12 @@ mod tests {
         );
     }
 
-    /// The entries `mark` holds, as `(y, tile, attr, x)` sorted.
-    fn marked(oam: &super::oam::OamBuilder, mark: super::oam::Mark) -> Vec<[u8; 4]> {
-        let mut entries: Vec<[u8; 4]> = (0..64)
+    /// The entries `mark` holds, sorted by `(y, tile, attr, x)`.
+    fn marked(oam: &super::oam::OamBuilder, mark: super::oam::Mark) -> Vec<super::oam::OamEntry> {
+        let chunks = oam.page.as_chunks::<4>().0;
+        let mut entries: Vec<super::oam::OamEntry> = (0..64)
             .filter(|&entry| oam.marks[entry] == mark)
-            .map(|entry| {
-                oam.page[entry * 4..entry * 4 + 4]
-                    .try_into()
-                    .expect("4 bytes")
-            })
+            .map(|entry| super::oam::OamEntry::from(chunks[entry]))
             .collect();
         entries.sort_unstable();
         entries

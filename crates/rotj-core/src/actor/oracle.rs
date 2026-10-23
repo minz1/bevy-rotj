@@ -11,7 +11,7 @@ use rotj_oracle::{
 
 use super::engine::Work;
 use super::families::{Brain, SecondBrain};
-use super::oam::{Mark, OamBuilder};
+use super::oam::{Mark, OamBuilder, OamEntry};
 use super::slots::{Slot, Slots};
 use super::step_actors;
 use super::tape::{Event, MEMORY, Tape, Writes, loop_hash, script_hash};
@@ -1665,13 +1665,16 @@ fn check_records(
 /// clipped in x half-wrote over its old tile, and, when exactly 63 are placed and `finish`
 /// parks nothing, the one entry the frame never reached, still the page's from before (`oam`).
 fn check_sprites(oam: &OamBuilder, game: &State, frame: u64, exceptions: &mut SpriteExceptions) {
-    let visible = |entry: &[u8; 4]| entry[0] < 0xEF;
     let shown = &game.oam.shown;
-    let placed: Vec<[u8; 4]> = shown
+    let placed: Vec<OamEntry> = shown
         .iter()
         .flat_map(|record| record.sprites(game.oam.width))
         .collect();
-    let records: BTreeSet<[u8; 4]> = placed.iter().copied().filter(visible).collect();
+    let records: BTreeSet<OamEntry> = placed
+        .iter()
+        .copied()
+        .filter(|entry| entry.is_visible())
+        .collect();
     let clipped: BTreeSet<[u8; 3]> = shown
         .iter()
         .flat_map(|record| {
@@ -1684,29 +1687,34 @@ fn check_sprites(oam: &OamBuilder, game: &State, frame: u64, exceptions: &mut Sp
         })
         .filter(|placed| !(0..game.oam.width).contains(&placed.x))
         .map(|placed| {
-            let [y, _, attr, x] = placed.entry();
-            [y, attr, x]
+            let entry = placed.entry();
+            [entry.y, entry.attr, entry.x]
         })
         .collect();
     // 63 placements step the allocator 63 times from where the frame began.
     let unreached = (placed.len() == 63)
         .then(|| usize::from(oam.next.wrapping_add(0xC4u8.wrapping_mul(63)) >> 2));
     let entries = game.oam.page.as_chunks::<4>().0;
-    for (index, entry) in entries.iter().enumerate() {
-        let [y, _, attr, x] = *entry;
-        if !visible(entry) || records.contains(entry) {
+    for (index, &bytes) in entries.iter().enumerate() {
+        let entry = OamEntry::from(bytes);
+        if !entry.is_visible() || records.contains(&entry) {
             continue;
         }
-        if clipped.contains(&[y, attr, x]) {
+        if clipped.contains(&[entry.y, entry.attr, entry.x]) {
             exceptions.half_written += 1;
-        } else if unreached == Some(index) && oam.page.as_chunks::<4>().0[index] == *entry {
+        } else if unreached == Some(index) && oam.page.as_chunks::<4>().0[index] == bytes {
             exceptions.unreached += 1;
         } else {
-            panic!("frame {frame}: page entry {index} {entry:02X?} is no record's sprite");
+            panic!("frame {frame}: page entry {index} {bytes:02X?} is no record's sprite");
         }
     }
     if placed.len() < 64 && !shown.iter().any(|record| record.sprite.endless) {
-        let page: BTreeSet<[u8; 4]> = entries.iter().copied().filter(visible).collect();
+        let page: BTreeSet<OamEntry> = entries
+            .iter()
+            .copied()
+            .map(OamEntry::from)
+            .filter(|entry| entry.is_visible())
+            .collect();
         let missing: Vec<_> = records.difference(&page).collect();
         assert!(
             missing.is_empty(),

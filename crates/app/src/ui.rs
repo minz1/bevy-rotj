@@ -8,7 +8,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use rotj_core::actor::oam::{Mark, attr};
+use rotj_core::actor::oam::{Mark, OamEntry, attr};
 use rotj_core::palette::Rgb;
 use rotj_core::render::{Line, mask};
 
@@ -49,7 +49,7 @@ pub struct Shown {
 pub fn shown(
     oam: &[u8; 256],
     marks: &[Mark; 64],
-    label: &[[u8; 4]],
+    label: &[OamEntry],
     lines: &[Line],
     palette: &[u8; 32],
     rgb: &Rgb,
@@ -59,20 +59,20 @@ pub fn shown(
     } else {
         label
     };
+    let entries = oam.as_chunks::<4>().0;
     let marked = (0..64)
         .filter(|&entry| marks[entry].is_ui())
-        .map(|entry| -> [u8; 4] { oam[entry * 4..entry * 4 + 4].try_into().expect("4 bytes") });
+        .map(|entry| OamEntry::from(entries[entry]));
     carried
         .iter()
         .copied()
         .chain(marked)
         .filter_map(|entry| {
-            let [y, tile, attr, x] = entry;
             Some(Shown {
-                y,
-                tile,
-                attr,
-                x,
+                y: entry.y,
+                tile: entry.tile,
+                attr: entry.attr,
+                x: entry.x,
                 key: sprite_key(entry, lines, palette, rgb)?,
             })
         })
@@ -82,13 +82,12 @@ pub fn shown(
 /// The atlas an OAM entry's 8x16 sprite is drawn from: its line's sprite banks and its
 /// palette's colours, or `None` on a line with sprites off.
 #[must_use]
-pub fn sprite_key(entry: [u8; 4], lines: &[Line], palette: &[u8; 32], rgb: &Rgb) -> Option<Key> {
-    let [y, tile, attr, _] = entry;
-    let line = lines.get(usize::from(y) + 1)?;
+pub fn sprite_key(entry: OamEntry, lines: &[Line], palette: &[u8; 32], rgb: &Rgb) -> Option<Key> {
+    let line = lines.get(usize::from(entry.y) + 1)?;
     if line.mask & mask::SPRITES == 0 {
         return None;
     }
-    let table = 4 * usize::from(tile & 1);
+    let table = 4 * usize::from(entry.tile & 1);
     let banks = line.sprite_chr[table..table + 4]
         .try_into()
         .expect("4 banks");
@@ -98,11 +97,11 @@ pub fn sprite_key(entry: [u8; 4], lines: &[Line], palette: &[u8; 32], rgb: &Rgb)
         0x3F
     };
     let colours = std::array::from_fn(|v| {
-        let entry = palette[0x10 + 4 * usize::from(attr & attr::PALETTE) + v] & grey;
+        let colour = palette[0x10 + 4 * usize::from(entry.attr & attr::PALETTE) + v] & grey;
         if v == 0 {
             [0; 3]
         } else {
-            rgb[usize::from(entry)]
+            rgb[usize::from(colour)]
         }
     });
     Some(Key { banks, colours })
@@ -316,7 +315,7 @@ mod tests {
     }
 
     fn oam_with(entry: usize, bytes: [u8; 4]) -> [u8; 256] {
-        let mut oam = [0xF4; 256];
+        let mut oam = [OamEntry::PARKED_Y; 256];
         oam[entry * 4..entry * 4 + 4].copy_from_slice(&bytes);
         oam
     }
@@ -372,14 +371,17 @@ mod tests {
             none(oam_with(1, [20, 1, 0, 24]), [Mark::Scene; 64]),
             "unmarked"
         );
-        assert!(none(oam_with(1, [0xF4, 1, 0, 24]), hud_marks()), "parked");
+        assert!(
+            none(oam_with(1, [OamEntry::PARKED_Y, 1, 0, 24]), hud_marks()),
+            "parked"
+        );
     }
 
     #[test]
     fn the_label_carries_over_only_when_this_step_drew_none() {
         let lines = [SHOWING; 240];
         let rgb = [[0; 3]; 64];
-        let label = [[20, 1, 3, 24]];
+        let label = [OamEntry::from([20, 1, 3, 24])];
         let oam = oam_with(1, [30, 0x11, 3, 32]);
         let carried = shown(&oam, &hud_marks(), &label, &lines, &[0; 32], &rgb);
         assert_eq!(carried.len(), 2);
