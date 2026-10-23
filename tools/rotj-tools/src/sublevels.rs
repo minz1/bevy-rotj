@@ -1,7 +1,7 @@
 //! `rotj sublevel`: a stage directory for any captured sublevel.
 //!
 //! Where `rotj stage` copies the PPU's nametables, this derives the tile area
-//! from the metatile map (`rotj_core::levelmap::LevelMap`) and reads the
+//! from the metatile map (`rotj_core::levelmap::Map`) and reads the
 //! stage/sublevel/scroll out of RAM, so one command covers every capture.
 //!
 //! The attribute table is **not** derivable from the map: the metatile map and
@@ -12,7 +12,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use color_eyre::eyre::{Context, Result, eyre};
-use rotj_core::levelmap::LevelMap;
+use rotj_core::levelmap::Map;
 use rotj_core::stage::{NAMETABLE_OFFSET, PALETTE_OFFSET, PPU_BYTES, RAM_BYTES, WRAM_BYTES};
 use rotj_core::sublevels;
 
@@ -53,8 +53,7 @@ fn write(path: &Path, data: &[u8]) -> Result<()> {
 /// `$6000-$6EFF`) and `meta.txt`.
 ///
 /// # Errors
-/// A missing or wrong-length dump file, a WRAM image too short for the map, or
-/// an unwritable output path.
+/// A missing or wrong-length dump file, or an unwritable output path.
 pub fn extract(dump: &Path, frame: u32, base: &Path) -> Result<()> {
     let ppu = read_exact(&dump.join(format!("ppu-{frame}.bin")), PPU_BYTES)?;
     let ram = read_exact(&dump.join(format!("ram-{frame}.bin")), RAM_BYTES)?;
@@ -62,12 +61,16 @@ pub fn extract(dump: &Path, frame: u32, base: &Path) -> Result<()> {
 
     let position = sublevels::position(&ram)
         .ok_or_else(|| eyre!("ram-{frame}.bin is too short to hold the position"))?;
-    let map = LevelMap::from_wram(&wram)?;
+    let (images, _) = wram.as_chunks::<0x1000>();
+    let [map, tables] = images else {
+        return Err(eyre!("wram-{frame}.bin is not two 4 KiB images"));
+    };
+    let map = Map::from_bytes(map);
     let out = base.join(sublevels::directory(position.id));
 
     // Tiles come from the map; the attribute table cannot, so copy it from the
     // capture (the only bytes in the nametable the map does not explain).
-    let mut nametable = map.render_nametable(position.scroll_x);
+    let mut nametable = map.render_nametable(tables, position.scroll_x);
     let attrs = &ppu[NAMETABLE_OFFSET + ATTRIBUTE_OFFSET
         ..NAMETABLE_OFFSET + ATTRIBUTE_OFFSET + ATTRIBUTE_BYTES];
     nametable[ATTRIBUTE_OFFSET..ATTRIBUTE_OFFSET + ATTRIBUTE_BYTES].copy_from_slice(attrs);

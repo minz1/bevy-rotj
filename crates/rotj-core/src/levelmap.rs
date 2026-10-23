@@ -32,8 +32,6 @@
 //! This reproduces the captured nametables **byte-for-byte** at every captured
 //! camera position (see the acceptance tests).
 
-use thiserror::Error;
-
 use crate::prg::{byte, word};
 
 /// Metatile rows in the map (`$6000-$6EFF`), one 256-byte page each.
@@ -699,6 +697,33 @@ impl Map {
     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
         self.rows.as_flattened_mut()
     }
+
+    /// Render one physical nametable (`$2000-$23FF`) with the camera at `scroll_x`, the
+    /// auto-tile tables read from `tables`, the `$7000-$7FFF` image.
+    ///
+    /// Only the 30 tile rows the map covers are written; rows 30-31 stay `$00`,
+    /// matching the captures.
+    #[must_use]
+    pub fn render_nametable(&self, tables: &[u8; 0x1000], scroll_x: u16) -> [u8; NAMETABLE_BYTES] {
+        let tile = |table: usize, metatile: u8| {
+            tables[usize::from(TILE_TABLE_ADDRS[table] - 0x7000) + usize::from(metatile)]
+        };
+        let tiles = MAP_COLUMNS * 2;
+        let left = (usize::from(scroll_x) / 8) % tiles;
+        let mut nametable = [0u8; NAMETABLE_BYTES];
+        for p in 0..NAMETABLE_COLUMNS {
+            let delta = (p + NAMETABLE_COLUMNS - left % NAMETABLE_COLUMNS) % NAMETABLE_COLUMNS;
+            let column = (left + delta) % tiles;
+            let half = column % 2;
+            let metatile_col = column / 2;
+            for row in 0..MAP_ROWS {
+                let metatile = self.rows[row][metatile_col];
+                nametable[2 * row * NAMETABLE_COLUMNS + p] = tile(half, metatile);
+                nametable[(2 * row + 1) * NAMETABLE_COLUMNS + p] = tile(2 + half, metatile);
+            }
+        }
+        nametable
+    }
 }
 
 impl std::ops::Index<Cell> for Map {
@@ -712,83 +737,6 @@ impl std::ops::Index<Cell> for Map {
 impl std::ops::IndexMut<Cell> for Map {
     fn index_mut(&mut self, cell: Cell) -> &mut u8 {
         &mut self.rows[usize::from(cell.row)][usize::from(cell.column)]
-    }
-}
-
-/// A WRAM image was too short to hold the map and the auto-tile tables.
-#[derive(Debug, Error)]
-pub enum LevelMapError {
-    /// The dump did not reach the end of the last tile table.
-    #[error("WRAM image is {actual} bytes, need {need} for the map and tile tables")]
-    TooShort {
-        /// Length supplied.
-        actual: usize,
-        /// Length required ([`TILE_TABLE_ADDRS`] last entry + its size).
-        need: usize,
-    },
-}
-
-/// The sublevel's metatile map and its auto-tile tables.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LevelMap {
-    map: [[u8; MAP_COLUMNS]; MAP_ROWS],
-    tables: [[u8; TILE_TABLE_BYTES]; 4],
-}
-
-impl LevelMap {
-    /// Parse the map and tables out of a `$6000-$7FFF` WRAM image.
-    ///
-    /// # Errors
-    /// [`LevelMapError::TooShort`] if `wram` does not reach the last table.
-    pub fn from_wram(wram: &[u8]) -> Result<Self, LevelMapError> {
-        let need = usize::from(TILE_TABLE_ADDRS[3] - MAP_ADDR) + TILE_TABLE_BYTES;
-        if wram.len() < need {
-            return Err(LevelMapError::TooShort {
-                actual: wram.len(),
-                need,
-            });
-        }
-        let mut map = [[0u8; MAP_COLUMNS]; MAP_ROWS];
-        for (row, dst) in map.iter_mut().enumerate() {
-            let start = row * MAP_COLUMNS;
-            dst.copy_from_slice(&wram[start..start + MAP_COLUMNS]);
-        }
-        let mut tables = [[0u8; TILE_TABLE_BYTES]; 4];
-        for (table, dst) in tables.iter_mut().enumerate() {
-            let start = usize::from(TILE_TABLE_ADDRS[table] - MAP_ADDR);
-            dst.copy_from_slice(&wram[start..start + TILE_TABLE_BYTES]);
-        }
-        Ok(Self { map, tables })
-    }
-
-    /// The metatile id at `row`/`col`, or `None` if out of range.
-    #[must_use]
-    pub fn metatile(&self, row: usize, col: usize) -> Option<u8> {
-        self.map.get(row)?.get(col).copied()
-    }
-
-    /// Render one physical nametable (`$2000-$23FF`) with the camera at
-    /// `scroll_x`.
-    ///
-    /// Only the 30 tile rows the map covers are written; rows 30-31 stay `$00`,
-    /// matching the captures.
-    #[must_use]
-    pub fn render_nametable(&self, scroll_x: u16) -> [u8; NAMETABLE_BYTES] {
-        let tiles = MAP_COLUMNS * 2;
-        let left = (usize::from(scroll_x) / 8) % tiles;
-        let mut nametable = [0u8; NAMETABLE_BYTES];
-        for p in 0..NAMETABLE_COLUMNS {
-            let delta = (p + NAMETABLE_COLUMNS - left % NAMETABLE_COLUMNS) % NAMETABLE_COLUMNS;
-            let column = (left + delta) % tiles;
-            let half = column % 2;
-            let metatile_col = column / 2;
-            for row in 0..MAP_ROWS {
-                let metatile = usize::from(self.map[row][metatile_col]);
-                nametable[2 * row * NAMETABLE_COLUMNS + p] = self.tables[half][metatile];
-                nametable[(2 * row + 1) * NAMETABLE_COLUMNS + p] = self.tables[2 + half][metatile];
-            }
-        }
-        nametable
     }
 }
 
@@ -858,14 +806,6 @@ mod tests {
             .count()
     }
 
-    #[test]
-    fn rejects_a_short_wram_image() {
-        assert!(matches!(
-            LevelMap::from_wram(&[0u8; 16]),
-            Err(LevelMapError::TooShort { .. })
-        ));
-    }
-
     /// Acceptance: the decoded nametable equals fceux's over the 30 visible tile
     /// rows, at every camera position fceux captured (pinned by digest).
     ///
@@ -883,7 +823,8 @@ mod tests {
         else {
             return;
         };
-        let map = LevelMap::from_wram(&physics.machine.bus.wram[..]).unwrap();
+        let (images, _) = physics.machine.bus.wram.as_chunks::<0x1000>();
+        let (map, tables) = (Map::from_bytes(&images[0]), &images[1]);
         for (name, scroll, scene) in [
             ("stage-1-1-page", 0u16, &physics),
             ("stage-1-1-drive-600", 0, &drive600),
@@ -896,7 +837,7 @@ mod tests {
                 digest(name),
                 "{name}: the oracle's nametable differs from fceux's"
             );
-            let rendered = map.render_nametable(scroll);
+            let rendered = map.render_nametable(tables, scroll);
             assert_eq!(
                 visible_mismatches(&rendered, nametable),
                 0,
@@ -910,12 +851,22 @@ mod tests {
         let Some(physics) = physics_scene() else {
             return;
         };
-        let map = LevelMap::from_wram(&physics.machine.bus.wram[..]).unwrap();
+        let (images, _) = physics.machine.bus.wram.as_chunks::<0x1000>();
+        let (map, tables) = (Map::from_bytes(&images[0]), &images[1]);
         // Scrolling moves the visible window on, so the nametable changes...
-        assert_ne!(map.render_nametable(0), map.render_nametable(8));
-        assert_ne!(map.render_nametable(0), map.render_nametable(256));
+        assert_ne!(
+            map.render_nametable(tables, 0),
+            map.render_nametable(tables, 8)
+        );
+        assert_ne!(
+            map.render_nametable(tables, 0),
+            map.render_nametable(tables, 256)
+        );
         // ...and the 4096 px map repeats after its full width.
-        assert_eq!(map.render_nametable(0), map.render_nametable(4096));
+        assert_eq!(
+            map.render_nametable(tables, 0),
+            map.render_nametable(tables, 4096)
+        );
     }
 
     #[test]
