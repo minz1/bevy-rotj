@@ -5,6 +5,7 @@ use super::Game;
 use super::cutscene::Cutscene;
 use super::engine::{draw, rom_byte, rom_word};
 use super::room;
+use super::script::{Runner, wait};
 use super::world::{Motion, VramWrite, Weapon, attack, set_first_colours, sound, stage_script};
 use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
@@ -1022,6 +1023,24 @@ fn text(prg: &[u8], at: u16) -> Vec<VramWrite> {
     .collect()
 }
 
+/// The continue screen's text (`$91B7`) and its big digits from `$9204`, NMIs on.
+fn draw_digits(game: &mut Game, prg: &[u8]) {
+    game.scroll.scroll_x = 0;
+    game.scroll.scroll_y = 0;
+    game.effects.vram.direct.extend(text(prg, 0x91B7));
+    let glyphs = &mut game.effects.level.map.as_bytes_mut()[..640];
+    for (glyph, cells) in glyphs.chunks_mut(64).enumerate() {
+        let rows = 0x9204 + 8 * u16::try_from(glyph).expect("10 glyphs");
+        for (row, line) in cells.chunks_mut(8).enumerate() {
+            let bits = rom_byte(prg, 2, rows + u16::try_from(row).expect("< 8"));
+            for (column, cell) in line.iter_mut().enumerate() {
+                *cell = if bits << column & 0x80 != 0 { 0x11 } else { 0 };
+            }
+        }
+    }
+    game.scroll.ppu_ctrl |= ctrl::NMI;
+}
+
 /// What a frame of the [`Continue`] screen ended in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -1039,11 +1058,13 @@ pub enum Outcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Continue {
     step: Countdown,
+    /// Where the screen is in [`SETUP`], [`GAME_OVER`] or [`LEAVE`].
+    runner: Runner,
     /// 0 holding the digit, 1 splitting it away, 2 closing the next one in (`$10`).
     phase: u8,
     /// The digit shown (`$11`).
     digit: u8,
-    /// Frames the digit holds (`$12`), and the frames the screens after it wait (`$10`).
+    /// Frames the digit holds (`$12`), and GAME OVER's hold (`$10`).
     timer: u8,
     /// How fast the digit splits (`$13:$14`).
     speed: u16,
@@ -1053,30 +1074,69 @@ pub struct Continue {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Countdown {
+    /// The screen set up, the rows of [`SETUP`].
     Setup,
-    Draw,
-    Show,
-    First,
-    Palette,
     Count,
     Check,
+    /// The wait and GAME OVER's screen (`$9081`), the rows of [`GAME_OVER`].
+    GameOver,
+    /// GAME OVER's text scrolled in from below, held for `$C0` even frames or until a
+    /// button is pressed.
+    Scroll,
+    ScrollCheck,
+    /// Start pressed, the rows of [`LEAVE`].
     Leave,
-    Clear,
-    Continued,
-    Wait,
-    Over,
-    OverDraw,
-    OverShow,
-    OverPalette,
-    OverScroll,
-    OverCheck,
-    Reset,
 }
+
+/// What the continue screen does before its countdown, before GAME OVER and after Start,
+/// in order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContinueRow {
+    /// One screen, the split, rendering and NMIs off, the music stopped and the screen dark.
+    Hide,
+    /// The text (`$91B7`) and the big digits from `$9204` drawn, NMIs on.
+    Digits,
+    /// Rendering on.
+    Show,
+    /// The countdown from 9, its sprite banks and its first digit.
+    FirstDigit,
+    /// The screen's palette (`$1B`).
+    Palette,
+    /// Frames the screen stays dark.
+    Wait(u16),
+    /// The music stopped, NMIs and rendering off.
+    Stop,
+    /// GAME OVER's text (`$925A`) drawn, NMIs on.
+    OverText,
+    /// The GAME OVER song, the palette, the text below the screen and its hold.
+    OverPalette,
+    /// The screen dark.
+    Blackout,
+    /// The attack cleared and the Bolt back.
+    ClearWeapon,
+}
+
+const SETUP: &[ContinueRow] = &[
+    ContinueRow::Hide,
+    ContinueRow::Digits,
+    ContinueRow::Show,
+    ContinueRow::FirstDigit,
+    ContinueRow::Palette,
+];
+const GAME_OVER: &[ContinueRow] = &[
+    ContinueRow::Wait(49),
+    ContinueRow::Stop,
+    ContinueRow::OverText,
+    ContinueRow::Show,
+    ContinueRow::OverPalette,
+];
+const LEAVE: &[ContinueRow] = &[ContinueRow::Blackout, ContinueRow::ClearWeapon];
 
 impl Default for Continue {
     fn default() -> Self {
         Continue {
             step: Countdown::Setup,
+            runner: Runner::default(),
             phase: 0,
             digit: 0,
             timer: 0,
@@ -1093,121 +1153,39 @@ impl Continue {
         loop {
             match self.step {
                 Countdown::Setup => {
-                    game.scroll.mirroring = Mirroring::SingleLow;
-                    game.scroll.split.armed = false;
-                    game.scroll.mask &= !mask::RENDERING;
-                    game.scroll.ppu_ctrl &= !(ctrl::NMI | ctrl::NAMETABLE);
-                    game.effects.music = sound::music::STOP;
-                    blackout(game, prg);
-                    self.step = Countdown::Draw;
-                }
-                Countdown::Draw => {
-                    game.scroll.scroll_x = 0;
-                    game.scroll.scroll_y = 0;
-                    game.effects.vram.direct.extend(text(prg, 0x91B7));
-                    let glyphs = &mut game.effects.level.map.as_bytes_mut()[..640];
-                    for (glyph, cells) in glyphs.chunks_mut(64).enumerate() {
-                        let rows = 0x9204 + 8 * u16::try_from(glyph).expect("10 glyphs");
-                        for (row, line) in cells.chunks_mut(8).enumerate() {
-                            let bits = rom_byte(prg, 2, rows + u16::try_from(row).expect("< 8"));
-                            for (column, cell) in line.iter_mut().enumerate() {
-                                *cell = if bits << column & 0x80 != 0 { 0x11 } else { 0 };
-                            }
-                        }
+                    if self.table_frame(SETUP, game, prg) {
+                        return Outcome::Running;
                     }
-                    game.scroll.ppu_ctrl |= ctrl::NMI;
-                    self.step = Countdown::Show;
-                }
-                Countdown::Show => {
-                    game.scroll.mask |= mask::RENDERING;
-                    self.step = Countdown::First;
-                }
-                Countdown::First => {
-                    (self.phase, self.digit, self.timer) = (0, 9, 0x30);
-                    (self.speed, self.offset) = (0, 0);
-                    for (bank, shadow) in (0xCC..).zip(&mut game.oam.chr[..4]) {
-                        *shadow = bank;
-                    }
-                    self.draw_digit(game);
-                    self.step = Countdown::Palette;
-                }
-                Countdown::Palette => {
-                    room::build_palette(prg, 0x1B, 0, &mut game.effects.palette);
-                    queue_palette(game);
                     self.step = Countdown::Count;
                 }
                 Countdown::Count => {
-                    self.step = Countdown::Check;
                     if self.count(game, prg) {
-                        self.step = Countdown::Wait;
+                        self.begin(Countdown::GameOver);
+                    } else {
+                        self.step = Countdown::Check;
                     }
+                    return Outcome::Running;
                 }
                 Countdown::Check => {
-                    self.step = if game.world.pad.contains(Buttons::START) {
-                        Countdown::Leave
+                    if game.world.pad.contains(Buttons::START) {
+                        self.begin(Countdown::Leave);
                     } else {
-                        Countdown::Count
-                    };
-                    continue;
+                        self.step = Countdown::Count;
+                    }
                 }
                 Countdown::Leave => {
-                    blackout(game, prg);
-                    self.step = Countdown::Clear;
-                }
-                Countdown::Clear => {
-                    game.effects.attack = 0;
-                    game.effects.weapon = Weapon::Bolt;
-                    self.step = Countdown::Continued;
-                }
-                Countdown::Continued => return Outcome::Continued,
-                Countdown::Wait => {
-                    if self.timer == 0 {
-                        self.step = Countdown::Over;
-                        continue;
+                    if self.table_frame(LEAVE, game, prg) {
+                        return Outcome::Running;
                     }
-                    self.timer -= 1;
+                    return Outcome::Continued;
                 }
-                Countdown::Over
-                | Countdown::OverDraw
-                | Countdown::OverShow
-                | Countdown::OverPalette
-                | Countdown::OverScroll
-                | Countdown::OverCheck => return self.game_over(game, prg),
-                Countdown::Reset => return Outcome::Reset,
-            }
-            return Outcome::Running;
-        }
-    }
-
-    /// A frame of GAME OVER (`$9081`): the text scrolled in from below, held for `$C0`
-    /// even frames or until a button is pressed.
-    fn game_over(&mut self, game: &mut Game, prg: &[u8]) -> Outcome {
-        loop {
-            match self.step {
-                Countdown::Over => {
-                    game.effects.music = sound::music::STOP;
-                    game.scroll.ppu_ctrl &= !ctrl::NMI;
-                    game.scroll.mask &= !mask::RENDERING;
-                    self.step = Countdown::OverDraw;
+                Countdown::GameOver => {
+                    if self.table_frame(GAME_OVER, game, prg) {
+                        return Outcome::Running;
+                    }
+                    self.step = Countdown::Scroll;
                 }
-                Countdown::OverDraw => {
-                    game.effects.vram.direct.extend(text(prg, 0x925A));
-                    game.scroll.ppu_ctrl |= ctrl::NMI;
-                    self.step = Countdown::OverShow;
-                }
-                Countdown::OverShow => {
-                    game.scroll.mask |= mask::RENDERING;
-                    self.step = Countdown::OverPalette;
-                }
-                Countdown::OverPalette => {
-                    game.effects.song = sound::song::GAME_OVER;
-                    room::build_palette(prg, 0x1B, 0, &mut game.effects.palette);
-                    queue_palette(game);
-                    game.scroll.scroll_y = 0xB0;
-                    self.timer = 0xC0;
-                    self.step = Countdown::OverScroll;
-                }
-                Countdown::OverScroll => {
+                Countdown::Scroll => {
                     let scroll = &mut game.scroll.scroll_y;
                     if *scroll != 0 {
                         *scroll = scroll.wrapping_add(1);
@@ -1215,24 +1193,122 @@ impl Continue {
                             *scroll = 0;
                         }
                     }
-                    self.step = Countdown::OverCheck;
+                    self.step = Countdown::ScrollCheck;
+                    return Outcome::Running;
                 }
-                Countdown::OverCheck => {
-                    self.step = Countdown::OverScroll;
+                Countdown::ScrollCheck => {
                     if game.world.pressed.intersects(Buttons::FACE) {
-                        self.step = Countdown::Reset;
-                    } else if !game.world.frame_odd {
+                        return Outcome::Reset;
+                    }
+                    if !game.world.frame_odd {
                         self.timer = self.timer.wrapping_sub(1);
                         if self.timer == 0 {
-                            self.step = Countdown::Reset;
+                            return Outcome::Reset;
                         }
                     }
-                    continue;
+                    self.step = Countdown::Scroll;
                 }
-                _ => return Outcome::Reset,
             }
-            return Outcome::Running;
         }
+    }
+
+    /// Starts `step` at the top of its table.
+    fn begin(&mut self, step: Countdown) {
+        self.step = step;
+        self.runner = Runner::default();
+    }
+
+    /// Runs `table`'s rows up to the frame's end (true) or until it runs out.
+    fn table_frame(&mut self, table: &[ContinueRow], game: &mut Game, prg: &[u8]) -> bool {
+        while let Some(&row) = self.runner.row(table) {
+            let frame = self.runner.frame;
+            let flow = match row {
+                ContinueRow::Wait(count) => wait(frame, count),
+                ContinueRow::Hide => {
+                    if frame == 0 {
+                        game.scroll.mirroring = Mirroring::SingleLow;
+                        game.scroll.split.armed = false;
+                        game.scroll.mask &= !mask::RENDERING;
+                        game.scroll.ppu_ctrl &= !(ctrl::NMI | ctrl::NAMETABLE);
+                        game.effects.music = sound::music::STOP;
+                        blackout(game, prg);
+                    }
+                    wait(frame, 1)
+                }
+                ContinueRow::Digits => {
+                    if frame == 0 {
+                        draw_digits(game, prg);
+                    }
+                    wait(frame, 1)
+                }
+                ContinueRow::Show => {
+                    if frame == 0 {
+                        game.scroll.mask |= mask::RENDERING;
+                    }
+                    wait(frame, 1)
+                }
+                ContinueRow::FirstDigit => {
+                    if frame == 0 {
+                        (self.phase, self.digit, self.timer) = (0, 9, 0x30);
+                        (self.speed, self.offset) = (0, 0);
+                        for (bank, shadow) in (0xCC..).zip(&mut game.oam.chr[..4]) {
+                            *shadow = bank;
+                        }
+                        self.draw_digit(game);
+                    }
+                    wait(frame, 1)
+                }
+                ContinueRow::Palette => {
+                    if frame == 0 {
+                        room::build_palette(prg, 0x1B, 0, &mut game.effects.palette);
+                        queue_palette(game);
+                    }
+                    wait(frame, 1)
+                }
+                ContinueRow::Stop => {
+                    if frame == 0 {
+                        game.effects.music = sound::music::STOP;
+                        game.scroll.ppu_ctrl &= !ctrl::NMI;
+                        game.scroll.mask &= !mask::RENDERING;
+                    }
+                    wait(frame, 1)
+                }
+                ContinueRow::OverText => {
+                    if frame == 0 {
+                        game.effects.vram.direct.extend(text(prg, 0x925A));
+                        game.scroll.ppu_ctrl |= ctrl::NMI;
+                    }
+                    wait(frame, 1)
+                }
+                ContinueRow::OverPalette => {
+                    if frame == 0 {
+                        game.effects.song = sound::song::GAME_OVER;
+                        room::build_palette(prg, 0x1B, 0, &mut game.effects.palette);
+                        queue_palette(game);
+                        game.scroll.scroll_y = 0xB0;
+                        self.timer = 0xC0;
+                    }
+                    wait(frame, 1)
+                }
+                ContinueRow::Blackout => {
+                    if frame == 0 {
+                        blackout(game, prg);
+                    }
+                    wait(frame, 1)
+                }
+                ContinueRow::ClearWeapon => {
+                    if frame == 0 {
+                        game.effects.attack = 0;
+                        game.effects.weapon = Weapon::Bolt;
+                    }
+                    wait(frame, 1)
+                }
+            };
+            if self.runner.advance(flow) {
+                return true;
+            }
+        }
+        false
     }
 
     /// One frame of the countdown (`$8FC9`, through `$9254[$10]`); true when the last
@@ -1264,7 +1340,6 @@ impl Continue {
                     self.digit = self.digit.wrapping_sub(1);
                     if self.digit & 0x80 != 0 {
                         blackout(game, prg);
-                        self.timer = 49;
                         return true;
                     }
                 }
