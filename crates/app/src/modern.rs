@@ -15,7 +15,7 @@ use bevy::sprite_render::{
     TileData, TilemapChunk, TilemapChunkTileData, update_tilemap_chunk_indices,
 };
 use rotj_core::actor::Game;
-use rotj_core::actor::modern::{View, tile_at, view};
+use rotj_core::actor::modern::{Strip, View, strip_tile, tile_at, view};
 use rotj_core::actor::oam::attr;
 use rotj_core::chr;
 use rotj_core::palette::Rgb;
@@ -53,12 +53,17 @@ impl ModernFrame {
             view.left - view.left.rem_euclid(8),
             view.top - view.top.rem_euclid(8),
         );
+        let end = view.strip.map_or(i32::MAX, |strip| {
+            view.top + i32::try_from(strip.line).expect("a line")
+        });
         let tiles = (0..ROWS)
             .flat_map(|row| (0..COLUMNS).map(move |column| (column, row)))
             .map(|(column, row)| {
                 let [x, y] =
                     [column, row].map(|at| i32::try_from(at * 8).expect("a screen's worth"));
-                tile_at(game, left + x, top + y)
+                (top + y < end)
+                    .then(|| tile_at(game, left + x, top + y))
+                    .flatten()
             })
             .collect();
         Some(ModernFrame {
@@ -82,12 +87,18 @@ const LAYER: usize = 1;
 struct Modern {
     image: Handle<Image>,
     camera: Entity,
+    playfield: Layer,
+    strip: Layer,
+    atlases: HashMap<Key, Handle<Image>>,
+    layout: Handle<TextureAtlasLayout>,
+}
+
+/// Four tilemaps, one per background palette, [`COLUMNS`] by [`ROWS`], and their tilesets.
+struct Layer {
     chunks: [Entity; 4],
     tilesets: [Handle<Image>; 4],
     /// The banks and colours the tilesets were last built from.
     built: Option<([u8; 4], [Set; 4])>,
-    atlases: HashMap<Key, Handle<Image>>,
-    layout: Handle<TextureAtlasLayout>,
 }
 
 /// One sprite of the Modern picture, respawned every frame.
@@ -130,6 +141,27 @@ fn spawn(
             RenderLayers::layer(LAYER),
         ))
         .id();
+    let playfield = spawn_layer(&mut commands, &mut images);
+    let strip = spawn_layer(&mut commands, &mut images);
+    let layout = layouts.add(TextureAtlasLayout::from_grid(
+        UVec2::new(8, 16),
+        16,
+        8,
+        None,
+        None,
+    ));
+    commands.insert_resource(Modern {
+        image,
+        camera,
+        playfield,
+        strip,
+        atlases: HashMap::new(),
+        layout,
+    });
+}
+
+/// A layer's tilemaps, hidden, and blank tilesets.
+fn spawn_layer(commands: &mut Commands<'_, '_>, images: &mut Assets<Image>) -> Layer {
     let tilesets: [Handle<Image>; 4] =
         std::array::from_fn(|_| images.add(tileset(&[], [0; 4], [[0; 3]; 4])));
     let chunks = tilesets.clone().map(|tileset| {
@@ -148,22 +180,11 @@ fn spawn(
             ))
             .id()
     });
-    let layout = layouts.add(TextureAtlasLayout::from_grid(
-        UVec2::new(8, 16),
-        16,
-        8,
-        None,
-        None,
-    ));
-    commands.insert_resource(Modern {
-        image,
-        camera,
+    Layer {
         chunks,
         tilesets,
         built: None,
-        atlases: HashMap::new(),
-        layout,
-    });
+    }
 }
 
 /// The 256 background tiles of `banks` as an 8x8 array texture, in `colours`, colour 0 clear.
@@ -221,15 +242,7 @@ struct Inputs<'w> {
 struct Scene<'w, 's> {
     cameras: Query<'w, 's, &'static mut Camera>,
     quads: Query<'w, 's, &'static mut Sprite, With<ScreenSprite>>,
-    chunks: Query<
-        'w,
-        's,
-        (
-            &'static mut TilemapChunkTileData,
-            &'static mut Transform,
-            &'static mut Visibility,
-        ),
-    >,
+    chunks: Chunks<'w, 's>,
     drawers: Query<'w, 's, (Entity, &'static Drawer)>,
     sprites: Query<'w, 's, Entity, With<ModernSprite>>,
 }
@@ -297,34 +310,113 @@ fn draw(
     );
 }
 
-/// The four tilemaps: their tilesets rebuilt when the banks or colours changed, their tiles
-/// from the frame, placed at the view's offset within a tile.
+/// The tilemaps the background type uses.
+type Chunks<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static mut TilemapChunkTileData,
+        &'static mut Transform,
+        &'static mut Visibility,
+    ),
+>;
+
+/// The playfield's tilemaps from the frame and the strip's from the nametables, in screen space.
 fn show_background(
     modern: &mut Modern,
     images: &mut Assets<Image>,
-    chunks: &mut Query<'_, '_, (&mut TilemapChunkTileData, &mut Transform, &mut Visibility)>,
+    chunks: &mut Chunks<'_, '_>,
     play: &Play,
     frame: &ModernFrame,
     rgb: &Rgb,
 ) {
     let sets: [Set; 4] =
         std::array::from_fn(|set| colours(&play.ppu.palette, set * 4, frame.greyscale, rgb));
-    if modern.built != Some((frame.view.banks, sets)) {
-        for (set, handle) in modern.tilesets.iter().enumerate() {
-            if let Some(mut image) = images.get_mut(handle) {
-                *image = tileset(&play.chr, frame.view.banks, sets[set]);
-            }
-        }
-        modern.built = Some((frame.view.banks, sets));
-    }
     let [left, top] = [frame.view.left, frame.view.top]
         .map(|at| f32::from(u8::try_from(at.rem_euclid(8)).expect("0-7")));
-    let centre = Vec3::new(pixels(COLUMNS * 4) - left, top - pixels(ROWS * 4), 2.0);
-    for (set, &chunk) in modern.chunks.iter().enumerate() {
+    let playfield = Shown {
+        banks: frame.view.banks,
+        tiles: &frame.tiles,
+        corner: Vec2::new(-left, top),
+    };
+    show_layer(
+        &mut modern.playfield,
+        images,
+        chunks,
+        play,
+        sets,
+        Some(playfield),
+    );
+    let strip = frame
+        .view
+        .strip
+        .map(|strip| (strip, strip_tiles(play, &strip)));
+    let strip = strip.as_ref().map(|(strip, tiles)| Shown {
+        banks: strip.banks,
+        tiles,
+        corner: Vec2::new(
+            -f32::from(strip.top.fine_x),
+            -f32::from(u8::try_from(strip.line % 8).expect("0-7")),
+        ),
+    });
+    show_layer(&mut modern.strip, images, chunks, play, sets, strip);
+}
+
+/// What one layer shows, its top-left tile's corner in camera coordinates (y up).
+struct Shown<'a> {
+    banks: [u8; 4],
+    tiles: &'a [Option<(u8, u8)>],
+    corner: Vec2,
+}
+
+/// The strip's tiles on the layer's grid, from the row its first line is in.
+fn strip_tiles(play: &Play, strip: &Strip) -> Vec<Option<(u8, u8)>> {
+    let (first, rows) = (strip.line / 8, (SCREEN_H - strip.line).div_ceil(8));
+    (0..ROWS)
+        .flat_map(|row| (0..COLUMNS).map(move |column| (column, row)))
+        .map(|(column, row)| {
+            (first..first + rows)
+                .contains(&row)
+                .then(|| strip_tile(&play.ppu, strip, column, row - first))
+        })
+        .collect()
+}
+
+/// A layer's four tilemaps from `shown`, or hidden.
+fn show_layer(
+    layer: &mut Layer,
+    images: &mut Assets<Image>,
+    chunks: &mut Chunks<'_, '_>,
+    play: &Play,
+    sets: [Set; 4],
+    shown: Option<Shown<'_>>,
+) {
+    let Some(shown) = shown else {
+        for &chunk in &layer.chunks {
+            if let Ok((_, _, mut visibility)) = chunks.get_mut(chunk) {
+                *visibility = Visibility::Hidden;
+            }
+        }
+        return;
+    };
+    if layer.built != Some((shown.banks, sets)) {
+        for (set, handle) in layer.tilesets.iter().enumerate() {
+            if let Some(mut image) = images.get_mut(handle) {
+                *image = tileset(&play.chr, shown.banks, sets[set]);
+            }
+        }
+        layer.built = Some((shown.banks, sets));
+    }
+    let centre = Vec3::new(
+        shown.corner.x + pixels(COLUMNS * 4),
+        shown.corner.y - pixels(ROWS * 4),
+        2.0,
+    );
+    for (set, &chunk) in layer.chunks.iter().enumerate() {
         let Ok((mut data, mut transform, mut visibility)) = chunks.get_mut(chunk) else {
             continue;
         };
-        let tiles = frame.tiles.iter().map(|tile| {
+        let tiles = shown.tiles.iter().map(|tile| {
             tile.filter(|&(_, palette)| usize::from(palette) == set)
                 .map(|(tile, _)| TileData::from_tileset_index(u16::from(tile)))
         });
@@ -463,14 +555,31 @@ mod tests {
         assert!(draw < at(upload).expect("the upload"));
     }
 
-    /// Stage 1-1 in a headless app drawn Modern on the real render path, and the frame on
-    /// screen saved as a PNG (`ROTJ_SCREENSHOT`, else in the temp directory).
+    /// Stage 1-1, then the `$0E` boss bar; one test, since two headless renders at once fail.
     #[test]
-    #[ignore = "renders with the GPU (here software Vulkan); ROTJ_SCREENSHOT names the PNG"]
-    fn stage_1_renders_modern() {
+    #[ignore = "renders with the GPU (here software Vulkan); ROTJ_SCREENSHOT names the PNGs' directory"]
+    fn stage_1_and_a_boss_bar_render_modern() {
         let Some(rom) = rotj_rom::for_test() else {
             return;
         };
+        let play = Play::start(rom.prg.clone(), rom.chr.clone(), 0);
+        let (drawn, strip) = renders_as_classic(play, 180, pad, "stage-1");
+        assert!(drawn > 100, "{drawn} of 180 frames drawn Modern");
+        assert_eq!(strip, None);
+        let mut play = Play::start(rom.prg.clone(), rom.chr.clone(), 5);
+        crate::play::tests::enter_the_boss_room(&mut play, 0x0E);
+        let (drawn, strip) = renders_as_classic(play, 60, |_| 0, "boss-bar");
+        assert_eq!(drawn, 60, "boss room frames drawn Modern");
+        assert_eq!(strip.map(|strip| strip.line), Some(192), "the bar's strip");
+    }
+
+    /// Plays `frames` frames Modern and asserts its screenshot is Classic's.
+    fn renders_as_classic(
+        play: Play,
+        frames: usize,
+        pad: fn(usize) -> u8,
+        name: &str,
+    ) -> (usize, Option<Strip>) {
         let mut app = App::new();
         app.add_plugins(
             DefaultPlugins
@@ -490,24 +599,18 @@ mod tests {
         .init_resource::<Colours>()
         .add_plugins((crate::mirror::MirrorPlugin, ModernPlugin));
         let screen = Screen::new(&mut app.world_mut().resource_mut::<Assets<Image>>());
-        app.insert_resource(screen).insert_resource(Play::start(
-            rom.prg.clone(),
-            rom.chr.clone(),
-            0,
-        ));
+        app.insert_resource(screen).insert_resource(play);
         app.finish();
         app.cleanup();
         let mut drawn = 0;
-        for frame in 0..180 {
+        for frame in 0..frames {
             app.world_mut().resource_mut::<Play>().step(pad(frame));
             app.update();
             drawn += usize::from(app.world().resource::<Play>().shown.modern.is_some());
         }
-        assert!(drawn > 100, "{drawn} of 180 frames drawn Modern");
-        let path = std::env::var_os("ROTJ_SCREENSHOT").map_or_else(
-            || std::env::temp_dir().join("rotj-modern.png"),
-            PathBuf::from,
-        );
+        let path = std::env::var_os("ROTJ_SCREENSHOT")
+            .map_or_else(std::env::temp_dir, PathBuf::from)
+            .join(format!("rotj-modern-{name}.png"));
         let _ = std::fs::remove_file(&path);
         let image = app.world().resource::<Modern>().image.clone();
         app.world_mut()
@@ -518,6 +621,11 @@ mod tests {
         }
         assert!(path.exists(), "no screenshot at {}", path.display());
         let play = app.world().resource::<Play>();
+        let strip = play
+            .shown
+            .modern
+            .as_ref()
+            .and_then(|frame| frame.view.strip);
         let mut frame = rotj_core::render::Frame::new();
         play.compose(&mut frame, rotj_core::render::OAM_SPRITES, false);
         let mut classic = vec![0; SCREEN_W * SCREEN_H * 4];
@@ -533,6 +641,7 @@ mod tests {
             .filter(|&(x, y)| modern.get_pixel(x, y).0[..3] != classic.get_pixel(x, y).0[..3])
             .count();
         assert_eq!(differing, 0, "pixels differing from the Classic picture");
+        (drawn, strip)
     }
 
     #[test]

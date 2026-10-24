@@ -874,6 +874,38 @@ impl Lockstep {
         }
     }
 
+    /// Checks a frame the Modern picture draws ([`super::modern::check_background`]) and counts
+    /// it; a strip must be the same over the snapshot's lines (`before`'s) as over Classic's.
+    fn check_modern(
+        &mut self,
+        registers: &super::raster::Registers,
+        before: &State,
+        port: &[Line],
+        frame: u64,
+    ) {
+        if let Some(view) = super::modern::view(before, port) {
+            if view.strip.is_some() {
+                let shown = super::raster::lines(registers, before);
+                assert_eq!(
+                    super::modern::view(before, &shown).map(|shown| shown.strip),
+                    Some(view.strip),
+                    "frame {frame}: the snapshot's lines and Classic's give the strip{}",
+                    self.context()
+                );
+                self.pictures.strip += 1;
+            }
+            let chr = &rotj_rom::for_test().expect("the ROM").chr;
+            match super::modern::check_background(&view, before, port, &self.ppu, chr) {
+                Ok(row_15_palettes) => self.pictures.row_15_palettes += row_15_palettes,
+                Err(why) => panic!(
+                    "frame {frame}: the Modern background: {why}{}",
+                    self.context()
+                ),
+            }
+            self.pictures.modern += 1;
+        }
+    }
+
     /// The port's lines for the frame `registers`' NMI began, from its loop's end, equal
     /// the oracle's, line by line. Where they do not, the line must be one of two
     /// others the game shows there, and the frame is counted in `jittered`: the line
@@ -904,17 +936,7 @@ impl Lockstep {
         if let Some(why) = super::oam::undrawable(&before.oam.page, &before.oam.marks, &port) {
             panic!("frame {frame}: {why}{}", self.context());
         }
-        if let Some(view) = super::modern::view(before, &port) {
-            let chr = &rotj_rom::for_test().expect("the ROM").chr;
-            match super::modern::check_background(&view, before, &port, &self.ppu, chr) {
-                Ok(row_15_palettes) => self.pictures.row_15_palettes += row_15_palettes,
-                Err(why) => panic!(
-                    "frame {frame}: the Modern background: {why}{}",
-                    self.context()
-                ),
-            }
-            self.pictures.modern += 1;
-        }
+        self.check_modern(registers, before, &port, frame);
         let shown = |mark| before.oam.marks.iter().filter(|&&m| m == mark).count();
         self.pictures.hud += shown(super::oam::Mark::Hud);
         self.pictures.label += shown(super::oam::Mark::Label);
@@ -1763,6 +1785,8 @@ pub(crate) struct Pictures {
     pub modern: usize,
     /// Of their cells, those showing their page's row 15 palette on row 14 ([`super::modern::check_background`]).
     pub row_15_palettes: usize,
+    /// Of the Modern frames, those drawn with a boss bar strip.
+    pub strip: usize,
 }
 
 /// Runs the port's [`Game::frame`](super::Game::frame) chained from one lift at the

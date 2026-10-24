@@ -611,12 +611,17 @@ mod tests {
         assert_eq!(
             (
                 pictures.modern,
+                pictures.strip,
                 pictures.row_15_palettes,
                 exceptions.half_written,
                 exceptions.unreached
             ),
-            (8830, 185, 0, 8),
+            (11008, 2178, 185, 0, 8),
             "the Modern frames and the gates' exceptions: {run:?}"
+        );
+        assert!(
+            pictures.strip > 0,
+            "the chain drew a boss bar strip: {run:?}"
         );
         let injected: Vec<_> = run.injected.keys().copied().collect();
         assert_eq!(

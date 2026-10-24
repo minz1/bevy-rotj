@@ -56,15 +56,17 @@ drawn Modern when
 - the game is in play: no script, or a pause, a power-up or a stage end;
 - the background is shown (`$2001` bit 3 on every line) with the same background banks on every
   line;
-- no raster split is armed (the live `$D0` bit 7, as `Play::step` reads it, not the room record);
+- no raster split is armed (the live `$D0` bit 7, as `Play::step` reads it, not the room record),
+  or, since 1.1.41, the split is `$D3` 4's boss bar outside the final boss's room (the strip, below;
+  `.orchestration/briefs/spec-boss-bar.md`);
 - the final boss's death tiles (`final_boss_part`'s VRAM-only writes) have not been written since
-  the room began.
+  the room began: its room (area `$22`) stays Classic.
 
 Every other frame shows the Classic picture whole, with the Modern camera off. That covers the
 rooms with no screen record (22 of the 36 the survey listed) and the pause, power-up and stage-end
 frames in them. The split rooms move to Modern one release at a time after this one: first `$D3` 4
-(four boss rooms, whose bar is the only background strip in play, so the HUD-strip layer the owner
-asked for lands there, from the bar's nametable rows and banks), then the band rooms. The HUD
+(1.1.41: three of the four boss rooms; the bar is a second set of chunks in screen space, drawn
+from its nametable rows with its own banks), then the band rooms. The HUD
 itself is sprites and is in this release.
 
 ### What is on screen, and when

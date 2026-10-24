@@ -354,7 +354,7 @@ fn draw(play: Res<'_, Play>, settings: Res<'_, Settings>, mut screen: ResMut<'_,
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use rotj_core::actor::stage::StageEnd;
     use rotj_core::actor::world::Motion;
@@ -658,7 +658,7 @@ mod tests {
     }
 
     /// The area's last room into its boss room (`$0404` bit 7, `$BB3D`) and Batman's entry.
-    fn enter_the_boss_room(play: &mut Play, area: u8) {
+    pub(crate) fn enter_the_boss_room(play: &mut Play, area: u8) {
         play.game_mut().effects.hud = 0x80;
         transition(play, 3, 0);
         assert_eq!(play.game().world.area, area);

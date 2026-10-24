@@ -16,7 +16,7 @@ use crate::render::{Mirroring, ctrl, mask};
 /// The stages there are: `$0400 / 2` indexes their tables.
 const STAGES: u8 = 18;
 /// The stage whose boss's defeat arms the ending (`$9C13`'s `$0400` test).
-const FINAL_AREA: u8 = 0x22;
+pub(crate) const FINAL_AREA: u8 = 0x22;
 
 /// What the engine reads by stage: the level packs' stage descriptor.
 #[derive(Debug, Clone, PartialEq, Eq)]
