@@ -579,7 +579,7 @@ mod tests {
         let pack = std::fs::read_to_string(out.join("pack.json")).expect("pack.json");
         let world = out.join("world.world").exists();
         std::fs::remove_dir_all(&out).expect("removes the pack");
-        assert_eq!((rooms, world), (36, true));
+        assert_eq!((rooms, world), (38, true));
         assert!(pack == files["pack.json"], "pack.json differs");
     }
 }
