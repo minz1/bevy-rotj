@@ -5,7 +5,7 @@ use super::Game;
 use super::cutscene::Cutscene;
 use super::engine::{draw, rom_byte, rom_word};
 use super::room;
-use super::script::{Runner, wait};
+use super::script::{Flow, Runner, wait};
 use super::world::{Motion, VramWrite, Weapon, attack, set_first_colours, sound, stage_script};
 use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
@@ -402,6 +402,8 @@ impl Fade {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NextArea {
     step: Step,
+    /// Where the load is in [`FADE_OUT`], [`BANNER`] or [`AREA`].
+    runner: Runner,
     /// The area restarts after a life lost (`$D527`) instead of advancing.
     life_lost: bool,
     /// A new game's first area (`$D3D8`), loaded over the boot's payload.
@@ -413,44 +415,87 @@ pub struct NextArea {
     /// The banner's cutscene, when the area has one and `$0406` is set (`$98BD`).
     cutscene: Option<Cutscene>,
     fade: Fade,
-    /// Frames the banner has left (`$10`).
-    hold: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Step {
-    Start,
+    /// The fade out, the rows of [`FADE_OUT`].
     FadeOut,
     Banner,
     Cutscene,
-    BannerDraw,
-    BannerPalette,
-    BannerFadeIn,
-    BannerHold,
-    BannerHolding,
-    BannerFadeOut,
     Continue,
-    Reset,
+    /// The banner shown and held, the rows of [`BANNER`].
+    ShowBanner,
     Clear,
     BossIntro,
-    Load,
-    Show,
-    Enter,
-    FadeIn,
+    /// The area loaded and faded in, the rows of [`AREA`].
+    Area,
+    Reset,
     Done,
 }
+
+/// The load's rows: before the banner, for the banner and for the area's start, in order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoadRow {
+    /// The frame's sprites finished.
+    FinishSprites,
+    /// A fade, rising or not and streaming the scroll or not, `Done` in its last frame.
+    Fade(bool, bool),
+    /// Frames the screen stays as it is.
+    Wait(u16),
+    /// The banner drawn and shown.
+    Draw,
+    /// The banner's palette (`$1B`).
+    Palette,
+    /// Frames the banner holds, or less once A, B or Start is pressed.
+    Hold(u16),
+    /// The area start's first frame.
+    ClearForArea,
+    /// The area loaded.
+    Load,
+    /// Rendering on.
+    Show,
+    /// The area's song requested and its room's parameters read.
+    Enter,
+    /// The load over, `$AF` and `$BA` cleared.
+    Finish,
+}
+
+const FADE_OUT: &[LoadRow] = &[
+    LoadRow::FinishSprites,
+    LoadRow::Fade(false, true),
+    LoadRow::Wait(1),
+];
+const BANNER: &[LoadRow] = &[
+    LoadRow::Draw,
+    LoadRow::Palette,
+    LoadRow::Fade(true, false),
+    LoadRow::Wait(2),
+    // the original's $40, set in the second frame of Wait(2)
+    LoadRow::Hold(0x3F),
+    LoadRow::Fade(false, false),
+    LoadRow::Wait(1),
+];
+const AREA: &[LoadRow] = &[
+    LoadRow::ClearForArea,
+    LoadRow::Load,
+    LoadRow::Show,
+    LoadRow::Enter,
+    LoadRow::Fade(true, true),
+    LoadRow::Finish,
+];
 
 impl Default for NextArea {
     fn default() -> Self {
         NextArea {
-            step: Step::Start,
+            step: Step::FadeOut,
+            runner: Runner::default(),
             life_lost: false,
             new_game: false,
             screen: None,
             intro: BossIntro::default(),
             cutscene: None,
             fade: Fade::new(false, true),
-            hold: 0,
         }
     }
 }
@@ -514,15 +559,11 @@ impl NextArea {
     pub fn step(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) {
         loop {
             match self.step {
-                Step::Start => {
-                    game.oam.finish();
-                    self.step = Step::FadeOut;
-                }
                 Step::FadeOut => {
-                    if self.fade.step(game, prg) {
-                        self.step = Step::Banner;
+                    if self.table_frame(FADE_OUT, game, prg, chr) {
+                        return;
                     }
-                    return;
+                    self.step = Step::Banner;
                 }
                 Step::Banner => {
                     if self.banner(game, prg) {
@@ -530,40 +571,11 @@ impl NextArea {
                     }
                 }
                 Step::Cutscene => return self.cutscene_frame(game, prg, chr),
-                Step::BannerDraw => {
-                    show_banner(game, prg);
-                    self.step = Step::BannerPalette;
-                    return;
-                }
-                Step::BannerPalette => {
-                    room::build_palette(prg, 0x1B, 0, &mut game.effects.palette);
-                    self.fade = Fade::new(true, false);
-                    self.step = Step::BannerFadeIn;
-                }
-                Step::BannerFadeIn => {
-                    if self.fade.step(game, prg) {
-                        self.step = Step::BannerHold;
-                    }
-                    return;
-                }
-                Step::BannerHold => {
-                    self.hold = 0x40;
-                    self.step = Step::BannerHolding;
-                    return;
-                }
-                Step::BannerHolding => {
-                    self.hold = self.hold.wrapping_sub(1);
-                    if self.hold != 0 && !game.world.pressed.intersects(Buttons::ACCEPT) {
+                Step::ShowBanner => {
+                    if self.table_frame(BANNER, game, prg, chr) {
                         return;
                     }
-                    self.fade = Fade::new(false, false);
-                    self.step = Step::BannerFadeOut;
-                }
-                Step::BannerFadeOut => {
-                    if self.fade.step(game, prg) {
-                        self.step = Step::Clear;
-                    }
-                    return;
+                    self.step = Step::Clear;
                 }
                 Step::Continue => {
                     if self.continue_screen(game, prg) {
@@ -573,44 +585,101 @@ impl NextArea {
                 Step::Clear if game.effects.hud & 0x80 != 0 => {
                     self.step = Step::BossIntro;
                 }
-                Step::Clear => {
-                    clear_for_area(game);
-                    self.step = Step::Load;
-                    return;
-                }
+                Step::Clear => self.begin(Step::Area),
                 Step::BossIntro => {
                     if self.intro.step(game, prg, chr) {
                         self.step = Step::Done;
                     }
                     return;
                 }
-                Step::Load => {
-                    start_area(game, prg, chr, self.leftover());
-                    self.step = Step::Show;
-                    return;
-                }
-                Step::Show => {
-                    game.scroll.mask |= mask::RENDERING;
-                    self.step = Step::Enter;
-                    return;
-                }
-                Step::Enter => {
-                    request_song(game, prg);
-                    room::parameters(game, prg);
-                    self.fade = Fade::new(true, true);
-                    self.step = Step::FadeIn;
-                }
-                Step::FadeIn => {
-                    if self.fade.step(game, prg) {
-                        game.effects.busy = 0;
-                        game.effects.transition = 0;
-                        self.step = Step::Done;
+                Step::Area => {
+                    if self.table_frame(AREA, game, prg, chr) {
+                        return;
                     }
-                    return;
+                    self.step = Step::Done;
                 }
                 Step::Reset | Step::Done => return,
             }
         }
+    }
+
+    /// Starts `step` at the top of its table.
+    fn begin(&mut self, step: Step) {
+        self.step = step;
+        self.runner = Runner::default();
+    }
+
+    /// Runs `table`'s rows up to the frame's end (true) or until it runs out.
+    fn table_frame(&mut self, table: &[LoadRow], game: &mut Game, prg: &Prg, chr: &[u8]) -> bool {
+        while let Some(&row) = self.runner.row(table) {
+            let frame = self.runner.frame;
+            let flow = match row {
+                LoadRow::FinishSprites => {
+                    game.oam.finish();
+                    Flow::Done
+                }
+                LoadRow::Fade(rising, streams) => {
+                    if frame == 0 {
+                        self.fade = Fade::new(rising, streams);
+                    }
+                    if self.fade.step(game, prg) {
+                        Flow::Done
+                    } else {
+                        Flow::Waited
+                    }
+                }
+                LoadRow::Wait(count) => wait(frame, count),
+                LoadRow::Draw => {
+                    if frame == 0 {
+                        show_banner(game, prg);
+                    }
+                    wait(frame, 1)
+                }
+                LoadRow::Palette => {
+                    room::build_palette(prg, 0x1B, 0, &mut game.effects.palette);
+                    Flow::Done
+                }
+                LoadRow::Hold(count) => {
+                    if frame >= count || game.world.pressed.intersects(Buttons::ACCEPT) {
+                        Flow::Done
+                    } else {
+                        Flow::Waited
+                    }
+                }
+                LoadRow::ClearForArea => {
+                    if frame == 0 {
+                        clear_for_area(game);
+                    }
+                    wait(frame, 1)
+                }
+                LoadRow::Load => {
+                    if frame == 0 {
+                        start_area(game, prg, chr, self.leftover());
+                    }
+                    wait(frame, 1)
+                }
+                LoadRow::Show => {
+                    if frame == 0 {
+                        game.scroll.mask |= mask::RENDERING;
+                    }
+                    wait(frame, 1)
+                }
+                LoadRow::Enter => {
+                    request_song(game, prg);
+                    room::parameters(game, prg);
+                    Flow::Done
+                }
+                LoadRow::Finish => {
+                    game.effects.busy = 0;
+                    game.effects.transition = 0;
+                    Flow::Done
+                }
+            };
+            if self.runner.advance(flow) {
+                return true;
+            }
+        }
+        false
     }
 
     /// The area's indices, or a life taken (`$D527`), then the banner's dark screen;
@@ -640,7 +709,7 @@ impl NextArea {
             return false;
         }
         hide_for_banner(game, prg);
-        self.step = Step::BannerDraw;
+        self.begin(Step::ShowBanner);
         true
     }
 
@@ -649,7 +718,7 @@ impl NextArea {
         let cutscene = self.cutscene.as_mut().expect("the cutscene");
         if cutscene.step(game, prg, chr) {
             hide_for_banner(game, prg);
-            self.step = Step::BannerDraw;
+            self.begin(Step::ShowBanner);
         }
     }
 
