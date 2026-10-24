@@ -61,7 +61,7 @@ impl ModernFrame {
             .map(|(column, row)| {
                 let [x, y] =
                     [column, row].map(|at| i32::try_from(at * 8).expect("a screen's worth"));
-                (top + y < end)
+                (view.nametable_playfield.is_none() && top + y < end)
                     .then(|| tile_at(game, left + x, top + y))
                     .flatten()
             })
@@ -334,11 +334,19 @@ fn show_background(
         std::array::from_fn(|set| colours(&play.ppu.palette, set * 4, frame.greyscale, rgb));
     let [left, top] = [frame.view.left, frame.view.top]
         .map(|at| f32::from(u8::try_from(at.rem_euclid(8)).expect("0-7")));
-    let playfield = Shown {
-        banks: frame.view.banks,
-        tiles: &frame.tiles,
-        corner: Vec2::new(-left, top),
-    };
+    let bar = frame.view.strip.map_or(SCREEN_H, |strip| strip.line);
+    let run = frame
+        .view
+        .nametable_playfield
+        .map(|run| (run, strip_tiles(play, &run, bar)));
+    let playfield = run.as_ref().map_or(
+        Shown {
+            banks: frame.view.banks,
+            tiles: &frame.tiles,
+            corner: Vec2::new(-left, top),
+        },
+        |(run, tiles)| screen_space(run, tiles),
+    );
     show_layer(
         &mut modern.playfield,
         images,
@@ -350,16 +358,23 @@ fn show_background(
     let strip = frame
         .view
         .strip
-        .map(|strip| (strip, strip_tiles(play, &strip)));
-    let strip = strip.as_ref().map(|(strip, tiles)| Shown {
+        .map(|strip| (strip, strip_tiles(play, &strip, SCREEN_H)));
+    let strip = strip
+        .as_ref()
+        .map(|(strip, tiles)| screen_space(strip, tiles));
+    show_layer(&mut modern.strip, images, chunks, play, sets, strip);
+}
+
+/// A strip's layer in screen space, its tiles from [`strip_tiles`].
+fn screen_space<'a>(strip: &Strip, tiles: &'a [Option<(u8, u8)>]) -> Shown<'a> {
+    Shown {
         banks: strip.banks,
         tiles,
         corner: Vec2::new(
             -f32::from(strip.top.fine_x),
             -f32::from(u8::try_from(strip.line % 8).expect("0-7")),
         ),
-    });
-    show_layer(&mut modern.strip, images, chunks, play, sets, strip);
+    }
 }
 
 /// What one layer shows, its top-left tile's corner in camera coordinates (y up).
@@ -369,9 +384,9 @@ struct Shown<'a> {
     corner: Vec2,
 }
 
-/// The strip's tiles on the layer's grid, from the row its first line is in.
-fn strip_tiles(play: &Play, strip: &Strip) -> Vec<Option<(u8, u8)>> {
-    let (first, rows) = (strip.line / 8, (SCREEN_H - strip.line).div_ceil(8));
+/// The strip's tiles on the layer's grid, from the row its first line is in down to line `end`.
+fn strip_tiles(play: &Play, strip: &Strip, end: usize) -> Vec<Option<(u8, u8)>> {
+    let (first, rows) = (strip.line / 8, (end - strip.line).div_ceil(8));
     (0..ROWS)
         .flat_map(|row| (0..COLUMNS).map(move |column| (column, row)))
         .map(|(column, row)| {
@@ -555,7 +570,8 @@ mod tests {
         assert!(draw < at(upload).expect("the upload"));
     }
 
-    /// Stage 1-1, then the `$0E` boss bar; one test, since two headless renders at once fail.
+    /// Stage 1-1, the `$0E` boss bar, then the final boss's room with a part's death tiles; one
+    /// test, since two headless renders at once fail.
     #[test]
     #[ignore = "renders with the GPU (here software Vulkan); ROTJ_SCREENSHOT names the PNGs' directory"]
     fn stage_1_and_a_boss_bar_render_modern() {
@@ -563,14 +579,52 @@ mod tests {
             return;
         };
         let play = Play::start(rom.prg.clone(), rom.chr.clone(), 0);
-        let (drawn, strip) = renders_as_classic(play, 180, pad, "stage-1");
+        let (drawn, view) = renders_as_classic(play, 180, pad, "stage-1");
         assert!(drawn > 100, "{drawn} of 180 frames drawn Modern");
-        assert_eq!(strip, None);
+        assert_eq!(view.and_then(|view| view.strip), None);
         let mut play = Play::start(rom.prg.clone(), rom.chr.clone(), 5);
         crate::play::tests::enter_the_boss_room(&mut play, 0x0E);
-        let (drawn, strip) = renders_as_classic(play, 60, |_| 0, "boss-bar");
+        let (drawn, view) = renders_as_classic(play, 60, |_| 0, "boss-bar");
         assert_eq!(drawn, 60, "boss room frames drawn Modern");
-        assert_eq!(strip.map(|strip| strip.line), Some(192), "the bar's strip");
+        assert_eq!(
+            view.and_then(|view| view.strip).map(|strip| strip.line),
+            Some(192),
+            "the bar's strip"
+        );
+        let mut play = Play::start(rom.prg.clone(), rom.chr.clone(), 12);
+        for arg in [0xC1, 0x61] {
+            crate::play::tests::transition(&mut play, 1, arg);
+        }
+        crate::play::tests::enter_the_boss_room(&mut play, 0x22);
+        let intact = play.ppu.nametables;
+        let part = play
+            .game_mut()
+            .slots
+            .main
+            .iter_mut()
+            .find(|slot| slot.kind == 0xB6)
+            .expect("a part of the final boss");
+        part.body.health |= 0x8000;
+        let tables = rotj_core::prg::Prg::new(rom.prg.clone()).families;
+        let dest = tables.final_boss_part.death_dests[usize::from(part.body.subtype)];
+        for _ in 0..10 {
+            play.step(0);
+        }
+        let block = (0..4).flat_map(|row| (0..4).map(move |column| row * 32 + column));
+        let changed = block
+            .map(|cell| usize::from(dest & 0x3FF) + cell)
+            .any(|at| (0..2).any(|table| play.ppu.nametables[table][at] != intact[table][at]));
+        assert!(
+            changed,
+            "the death tiles at ${dest:04X} reach the nametables"
+        );
+        // An odd frame: the allocator's rotation then puts the portrait's overlapping sprites in draw order.
+        let (drawn, view) = renders_as_classic(play, 61, |_| 0, "final-boss");
+        assert!(drawn > 0, "final boss frames drawn Modern");
+        assert!(
+            view.is_some_and(|view| view.nametable_playfield.is_some()),
+            "the playfield from the nametables"
+        );
     }
 
     /// Plays `frames` frames Modern and asserts its screenshot is Classic's.
@@ -579,7 +633,7 @@ mod tests {
         frames: usize,
         pad: fn(usize) -> u8,
         name: &str,
-    ) -> (usize, Option<Strip>) {
+    ) -> (usize, Option<View>) {
         let mut app = App::new();
         app.add_plugins(
             DefaultPlugins
@@ -621,11 +675,7 @@ mod tests {
         }
         assert!(path.exists(), "no screenshot at {}", path.display());
         let play = app.world().resource::<Play>();
-        let strip = play
-            .shown
-            .modern
-            .as_ref()
-            .and_then(|frame| frame.view.strip);
+        let view = play.shown.modern.as_ref().map(|frame| frame.view);
         let mut frame = rotj_core::render::Frame::new();
         play.compose(&mut frame, rotj_core::render::OAM_SPRITES, false);
         let mut classic = vec![0; SCREEN_W * SCREEN_H * 4];
@@ -641,7 +691,7 @@ mod tests {
             .filter(|&(x, y)| modern.get_pixel(x, y).0[..3] != classic.get_pixel(x, y).0[..3])
             .count();
         assert_eq!(differing, 0, "pixels differing from the Classic picture");
-        (drawn, strip)
+        (drawn, view)
     }
 
     #[test]

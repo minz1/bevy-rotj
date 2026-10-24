@@ -875,7 +875,8 @@ impl Lockstep {
     }
 
     /// Checks a frame the Modern picture draws ([`super::modern::check_background`]) and counts
-    /// it; a strip must be the same over the snapshot's lines (`before`'s) as over Classic's.
+    /// it; a strip and a nametable playfield must be the same over the snapshot's lines
+    /// (`before`'s) as over Classic's.
     fn check_modern(
         &mut self,
         registers: &super::raster::Registers,
@@ -887,12 +888,15 @@ impl Lockstep {
             if view.strip.is_some() {
                 let shown = super::raster::lines(registers, before);
                 assert_eq!(
-                    super::modern::view(before, &shown).map(|shown| shown.strip),
-                    Some(view.strip),
+                    super::modern::view(before, &shown)
+                        .map(|shown| (shown.strip, shown.nametable_playfield)),
+                    Some((view.strip, view.nametable_playfield)),
                     "frame {frame}: the snapshot's lines and Classic's give the strip{}",
                     self.context()
                 );
                 self.pictures.strip += 1;
+                self.pictures.nametable_playfield +=
+                    usize::from(view.nametable_playfield.is_some());
             }
             let chr = &rotj_rom::for_test().expect("the ROM").chr;
             match super::modern::check_background(&view, before, port, &self.ppu, chr) {
@@ -1787,6 +1791,8 @@ pub(crate) struct Pictures {
     pub row_15_palettes: usize,
     /// Of the Modern frames, those drawn with a boss bar strip.
     pub strip: usize,
+    /// Of those, the final boss's room's, its playfield from the nametables.
+    pub nametable_playfield: usize,
 }
 
 /// Runs the port's [`Game::frame`](super::Game::frame) chained from one lift at the

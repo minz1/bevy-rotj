@@ -15,13 +15,17 @@ pub struct View {
     pub left: i32,
     /// The screen's top edge in the level, in pixels.
     pub top: i32,
-    /// The playfield's four CHR banks, the same on every line above the strip.
+    /// The playfield's four CHR banks, the same on every line above the strip (and a
+    /// nametable playfield's).
     pub banks: [u8; 4],
     /// The boss bar below the playfield, on a `$D3` 4 frame.
     pub strip: Option<Strip>,
+    /// The playfield from the nametables instead of the live map, down to the bar: area `$22`,
+    /// whose death tiles (`$9249`) reach only the nametables.
+    pub nametable_playfield: Option<Strip>,
 }
 
-/// The screen's bottom rows drawn from the nametables with banks of their own (the boss bar).
+/// Rows of the screen drawn from the nametables in screen space, with banks of their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Strip {
     /// The screen line of its first row.
@@ -43,11 +47,12 @@ pub fn view(game: &Game, lines: &[Line]) -> Option<View> {
     let top = i32::from(rounded(game.world.camera_y));
     let strip = match game.scroll.split {
         split if !split.armed => None,
-        // The final boss's death tiles (`$9249`) reach the nametables only, not the map.
-        split if split.handler == 4 && game.world.area != FINAL_AREA => {
-            Some(strip(lines, banks, top)?)
-        }
+        split if split.handler == 4 => Some(strip(lines, banks, top)?),
         _ => return None,
+    };
+    let nametable_playfield = match strip {
+        Some(bar) if game.world.area == FINAL_AREA => Some(playfield_run(lines, banks, &bar)?),
+        _ => None,
     };
     let shown = lines.iter().all(|line| line.mask & mask::BACKGROUND != 0);
     let steady = strip.is_some() || lines.iter().all(|line| background_banks(line) == banks);
@@ -56,6 +61,19 @@ pub fn view(game: &Game, lines: &[Line]) -> Option<View> {
         top,
         banks,
         strip,
+        nametable_playfield,
+    })
+}
+
+/// The playfield as one unscrolled run from line 0 down to the bar on a tile row, its rows
+/// within line 0's nametable.
+fn playfield_run(lines: &[Line], banks: [u8; 4], bar: &Strip) -> Option<Strip> {
+    let first = *lines.first()?;
+    let within = usize::from((first.v >> 5) & 0x1F) + bar.line / 8 <= 30;
+    (first.v & 0x7000 == 0 && bar.line.is_multiple_of(8) && within).then_some(Strip {
+        line: 0,
+        top: first,
+        banks,
     })
 }
 
@@ -173,7 +191,8 @@ fn background_banks(line: &Line) -> [u8; 4] {
 /// line's, or one frame's as the camera lands). Returns how many cells showed the one
 /// difference the game makes: in a vertical room, a page's row 14 with its row 15's palette,
 /// which the game streams into row 14's attribute slot as its scroll locks at the page's end.
-/// A strip's lines are checked by [`check_strip`] instead.
+/// A strip's lines are checked by [`check_strip`] instead, and so is a nametable playfield's in
+/// place of the map.
 ///
 /// # Errors
 /// The first cell that differs otherwise.
@@ -187,10 +206,14 @@ pub fn check_background(
     let vertical = game.world.orientation & orientation::VERTICAL != 0;
     let mut row_15_palettes = 0;
     let end = view.strip.map_or(232, |strip| strip.line.min(232));
-    let tops = lines
-        .iter()
-        .enumerate()
-        .filter(|&(y, line)| (8..end).contains(&y) && (y == 8 || line.v & 0x7000 == 0));
+    if let Some(run) = &view.nametable_playfield {
+        check_strip(run, end, lines, ppu, chr)?;
+    }
+    let tops = lines.iter().enumerate().filter(|&(y, line)| {
+        view.nametable_playfield.is_none()
+            && (8..end).contains(&y)
+            && (y == 8 || line.v & 0x7000 == 0)
+    });
     for (y, line) in tops {
         for x in cells(line) {
             let (tile, palette) = nametable_tile(ppu, line, x);
@@ -219,7 +242,7 @@ pub fn check_background(
         }
     }
     if let Some(strip) = &view.strip {
-        check_strip(strip, lines, ppu, chr)?;
+        check_strip(strip, 232, lines, ppu, chr)?;
     }
     Ok(row_15_palettes)
 }
@@ -230,12 +253,18 @@ fn cells(line: &Line) -> impl Iterator<Item = usize> {
     (first..248).step_by(8).filter(|&x| x >= 8)
 }
 
-/// Checks the strip's TV-visible lines are one unscrolled run its banks draw the same.
+/// Checks the strip's TV-visible lines above `end` are one unscrolled run its banks draw the same.
 ///
 /// # Errors
 /// The first line or cell that differs.
-fn check_strip(strip: &Strip, lines: &[Line], ppu: &Ppu, chr: &[u8]) -> Result<(), String> {
-    for (y, line) in lines.iter().enumerate().take(232).skip(strip.line.max(8)) {
+fn check_strip(
+    strip: &Strip,
+    end: usize,
+    lines: &[Line],
+    ppu: &Ppu,
+    chr: &[u8],
+) -> Result<(), String> {
+    for (y, line) in lines.iter().enumerate().take(end).skip(strip.line.max(8)) {
         let (row, fine_y) = ((y - strip.line) / 8, usize::from(line.v >> 12) & 7);
         if line.fine_x != strip.top.fine_x || fine_y != (y - strip.line) % 8 {
             return Err(format!(
@@ -306,17 +335,23 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_d3_4_boss_bar_is_a_strip_and_each_reason_makes_it_classic() {
-        let (Some((mut game, _)), Some(rom)) = (stage_1(), rotj_rom::for_test()) else {
-            return;
-        };
+    /// Stage 1-1's second loop frame with a `$D3` 4 split armed, and its lines.
+    fn boss_bar_frame() -> Option<(Game, Vec<Line>)> {
+        let ((mut game, _), rom) = (stage_1()?, rotj_rom::for_test()?);
         game.frame(crate::prg::for_test().expect("the PRG"), &rom.chr);
         game.scroll.split.armed = true;
         game.scroll.split.handler = 4;
         game.scroll.split.first_irq_cycles = 0x5E00;
         game.scroll.split.next_irq = 0;
         let lines = raster::lines(&raster::Registers::of(&game), &game);
+        Some((game, lines))
+    }
+
+    #[test]
+    fn a_d3_4_boss_bar_is_a_strip_and_each_reason_makes_it_classic() {
+        let Some((game, lines)) = boss_bar_frame() else {
+            return;
+        };
         let strip = view(&game, &lines).and_then(|view| view.strip);
         let playfield = lines[0].chr;
         let slot_3 = playfield[3];
@@ -386,8 +421,54 @@ mod tests {
             None,
             "rows past its nametable's"
         );
-        let mut last = game.clone();
-        last.world.area = FINAL_AREA;
-        assert_eq!(view(&last, &lines), None, "the final boss's room");
+    }
+
+    #[test]
+    fn the_final_boss_s_playfield_is_read_from_the_nametables() {
+        let Some((mut game, lines)) = boss_bar_frame() else {
+            return;
+        };
+        let other = view(&game, &lines).expect("a strip frame");
+        assert_eq!(
+            other.nametable_playfield, None,
+            "another area's from the map"
+        );
+        game.world.area = FINAL_AREA;
+        let shown = view(&game, &lines).expect("the final boss's room");
+        assert_eq!(
+            shown
+                .nametable_playfield
+                .map(|run| (run.line, run.top, run.banks)),
+            Some((0, lines[0], shown.banks)),
+            "line 0 down, the playfield's banks"
+        );
+        let mut shaken = game.clone();
+        shaken.scroll.scroll_x = 0xFC;
+        let shaken_lines = raster::lines(&raster::Registers::of(&shaken), &shaken);
+        assert_eq!(
+            view(&shaken, &shaken_lines)
+                .and_then(|view| view.nametable_playfield)
+                .map(|run| (run.top.v & 0x1F, run.top.fine_x)),
+            Some((31, 4)),
+            "a shaken frame's run from coarse x 31"
+        );
+        let mut off_edge = lines.clone();
+        off_edge[0].v |= 0x1000;
+        assert_eq!(view(&game, &off_edge), None, "line 0 off a tile edge");
+        let mut wrapping = lines.clone();
+        wrapping[0].v |= 10 << 5;
+        assert_eq!(view(&game, &wrapping), None, "rows past line 0's nametable");
+        let mut unbanked = lines.clone();
+        for line in &mut unbanked {
+            line.chr = lines[0].chr;
+        }
+        assert_eq!(view(&game, &unbanked), None, "no bank change");
+        let bar = shown.strip.expect("the bar");
+        let low_bar = Strip { line: 196, ..bar };
+        assert_eq!(
+            playfield_run(&lines, shown.banks, &low_bar),
+            None,
+            "a bar off a tile row"
+        );
     }
 }

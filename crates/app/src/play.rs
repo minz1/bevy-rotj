@@ -644,7 +644,7 @@ pub(crate) mod tests {
     }
 
     /// Arms `$BA`/`$BB` and runs the script that follows to its end.
-    fn transition(play: &mut Play, kind: u8, arg: u8) {
+    pub(crate) fn transition(play: &mut Play, kind: u8, arg: u8) {
         let effects = &mut play.game_mut().effects;
         (effects.transition, effects.transition_arg) = (kind, arg);
         play.step(0);

@@ -612,11 +612,12 @@ mod tests {
             (
                 pictures.modern,
                 pictures.strip,
+                pictures.nametable_playfield,
                 pictures.row_15_palettes,
                 exceptions.half_written,
                 exceptions.unreached
             ),
-            (11008, 2178, 185, 0, 8),
+            (12485, 3655, 1477, 185, 0, 8),
             "the Modern frames and the gates' exceptions: {run:?}"
         );
         assert!(
