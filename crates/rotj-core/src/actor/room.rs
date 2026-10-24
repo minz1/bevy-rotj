@@ -4,6 +4,7 @@
 use super::Game;
 use super::button::Buttons;
 use super::engine::{rom_byte, rom_word};
+use super::script::{Flow, Runner, wait};
 use super::slots::Slots;
 use super::spawn::{SpawnTable, spawn_row};
 use super::stage::Fade;
@@ -27,38 +28,90 @@ pub struct RoomChange {
     /// The sprite colours the fade path keeps across the load (`$04F1-$04F3` in `$1A-$1C`).
     kept: [u8; 3],
     phase: Phase,
+    /// Where the change is in [`FADE`], [`TURN`] or [`SLIDE`].
+    runner: Runner,
+    fade: Fade,
+    /// The page being drawn, until its last step.
+    draw: Option<PageDraw>,
+    /// The column of the page beside the first, for a room two nametables wide or tall.
+    second: Option<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
-    FadeStart,
-    FadeOut(Fade),
-    FadeLoad,
-    FadeEnter,
-    FadeIn(Fade),
-    Close,
+    /// The fade through black, the rows of [`FADE`].
+    Fade,
     Align,
+    /// The vertical room's turn to side by side, the rows of [`TURN`].
     Turn,
-    Draw(PageDraw, Then),
-    Flip,
-    Enter,
-    NewPage,
+    /// The slide into the new room, the rows of [`SLIDE`].
     Slide,
-    Sliding,
-    Spawn,
-    SecondPage(u8),
-    Place,
     Done,
 }
 
+/// What the room change does, for the fade and for the slide, in order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Then {
+enum RoomRow {
+    /// The sprite colours kept.
+    KeepColours,
+    /// A fade, rising or not and streaming the scroll or not, `Done` in its last frame.
+    Fade(bool, bool),
+    /// Frames the screen stays as it is.
+    Wait(u16),
+    /// Room + 2 loaded, its first row spawned, the colours back and its first page set up.
+    LoadRoom,
+    /// The page set up drawn, one step a frame, `Done` the frame after its last.
+    Draw,
+    /// The page beside the first set up, when the room has one.
+    SecondPage,
+    /// The arrangement restored and the room's parameters read.
+    Restore,
+    /// The change over, `$BA` cleared.
+    Close,
+    /// The camera's page set up.
+    TurnPage,
+    /// The arrangement turned side by side.
     Flip,
+    /// The new room entered.
+    Enter,
+    /// The new room's first page set up.
+    NewPage,
+    /// The slide's first step.
     Slide,
-    SecondPage(u8),
+    /// The slide's steps until the scroll is 0.
+    Sliding,
+    /// The new room's first row spawned and its first page set up.
+    Spawn,
+    /// The player placed and the change over.
     Place,
-    FadeIn,
 }
+
+const FADE: &[RoomRow] = &[
+    RoomRow::KeepColours,
+    RoomRow::Fade(false, true),
+    RoomRow::Wait(1),
+    RoomRow::LoadRoom,
+    RoomRow::Draw,
+    RoomRow::SecondPage,
+    RoomRow::Draw,
+    RoomRow::Restore,
+    RoomRow::Fade(true, false),
+    RoomRow::Wait(1),
+    RoomRow::Close,
+];
+const TURN: &[RoomRow] = &[RoomRow::TurnPage, RoomRow::Draw, RoomRow::Flip];
+const SLIDE: &[RoomRow] = &[
+    RoomRow::Enter,
+    RoomRow::NewPage,
+    RoomRow::Draw,
+    RoomRow::Slide,
+    RoomRow::Sliding,
+    RoomRow::Spawn,
+    RoomRow::Draw,
+    RoomRow::SecondPage,
+    RoomRow::Draw,
+    RoomRow::Place,
+];
 
 impl RoomChange {
     /// The change toward `target` (`$BB`); with bit 7 set, a fade through black
@@ -72,8 +125,12 @@ impl RoomChange {
             phase: if target & 0x80 == 0 {
                 Phase::Align
             } else {
-                Phase::FadeStart
+                Phase::Fade
             },
+            runner: Runner::default(),
+            fade: Fade::new(false, true),
+            draw: None,
+            second: None,
         }
     }
 
@@ -87,163 +144,159 @@ impl RoomChange {
     pub fn step(&mut self, game: &mut Game, prg: &Prg) {
         loop {
             match self.phase {
-                Phase::FadeStart
-                | Phase::FadeOut(_)
-                | Phase::FadeLoad
-                | Phase::FadeEnter
-                | Phase::FadeIn(_)
-                | Phase::Close => {
-                    if self.fade(game, prg) {
+                Phase::Fade => {
+                    if self.table_frame(FADE, game, prg) {
                         return;
                     }
+                    self.phase = Phase::Done;
                 }
                 Phase::Align => {
                     if self.align(game, prg) {
                         return;
                     }
+                    self.begin(Phase::Slide);
                 }
                 Phase::Turn => {
-                    let page = usize::from(game.world.camera_y >> 12)
-                        + usize::from(game.scroll.ppu_ctrl & ctrl::NAMETABLE_X) * 16;
-                    let draw = PageDraw::new(
-                        game.schedule.page_columns[page],
-                        0x60,
-                        table(game.scroll.ppu_ctrl),
-                        game.scroll.mirroring,
-                    );
-                    self.phase = Phase::Draw(draw, Then::Flip);
-                }
-                Phase::Draw(mut draw, then) => {
-                    let finished = draw.step(game);
-                    self.phase = match (finished, then) {
-                        (false, _) => Phase::Draw(draw, then),
-                        (true, Then::Flip) => Phase::Flip,
-                        (true, Then::Slide) => Phase::Slide,
-                        (true, Then::SecondPage(column)) => Phase::SecondPage(column),
-                        (true, Then::Place) => Phase::Place,
-                        (true, Then::FadeIn) => Phase::FadeEnter,
-                    };
-                    return;
-                }
-                Phase::Flip => {
-                    let scroll = &mut game.scroll;
-                    let flipped = scroll.ppu_ctrl ^ ctrl::NAMETABLE_Y;
-                    scroll.scroll_y = 0;
-                    scroll.mirroring = Mirroring::SideBySide;
-                    scroll.ppu_ctrl =
-                        (flipped & !ctrl::NAMETABLE) | ((flipped & ctrl::NAMETABLE_Y) >> 1);
-                    self.phase = Phase::Enter;
-                    return;
-                }
-                Phase::Enter => {
-                    self.replaced = enter(game, prg, self.target);
-                    self.phase = Phase::NewPage;
-                    return;
-                }
-                Phase::NewPage => {
-                    let draw = PageDraw::new(
-                        game.scroll.start,
-                        0x60,
-                        table(game.scroll.ppu_ctrl),
-                        game.scroll.mirroring,
-                    );
-                    self.phase = Phase::Draw(draw, Then::Slide);
+                    if self.table_frame(TURN, game, prg) {
+                        return;
+                    }
+                    self.begin(Phase::Slide);
                 }
                 Phase::Slide => {
-                    self.slide(game, prg);
-                    self.phase = Phase::Sliding;
-                    return;
-                }
-                Phase::Sliding => {
-                    if game.scroll.scroll_x | game.scroll.scroll_y == 0 {
-                        self.phase = Phase::Spawn;
-                        continue;
+                    if self.table_frame(SLIDE, game, prg) {
+                        return;
                     }
-                    self.slide(game, prg);
-                    return;
-                }
-                Phase::Spawn => {
-                    spawn_first_row(game, prg);
-                    let (draw, then) = page_draws(game, Then::Place);
-                    self.phase = Phase::Draw(draw, then);
-                }
-                Phase::SecondPage(column) => self.phase = self.second_page(game, column),
-                Phase::Place => {
-                    place(game, prg, self.replaced);
                     self.phase = Phase::Done;
-                    return;
                 }
                 Phase::Done => return,
             }
         }
     }
 
-    /// One step of the fade path (`$BA8B-$BB3A`); true when the frame ended.
-    fn fade(&mut self, game: &mut Game, prg: &[u8]) -> bool {
-        match self.phase {
-            Phase::FadeStart => {
-                self.kept.copy_from_slice(&game.effects.palette[17..20]);
-                self.phase = Phase::FadeOut(Fade::new(false, true));
-            }
-            Phase::FadeOut(mut fade) => {
-                self.phase = if fade.step(game, prg) {
-                    Phase::FadeLoad
-                } else {
-                    Phase::FadeOut(fade)
-                };
+    /// Starts `phase` at the top of its table.
+    fn begin(&mut self, phase: Phase) {
+        self.phase = phase;
+        self.runner = Runner::default();
+    }
+
+    /// Runs `rows` up to the frame's end (true) or until they run out.
+    fn table_frame(&mut self, rows: &[RoomRow], game: &mut Game, prg: &Prg) -> bool {
+        while let Some(&row) = self.runner.row(rows) {
+            let frame = self.runner.frame;
+            let flow = match row {
+                RoomRow::KeepColours => {
+                    self.kept.copy_from_slice(&game.effects.palette[17..20]);
+                    Flow::Done
+                }
+                RoomRow::Fade(rising, streams) => {
+                    if frame == 0 {
+                        self.fade = Fade::new(rising, streams);
+                    }
+                    if self.fade.step(game, prg) {
+                        Flow::Done
+                    } else {
+                        Flow::Waited
+                    }
+                }
+                RoomRow::Wait(count) => wait(frame, count),
+                RoomRow::LoadRoom => {
+                    self.load_room(game, prg);
+                    Flow::Done
+                }
+                RoomRow::Draw => match &mut self.draw {
+                    Some(draw) => {
+                        if draw.step(game) {
+                            self.draw = None;
+                        }
+                        Flow::Waited
+                    }
+                    None => Flow::Done,
+                },
+                RoomRow::SecondPage => {
+                    if let Some(column) = self.second.take() {
+                        self.draw = Some(second_page(game, column));
+                    }
+                    Flow::Done
+                }
+                RoomRow::Restore => {
+                    game.scroll.ppu_ctrl &= !ctrl::NAMETABLE;
+                    game.scroll.mirroring = self.replaced;
+                    parameters(game, prg);
+                    game.oam.finish();
+                    Flow::Done
+                }
+                RoomRow::Close => {
+                    game.effects.transition = 0;
+                    game.effects.transition_arg = 0;
+                    Flow::Done
+                }
+                RoomRow::TurnPage => {
+                    self.draw = Some(turn_page(game));
+                    Flow::Done
+                }
+                RoomRow::Flip => {
+                    if frame == 0 {
+                        flip(game);
+                    }
+                    wait(frame, 1)
+                }
+                RoomRow::Enter => {
+                    if frame == 0 {
+                        self.replaced = enter(game, prg, self.target);
+                    }
+                    wait(frame, 1)
+                }
+                RoomRow::NewPage => {
+                    self.draw = Some(new_page(game));
+                    Flow::Done
+                }
+                RoomRow::Slide => {
+                    if frame == 0 {
+                        self.slide(game, prg);
+                    }
+                    wait(frame, 1)
+                }
+                RoomRow::Sliding => {
+                    if game.scroll.scroll_x | game.scroll.scroll_y == 0 {
+                        Flow::Done
+                    } else {
+                        self.slide(game, prg);
+                        Flow::Waited
+                    }
+                }
+                RoomRow::Spawn => {
+                    spawn_first_row(game, prg);
+                    self.set_pages(game);
+                    Flow::Done
+                }
+                RoomRow::Place => {
+                    place(game, prg, self.replaced);
+                    Flow::Done
+                }
+            };
+            if self.runner.advance(flow) {
                 return true;
             }
-            Phase::FadeLoad => {
-                game.world.room = game.world.room.wrapping_add(2);
-                load(game, prg);
-                self.replaced = game.scroll.mirroring;
-                spawn_first_row(game, prg);
-                game.effects.palette[17..20].copy_from_slice(&self.kept);
-                let (draw, then) = page_draws(game, Then::FadeIn);
-                self.phase = Phase::Draw(draw, then);
-            }
-            Phase::FadeEnter => {
-                game.scroll.ppu_ctrl &= !ctrl::NAMETABLE;
-                game.scroll.mirroring = self.replaced;
-                parameters(game, prg);
-                game.oam.finish();
-                self.phase = Phase::FadeIn(Fade::new(true, false));
-            }
-            Phase::FadeIn(mut fade) => {
-                self.phase = if fade.step(game, prg) {
-                    Phase::Close
-                } else {
-                    Phase::FadeIn(fade)
-                };
-                return true;
-            }
-            Phase::Close => {
-                game.effects.transition = 0;
-                game.effects.transition_arg = 0;
-                self.phase = Phase::Done;
-                return true;
-            }
-            _ => unreachable!("not a fade phase"),
         }
         false
     }
 
-    /// The second page of a room two nametables wide or tall (`$BA3C-$BA51`, `$BB18-$BB2D`):
-    /// into `$2400`, from map row 1 when the room is tall.
-    fn second_page(&self, game: &mut Game, column: u8) -> Phase {
-        game.scroll.ppu_ctrl &= !ctrl::NAMETABLE;
-        let row = if game.world.orientation & orientation::VERTICAL == 0 {
-            0x61
-        } else {
-            0x60
-        };
-        let draw = PageDraw::new(column, row, 0x24, game.scroll.mirroring);
-        let then = if self.target & 0x80 == 0 {
-            Then::Place
-        } else {
-            Then::FadeIn
-        };
-        Phase::Draw(draw, then)
+    /// The fade path's load: room + 2, its first row spawned, the kept colours back and
+    /// its pages set up.
+    fn load_room(&mut self, game: &mut Game, prg: &Prg) {
+        game.world.room = game.world.room.wrapping_add(2);
+        load(game, prg);
+        self.replaced = game.scroll.mirroring;
+        spawn_first_row(game, prg);
+        game.effects.palette[17..20].copy_from_slice(&self.kept);
+        self.set_pages(game);
+    }
+
+    /// The new room's first page set up to draw, and the page beside it to follow.
+    fn set_pages(&mut self, game: &Game) {
+        let (draw, second) = page_draws(game);
+        self.draw = Some(draw);
+        self.second = second;
     }
 
     /// One frame of the camera's move to a page edge (`$B7F3-$B8D9`), or the step
@@ -256,10 +309,9 @@ impl RoomChange {
         if (cy & 0x0F) | fy == 0 && (cx & 0x0F) | fx == 0 {
             if game.world.orientation & orientation::VERTICAL != 0 {
                 game.scroll.mirroring = Mirroring::SideBySide;
-                self.phase = Phase::Turn;
+                self.begin(Phase::Turn);
                 return true;
             }
-            self.phase = Phase::Enter;
             return false;
         }
         game.scroll.speed_y = align_speed(game.world.camera_y);
@@ -322,9 +374,9 @@ impl RoomChange {
     }
 }
 
-/// The new room's camera page drawn into the first nametable, then `last`, or for a
-/// room two nametables across (`$DD` bit 7) the page beside it first (`$BA0B-$BA51`).
-fn page_draws(game: &Game, last: Then) -> (PageDraw, Then) {
+/// The new room's camera page drawn into the first nametable, and for a room two
+/// nametables across (`$DD` bit 7) the column of the page beside it (`$BA0B-$BA51`).
+fn page_draws(game: &Game) -> (PageDraw, Option<u8>) {
     let orientation = game.world.orientation;
     let camera = if orientation & orientation::VERTICAL != 0 {
         game.world.camera_y
@@ -341,15 +393,54 @@ fn page_draws(game: &Game, last: Then) -> (PageDraw, Then) {
     } else {
         (first, second)
     };
-    let then = if orientation & orientation::TWO_PAGES == 0 {
-        last
-    } else {
-        Then::SecondPage(second)
-    };
+    let second = (orientation & orientation::TWO_PAGES != 0).then_some(second);
     (
         PageDraw::new(first, 0x60, 0x20, game.scroll.mirroring),
-        then,
+        second,
     )
+}
+
+/// The second page of a room two nametables wide or tall (`$BA3C-$BA51`, `$BB18-$BB2D`):
+/// into `$2400`, from map row 1 when the room is tall.
+fn second_page(game: &mut Game, column: u8) -> PageDraw {
+    game.scroll.ppu_ctrl &= !ctrl::NAMETABLE;
+    let row = if game.world.orientation & orientation::VERTICAL == 0 {
+        0x61
+    } else {
+        0x60
+    };
+    PageDraw::new(column, row, 0x24, game.scroll.mirroring)
+}
+
+/// The vertical room's camera page, drawn again before the arrangement turns.
+fn turn_page(game: &Game) -> PageDraw {
+    let page = usize::from(game.world.camera_y >> 12)
+        + usize::from(game.scroll.ppu_ctrl & ctrl::NAMETABLE_X) * 16;
+    PageDraw::new(
+        game.schedule.page_columns[page],
+        0x60,
+        table(game.scroll.ppu_ctrl),
+        game.scroll.mirroring,
+    )
+}
+
+/// The new room's first page, the slide's way in.
+fn new_page(game: &Game) -> PageDraw {
+    PageDraw::new(
+        game.scroll.start,
+        0x60,
+        table(game.scroll.ppu_ctrl),
+        game.scroll.mirroring,
+    )
+}
+
+/// The arrangement turned side by side for the slide out of a vertical room.
+fn flip(game: &mut Game) {
+    let scroll = &mut game.scroll;
+    let flipped = scroll.ppu_ctrl ^ ctrl::NAMETABLE_Y;
+    scroll.scroll_y = 0;
+    scroll.mirroring = Mirroring::SideBySide;
+    scroll.ppu_ctrl = (flipped & !ctrl::NAMETABLE) | ((flipped & ctrl::NAMETABLE_Y) >> 1);
 }
 
 /// Restores the arrangement, places the player and reads the room's parameters, and
