@@ -84,7 +84,7 @@ fn step(scroll: &mut Scroll, i: usize, mask: u8) {
 /// `$DE30`/`$DFB0`'s bounce: every eighth frame (`$F1 & 7`) `$D5+i` drifts by `$B6 & 1`,
 /// up while `$D5+flag` bit 7 is clear until it reaches `$20`, down until below `$F0`.
 fn bounce(scroll: &mut Scroll, frame: u8, i: usize, flag: usize) {
-    if frame.trailing_zeros() < 3 {
+    if !frame.is_multiple_of(8) {
         return;
     }
     let delta = 1 & scroll.gate;
@@ -219,7 +219,7 @@ fn three_bands(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32>
             scroll.scroll_x = scroll.bands[2];
             scroll.split.next_irq = 0;
             scroll.split.first_irq_cycles = 0x31A0;
-            if frame.trailing_zeros() >= 3 {
+            if frame.is_multiple_of(8) {
                 step(scroll, 2, 1);
             }
             None
