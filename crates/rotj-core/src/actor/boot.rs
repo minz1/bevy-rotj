@@ -12,6 +12,7 @@ use super::stage::{Fade, NextArea, blackout, queue_palette};
 use crate::actor::button::Buttons;
 use crate::actor::world::{Weapon, set_first_colours, sound};
 use crate::levelmap::BOOT_FIRST_BANK;
+use crate::levels::{Levels, StageAssets};
 use crate::prg::Prg;
 use crate::render::{Mirroring, ctrl, mask};
 
@@ -895,7 +896,7 @@ impl Boot {
     fn verdict_frame(&mut self, step: Password, game: &mut Game, prg: &Prg, chr: &[u8]) -> bool {
         let next = match step {
             Password::Verdict => {
-                let accepted = self.check_password(chr);
+                let accepted = self.check_password(&prg.levels);
                 self.entry.ticks = 0;
                 self.entry.blink = false;
                 if accepted {
@@ -1042,15 +1043,10 @@ impl Boot {
 
     /// Whether the letters are one of the passwords, checked from the last (`$6550`);
     /// if so the level is its place, the last two both the thirteenth (`$659F`).
-    fn check_password(&mut self, chr: &[u8]) -> bool {
-        let letters = self.entry.letters;
-        let found = (0..14u8).rev().find(|&place| {
-            (0..4).all(|i| {
-                payload_byte(chr, PASSWORDS + u16::from(4 * place + i)) == letters[usize::from(i)]
-            })
-        });
-        if let Some(place) = found {
-            self.level = place.min(12);
+    fn check_password(&mut self, levels: &Levels) -> bool {
+        let found = password_level(levels, self.entry.letters);
+        if let Some(level) = found {
+            self.level = level;
         }
         found.is_some()
     }
@@ -1157,6 +1153,30 @@ fn new_game(game: &mut Game) {
     game.oam.chr[4] = 0x9D;
 }
 
+/// The level `letters` (indexes 0-25) start: a checkpoint's rank, or the rank of an extra
+/// password's stage among the checkpoints.
+fn password_level(levels: &Levels, letters: [u8; 4]) -> Option<u8> {
+    let matches = |password: [u8; 4]| password.map(|letter| letter.wrapping_sub(b'A')) == letters;
+    let is_checkpoint = |assets: &&StageAssets| assets.stage.descriptor.password.is_some();
+    let mut passwords = levels
+        .stages
+        .iter()
+        .filter_map(|assets| assets.stage.descriptor.password);
+    let rank = passwords.position(matches).or_else(|| {
+        let extra = levels
+            .extra_passwords
+            .iter()
+            .find(|extra| matches(extra.letters))?;
+        Some(
+            levels.stages[..extra.stage]
+                .iter()
+                .filter(is_checkpoint)
+                .count(),
+        )
+    })?;
+    u8::try_from(rank).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::oracle::{Scene, assert_boot};
@@ -1257,6 +1277,38 @@ mod tests {
             !passwords.contains(&place(13)),
             "the fourteenth password is one the pause never shows"
         );
+    }
+
+    /// Every place on the password screen (`$6E6C`) gives the level `$6550` gives,
+    /// `place.min(12)`, and an extra password the rank of its stage among the checkpoints.
+    #[test]
+    fn the_passwords_start_their_checkpoints_through_the_levels() {
+        let (Some(rom), Some(prg)) = (rotj_rom::for_test(), crate::prg::for_test()) else {
+            return;
+        };
+        let place = |place: u8| {
+            [0, 1, 2, 3]
+                .map(|i| super::payload_byte(&rom.chr, super::PASSWORDS + u16::from(4 * place + i)))
+        };
+        for at in 0..14 {
+            assert_eq!(
+                super::password_level(&prg.levels, place(at)),
+                Some(at.min(12)),
+                "place {at}"
+            );
+        }
+        assert_eq!(super::password_level(&prg.levels, [25; 4]), None);
+        let mut levels = prg.levels.clone();
+        let second = levels
+            .stages
+            .iter()
+            .enumerate()
+            .filter(|(_, assets)| assets.stage.descriptor.password.is_some())
+            .nth(1)
+            .map(|(index, _)| index)
+            .expect("a second checkpoint");
+        levels.extra_passwords[0].stage = second;
+        assert_eq!(super::password_level(&levels, place(13)), Some(1));
     }
 
     /// The password screen: three of the fourteen passwords (`$6E6C`) start their
