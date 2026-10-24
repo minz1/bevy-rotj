@@ -148,7 +148,9 @@ my-world/                       the pack, what people share
    one descriptor the engine reads; the original game's pack sets the original values; the
    tapes unchanged. The knobs' final list comes from this survey.
 3. The game loads levels through the `Levels` seam (the original game via the pack path); tapes
-   unchanged.
+   unchanged. Implemented in 1.1.44 (`docs/specs/2026-10-24-level-packs-release-3-design.md`):
+   the pack plus a ROM overlay of the 225 schedule cells and the one room mirroring the format
+   drops; `bevy_asset_loader` moves to release 6.
 4. The tileset generator (PNGs from the player's ROM) and the Tiled project file.
 5. `classic` validation and custom metatiles.
 6. Playing a pack: a `--pack <dir>` launch flag first; the stage-settings panel, the menu and the

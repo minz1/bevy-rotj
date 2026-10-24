@@ -252,7 +252,10 @@ file, layer and object. `Levels { stages: Vec<StageAssets> }`:
   page) through the importer, and the errors (a region listed twice, disagreeing shared cells,
   an unknown class or variant).
 - Residue is dropped (owner's answer 2) and must import as 0. Release 3's spec decides how the
-  lockstep treats those `$7410-$750F` cells and puts any proof change to the owner.
+  lockstep treats those `$7410-$750F` cells and puts any proof change to the owner. Answered in
+  release 3: `Levels::original` puts the ROM's cells back, so the lockstep sees the ROM's bytes.
+- Corrected in release 3: `listed_rooms` missed 1-1's rooms 2 and 4 (area 0's room table runs
+  into the next), so there are 38 rooms, not 36, and 1.1.21-1.1.43's packs lack those two.
 - Answered by the owner (2026-10-23) in release 2: `first_spawn_column` in area 11 rooms 2 and 3
   (`rooms/5-1-3.tmj`, `5-1-4.tmj`; ROM `$00` and `$70`) is an optional room property, so the
   equivalence test compares every room field; bit 6 of the 24 7-2 cells is not carried, since

@@ -82,7 +82,8 @@ lie in `$00-$2F` (`$1A`, `$1D`, `$1F`, `$29`, `$2B`), but its stream uses no id 
 `spawn_row` on `$C0 | id` and on `$80 | id` give the same slots and leave the same cell, and
 `lock_at` the same locks. `PENDING_BIT_6` becomes `BIT_6_CELLS` (nothing is pending), keeping its
 count assertion; its doc comment and the release-1 spec's pending note say why it is dropped. Release 3's
-lockstep sees these bytes at `$7410`, like the residue; its spec treats both.
+lockstep sees these bytes at `$7410`, like the residue; its spec treats both. Release 3 puts both
+back through `Levels::original`'s ROM overlay.
 
 ## The types
 

@@ -168,11 +168,17 @@ from the game's own requests.
 
 ## Owner decisions pending
 
-- **Level packs, the schedule residue in release 3**: dropping the residue (the owner's answer)
-  changes WRAM bytes the lockstep compares (`$7410-$750F`); release 3's spec will propose how the
-  proof treats them.
+- **Level packs, 1-1-2's mirroring (before release 6's `--pack`)**: should rooms carry an optional
+  `mirroring` property (like `first_spawn_column`) so the pack round-trips 1-1-2, a vertical room
+  in `SingleLow`, without `Levels::original`'s ROM overlay?
 
 ## Owner decisions made
+
+- **Level packs, the schedule residue (release 3, 2026-10-24, the Opus stand-in; owner may
+  review)**: the pack keeps dropping the residue and the bit 6 of 7-2's 24 cells; the game reads
+  `Levels::original`, the imported pack plus a ROM overlay of the 225 cells and of 1-1-2's start
+  mirroring (a vertical room in `SingleLow`, which the derived rule cannot give), so the lockstep
+  and the tapes see the ROM's bytes.
 
 - **Level packs, releases 2 and 3 (2026-10-23)**, answering the questions that stood under
   "Owner decisions pending": (1) `first_spawn_column` in area 11 rooms 2 and 3 becomes an optional

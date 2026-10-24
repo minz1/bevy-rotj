@@ -253,6 +253,11 @@ Each commit is green on the Classic suites. Commits 2-4 also replay the chain ta
    shows through. Should `classic` validation refuse such streams, or should the format define
    that leftover?
 2. The `bevy_asset_loader` deferral above, for the owner's review.
+3. 1-1-2's start mirroring (release 6): an optional room `mirroring` property would let the pack
+   round-trip it without the ROM overlay; the owner decides.
+4. A user pack with fewer stages or rooms than the game enters (release 6): `room_assets` and
+   `stage::at` index `Levels` and panic, so `--pack` must refuse such a pack at load, by name. A
+   1.1.21-1.1.43 export, which lacks 1-1's rooms 2 and 4, is one.
 
 Status: approved by the Opus stand-in (2026-10-24) with ten changes applied (room indexing,
 signatures, residue wording, overlay wording, app-test Prg reuse, one from_rom, shorter

@@ -1,6 +1,7 @@
 //! Level packs: the game's levels as Tiled maps and a `pack.json`, and the typed assets they
 //! import to (`docs/specs/2026-10-18-level-packs-design.md`, release 1 in
-//! `docs/specs/2026-10-18-level-packs-release-1-design.md`). The game does not read packs yet.
+//! `docs/specs/2026-10-18-level-packs-release-1-design.md`). The game reads its levels through
+//! [`Levels`] (`Prg::levels`), by default [`Levels::original`]; release 6 lets a pack replace it.
 
 use std::collections::BTreeMap;
 
