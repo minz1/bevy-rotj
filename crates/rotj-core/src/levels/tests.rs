@@ -8,10 +8,12 @@ use crate::actor::slots::Slots;
 use crate::actor::spawn::{lock_at, spawn_at, spawn_row};
 use crate::actor::stage::{Music, OnClear};
 use crate::actor::world::{Schedule, orientation};
-use crate::actors::{CELL_FLAGS, CELL_LOCK, CELL_PENDING, CELL_RECORD, SpawnRecord};
+use crate::actors::{
+    CELL_FLAGS, CELL_LOCK, CELL_PENDING, CELL_RECORD, SpawnRecord, spawn_schedule,
+};
 use crate::collision::CLASS_COUNT;
 use crate::render::Mirroring;
-use crate::rooms::{Arrival, Start};
+use crate::rooms::{Arrival, Start, listed_rooms};
 
 /// The ids a room's read cells name: the pending cells on the pages of its table.
 fn read_ids(room: &Room, schedule: &[u8; PAGE_CELLS]) -> BTreeSet<usize> {
@@ -27,6 +29,10 @@ const FIRST_SPAWN_COLUMN_ROOMS: [&str; 2] = ["rooms/5-1-3.tmj", "rooms/5-1-4.tmj
 
 /// The read pending cells that also set bit 6 (`$C0 | id`, all in 7-2), which the format drops.
 const BIT_6_CELLS: usize = 24;
+
+/// The schedule cells [`Levels::original`]'s ROM overlay changes: the residue the format drops
+/// and the bit 6 cells.
+const RESTORED_CELLS: usize = 226;
 
 /// The page-table actors' kinds and the page each writes into the table at runtime.
 const PAGE_TABLE_WRITERS: [(u8, u8); 4] = [(0x9C, 6), (0x76, 7), (0xC8, 0), (0xB2, 0)];
@@ -229,6 +235,47 @@ fn the_original_game_round_trips_byte_for_byte() {
         import(&edited, &catalog, Source::Original).expect("the edited pack imports") == imported,
         "an unknown field or layer changed the import"
     );
+}
+
+/// What the game reads: the export imported, with the ROM's schedules, its stages by
+/// `$0400 >> 1` and its rooms by `$0402 >> 1`. The rooms' other exceptions are the
+/// equivalence's.
+#[test]
+fn the_original_levels_are_the_imported_export_with_the_roms_schedules() {
+    let Some(rom) = rotj_rom::for_test() else {
+        return;
+    };
+    let levels = Levels::original(&rom.prg, &rom.chr).expect("the original levels");
+    let catalog = Catalog::from_rom(&rom.prg, &rom.chr).expect("the ROM's catalog");
+    let files = export(&rom.prg, &rom.chr).expect("the ROM exports");
+    let mut imported = import(&files, &catalog, Source::Original).expect("the export imports");
+    let listed = listed_rooms(&rom.prg);
+    let mut restored = 0;
+    for ((index, stage), back) in (0u8..).zip(&levels.stages).zip(&mut imported.stages) {
+        let (at, area) = (&stage.stage.name, 2 * index);
+        assert_eq!(stage.stage.area, index, "{at}: area");
+        let schedule = spawn_schedule(&rom.prg, area).expect("the area's schedule");
+        assert!(stage.schedule[..] == schedule[..], "{at}: schedule");
+        restored += (back.schedule.iter().zip(&stage.schedule))
+            .filter(|(imported, rom)| imported != rom)
+            .count();
+        back.schedule = stage.schedule;
+        let rooms = listed.iter().filter(|&&(room_area, _)| room_area == area);
+        assert_eq!(rooms.count(), stage.rooms.len(), "{at}: rooms");
+        for (room, assets) in (0u8..).step_by(2).zip(&stage.rooms) {
+            assert!(listed.contains(&(area, room)), "{at}: room {room}");
+            let mut layout = Room::import(&rom.prg, area, room).expect("the room's layout");
+            if !orientation::horizontal_two_page(layout.orientation) {
+                layout.raised_page_count = assets.room.raised_page_count;
+            }
+            assert!(assets.room == layout, "{at}: room {room}");
+        }
+    }
+    assert!(
+        levels == imported,
+        "the levels differ from the import beyond the schedules"
+    );
+    assert_eq!(restored, RESTORED_CELLS, "cells the overlay restored");
 }
 
 const ROOM_A: &str = "rooms/9-9-1.tmj";

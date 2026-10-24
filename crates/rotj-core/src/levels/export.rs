@@ -8,9 +8,9 @@ use super::model::{
     World, WorldMap, to_text,
 };
 use super::{
-    Catalog, ExtraPassword, Levels, PAGE_CELLS, PAGES, PackFiles, RoomAssets, Stage, StageAssets,
-    TABLE_ENTRIES, along_across, class_of, derived_first_spawn_column, region_place, schedule_cell,
-    tile_index,
+    Catalog, ExtraPassword, Levels, PAGE_CELLS, PAGES, PackFiles, RoomAssets, Source, Stage,
+    StageAssets, TABLE_ENTRIES, along_across, class_of, derived_first_spawn_column, import,
+    region_place, schedule_cell, tile_index,
 };
 use crate::actor::boot::{PASSWORDS, payload_byte};
 use crate::actor::spawn::SpawnTable;
@@ -78,6 +78,21 @@ impl Levels {
             stages,
             extra_passwords: vec![ExtraPassword { letters, stage }],
         })
+    }
+
+    /// The original game as it plays: its pack imported, with the ROM's schedule cells the
+    /// format drops put back; `None` where the ROM's levels do not import.
+    #[must_use]
+    pub fn original(prg: &[u8], chr: &[u8]) -> Option<Levels> {
+        let rom = Levels::from_rom(prg, chr)?;
+        let catalog = Catalog::from_levels(&rom);
+        let mut levels = import(&write(&rom, &catalog), &catalog, Source::Original).ok()?;
+        for (stage, rom_stage) in levels.stages.iter_mut().zip(&rom.stages) {
+            for (cell, &rom_cell) in stage.schedule.iter_mut().zip(&rom_stage.schedule) {
+                *cell |= rom_cell;
+            }
+        }
+        Some(levels)
     }
 }
 
