@@ -25,8 +25,7 @@ fn read_ids(room: &Room, schedule: &[u8; PAGE_CELLS]) -> BTreeSet<usize> {
 /// The rooms whose ROM first spawn column is not the derived one (area 11 rooms 2 and 3).
 const FIRST_SPAWN_COLUMN_ROOMS: [&str; 2] = ["rooms/5-1-3.tmj", "rooms/5-1-4.tmj"];
 
-/// The read pending cells that also set bit 6 (`$C0 | id`, all in 7-2): the format does not
-/// carry it, since nothing reads it ([`bit_6_of_a_pending_cell_is_read_by_nothing`]).
+/// The read pending cells that also set bit 6 (`$C0 | id`, all in 7-2), which the format drops.
 const BIT_6_CELLS: usize = 24;
 
 /// The page-table actors' kinds and the page each writes into the table at runtime.
@@ -133,10 +132,7 @@ fn the_original_game_imports_to_the_assets_the_game_reads() {
     assert_eq!(levels.extra_passwords.len(), 1);
 }
 
-/// What reads a schedule cell: `spawn_at` and `spawn_row` (bit 7, then the id), `lock_at`
-/// (`$40` exactly), `despawn` (ORs into a cell already cleared to its id), and
-/// `collision::class_at`, which reads cells `$00-$2F` as the class of a metatile id `$D0` and
-/// up. Some of 7-2's bit 6 cells are in `$00-$2F`, but its stream has no id `$D0` and up.
+/// The readers are listed in docs/specs/2026-10-24-level-packs-release-2-design.md.
 #[test]
 fn bit_6_of_a_pending_cell_is_read_by_nothing() {
     let Some(rom) = rotj_rom::for_test() else {
@@ -775,6 +771,11 @@ fn a_stage_whose_knobs_break_the_format_is_refused() {
     });
     fixture.refuses_pack("password `ABCD` is used twice", |pack| {
         pack.extra_passwords[0].password = "ABCD".into();
+    });
+    fixture.refuses_pack("password `ABCD` is used twice", |pack| {
+        let twin = pack.stages[0].clone();
+        pack.stages.push(twin);
+        pack.extra_passwords.clear();
     });
     fixture.refuses_pack("`extra_passwords`: unknown password `wxyz`", |pack| {
         pack.extra_passwords[0].password = "wxyz".into();

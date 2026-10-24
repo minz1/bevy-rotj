@@ -70,10 +70,9 @@ pub fn import(pack: &PackFiles, catalog: &Catalog, source: Source) -> Result<Lev
         .iter()
         .map(|stage| import_stage(pack, catalog, stage, source))
         .collect::<Result<_, _>>()?;
-    let descriptors: Vec<&Descriptor> = stages.iter().map(|s| &s.stage.descriptor).collect();
-    if descriptors
+    if stages
         .first()
-        .is_none_or(|first| first.password.is_none())
+        .is_none_or(|first| first.stage.descriptor.password.is_none())
     {
         return Err(invalid("pack.json", "the first stage needs a `password`"));
     }
@@ -94,9 +93,9 @@ pub fn import(pack: &PackFiles, catalog: &Catalog, source: Source) -> Result<Lev
         .map(|extra| extra_password(&stages, extra))
         .collect::<Result<Vec<_>, _>>()?;
     let mut seen = BTreeSet::new();
-    let passwords = descriptors
+    let passwords = stages
         .iter()
-        .filter_map(|descriptor| descriptor.password);
+        .filter_map(|assets| assets.stage.descriptor.password);
     if let Some(twice) = passwords
         .chain(extra_passwords.iter().map(|extra| extra.letters))
         .find(|&letters| !seen.insert(letters))
