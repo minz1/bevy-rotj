@@ -6,6 +6,7 @@
 use super::Game;
 use super::cutscene::draw_sprite;
 use super::engine::rom_byte;
+use super::script::{Flow, Runner, wait};
 use super::stage::blackout;
 use super::world::{VramWrite, sound};
 use crate::actor::button::Buttons;
@@ -37,6 +38,8 @@ const EFFECT_COUNT: u8 = 0x1A;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct SoundTest {
     step: Step,
+    /// Where the sound test is in [`SETUP`] or [`SONG`].
+    runner: Runner,
     /// The row (`$10`).
     row: u8,
     /// The song shown (`$11`).
@@ -47,19 +50,37 @@ pub(super) struct SoundTest {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Step {
-    Start,
-    Mask,
-    Screen,
-    Draw,
-    Running,
+    /// The screen set up (`$9A36-$9A7F`), the rows of [`SETUP`].
+    Setup,
+    /// A song started from the song row, the rows of [`SONG`].
     Song,
+    Running,
     Exit,
 }
+
+/// What the sound test does before it runs, and after A on the song row, in order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Row {
+    /// The music stopped and the screen dark.
+    StopAndDark,
+    /// Tall sprites, NMIs and rendering off.
+    SpritesTall,
+    /// The screen drawn ([`show_screen`]).
+    Screen,
+    /// Rendering on and the sprites and palette drawn.
+    Show,
+    /// The song shown started (`$9C85`).
+    PlaySong,
+}
+
+const SETUP: &[Row] = &[Row::StopAndDark, Row::SpritesTall, Row::Screen, Row::Show];
+const SONG: &[Row] = &[Row::PlaySong, Row::Show];
 
 impl SoundTest {
     pub(super) fn new() -> SoundTest {
         SoundTest {
-            step: Step::Start,
+            step: Step::Setup,
+            runner: Runner::default(),
             row: SONG_ROW,
             song: 0,
             effect: 0,
@@ -69,28 +90,18 @@ impl SoundTest {
     /// Runs one frame up to its NMI wait; true, without a frame, once A on the last row
     /// has waited its frame and the game resets (`JMP $E2E6`).
     pub(super) fn step(&mut self, game: &mut Game, prg: &[u8]) -> bool {
-        let rom = |addr: u16| rom_byte(prg, 12, addr);
         loop {
             match self.step {
-                Step::Start => {
-                    game.effects.music = sound::music::STOP;
-                    blackout(game, prg);
-                    self.step = Step::Mask;
+                Step::Setup => {
+                    if self.table_frame(SETUP, game, prg) {
+                        return false;
+                    }
+                    self.step = Step::Running;
                 }
-                Step::Mask => {
-                    game.scroll.ppu_ctrl = (game.scroll.ppu_ctrl
-                        & !(ctrl::NMI | ctrl::VERTICAL_INCREMENT | ctrl::NAMETABLE))
-                        | ctrl::TALL_SPRITES;
-                    game.scroll.mask = 0;
-                    self.step = Step::Screen;
-                }
-                Step::Screen => {
-                    show_screen(game, prg);
-                    self.step = Step::Draw;
-                }
-                Step::Draw => {
-                    game.scroll.mask = mask::RENDERING;
-                    self.draw(game, prg);
+                Step::Song => {
+                    if self.table_frame(SONG, game, prg) {
+                        return false;
+                    }
                     self.step = Step::Running;
                 }
                 Step::Running => {
@@ -104,16 +115,63 @@ impl SoundTest {
                     if self.step == Step::Running {
                         self.draw(game, prg);
                     }
-                }
-                Step::Song => {
-                    game.effects.song = rom(SONGS + u16::from(self.song));
-                    self.step = Step::Draw;
-                    continue;
+                    return false;
                 }
                 Step::Exit => return true,
             }
-            return false;
         }
+    }
+
+    /// Starts `step` at the top of its table.
+    fn begin(&mut self, step: Step) {
+        self.step = step;
+        self.runner = Runner::default();
+    }
+
+    /// Runs `table`'s rows up to the frame's end (true) or until it runs out.
+    fn table_frame(&mut self, table: &[Row], game: &mut Game, prg: &[u8]) -> bool {
+        while let Some(&row) = self.runner.row(table) {
+            let frame = self.runner.frame;
+            let flow = match row {
+                Row::StopAndDark => {
+                    if frame == 0 {
+                        game.effects.music = sound::music::STOP;
+                        blackout(game, prg);
+                    }
+                    wait(frame, 1)
+                }
+                Row::SpritesTall => {
+                    if frame == 0 {
+                        game.scroll.ppu_ctrl = (game.scroll.ppu_ctrl
+                            & !(ctrl::NMI | ctrl::VERTICAL_INCREMENT | ctrl::NAMETABLE))
+                            | ctrl::TALL_SPRITES;
+                        game.scroll.mask = 0;
+                    }
+                    wait(frame, 1)
+                }
+                Row::Screen => {
+                    if frame == 0 {
+                        show_screen(game, prg);
+                    }
+                    wait(frame, 1)
+                }
+                Row::Show => {
+                    if frame == 0 {
+                        game.scroll.mask = mask::RENDERING;
+                        self.draw(game, prg);
+                    }
+                    wait(frame, 1)
+                }
+                Row::PlaySong => {
+                    game.effects.song = rom_byte(prg, 12, SONGS + u16::from(self.song));
+                    Flow::Done
+                }
+            };
+            if self.runner.advance(flow) {
+                return true;
+            }
+        }
+        false
     }
 
     /// A button pressed (`$9A90-$9B38`); A on the song or the exit row leaves the frame
@@ -124,7 +182,7 @@ impl SoundTest {
             match self.row {
                 SONG_ROW => {
                     game.effects.music = sound::music::STOP;
-                    self.step = Step::Song;
+                    self.begin(Step::Song);
                 }
                 EFFECT_ROW => {
                     game.effects.sound[0] = rom_byte(prg, 12, EFFECTS + u16::from(self.effect));
