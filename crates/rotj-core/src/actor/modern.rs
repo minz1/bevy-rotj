@@ -442,6 +442,22 @@ mod tests {
             Some((0, lines[0], shown.banks)),
             "line 0 down, the playfield's banks"
         );
+        let mut unarmed = game.clone();
+        unarmed.scroll.split.armed = false;
+        let unarmed_lines = raster::lines(&raster::Registers::of(&unarmed), &unarmed);
+        assert_eq!(
+            view(&unarmed, &unarmed_lines).map(|view| view.nametable_playfield),
+            Some(None),
+            "no split armed: from the map"
+        );
+        let mut other_handler = game.clone();
+        other_handler.scroll.split.handler = 3;
+        let other_lines = raster::lines(&raster::Registers::of(&other_handler), &other_handler);
+        assert!(
+            view(&other_handler, &other_lines)
+                .is_none_or(|view| view.nametable_playfield.is_none()),
+            "another handler: no run"
+        );
         let mut shaken = game.clone();
         shaken.scroll.scroll_x = 0xFC;
         let shaken_lines = raster::lines(&raster::Registers::of(&shaken), &shaken);

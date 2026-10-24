@@ -610,10 +610,15 @@ mod tests {
         for _ in 0..10 {
             play.step(0);
         }
+        let table = play
+            .game()
+            .scroll
+            .mirroring
+            .physical(usize::from(dest >> 10) & 3);
         let block = (0..4).flat_map(|row| (0..4).map(move |column| row * 32 + column));
         let changed = block
             .map(|cell| usize::from(dest & 0x3FF) + cell)
-            .any(|at| (0..2).any(|table| play.ppu.nametables[table][at] != intact[table][at]));
+            .any(|at| play.ppu.nametables[table][at] != intact[table][at]);
         assert!(
             changed,
             "the death tiles at ${dest:04X} reach the nametables"
