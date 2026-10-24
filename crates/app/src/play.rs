@@ -509,15 +509,20 @@ pub(crate) mod tests {
         assert!(!play.paused(), "Start again resumes");
     }
 
-    /// The shown sprites `mark` placed, on screen.
-    fn shown(play: &Play, mark: Mark) -> usize {
+    /// The marks of the entries visible on the OAM page.
+    pub(crate) fn visible_marks(play: &Play) -> impl Iterator<Item = Mark> + '_ {
         play.oam
             .as_chunks::<4>()
             .0
             .iter()
             .zip(play.marks)
-            .filter(|&(bytes, at)| at == mark && OamEntry::from(*bytes).is_visible())
-            .count()
+            .filter(|&(&bytes, _)| OamEntry::from(bytes).is_visible())
+            .map(|(_, mark)| mark)
+    }
+
+    /// The shown sprites `mark` placed, on screen.
+    pub(crate) fn shown(play: &Play, mark: Mark) -> usize {
+        visible_marks(play).filter(|&at| at == mark).count()
     }
 
     /// Every marked sprite shown is drawable as UI exactly as the PPU draws it.
@@ -584,13 +589,7 @@ pub(crate) mod tests {
         for (i, pad) in [0x01, 0, 0x02, 0, 0x20, 0, 0, 0].into_iter().enumerate() {
             let title = on_title(&play);
             checked_step(&mut play, pad);
-            let visible = play
-                .oam
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .filter(|&&bytes| OamEntry::from(bytes).is_visible())
-                .count();
+            let visible = visible_marks(&play).count();
             if title {
                 assert!(shown(&play, Mark::Title) > 0, "step {i}");
                 assert_eq!(shown(&play, Mark::Title), visible, "step {i}");
@@ -639,13 +638,7 @@ pub(crate) mod tests {
             let was = play.paused();
             checked_step(&mut play, 0);
             if was {
-                let visible = play
-                    .oam
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .filter(|&&bytes| OamEntry::from(bytes).is_visible())
-                    .count();
+                let visible = visible_marks(&play).count();
                 assert_eq!(shown(&play, Mark::Pause), visible);
                 paused += 1;
             }
