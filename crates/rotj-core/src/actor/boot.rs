@@ -1191,6 +1191,11 @@ mod tests {
     const LEFT: u8 = 0x40;
     const RIGHT: u8 = 0x80;
 
+    /// The letters (indexes 0-25) at `place` on the password screen's list (`$6E6C`).
+    fn shown_password(chr: &[u8], place: u8) -> [u8; 4] {
+        [0, 1, 2, 3].map(|i| super::payload_byte(chr, super::PASSWORDS + u16::from(4 * place + i)))
+    }
+
     /// `tools/rotj-oracle/tests/run1.rs`'s input: Start tapped every 20 frames from 100,
     /// then right held with A and B tapped.
     fn run1(frame: u64) -> u8 {
@@ -1266,10 +1271,7 @@ mod tests {
             .map(|password| password.map(|letter| letter.wrapping_sub(b'A')))
             .collect();
         assert_eq!(passwords.len(), 13);
-        let place = |place: u8| {
-            [0, 1, 2, 3]
-                .map(|i| super::payload_byte(&rom.chr, super::PASSWORDS + u16::from(4 * place + i)))
-        };
+        let place = |place: u8| shown_password(&rom.chr, place);
         for (at, password) in (0..13).zip(&passwords) {
             assert!(place(at) == *password, "place {at}");
         }
@@ -1286,10 +1288,7 @@ mod tests {
         let (Some(rom), Some(prg)) = (rotj_rom::for_test(), crate::prg::for_test()) else {
             return;
         };
-        let place = |place: u8| {
-            [0, 1, 2, 3]
-                .map(|i| super::payload_byte(&rom.chr, super::PASSWORDS + u16::from(4 * place + i)))
-        };
+        let place = |place: u8| shown_password(&rom.chr, place);
         for at in 0..14 {
             assert_eq!(
                 super::password_level(&prg.levels, place(at)),

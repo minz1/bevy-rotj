@@ -9,7 +9,7 @@ use super::script::{Flow, Runner, wait};
 use super::world::{Motion, VramWrite, Weapon, attack, set_first_colours, sound, stage_script};
 use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
-use crate::levels::Levels;
+use crate::levels::{Levels, StageAssets};
 use crate::ppulist::WriteList;
 use crate::prg::Prg;
 use crate::render::{Mirroring, ctrl, mask};
@@ -96,7 +96,12 @@ impl Stage {
 /// The stage `$0400` = `area` plays.
 #[must_use]
 pub fn at(levels: &Levels, area: u8) -> &Stage {
-    &levels.stages[usize::from(area >> 1)].stage.descriptor
+    &assets(levels, area).stage.descriptor
+}
+
+/// That stage's rooms, terrain and schedule.
+pub(crate) fn assets(levels: &Levels, area: u8) -> &StageAssets {
+    &levels.stages[usize::from(area >> 1)]
 }
 
 /// The latest checkpoint at or before `area`'s stage, as an area: where Continue restarts

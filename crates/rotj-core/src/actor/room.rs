@@ -13,7 +13,7 @@ use super::world::{
     set_first_colours, stage_script,
 };
 use crate::levelmap::Cell;
-use crate::levels::{RoomAssets, StageAssets};
+use crate::levels::RoomAssets;
 use crate::prg::Prg;
 use crate::render::{Mirroring, ctrl, mask};
 use crate::rooms::{Arrival, Raster};
@@ -545,14 +545,9 @@ impl PageDraw {
     }
 }
 
-/// The stage `$0400 = area` plays.
-pub(crate) fn stage_assets(prg: &Prg, area: u8) -> &StageAssets {
-    &prg.levels.stages[usize::from(area >> 1)]
-}
-
 /// Room `$0402 = room` of that stage.
 pub(crate) fn room_assets(prg: &Prg, area: u8, room: u8) -> &RoomAssets {
-    &stage_assets(prg, area).rooms[usize::from(room >> 1)]
+    &super::stage::assets(&prg.levels, area).rooms[usize::from(room >> 1)]
 }
 
 /// Loads room `$0402` of area `$0400`: clears the slots, sets the palette, CHR
@@ -617,7 +612,7 @@ pub fn load(game: &mut Game, prg: &Prg) {
     game.effects.palette_dirty = 0;
     game.scroll.speed_x = 0;
     game.scroll.speed_y = 0;
-    game.schedule.cells = stage_assets(prg, area).schedule;
+    game.schedule.cells = super::stage::assets(&prg.levels, area).schedule;
     let player = &mut game.effects.player;
     player.carrier = 0;
     player.vy = 0;
@@ -766,8 +761,10 @@ pub fn load_level(game: &mut Game, prg: &Prg, chr: &[u8], leftover: Leftover) {
         Leftover::Cutscene => crate::levelmap::payload_image(chr).expect("the payload's CHR"),
         Leftover::LastArea => wram_7000(game),
     };
-    game.effects.level =
-        crate::collision::Level::from_terrain(&stage_assets(prg, game.world.area).terrain, image);
+    game.effects.level = crate::collision::Level::from_terrain(
+        &super::stage::assets(&prg.levels, game.world.area).terrain,
+        image,
+    );
     let level = &game.effects.level;
     for (i, shadow) in game.effects.vram.attributes[64..].iter_mut().enumerate() {
         *shadow = level.streamed(0x570 + i);

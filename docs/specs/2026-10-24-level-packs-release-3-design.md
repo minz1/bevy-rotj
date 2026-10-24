@@ -4,8 +4,8 @@ Release 3 of `docs/specs/2026-10-18-level-packs-design.md`: "the game loads leve
 `Levels` seam (the original game via the pack path); tapes unchanged". Release 1 built the
 importer and exporter, and release 2 the stage knobs (1.1.43). The game still reads the ROM.
 After this release every level read at runtime goes through one `Levels` value. By default that
-value is the pack plus a ROM overlay of the 225 cells and one room mirroring the format drops, so release 6's
-`--pack <dir>` only has to swap it. Nothing the game does changes, and the tapes and the lockstep
+value is the pack plus a ROM overlay of the 225 cells and one room mirroring the format drops,
+so release 6's `--pack <dir>` only has to swap it. Nothing the game does changes, and the tapes and the lockstep
 stay as they are.
 
 ## The seam
@@ -88,10 +88,9 @@ through release 1's equivalence and the `RESTORED_CELLS` pin below.
 
 **Where it's built.**
 
-- The app builds it once, at `Startup`: `play.rs` `power_on` calls `Play::power_on`, which calls
-  `Play::running`. `Play::running` takes a built `Prg`, and `Play::power_on` builds it as
-  `Prg::new(prg, Levels::original(&prg, &chr).expect(..))` before handing it on. A reset after
-  GAME OVER keeps the same `Prg`.
+- The app builds it once, at `Startup`: the `power_on` system in `play.rs` builds
+  `Levels::original(&prg, &chr)` and the `Prg`, then calls `Play::power_on`, which hands that
+  `Prg` to `Play::running`. A reset after GAME OVER keeps the same `Prg`.
 - `Play::start` (cfg(test)) builds today's `Prg` twice, once for `room::start` and once in
   `running`. It now builds one and passes it to both.
 - The ~50 app tests that go through `Play::start`/`Play::power_on` take their `Prg` from one
@@ -256,8 +255,10 @@ Each commit is green on the Classic suites. Commits 2-4 also replay the chain ta
 3. 1-1-2's start mirroring (release 6): an optional room `mirroring` property would let the pack
    round-trip it without the ROM overlay; the owner decides.
 4. A user pack with fewer stages or rooms than the game enters (release 6): `room_assets` and
-   `stage::at` index `Levels` and panic, so `--pack` must refuse such a pack at load, by name. A
-   1.1.21-1.1.43 export, which lacks 1-1's rooms 2 and 4, is one.
+   `stage::assets` index `Levels` and panic, so `--pack` must refuse such a pack at load, by name.
+   A 1.1.21-1.1.43 export, which lacks 1-1's rooms 2 and 4, is one. `--pack` must also refuse an
+   extra password whose stage is past the last stage (`password_level` would panic) or is not a
+   checkpoint (it would start the next checkpoint instead).
 
 Status: approved by the Opus stand-in (2026-10-24) with ten changes applied (room indexing,
 signatures, residue wording, overlay wording, app-test Prg reuse, one from_rom, shorter
