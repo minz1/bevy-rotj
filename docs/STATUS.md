@@ -1,4 +1,4 @@
-# Status — where 1.1.39 stands
+# Status — where 1.1.40 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -63,6 +63,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.37 | **done, tag `1.1.37`** (2026-10-23): the thirty-seventh modernisation patch, no behaviour change (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical; `rotj-tools sublevels` output byte-identical on six captures). The harness and app leftovers (`.orchestration/briefs/spec-leftovers.md`, the second survey's #18 and the owner's review list): the chain test's six counts are a named `ChainCounts` and `TapePlayer::injected` defaults to empty for replays; `levelmap::LevelMap` is gone, the capture reader renders through `Map::render_nametable(tables, scroll_x)`; and the app's systems take `Play` as a required resource. Modern's tilemap stays computed every frame: the paused menu's instant MODERN reads it |
 | 1.1.38 | **done, tag `1.1.38`** (2026-10-23): the thirty-eighth patch, no change to Classic (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The FirebrandX palette named where it is selectable: FirebrandX answered that anyone may use the palettes, provided a selectable one is named, so the settings menu shows COMPOSITE DIRECT FBX below its rows while Composite Direct is chosen; ATTRIBUTION, README, PLAN and the settings-menu spec record the answer |
 | 1.1.39 | **done, tag `1.1.39`** (2026-10-23): the thirty-ninth modernisation patch, no behaviour change (the Classic suites with the per-family oracle tests, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). Child and shot spawning written once (`.orchestration/briefs/spec-spawn.md`, the second survey's #1): the 21 free-slot searches are `Slots::free_main(range)` (`free_child_slot` stays the named `$AF38` routine over it), and the sites that set one slot's kind, brain and position go through `Slot::spawn(kind, x, y)`, which writes exactly those and clears nothing; the spitter's high-byte step is `body.x ± 0x0100` |
+| 1.1.40 | **done, tag `1.1.40`** (2026-10-24): the fortieth modernisation patch, no behaviour change (the Classic suites, a per-frame RAM and WRAM digest of every release lockstep test, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The remaining script step machines on the shared runner (`.orchestration/briefs/spec-script-machines.md`, the owner's review #8): the sound test, the continue screen, the next-area load and the room-change slide are tables of named rows (`Row`, `ContinueRow`, `LoadRow`, `RoomRow`) stepped by the runner Boot and Ending already use, one step variant per table |
 
 ## Verified working
 
@@ -135,7 +136,8 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    helpers written once: tagged `1.1.36`** (2026-10-23). **1.1.37, the harness and app leftovers:
    tagged `1.1.37`** (2026-10-23). **1.1.38, the FirebrandX palette named in the menu:
    tagged `1.1.38`** (2026-10-23). **1.1.39, child and shot spawning written once:
-   tagged `1.1.39`** (2026-10-23). Next: the fresh survey's list.
+   tagged `1.1.39`** (2026-10-23). **1.1.40, the remaining script step machines on the shared
+   runner: tagged `1.1.40`** (2026-10-24). Next: the fresh survey's list.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
