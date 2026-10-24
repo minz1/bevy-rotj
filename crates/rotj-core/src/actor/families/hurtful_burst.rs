@@ -28,7 +28,7 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$8FD9`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-        let entry = if stage::at(&cx.prg.stages, cx.world.area).area == 0x0A {
+        let entry = if stage::at(&cx.prg.levels, cx.world.area).area == 0x0A {
             2
         } else {
             0

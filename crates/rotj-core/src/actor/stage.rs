@@ -9,6 +9,7 @@ use super::script::{Flow, Runner, wait};
 use super::world::{Motion, VramWrite, Weapon, attack, set_first_colours, sound, stage_script};
 use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
+use crate::levels::Levels;
 use crate::ppulist::WriteList;
 use crate::prg::Prg;
 use crate::render::{Mirroring, ctrl, mask};
@@ -94,8 +95,8 @@ impl Stage {
 
 /// The stage `$0400` = `area` plays.
 #[must_use]
-pub fn at(stages: &[Stage], area: u8) -> &Stage {
-    &stages[usize::from(area >> 1)]
+pub fn at(levels: &Levels, area: u8) -> &Stage {
+    &levels.stages[usize::from(area >> 1)].stage.descriptor
 }
 
 /// The latest checkpoint at or before `area`'s stage, as an area: where Continue restarts
@@ -104,20 +105,20 @@ pub fn at(stages: &[Stage], area: u8) -> &Stage {
 /// # Panics
 /// If no checkpoint precedes it.
 #[must_use]
-pub fn checkpoint(stages: &[Stage], area: u8) -> u8 {
+pub fn checkpoint(levels: &Levels, area: u8) -> u8 {
     let index = (0..=area >> 1)
         .rev()
-        .find(|&index| stages[usize::from(index)].password.is_some())
+        .find(|&index| at(levels, index * 2).password.is_some())
         .expect("the first stage is a checkpoint");
     index * 2
 }
 
 /// The area level `level` starts at: the `level`-th checkpoint.
 #[must_use]
-pub fn level_area(stages: &[Stage], level: usize) -> Option<u8> {
+pub fn level_area(levels: &Levels, level: usize) -> Option<u8> {
     (0..=u8::MAX)
-        .zip(stages)
-        .filter(|(_, stage)| stage.password.is_some())
+        .zip(&levels.stages)
+        .filter(|(_, assets)| assets.stage.descriptor.password.is_some())
         .nth(level)
         .map(|(index, _)| index * 2)
 }
@@ -700,7 +701,7 @@ impl NextArea {
             }
         }
         game.world.room = 0;
-        if let Some(scene) = at(&prg.stages, game.world.area).picture
+        if let Some(scene) = at(&prg.levels, game.world.area).picture
             && game.effects.cutscene_id != 0
         {
             game.effects.cutscene_id = 0;
@@ -729,7 +730,7 @@ impl NextArea {
         match screen.step(game, prg) {
             Outcome::Running => true,
             Outcome::Continued => {
-                game.world.area = checkpoint(&prg.stages, game.world.area);
+                game.world.area = checkpoint(&prg.levels, game.world.area);
                 game.effects.lives = 2;
                 game.effects.hud = 0;
                 self.step = Step::Banner;
@@ -1050,7 +1051,7 @@ fn queue_whitened(game: &mut Game, cap: u8) {
 
 /// The stage's song request (`$D973`).
 fn request_song(game: &mut Game, prg: &Prg) {
-    if let Music::Song(song) = at(&prg.stages, game.world.area).music {
+    if let Music::Song(song) = at(&prg.levels, game.world.area).music {
         game.effects.song = song;
     }
 }
@@ -1059,7 +1060,7 @@ fn request_song(game: &mut Game, prg: &Prg) {
 /// "STAGE" text from `$93D7` and the stage's two digits (glyphs `$9402`).
 fn banner(prg: &Prg, area: u8) -> Vec<VramWrite> {
     let mut writes = text(prg, 0x93D7);
-    let [tens, ones] = at(&prg.stages, area).banner;
+    let [tens, ones] = at(&prg.levels, area).banner;
     for (digit, column) in [(tens, 0x21AF), (ones, 0x21B1)] {
         let glyph = rom_byte(prg, 2, 0x9402 + u16::from(digit));
         for (row, tile) in [(0, glyph), (0x20, glyph | 1)] {
@@ -1460,12 +1461,12 @@ mod tests {
         let Some(scene) = Scene::tas(350) else {
             return if pressed == 0 { 165 } else { 102 };
         };
-        let mut game = super::room::start(&scene.prg(), &scene.machine.bus.cart.chr, 0);
+        let mut game = super::room::start(Scene::prg(), &scene.machine.bus.cart.chr, 0);
         let mut load = NextArea::default();
         let mut frames = 0;
         while !load.done() {
             game.world.pressed = super::super::button::Buttons::from_bits(pressed);
-            load.step(&mut game, &scene.prg(), &scene.machine.bus.cart.chr);
+            load.step(&mut game, Scene::prg(), &scene.machine.bus.cart.chr);
             frames += 1;
         }
         assert_eq!(game.world.area, 2);
@@ -1478,8 +1479,8 @@ mod tests {
             return;
         };
         let byte = |bank, addr| super::rom_byte(prg, bank, addr);
-        let stages = &prg.stages;
-        assert_eq!(stages.len(), 18);
+        let stages = &prg.levels;
+        assert_eq!(stages.stages.len(), 18);
         for index in 0..18u8 {
             let (at, area) = (u16::from(index), index * 2);
             let stage = super::at(stages, area);

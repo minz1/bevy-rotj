@@ -641,7 +641,7 @@ fn raise_attributes(level: &mut crate::collision::Level, rows: &[u8; 32], pages:
 /// If `level` is past the stages' checkpoints or its data fails to decode.
 #[must_use]
 pub fn start(prg: &Prg, chr: &[u8], level: usize) -> Game {
-    let area = super::stage::level_area(&prg.stages, level).expect("a level the stages have");
+    let area = super::stage::level_area(&prg.levels, level).expect("a level the stages have");
     let mut game = Game {
         slots: Slots::default(),
         world: World {
@@ -1001,11 +1001,11 @@ mod tests {
         let Some(mut scene) = Scene::tas(350) else {
             return;
         };
-        let prg = scene.prg();
+        let prg = Scene::prg();
         let chr = scene.machine.bus.cart.chr.clone();
         let first = scene.run(1, &[0xD3F9]).remove(0);
         let oracle = State::lift(&first);
-        let mut port = start(&prg, &chr, 0);
+        let mut port = start(prg, &chr, 0);
         port.world.rng = oracle.world.rng;
         port.world.frame = oracle.world.frame;
         port.world.frame_odd = oracle.world.frame_odd;

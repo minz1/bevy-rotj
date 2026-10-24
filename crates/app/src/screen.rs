@@ -233,7 +233,8 @@ mod tests {
         let Some(rom) = rotj_rom::for_test() else {
             return;
         };
-        let mut play = crate::play::Play::power_on(rom.prg.clone(), rom.chr.clone(), None);
+        let mut play =
+            crate::play::Play::power_on(crate::play::tests::prg(rom), rom.chr.clone(), None);
         for _ in 0..400 {
             play.step(0);
         }

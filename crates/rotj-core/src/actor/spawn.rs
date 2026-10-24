@@ -259,10 +259,10 @@ mod tests {
         let Some(mut scene) = Scene::route(640) else {
             return;
         };
-        let prg = scene.prg();
+        let prg = Scene::prg();
         scene.machine.bus.trace.exec.push(0x89B5..=0x89B5);
         let events = scene.run(359, &[COLUMN, COLUMN_RETURNS[0], COLUMN_RETURNS[1]]);
-        let (calls, main, _) = check_columns(&events, &prg);
+        let (calls, main, _) = check_columns(&events, prg);
         assert!(calls > 10 && main >= 3, "{calls} calls, {main} spawns");
         assert!(scene.machine.bus.trace.execs.is_empty(), "$89AF path taken");
     }
@@ -272,9 +272,9 @@ mod tests {
         let Some(mut scene) = Scene::level(2, 650) else {
             return;
         };
-        let prg = scene.prg();
+        let prg = Scene::prg();
         let events = scene.play(40, 0x80, &[COLUMN, COLUMN_RETURNS[0], COLUMN_RETURNS[1]]);
-        let (calls, _, second) = check_columns(&events, &prg);
+        let (calls, _, second) = check_columns(&events, prg);
         assert!(second >= 1, "{calls} calls, {second} second-class spawns");
     }
 
@@ -283,7 +283,7 @@ mod tests {
         let Some(mut scene) = Scene::route(599) else {
             return;
         };
-        let prg = scene.prg();
+        let prg = Scene::prg();
         let events = scene.run(41, &[ROOM.0, ROOM.1]);
         let pairs = brackets(&events, ROOM.0, &[ROOM.1]);
         assert_eq!(pairs.len(), 1);
@@ -294,9 +294,9 @@ mod tests {
             "the camera-row start is not ported"
         );
         let mut state = State::lift(begin);
-        let table = table(&prg, &begin.ram);
+        let table = table(prg, &begin.ram);
         assert_eq!(
-            crate::actors::spawn_schedule(&prg, begin.ram[0x400]).expect("the schedule")[..],
+            crate::actors::spawn_schedule(prg, begin.ram[0x400]).expect("the schedule")[..],
             begin.wram[0x1410..0x1510]
         );
         spawn_row(

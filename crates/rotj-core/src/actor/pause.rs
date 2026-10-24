@@ -133,7 +133,7 @@ fn draw_screen(game: &mut Game, prg: &Prg) {
         draw(work, 1, &mut cx);
     }
     work.screen_y = 0xBF;
-    let password = stage::at(&prg.stages, stage::checkpoint(&prg.stages, area))
+    let password = stage::at(&prg.levels, stage::checkpoint(&prg.levels, area))
         .password
         .expect("a checkpoint has a password");
     cx.effects.pause_aux = 0;
@@ -149,7 +149,7 @@ fn draw_screen(game: &mut Game, prg: &Prg) {
     work.pointer = NAME;
     let sprite = Metasprite::from_bytes(&cx.effects.pause_name).expect("the area's name");
     draw_metasprite(work, &sprite, &mut cx);
-    let [tens, ones] = stage::at(&prg.stages, area).banner;
+    let [tens, ones] = stage::at(&prg.levels, area).banner;
     let digits = [(0x94, 0x87, lives), (0x8C, 0x6F, tens), (0x9C, 0x6F, ones)];
     for (x, y, digit) in digits {
         work.screen_x = x;

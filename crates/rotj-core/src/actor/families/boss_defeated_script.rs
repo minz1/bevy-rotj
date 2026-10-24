@@ -55,7 +55,7 @@ impl State {
         if body.anim < COUNTDOWN {
             return;
         }
-        if stage::at(&cx.prg.stages, cx.world.area).on_clear == OnClear::Ending {
+        if stage::at(&cx.prg.levels, cx.world.area).on_clear == OnClear::Ending {
             *kind = 0;
         } else {
             cx.effects.player.energy = 0x0E;

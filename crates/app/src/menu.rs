@@ -681,7 +681,11 @@ mod tests {
             .init_resource::<Colours>()
             .insert_resource(Settings::default())
             .insert_resource(SettingsDir(Some(dir.clone())))
-            .insert_resource(Play::start(rom.prg.clone(), rom.chr.clone(), 0))
+            .insert_resource(Play::start(
+                crate::play::tests::prg(rom),
+                rom.chr.clone(),
+                0,
+            ))
             .configure_sets(Update, (Step::Game, Step::Music, Step::Picture).chain())
             .add_systems(
                 Update,

@@ -46,7 +46,7 @@ mod tests {
             let Some(mut scene) = Scene::tas(start) else {
                 return;
             };
-            let prg = scene.prg();
+            let prg = Scene::prg();
             let events = scene.run(80, &[0x9DF9, 0x9E09, 0x9E20]);
             let mut checked = 0;
             for pair in events.windows(2) {
@@ -66,7 +66,7 @@ mod tests {
                     &state.effects.projectiles,
                 );
                 let mut cx = Cx {
-                    prg: &prg,
+                    prg,
                     world: &state.world,
                     slots: &mut state.slots,
                     schedule: &mut state.schedule,

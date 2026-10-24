@@ -467,7 +467,7 @@ impl Boot {
                     return false;
                 }
                 let level = self.forced.unwrap_or(self.level);
-                game.world.area = super::stage::level_area(&prg.stages, usize::from(level))
+                game.world.area = super::stage::level_area(&prg.levels, usize::from(level))
                     .expect("a level the stages have");
                 blackout(game, prg);
                 self.step = Step::NewGameStart;
@@ -1239,9 +1239,10 @@ mod tests {
             return;
         };
         let passwords: Vec<[u8; 4]> = prg
+            .levels
             .stages
             .iter()
-            .filter_map(|stage| stage.password)
+            .filter_map(|assets| assets.stage.descriptor.password)
             .map(|password| password.map(|letter| letter.wrapping_sub(b'A')))
             .collect();
         assert_eq!(passwords.len(), 13);
@@ -1353,12 +1354,12 @@ mod tests {
         let Some(mut scene) = Scene::power_on(Vec::new()) else {
             return;
         };
-        let (prg, chr) = (scene.prg(), scene.machine.bus.cart.chr.clone());
+        let (prg, chr) = (Scene::prg(), scene.machine.bus.cart.chr.clone());
         let waits = scene.run(300, &[0xC232]);
         let mut game = super::Game::power_on(None);
         let mut raster = false;
         for (wait, oracle) in waits.iter().enumerate() {
-            game.frame(&prg, &chr);
+            game.frame(prg, &chr);
             let mut ram = [0; 2048];
             game.scroll.project(&mut ram);
             assert_eq!(

@@ -760,10 +760,10 @@ mod tests {
         let Some(scene) = Scene::tas(350) else {
             return;
         };
-        let prg = scene.prg();
+        let prg = Scene::prg();
         let chr = scene.machine.bus.cart.chr.clone();
         let peek = scene.clone().run(1, &[0xD3F9]).remove(0);
-        let mut start = super::room::start(&prg, &chr, 0);
+        let mut start = super::room::start(prg, &chr, 0);
         assert_eq!(start.effects.vram.direct.len(), 16);
         start.effects.vram.direct.clear();
         let oracle = &super::oracle::State::lift(&peek).world;

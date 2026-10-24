@@ -187,7 +187,11 @@ mod tests {
     /// Level 0's first loop frame, or `None` (skipped) without the ROM.
     fn start() -> Option<Play> {
         let rom = rotj_rom::for_test()?;
-        Some(Play::start(rom.prg.clone(), rom.chr.clone(), 0))
+        Some(Play::start(
+            crate::play::tests::prg(rom),
+            rom.chr.clone(),
+            0,
+        ))
     }
 
     #[test]

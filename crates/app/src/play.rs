@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use rotj_core::actor::oam::{Mark, OamEntry};
 use rotj_core::actor::world::Ppu;
 use rotj_core::actor::{Game, Script, raster};
+use rotj_core::levels::Levels;
 use rotj_core::prg::Prg;
 use rotj_core::render::{Frame, Line, MAX_SPRITES_PER_LINE, OAM_SPRITES, Picture};
 
@@ -64,19 +65,19 @@ pub struct Play {
 impl Play {
     /// The game at power-on; `forced` overrides the level the title starts.
     #[must_use]
-    pub fn power_on(prg: Vec<u8>, chr: Vec<u8>, forced: Option<u8>) -> Play {
+    pub fn power_on(prg: Prg, chr: Vec<u8>, forced: Option<u8>) -> Play {
         Play::running(Game::power_on(forced), prg, chr, Ppu::new(), forced)
     }
 
     /// `game` run to its first NMI wait.
-    fn running(game: Game, prg: Vec<u8>, chr: Vec<u8>, ppu: Ppu, forced: Option<u8>) -> Play {
+    fn running(game: Game, prg: Prg, chr: Vec<u8>, ppu: Ppu, forced: Option<u8>) -> Play {
         let mut play = Play {
             oam: [0; 256],
             marks: [Mark::Scene; 64],
             shown: Snapshot::default(),
             label: Vec::new(),
             game,
-            prg: Prg::new(prg),
+            prg,
             chr,
             ppu,
             raster: false,
@@ -109,8 +110,8 @@ impl Play {
     /// nametables.
     #[cfg(test)]
     #[must_use]
-    pub fn start(prg: Vec<u8>, chr: Vec<u8>, level: usize) -> Play {
-        let mut game = rotj_core::actor::room::start(&Prg::new(prg.clone()), &chr, level);
+    pub fn start(prg: Prg, chr: Vec<u8>, level: usize) -> Play {
+        let mut game = rotj_core::actor::room::start(&prg, &chr, level);
         let mut ppu = Ppu::new();
         let page = std::mem::take(&mut game.effects.vram.direct);
         ppu.apply(&page, game.scroll.mirroring);
@@ -298,7 +299,9 @@ fn power_on(mut commands: Commands<'_, '_>, screen: Res<'_, Screen>, rom: Res<'_
     if let Some(recorder) = dir.and_then(|dir| Recorder::open(Path::new(&dir), level)) {
         commands.insert_resource(recorder);
     }
-    commands.insert_resource(Play::power_on(rom.0.prg.clone(), rom.0.chr.clone(), forced));
+    let levels = Levels::original(&rom.0.prg, &rom.0.chr).expect("the ROM's levels import");
+    let prg = Prg::new(rom.0.prg.clone(), levels);
+    commands.insert_resource(Play::power_on(prg, rom.0.chr.clone(), forced));
     crate::screen::spawn_screen_quad(&mut commands, &screen_image(&screen));
 }
 
@@ -361,6 +364,14 @@ pub(crate) mod tests {
     use rotj_core::digest::fnv1a;
     use rotj_core::render::{Mirroring, SCREEN_W, mask};
 
+    /// `rom`'s `Prg`, its levels imported once for every test.
+    pub(crate) fn prg(rom: &rotj_rom::Rom) -> Prg {
+        static LEVELS: std::sync::OnceLock<Levels> = std::sync::OnceLock::new();
+        let levels = LEVELS
+            .get_or_init(|| Levels::original(&rom.prg, &rom.chr).expect("the test ROM's levels"));
+        Prg::new(rom.prg.clone(), levels.clone())
+    }
+
     /// A committed digest of an fceux capture (`crates/app/digests.txt`).
     fn digest(name: &str) -> u64 {
         rotj_core::digest::table(include_str!("../digests.txt"), name)["-"]
@@ -381,7 +392,7 @@ pub(crate) mod tests {
     /// The game at power-on, or `None` (skipped) without the ROM.
     fn powered_on(forced: Option<u8>) -> Option<Play> {
         let rom = rotj_rom::for_test()?;
-        Some(Play::power_on(rom.prg.clone(), rom.chr.clone(), forced))
+        Some(Play::power_on(prg(rom), rom.chr.clone(), forced))
     }
 
     /// The emulator's screenshots crop 8 lines top and bottom (256x224).
@@ -474,7 +485,7 @@ pub(crate) mod tests {
     /// The game at `level`'s first loop frame, or `None` (skipped) without the ROM.
     fn start(level: usize) -> Option<Play> {
         let rom = rotj_rom::for_test()?;
-        Some(Play::start(rom.prg.clone(), rom.chr.clone(), level))
+        Some(Play::start(prg(rom), rom.chr.clone(), level))
     }
 
     #[test]

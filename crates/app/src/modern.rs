@@ -578,11 +578,11 @@ mod tests {
         let Some(rom) = rotj_rom::for_test() else {
             return;
         };
-        let play = Play::start(rom.prg.clone(), rom.chr.clone(), 0);
+        let play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 0);
         let (drawn, view) = renders_as_classic(play, 180, pad, "stage-1");
         assert!(drawn > 100, "{drawn} of 180 frames drawn Modern");
         assert_eq!(view.and_then(|view| view.strip), None);
-        let mut play = Play::start(rom.prg.clone(), rom.chr.clone(), 5);
+        let mut play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 5);
         crate::play::tests::enter_the_boss_room(&mut play, 0x0E);
         let (drawn, view) = renders_as_classic(play, 60, |_| 0, "boss-bar");
         assert_eq!(drawn, 60, "boss room frames drawn Modern");
@@ -591,7 +591,7 @@ mod tests {
             Some(192),
             "the bar's strip"
         );
-        let mut play = Play::start(rom.prg.clone(), rom.chr.clone(), 12);
+        let mut play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 12);
         for arg in [0xC1, 0x61] {
             crate::play::tests::transition(&mut play, 1, arg);
         }
@@ -605,7 +605,7 @@ mod tests {
             .find(|slot| slot.kind == 0xB6)
             .expect("a part of the final boss");
         part.body.health |= 0x8000;
-        let tables = rotj_core::prg::Prg::new(rom.prg.clone()).families;
+        let tables = crate::play::tests::prg(rom).families;
         let dest = tables.final_boss_part.death_dests[usize::from(part.body.subtype)];
         for _ in 0..10 {
             play.step(0);

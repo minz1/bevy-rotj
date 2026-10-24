@@ -5,9 +5,9 @@ use std::ops::Deref;
 use crate::actor::engine::{self, Hitboxes};
 use crate::actor::families;
 use crate::actor::player;
-use crate::actor::stage::Stage;
 use crate::actor::weapons;
 use crate::ines::FME7_PRG_BANK_SIZE;
+use crate::levels::Levels;
 
 /// The PRG image's size: 16 banks of 8 KiB.
 pub const PRG_SIZE: usize = 16 * FME7_PRG_BANK_SIZE;
@@ -25,24 +25,24 @@ pub struct Prg {
     pub weapons: weapons::Tables,
     /// The HUD's digit glyph tiles (bank 14 `$D26A`).
     pub digit_tiles: [u8; 10],
-    /// Each stage's descriptor, by `$0400 / 2`.
-    pub stages: Vec<Stage>,
+    /// The levels the game plays, each stage by `$0400 >> 1`.
+    pub levels: Levels,
 }
 
 impl Prg {
-    /// Imports the tables from `bytes`.
+    /// Imports the tables from `bytes`, to play `levels`.
     ///
     /// # Panics
     /// On an image too short to hold a table.
     #[must_use]
-    pub fn new(bytes: Vec<u8>) -> Prg {
+    pub fn new(bytes: Vec<u8>, levels: Levels) -> Prg {
         Prg {
             hitboxes: Hitboxes::import(&bytes),
             families: families::Tables::import(&bytes),
             player: player::Tables::import(&bytes),
             weapons: weapons::Tables::import(&bytes),
             digit_tiles: engine::rom_bytes(&bytes, 14, 0xD26A),
-            stages: Stage::all_from_rom(&bytes),
+            levels,
             bytes,
         }
     }
@@ -74,6 +74,11 @@ pub(crate) fn word(prg: &[u8], bank: usize, addr: usize) -> Option<u16> {
 #[cfg(test)]
 pub(crate) fn for_test() -> Option<&'static Prg> {
     static PRG: std::sync::OnceLock<Option<Prg>> = std::sync::OnceLock::new();
-    PRG.get_or_init(|| rotj_rom::for_test().map(|rom| Prg::new(rom.prg.clone())))
-        .as_ref()
+    PRG.get_or_init(|| {
+        rotj_rom::for_test().map(|rom| {
+            let levels = Levels::original(&rom.prg, &rom.chr).expect("the original levels");
+            Prg::new(rom.prg.clone(), levels)
+        })
+    })
+    .as_ref()
 }

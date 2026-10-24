@@ -333,14 +333,14 @@ impl Scene {
         Some(scene)
     }
 
-    /// The PRG image.
-    pub(crate) fn prg(&self) -> Prg {
-        Prg::new(self.machine.bus.cart.prg.clone())
+    /// The PRG image: the test ROM's, which the oracle's cart is.
+    pub(crate) fn prg() -> &'static Prg {
+        crate::prg::for_test().expect("the test ROM's PRG")
     }
 
     /// Frees every slot whose type is not in `kinds` and drops their pending spawns.
     pub(crate) fn isolate(&mut self, kinds: &[u8]) {
-        let prg = self.prg();
+        let prg = Scene::prg();
         let (area, room) = (self.machine.bus.ram[0x400], self.machine.bus.ram[0x402]);
         let wram = &mut self.machine.bus.wram;
         for slot in 0..32 {
@@ -353,8 +353,8 @@ impl Scene {
             if *cell & CELL_PENDING == 0 {
                 continue;
             }
-            let owned = spawn_record_pointer(&prg, area, room, *cell & CELL_RECORD)
-                .and_then(|addr| spawn_record(&prg, addr))
+            let owned = spawn_record_pointer(prg, area, room, *cell & CELL_RECORD)
+                .and_then(|addr| spawn_record(prg, addr))
                 .is_ok_and(|record| kinds.contains(&record.kind));
             if !owned {
                 *cell &= CELL_RECORD;
@@ -510,7 +510,7 @@ pub(crate) fn assert_routine(
     let peeks: Vec<u16> = std::iter::once(entry)
         .chain(exits.iter().copied())
         .collect();
-    let prg = scene.prg();
+    let prg = Scene::prg();
     let events = scene.run(frames, &peeks);
     let mut checked = 0;
     for Bracket { begin, end } in brackets(&events, entry, exits) {
@@ -519,7 +519,7 @@ pub(crate) fn assert_routine(
         }
         let mut call = Routine {
             begin: &begin,
-            prg: &prg,
+            prg,
             state: State::lift(&begin),
             writes: Vec::new(),
             a: None,
@@ -1806,18 +1806,18 @@ pub(crate) fn assert_game(scene: Scene, frames: u64) -> GameRun {
 
 /// [`assert_game`] and the lockstep's own final [`Scene`], for reading the state it ended in.
 pub(crate) fn assert_game_scene(scene: Scene, frames: u64) -> (GameRun, Scene) {
-    let (prg, chr) = (scene.prg(), scene.machine.bus.cart.chr.clone());
+    let (prg, chr) = (Scene::prg(), scene.machine.bus.cart.chr.clone());
     let mut lock = Lockstep::new(scene, frames, None);
-    let run = run_game(&mut lock, &prg, &chr);
+    let run = run_game(&mut lock, prg, &chr);
     (run, lock.scene)
 }
 
 /// [`assert_game`], and the tape of what it injected and compared.
 pub(crate) fn assert_game_recording(scene: Scene, frames: u64) -> (GameRun, Tape) {
-    let (prg, chr) = (scene.prg(), scene.machine.bus.cart.chr.clone());
+    let (prg, chr) = (Scene::prg(), scene.machine.bus.cart.chr.clone());
     let mut lock = Lockstep::new(scene, frames, None);
     lock.tape = Some(Tape::default());
-    let run = run_game(&mut lock, &prg, &chr);
+    let run = run_game(&mut lock, prg, &chr);
     (run, lock.tape.take().expect("the tape"))
 }
 
@@ -1826,24 +1826,24 @@ pub(crate) fn assert_game_recording(scene: Scene, frames: u64) -> (GameRun, Tape
 /// [`assert_game`] with the port's `$D1` flipped after its first raster IRQs, which
 /// the IRQ compare must catch.
 pub(crate) fn assert_game_with_a_flipped_raster_byte(scene: Scene, frames: u64) -> GameRun {
-    let (prg, chr) = (scene.prg(), scene.machine.bus.cart.chr.clone());
+    let (prg, chr) = (Scene::prg(), scene.machine.bus.cart.chr.clone());
     let mut lock = Lockstep::new(scene, frames, None);
     lock.flip_irq = 0xFF;
-    run_game(&mut lock, &prg, &chr)
+    run_game(&mut lock, prg, &chr)
 }
 
 pub(crate) fn assert_game_with_a_flipped_direct_write(scene: Scene, frames: u64) -> GameRun {
-    let (prg, chr) = (scene.prg(), scene.machine.bus.cart.chr.clone());
+    let (prg, chr) = (Scene::prg(), scene.machine.bus.cart.chr.clone());
     let mut lock = Lockstep::new(scene, frames, None);
     lock.flip_direct = 0xFF;
-    run_game(&mut lock, &prg, &chr)
+    run_game(&mut lock, prg, &chr)
 }
 
 /// [`assert_game`] from `start` instead of a lift: the port's own state at the
 /// scene's next `$D3F9`, the oracle's memory there under it.
 pub(crate) fn assert_game_from(scene: Scene, frames: u64, start: Option<State>) -> GameRun {
-    let (prg, chr) = (scene.prg(), scene.machine.bus.cart.chr.clone());
-    run_game(&mut Lockstep::new(scene, frames, start), &prg, &chr)
+    let (prg, chr) = (Scene::prg(), scene.machine.bus.cart.chr.clone());
+    run_game(&mut Lockstep::new(scene, frames, start), prg, &chr)
 }
 
 /// The port from power-on ([`State::power_on`], `forced` as a level poked at `$D3D8`)
@@ -1851,10 +1851,10 @@ pub(crate) fn assert_game_from(scene: Scene, frames: u64, start: Option<State>) 
 /// the boot compared as a script frame (RAM, the driver's init and the PPU mask taken from
 /// the oracle), then the loop as [`assert_game`].
 pub(crate) fn assert_boot(scene: Scene, frames: u64, forced: Option<u8>) -> GameRun {
-    let (prg, chr) = (scene.prg(), scene.machine.bus.cart.chr.clone());
+    let (prg, chr) = (Scene::prg(), scene.machine.bus.cart.chr.clone());
     let mut lock = Lockstep::new(scene, frames, None);
     lock.power_on = Some(State::power_on(forced));
-    run_game(&mut lock, &prg, &chr)
+    run_game(&mut lock, prg, &chr)
 }
 
 /// The start of `level` the app's tests set scenes up from (`Play::start`:
@@ -1874,8 +1874,8 @@ pub(crate) fn fresh_start(level: u8, pads: &[u8]) -> Option<(Scene, State)> {
     );
     let pokes = &mut scene.machine.bus.trace.pokes;
     pokes.retain(|&(at, ..)| at != FORCE_LEVEL);
-    let prg = scene.prg();
-    let mut start = super::room::start(&prg, &scene.machine.bus.cart.chr, usize::from(level));
+    let prg = Scene::prg();
+    let mut start = super::room::start(prg, &scene.machine.bus.cart.chr, usize::from(level));
     start.effects.vram.direct.clear();
     let step = |rng| {
         let mut rng = super::world::Rng(rng);
@@ -2079,7 +2079,7 @@ pub(crate) fn survey(scene: &mut Scene, frames: u64, census: &mut BTreeMap<u16, 
     const DISPATCH: [u16; 2] = [0xCF0A, 0xCEAE];
     const TAILS: [u16; 2] = [0xCEDE, 0xCE88];
     const BANK_SWITCH: u16 = 0xC229;
-    let prg = scene.prg();
+    let prg = Scene::prg();
     let vector = |at: usize| u16::from_le_bytes([prg[prg.len() - at], prg[prg.len() - at + 1]]);
     let interrupts = [vector(6), vector(2)];
     scene.machine.bus.trace.exec.push(0x0000..=0xFFFF);
@@ -2131,7 +2131,7 @@ pub(crate) fn survey(scene: &mut Scene, frames: u64, census: &mut BTreeMap<u16, 
 /// Isolates `kinds`, runs `frames` frames and checks the port's actor loop on each.
 pub(crate) fn assert_actor_phases(mut scene: Scene, frames: u64, kinds: &[u8]) -> Coverage {
     scene.isolate(kinds);
-    let prg = scene.prg();
+    let prg = Scene::prg();
     let events = scene.run(frames, &[ACTOR_LOOP.0, ACTOR_LOOP.1]);
     let pairs = brackets(&events, ACTOR_LOOP.0, &[ACTOR_LOOP.1]);
     let mut coverage = Coverage {
@@ -2158,7 +2158,7 @@ pub(crate) fn assert_actor_phases(mut scene: Scene, frames: u64, kinds: &[u8]) -
         }
         coverage.occupied += usize::from(!owned.is_empty());
         coverage.drawn += usize::from(begin.ram[0x200..0x300] != end.ram[0x200..0x300]);
-        step_actors(&prg, &mut state);
+        step_actors(prg, &mut state);
         let (ram, wram) = state.project(begin);
         if let Some((addr, port, oracle)) = diff(begin, (&ram, &wram), end) {
             panic!(
@@ -2175,7 +2175,7 @@ pub(crate) fn assert_second_phases(mut scene: Scene, frames: u64, kinds: &[u8]) 
     const UPDATE: (u16, u16) = (0xD3FC, 0xD3FF);
     const DRAW: (u16, u16) = (0xD438, 0xD43B);
     scene.isolate(kinds);
-    let prg = scene.prg();
+    let prg = Scene::prg();
     let events = scene.run(frames, &[UPDATE.0, UPDATE.1, DRAW.0, DRAW.1]);
     let mut coverage = Coverage::default();
     for (pc, end) in [UPDATE, DRAW] {
@@ -2194,11 +2194,11 @@ pub(crate) fn assert_second_phases(mut scene: Scene, frames: u64, kinds: &[u8]) 
                     assert_ne!(slot.brain, SecondBrain::Empty, "frame {}", begin.frame);
                     *coverage.phases.entry(slot.body.phase).or_default() += 1;
                 }
-                super::step_second(&prg, &mut state);
+                super::step_second(prg, &mut state);
             } else {
                 coverage.drawn += usize::from(begin.ram[0x200..0x300] != end.ram[0x200..0x300]);
                 super::draw_second(
-                    &prg,
+                    prg,
                     &state.world,
                     &state.slots,
                     &mut state.oam,
@@ -2356,12 +2356,12 @@ mod tests {
         let Some(mut scene) = Scene::tas(0) else {
             return;
         };
-        let prg = scene.prg();
+        let prg = Scene::prg();
         let loads = scene.run(2400, &[0xB4F2]);
         assert!(loads.len() >= 4, "{} room loads", loads.len());
         for load in &loads {
             let (area, room) = (load.ram[0x400], load.ram[0x402]);
-            let pages = crate::rooms::Room::import(&prg, area, room)
+            let pages = crate::rooms::Room::import(prg, area, room)
                 .expect("the room")
                 .pages;
             assert_eq!(
