@@ -32,7 +32,11 @@ const BIT_6_CELLS: usize = 24;
 
 /// The schedule cells [`Levels::original`]'s ROM overlay changes: the residue the format drops
 /// and the bit 6 cells.
-const RESTORED_CELLS: usize = 226;
+const RESTORED_CELLS: usize = 225;
+
+/// The rooms whose ROM start mirroring is not the derived one (1-1-2, a vertical room in
+/// `SingleLow`), which [`Levels::original`]'s ROM overlay puts back.
+const RESTORED_MIRRORING: [&str; 1] = ["rooms/1-1-2.tmj"];
 
 /// The page-table actors' kinds and the page each writes into the table at runtime.
 const PAGE_TABLE_WRITERS: [(u8, u8); 4] = [(0x9C, 6), (0x76, 7), (0xC8, 0), (0xB2, 0)];
@@ -91,6 +95,13 @@ fn the_original_game_imports_to_the_assets_the_game_reads() {
             if !orientation::horizontal_two_page(assets.room.orientation) {
                 layout.raised_page_count = assets.room.raised_page_count;
             }
+            if RESTORED_MIRRORING.contains(&file.as_str()) {
+                assert_ne!(
+                    layout.start.mirroring, assets.room.start.mirroring,
+                    "{file}"
+                );
+                layout.start.mirroring = assets.room.start.mirroring;
+            }
             let map: Map = serde_json::from_str(&files[&file]).expect("a room");
             assert_eq!(
                 map.properties
@@ -126,7 +137,7 @@ fn the_original_game_imports_to_the_assets_the_game_reads() {
         .count();
     assert_eq!(
         (rooms, variants, records, extra_pages),
-        (36, 27, 590, 6),
+        (38, 27, 620, 6),
         "rooms, variants, read records, extra pages"
     );
     assert!(writers > 0, "no page-table actor was checked");
@@ -207,7 +218,7 @@ fn the_original_game_round_trips_byte_for_byte() {
         write(&imported, &catalog) == files,
         "export(import(export(rom))) differs"
     );
-    assert_eq!(files.len(), 38);
+    assert_eq!(files.len(), 40);
     for (path, text) in &files {
         let saved = match path.as_str() {
             "pack.json" => to_text(&serde_json::from_str::<PackFile>(text).expect("pack.json")),
@@ -237,9 +248,9 @@ fn the_original_game_round_trips_byte_for_byte() {
     );
 }
 
-/// What the game reads: the export imported, with the ROM's schedules, its stages by
-/// `$0400 >> 1` and its rooms by `$0402 >> 1`. The rooms' other exceptions are the
-/// equivalence's.
+/// What the game reads: the export imported, with the ROM's schedules and start mirrorings,
+/// its stages by `$0400 >> 1` and its rooms by `$0402 >> 1`. The rooms' other exceptions are
+/// the equivalence's.
 #[test]
 fn the_original_levels_are_the_imported_export_with_the_roms_schedules() {
     let Some(rom) = rotj_rom::for_test() else {
@@ -250,7 +261,7 @@ fn the_original_levels_are_the_imported_export_with_the_roms_schedules() {
     let files = export(&rom.prg, &rom.chr).expect("the ROM exports");
     let mut imported = import(&files, &catalog, Source::Original).expect("the export imports");
     let listed = listed_rooms(&rom.prg);
-    let mut restored = 0;
+    let (mut restored, mut mirrorings) = (0, 0);
     for ((index, stage), back) in (0u8..).zip(&levels.stages).zip(&mut imported.stages) {
         let (at, area) = (&stage.stage.name, 2 * index);
         assert_eq!(stage.stage.area, index, "{at}: area");
@@ -270,12 +281,21 @@ fn the_original_levels_are_the_imported_export_with_the_roms_schedules() {
             }
             assert!(assets.room == layout, "{at}: room {room}");
         }
+        for (back, assets) in back.rooms.iter_mut().zip(&stage.rooms) {
+            mirrorings += usize::from(back.room.start.mirroring != assets.room.start.mirroring);
+            back.room.start.mirroring = assets.room.start.mirroring;
+        }
     }
     assert!(
         levels == imported,
-        "the levels differ from the import beyond the schedules"
+        "the levels differ from the import beyond the schedules and mirrorings"
     );
     assert_eq!(restored, RESTORED_CELLS, "cells the overlay restored");
+    assert_eq!(
+        mirrorings,
+        RESTORED_MIRRORING.len(),
+        "mirrorings the overlay restored"
+    );
 }
 
 const ROOM_A: &str = "rooms/9-9-1.tmj";

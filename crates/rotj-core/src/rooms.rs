@@ -176,8 +176,12 @@ impl Room {
     }
 }
 
-/// Every room the per-area tables list, as `(area, room)`: the tables (bank 14 from `$DA18`)
-/// are contiguous, so each area's rooms run to the next table, the last to the first record.
+/// Area 0's table (`$DA3C`) runs into the one at `$DA3E`, so the gap rule finds 1 of its 3
+/// rooms; the tapes load rooms 2 and 4.
+const OVERLAPPED: [(u8, usize); 1] = [(0, 3)];
+
+/// Every room the per-area tables list, as `(area, room)`: each area's rooms run to the next
+/// table, the last to the first record, except where [`OVERLAPPED`] names the count.
 pub(crate) fn listed_rooms(prg: &[u8]) -> Vec<(u8, u8)> {
     let word = |addr: u16| {
         let bytes = bank_slice(prg, 14, addr & 0x1FFF).expect("bank 14");
@@ -198,7 +202,10 @@ pub(crate) fn listed_rooms(prg: &[u8]) -> Vec<(u8, u8)> {
             .filter(|&other| other > table)
             .min()
             .unwrap_or(first_record);
-        let count = usize::from((end - table) / 2);
+        let count = OVERLAPPED
+            .iter()
+            .find(|&&(overlapped, _)| overlapped == area)
+            .map_or(usize::from((end - table) / 2), |&(_, count)| count);
         rooms.extend((0u8..).step_by(2).take(count).map(|room| (area, room)));
     }
     rooms
@@ -230,6 +237,6 @@ mod tests {
                 empty += 1;
             }
         }
-        assert_eq!((rooms.len(), empty), (36, 22));
+        assert_eq!((rooms.len(), empty), (38, 24));
     }
 }

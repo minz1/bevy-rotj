@@ -4,7 +4,7 @@ Release 3 of `docs/specs/2026-10-18-level-packs-design.md`: "the game loads leve
 `Levels` seam (the original game via the pack path); tapes unchanged". Release 1 built the
 importer and exporter, and release 2 the stage knobs (1.1.43). The game still reads the ROM.
 After this release every level read at runtime goes through one `Levels` value. By default that
-value is the pack plus a ROM overlay of the 226 cells the format drops, so release 6's
+value is the pack plus a ROM overlay of the 225 cells and one room mirroring the format drops, so release 6's
 `--pack <dir>` only has to swap it. Nothing the game does changes, and the tapes and the lockstep
 stay as they are.
 
@@ -105,9 +105,9 @@ through release 1's equivalence and the `RESTORED_CELLS` pin below.
 
 ## The schedule residue and bit 6
 
-The overlay changes 226 cells across all 18 areas:
+The overlay changes 225 cells across all 18 areas:
 
-- 202 residue cells, where the ROM is nonzero and the import gives 0. By area: 1-1 6, 1-2 9,
+- 201 residue cells, where the ROM is nonzero and the import gives 0. By area: 1-1 5, 1-2 9,
   1-3 6, 2-1 8, 2-2 6, 3-1 0, 3-2 0, 3-3 8, 4-1 11, 4-2 10, 4-3 10, 5-1 3, 5-2 2, 6-1 10,
   6-2 10, 6-3 2, 7-1 0, 7-2 101.
   - Outside 7-2 they all sit on pages no room shows.
@@ -189,10 +189,12 @@ The password lookup is a private function in `boot.rs`. The pack format is uncha
 ## Proof
 
 - **The game's levels**, a new test in `levels/tests.rs`:
-  - `Levels::original` equals `import(export(rom))` in everything except the schedules.
+  - `Levels::original` equals `import(export(rom))` in everything except the schedules and
+    1-1-2's start mirroring (`RESTORED_MIRRORING`, a vertical room in `SingleLow`, which the
+    derived rule makes `SideBySide`).
   - Every schedule equals `spawn_schedule(prg, 2 * area)`, and `stages[i].stage.area == i`.
   - `stage.rooms[i].room` is `listed_rooms`'s `(2 * area, 2 * i)`.
-  - `RESTORED_CELLS = 226` pins the number of cells whose value the overlay changed, counted in
+  - `RESTORED_CELLS = 225` pins the number of cells whose value the overlay changed, counted in
     the test. A format change that carries more cells shows up here.
   - The exceptions against `from_rom` (`raised_page_count` outside the two two-page rooms, and
     unreferenced spawn records) are inherited from release 1's equivalence.
@@ -255,4 +257,8 @@ Each commit is green on the Classic suites. Commits 2-4 also replay the chain ta
 Status: approved by the Opus stand-in (2026-10-24) with ten changes applied (room indexing,
 signatures, residue wording, overlay wording, app-test Prg reuse, one from_rom, shorter
 equivalence test, area-keyed tables, password letters); bevy_asset_loader deferred to release 6
-(deviation, owner to review).
+(deviation, owner to review); plus an exporter fix (stand-in, 2026-10-24): `listed_rooms` assumed
+the per-area room tables do not overlap, but area 0's runs into the next, so 1.1.43's pack lacked
+1-1's rooms 2 and 4. The pack now has 38 rooms (40 files), and the schema is unchanged. 1-1-2's
+start mirroring (`SingleLow`, a vertical room) does not fit the derived rule, so
+`Levels::original` overlays it from the ROM like the schedule residue (owner to review).

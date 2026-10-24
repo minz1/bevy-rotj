@@ -80,8 +80,9 @@ impl Levels {
         })
     }
 
-    /// The original game as it plays: its pack imported, with the ROM's schedule cells the
-    /// format drops put back; `None` where the ROM's levels do not import.
+    /// The original game as it plays: its pack imported, with the ROM's schedule cells and
+    /// room start mirrorings the format drops put back; `None` where the ROM's levels do not
+    /// import.
     #[must_use]
     pub fn original(prg: &[u8], chr: &[u8]) -> Option<Levels> {
         let rom = Levels::from_rom(prg, chr)?;
@@ -90,6 +91,9 @@ impl Levels {
         for (stage, rom_stage) in levels.stages.iter_mut().zip(&rom.stages) {
             for (cell, &rom_cell) in stage.schedule.iter_mut().zip(&rom_stage.schedule) {
                 *cell |= rom_cell;
+            }
+            for (room, rom_room) in stage.rooms.iter_mut().zip(&rom_stage.rooms) {
+                room.room.start.mirroring = rom_room.room.start.mirroring;
             }
         }
         Some(levels)
