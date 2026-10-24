@@ -335,7 +335,9 @@ To do, in the survey loop's order after #1-#3 above, level packs release 1 along
 - **#14 `bevy_asset_loader`**: with level packs release 3 (the game loading through `Levels`).
 - **#5 the Modern picture's reach**: the `$D3` 4 boss rooms next, then the band rooms, each proven
   by the background gate and the headless pixel comparison with Classic; Classic's own picture
-  stays the software `Frame`, the exact NES picture and the reference.
+  stays the software `Frame`, the exact NES picture and the reference. (`$D3` 4 done in 1.1.41 for
+  three of the four rooms; the final boss's room stays Classic until its VRAM-only death tiles are
+  drawn.)
 - **`LevelMap` folded into `Map`**; **the test harness's chain counts as a named struct** (and
   `TapePlayer::injected` gone) (both done in 1.1.37; `injected` stays with an empty default);
   **Modern's tilemap computed only when `picture: Modern`** (kept: the paused menu's MODERN reads it).
