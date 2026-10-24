@@ -6,17 +6,17 @@ use super::button::Buttons;
 use super::engine::{rom_byte, rom_word};
 use super::script::{Flow, Runner, wait};
 use super::slots::Slots;
-use super::spawn::{SpawnTable, spawn_row};
+use super::spawn::spawn_row;
 use super::stage::Fade;
 use super::world::{
     Effects, Motion, Projectile, Schedule, View, VramWrite, World, attack, orientation, power_up,
     set_first_colours, stage_script,
 };
-use crate::actors::spawn_schedule;
 use crate::levelmap::Cell;
+use crate::levels::{RoomAssets, StageAssets};
 use crate::prg::Prg;
 use crate::render::{Mirroring, ctrl, mask};
-use crate::rooms::{Arrival, Raster, Room};
+use crate::rooms::{Arrival, Raster};
 
 /// The room change `$BA = 1` starts, one frame per [`RoomChange::step`] (`$B7EC`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -445,7 +445,7 @@ fn flip(game: &mut Game) {
 
 /// Restores the arrangement, places the player and reads the room's parameters, and
 /// ends the change (`$BA3C-$BA88`, `$D4EF`).
-fn place(game: &mut Game, prg: &[u8], replaced: Mirroring) {
+fn place(game: &mut Game, prg: &Prg, replaced: Mirroring) {
     game.scroll.ppu_ctrl &= !ctrl::NAMETABLE;
     game.scroll.mirroring = replaced;
     let player = &mut game.effects.player;
@@ -545,15 +545,25 @@ impl PageDraw {
     }
 }
 
+/// The stage `$0400 = area` plays.
+pub(crate) fn stage_assets(prg: &Prg, area: u8) -> &StageAssets {
+    &prg.levels.stages[usize::from(area >> 1)]
+}
+
+/// Room `$0402 = room` of that stage.
+pub(crate) fn room_assets(prg: &Prg, area: u8, room: u8) -> &RoomAssets {
+    &stage_assets(prg, area).rooms[usize::from(room >> 1)]
+}
+
 /// Loads room `$0402` of area `$0400`: clears the slots, sets the palette, CHR
 /// banks, orientation, page order, camera, player start and schedule (`$B40A`).
-pub fn load(game: &mut Game, prg: &[u8]) {
+pub fn load(game: &mut Game, prg: &Prg) {
     let (area, room) = (game.world.area, game.world.room);
     game.slots = Slots::default();
     game.effects.projectiles = [Projectile::default(); 16];
     game.effects.pause_name = [0; 18];
     game.effects.pause_aux = 0;
-    let layout = Room::import(prg, area, room).expect("the room's layout");
+    let layout = &room_assets(prg, area, room).room;
     let kept: [u8; 3] = game.effects.palette[17..20].try_into().expect("3 bytes");
     build_palette(
         prg,
@@ -607,10 +617,7 @@ pub fn load(game: &mut Game, prg: &[u8]) {
     game.effects.palette_dirty = 0;
     game.scroll.speed_x = 0;
     game.scroll.speed_y = 0;
-    game.schedule.cells = spawn_schedule(prg, area)
-        .expect("the area's schedule")
-        .try_into()
-        .expect("256 cells");
+    game.schedule.cells = stage_assets(prg, area).schedule;
     let player = &mut game.effects.player;
     player.carrier = 0;
     player.vy = 0;
@@ -725,7 +732,7 @@ pub enum Leftover {
 ///
 /// # Panics
 /// If the area's level or room data fails to decode.
-pub fn enter_area(game: &mut Game, prg: &[u8], chr: &[u8], leftover: Leftover) {
+pub fn enter_area(game: &mut Game, prg: &Prg, chr: &[u8], leftover: Leftover) {
     load_level(game, prg, chr, leftover);
     load(game, prg);
     for (i, entry) in game.effects.palette[17..20].iter_mut().enumerate() {
@@ -752,7 +759,7 @@ pub fn enter_area(game: &mut Game, prg: &[u8], chr: &[u8], leftover: Leftover) {
 ///
 /// # Panics
 /// If the area's level fails to decode.
-pub fn load_level(game: &mut Game, prg: &[u8], chr: &[u8], leftover: Leftover) {
+pub fn load_level(game: &mut Game, prg: &Prg, chr: &[u8], leftover: Leftover) {
     game.world.room = 0;
     let image = match leftover {
         Leftover::Boot => crate::levelmap::boot_image(chr).expect("the boot payload's CHR"),
@@ -760,8 +767,7 @@ pub fn load_level(game: &mut Game, prg: &[u8], chr: &[u8], leftover: Leftover) {
         Leftover::LastArea => wram_7000(game),
     };
     game.effects.level =
-        crate::collision::Level::loaded(prg, chr, usize::from(game.world.area >> 1), image)
-            .expect("the level decodes");
+        crate::collision::Level::from_terrain(&stage_assets(prg, game.world.area).terrain, image);
     let level = &game.effects.level;
     for (i, shadow) in game.effects.vram.attributes[64..].iter_mut().enumerate() {
         *shadow = level.streamed(0x570 + i);
@@ -798,8 +804,8 @@ fn wram_7000(game: &Game) -> [u8; 0x1000] {
 ///
 /// # Panics
 /// If that index runs past the page order, or the schedule names a record the room lacks.
-pub fn spawn_first_row(game: &mut Game, prg: &[u8]) {
-    let table = SpawnTable::import(prg, game.world.area, game.world.room);
+pub fn spawn_first_row(game: &mut Game, prg: &Prg) {
+    let table = &room_assets(prg, game.world.area, game.world.room).spawns;
     let start = if orientation::horizontal_two_page(game.world.orientation) {
         let page = game.world.camera_x.to_be_bytes()[0] & 0x0F;
         *game
@@ -810,7 +816,7 @@ pub fn spawn_first_row(game: &mut Game, prg: &[u8]) {
     } else {
         game.scroll.start
     };
-    spawn_row(&mut game.slots, &mut game.schedule, &table, start);
+    spawn_row(&mut game.slots, &mut game.schedule, table, start);
 }
 
 /// The nametable writes of `$B26D`: the camera's page, drawn straight to the PPU
@@ -896,8 +902,8 @@ fn animate_banks(game: &mut Game, prg: &[u8]) {
 }
 
 /// The room's parameters, the stream masks and the room's player setup (`$D992`).
-pub fn parameters(game: &mut Game, prg: &[u8]) {
-    let layout = Room::import(prg, game.world.area, game.world.room).expect("the room's layout");
+pub fn parameters(game: &mut Game, prg: &Prg) {
+    let layout = &room_assets(prg, game.world.area, game.world.room).room;
     let scroll = &mut game.scroll;
     let flag = |set: bool| if set { 0x80 } else { 0 };
     let Some(raster) = layout.raster else {
@@ -931,7 +937,7 @@ pub fn parameters(game: &mut Game, prg: &[u8]) {
 
 /// Enters the next room of the area (`$B927-$B942`): the loader, the arrangement for
 /// the slide toward `target`'s side, and the palette upload; the arrangement it replaced.
-pub fn enter(game: &mut Game, prg: &[u8], target: u8) -> Mirroring {
+pub fn enter(game: &mut Game, prg: &Prg, target: u8) -> Mirroring {
     game.world.room = game.world.room.wrapping_add(2);
     load(game, prg);
     let replaced = game.scroll.mirroring;

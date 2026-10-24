@@ -3,10 +3,12 @@
 
 use super::Game;
 use super::engine::rom_byte;
-use super::spawn::{SpawnTable, lock_at, spawn_at};
+use super::room::room_assets;
+use super::spawn::{lock_at, spawn_at};
 use super::world::orientation;
 use crate::actors::CELL_PENDING;
 use crate::levelmap::Cell;
+use crate::prg::Prg;
 use crate::render::{Mirroring, ctrl};
 use crate::rooms::Raster;
 
@@ -94,7 +96,7 @@ fn auto(mode: u8, gate: u8, backward: u8) -> i16 {
 }
 
 /// Moves the camera, streams the entering column or row and spawns at the edge (`$8528`).
-pub fn step(game: &mut Game, prg: &[u8]) {
+pub fn step(game: &mut Game, prg: &Prg) {
     let across = game.world.orientation & orientation::TWO_PAGES != 0;
     if game.world.orientation & orientation::VERTICAL == 0 {
         horizontal(game, prg);
@@ -210,12 +212,12 @@ fn accumulate(step: &mut u8, speed: i16) -> bool {
     crossed
 }
 
-fn edge_spawn(game: &mut Game, prg: &[u8], cell: u8) {
+fn edge_spawn(game: &mut Game, prg: &Prg, cell: u8) {
     if game.schedule.cells[usize::from(cell)] & CELL_PENDING == 0 {
         return;
     }
-    let table = SpawnTable::import(prg, game.world.area, game.world.room);
-    spawn_at(&mut game.slots, &mut game.schedule, &table, cell);
+    let table = &room_assets(prg, game.world.area, game.world.room).spawns;
+    spawn_at(&mut game.slots, &mut game.schedule, table, cell);
 }
 
 fn cell(page_columns: &[u8; 32], position: u8, ahead: bool) -> u8 {
@@ -223,7 +225,7 @@ fn cell(page_columns: &[u8; 32], position: u8, ahead: bool) -> u8 {
     page_columns[page] | (position & 0x0F)
 }
 
-fn horizontal(game: &mut Game, prg: &[u8]) {
+fn horizontal(game: &mut Game, prg: &Prg) {
     let [column, fraction] = game.world.camera_x.to_be_bytes();
     let speed = game.scroll.speed_x;
     let right = speed >= 0;
@@ -270,7 +272,7 @@ fn set_scroll_x(game: &mut Game) {
     game.scroll.scroll_x = scroll.wrapping_add(u8::from(fraction & 8 != 0));
 }
 
-fn vertical(game: &mut Game, prg: &[u8]) {
+fn vertical(game: &mut Game, prg: &Prg) {
     let [row, fraction] = game.world.camera_y.to_be_bytes();
     let speed = game.scroll.speed_y;
     let down = speed >= 0;

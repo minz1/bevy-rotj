@@ -705,7 +705,7 @@ impl Boot {
     /// The title (`$61AC-$6232`): its song, the cursor moved by left, right or Select,
     /// the attract mode when left waiting; A, B or Start flash the chosen line, then the
     /// title fades out and starts the game or opens the password screen.
-    fn title_frame(&mut self, step: Title, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
+    fn title_frame(&mut self, step: Title, game: &mut Game, prg: &Prg, chr: &[u8]) -> bool {
         let next = match step {
             Title::Start => {
                 game.effects.song = sound::song::TITLE;
@@ -811,7 +811,7 @@ impl Boot {
 
     /// The password screen (`$6330-$65F4`): drawn and faded in, then the entry until A,
     /// B or Start submits it or Select fades out and resets the game.
-    fn password_frame(&mut self, step: Password, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
+    fn password_frame(&mut self, step: Password, game: &mut Game, prg: &Prg, chr: &[u8]) -> bool {
         let read = self.reader(chr);
         let next = match step {
             Password::Clear => {
@@ -892,7 +892,7 @@ impl Boot {
 
     /// The password checked (`$654C-$65F4`): a right one flashes for 128 frames, fades out
     /// and starts its stage; a wrong one shows its message blinking for 128 frames.
-    fn verdict_frame(&mut self, step: Password, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
+    fn verdict_frame(&mut self, step: Password, game: &mut Game, prg: &Prg, chr: &[u8]) -> bool {
         let next = match step {
             Password::Verdict => {
                 let accepted = self.check_password(chr);

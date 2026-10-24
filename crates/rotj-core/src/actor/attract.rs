@@ -9,6 +9,7 @@ use super::engine::{rom_byte, rom_word};
 use super::room::build_palette;
 use super::stage::{Fade, blackout, queue_palette};
 use super::world::{VramWrite, set_first_colours, sound};
+use crate::prg::Prg;
 use crate::render::{Mirroring, ctrl, mask};
 
 /// The buttons that leave the attract mode while held (`$F6 & $D0`).
@@ -100,12 +101,12 @@ impl Attract {
     }
 
     /// Runs one frame up to its NMI wait.
-    pub(super) fn step(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) {
+    pub(super) fn step(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) {
         while !self.frame(game, prg, chr) {}
     }
 
     /// The step's part of the frame: true when it ended at the NMI wait.
-    fn frame(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
+    fn frame(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) -> bool {
         match self.step {
             Step::Start
             | Step::Copy
@@ -138,7 +139,7 @@ impl Attract {
 
     /// The first screen (`$99F7-$9A6A`): the city scrolled into the second nametable,
     /// the story's next page drawn over the first.
-    fn first_screen(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
+    fn first_screen(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) -> bool {
         let held = game.world.pad.intersects(HELD_TO_LEAVE);
         match self.step {
             Step::Start => {
@@ -195,7 +196,7 @@ impl Attract {
     }
 
     /// The second screen (`$9A6D-$9AC5`): its page into the second nametable, scrolled.
-    fn second_screen(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
+    fn second_screen(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) -> bool {
         let held = game.world.pad.intersects(HELD_TO_LEAVE);
         match self.step {
             Step::SecondPage => {
@@ -238,7 +239,7 @@ impl Attract {
     }
 
     /// The third screen (`$9AC8-$9B32`): its page into the first nametable, the figure and the stars.
-    fn third_screen(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) -> bool {
+    fn third_screen(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) -> bool {
         let held = game.world.pad.intersects(HELD_TO_LEAVE);
         match self.step {
             Step::ThirdDark => {

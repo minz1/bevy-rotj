@@ -291,7 +291,7 @@ impl PowerUp {
     /// One flashing frame up to its NMI wait: the effect `$31`, every projectile
     /// freed and `$C2` kept in `$0409` on the first, then each palette's first colour
     /// `$30` every fourth frame and `$0F` otherwise, the scroll and the palette upload.
-    pub fn step(&mut self, game: &mut Game, prg: &[u8]) {
+    pub fn step(&mut self, game: &mut Game, prg: &Prg) {
         let effects = &mut game.effects;
         if self.frames == 0 {
             effects.sound[0] = sound::POWER_UP;
@@ -318,7 +318,7 @@ impl PowerUp {
     /// The power-up's end (`$D5E6-$D60A`): Batman held in motion 8 (his motion kept
     /// in `$040F`), the odd-frame flag set, and four pieces of weapon 6 placed around
     /// him (`$D64A`), which close in through the weapons' handler 6.
-    pub fn finish(game: &mut Game, prg: &[u8]) {
+    pub fn finish(game: &mut Game, prg: &Prg) {
         let effects = &mut game.effects;
         effects.stage_end.phase = effects.stage_end.phase.wrapping_add(1);
         let player = &mut effects.player;
@@ -373,7 +373,7 @@ impl Fade {
     }
 
     /// One frame of the fade, up to its NMI wait; true on its last frame.
-    pub(super) fn step(&mut self, game: &mut Game, prg: &[u8]) -> bool {
+    pub(super) fn step(&mut self, game: &mut Game, prg: &Prg) -> bool {
         self.ticks = self.ticks.wrapping_sub(1);
         let mut last = false;
         if self.ticks & 0x80 != 0 {
@@ -770,7 +770,7 @@ fn show_banner(game: &mut Game, prg: &Prg) {
 
 /// The area start (bank 13 `$B200`) up to its scroll reset (`$BE6E`), over what
 /// `leftover` says WRAM holds.
-fn start_area(game: &mut Game, prg: &[u8], chr: &[u8], leftover: room::Leftover) {
+fn start_area(game: &mut Game, prg: &Prg, chr: &[u8], leftover: room::Leftover) {
     room::enter_area(game, prg, chr, leftover);
     game.scroll.scroll_x = 0;
     game.scroll.scroll_y = 0;
@@ -994,7 +994,7 @@ impl BossIntro {
 
     /// The room's load in the card's last frame (`$BD6C`): the room loader, the
     /// player's screen position, the first row of spawns and the page draw's first row.
-    fn enter_room(&mut self, game: &mut Game, prg: &[u8]) {
+    fn enter_room(&mut self, game: &mut Game, prg: &Prg) {
         room::load(game, prg);
         let player = &mut game.effects.player;
         player.screen_x = (player.x >> 4).to_le_bytes()[0];

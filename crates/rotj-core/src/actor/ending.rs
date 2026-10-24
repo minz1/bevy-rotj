@@ -10,6 +10,7 @@ use super::script::{Flow, Runner, wait};
 use super::stage::Fade;
 use crate::actor::world::sound;
 use crate::levelmap::PAYLOAD_FIRST_BANK;
+use crate::prg::Prg;
 use crate::render::{Mirroring, mask};
 use crate::rooms::Raster;
 
@@ -239,7 +240,7 @@ impl Ending {
     }
 
     /// Runs one frame up to its NMI wait.
-    pub fn step(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) {
+    pub fn step(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) {
         loop {
             let action = *self.runner.row(SCRIPT).expect("the ending holds for good");
             let flow = self.run(action, game, prg, chr);
@@ -250,7 +251,7 @@ impl Ending {
     }
 
     /// Runs a step's frame, or the whole of a step that takes none.
-    fn run(&mut self, action: Row, game: &mut Game, prg: &[u8], chr: &[u8]) -> Flow {
+    fn run(&mut self, action: Row, game: &mut Game, prg: &Prg, chr: &[u8]) -> Flow {
         let read = |addr| wram(chr, &self.buffer, addr);
         let frames = |count: u16| wait(self.runner.frame, count);
         match action {
