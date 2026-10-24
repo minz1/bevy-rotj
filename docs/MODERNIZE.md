@@ -46,8 +46,8 @@ riskiest, so they belong to the pilot the PLAN schedules after 1.0.1.
   (`docs/specs/2026-10-18-empty-slot-design.md`): `Empty` in both enums is the empty slot's brain
   and the fallback for a kind with no handler; the missing-handler stand-in is deleted and the
   dispatch's `Empty` arm is `unreachable!` (`$CF72` has a handler for every main kind). The
-  families' oracle-test docs still say "unported" where they mean a child or parent the isolated
-  scene does not run: a doc-only rewording, site by site, is a later patch.
+  families' oracle-test docs (1.1.34) and `docs/ACTORS.md` (1.1.45) no longer say "unported"
+  where they mean a child or parent the isolated scene does not run.
 - **`Outside`**: removed in 1.1.15 with `Relift`, the tape tags retired
   (`docs/specs/2026-10-18-outside-removal-design.md`).
 - **Duplicate `integrate` (k08.rs:57, k92.rs:66, byte-identical)** and the
