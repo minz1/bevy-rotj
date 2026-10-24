@@ -1486,7 +1486,7 @@ the pause check, as the game does. The stage-end script itself runs inside the
 dispatch every frame (9l). The player move is `player::step_move`, with
 `Game::probe` carrying the probe bytes `$20-$28` it reads back between frames.
 It runs every routine itself: since 1.1.15 no `Outside` callback hands one to
-the oracle, and the oracle asserts no live second-class slot has the `Empty` brain; the
+the oracle, and a test build asserts no live second-class slot has the `Empty` brain (`actor.rs`); the
 pause is a script (9p). `$BA = 4` is the next area's script
 restarting the area (9m), 5 the power-up (9l), 6 the ending (`$D967`, 9r). The player draw `$84AB` runs in the port every loop frame,
 and the room change draws
@@ -1573,7 +1573,7 @@ overlaid) to frame 2150: 1550 loop frames, the first included; the attribute
 pages and shadow it once overlaid are now the port's own (9l). Dropping `$D6D3`
 from the loop fails it at the first frame. The loop needed three more types the
 per-family scenes never isolated: second-class `$02` and `$08` (the `$CE7F`
-dispatch silently skipped a second-class type not yet ported) and the trigger `$0E`.
+dispatch silently skips a second-class type with no handler; a test build now asserts none is live) and the trigger `$0E`.
 
 **State tapes** (`actor/tape.rs`, spec `docs/specs/2026-10-15-state-tape-design.md`).
 `run_game` is the loop's only copy; it asks an `Environment` for every injection
