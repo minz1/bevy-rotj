@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 
 use crate::actor::families::{MAIN, SECOND};
 use crate::actor::spawn::SpawnTable;
+use crate::actor::stage::Stage as Descriptor;
 use crate::rooms::{Raster, Room};
 use crate::terrain::Terrain;
 
@@ -33,6 +34,26 @@ const TILESET_TILES: u32 = 256;
 pub struct Levels {
     /// The stages.
     pub stages: Vec<StageAssets>,
+    /// The password screen's passwords the pause never shows.
+    pub extra_passwords: Vec<ExtraPassword>,
+}
+
+/// A password the pause never shows, which starts a checkpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExtraPassword {
+    /// Its letters, `A`-`Z` in ASCII, as [`Descriptor::password`].
+    pub letters: [u8; 4],
+    /// The index in [`Levels::stages`] of the checkpoint it starts.
+    pub stage: usize,
+}
+
+/// Whose pack is imported: only the original game's export keeps `no_handler` objects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    /// The original game's export.
+    Original,
+    /// Anyone else's pack.
+    User,
 }
 
 /// One stage's assets: an area's map, schedule and rooms.
@@ -64,8 +85,8 @@ pub struct Stage {
     pub name: String,
     /// The area (0-17) its metatiles, CHR and screen record come from.
     pub area: u8,
-    /// The HUD's stage label.
-    pub hud_label: String,
+    /// What the engine reads by stage; its `area` is `area * 2`.
+    pub descriptor: Descriptor,
 }
 
 /// What a pack names and the player's ROM resolves: each area's tilesets (one per CHR
@@ -228,6 +249,18 @@ fn tile_index(vertical: bool, width: usize, (along, band): (usize, usize), cell:
 /// The schedule cell a room's schedule column (entry × 16 + column, 0-511) names.
 fn schedule_cell(pages: &[u8; TABLE_ENTRIES], column: usize) -> usize {
     usize::from(pages[column >> 4]) * 16 + (column & 15)
+}
+
+/// The first spawn column the camera start implies: the first cell of the page under it.
+fn derived_first_spawn_column(
+    vertical: bool,
+    camera_x: u16,
+    camera_y: u16,
+    pages: &[u8; TABLE_ENTRIES],
+) -> u8 {
+    let (along, across) = along_across(vertical, camera_x, camera_y);
+    let entry_under_camera = usize::from(across >= 0x1000) * PAGES + usize::from(along >> 12);
+    pages[entry_under_camera] << 4
 }
 
 /// A level position's coordinates (along the scroll, across it).

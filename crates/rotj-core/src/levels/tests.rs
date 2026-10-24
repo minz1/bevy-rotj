@@ -4,7 +4,10 @@ use super::model::{
     Extra, Layer, Map, Object, PackFile, Position, Property, Region, World, to_text,
 };
 use super::*;
-use crate::actor::world::orientation;
+use crate::actor::slots::Slots;
+use crate::actor::spawn::{lock_at, spawn_at, spawn_row};
+use crate::actor::stage::{Music, OnClear};
+use crate::actor::world::{Schedule, orientation};
 use crate::actors::{CELL_FLAGS, CELL_LOCK, CELL_PENDING, CELL_RECORD, SpawnRecord};
 use crate::collision::CLASS_COUNT;
 use crate::render::Mirroring;
@@ -19,14 +22,12 @@ fn read_ids(room: &Room, schedule: &[u8; PAGE_CELLS]) -> BTreeSet<usize> {
         .collect()
 }
 
-/// `rooms/5-1-3.tmj` and `5-1-4.tmj` (area 11 rooms 2 and 3): their `first_spawn_column`
-/// waits on the owner.
-const FIRST_SPAWN_COLUMN_PENDING: [&str; 2] = ["rooms/5-1-3.tmj", "rooms/5-1-4.tmj"];
+/// The rooms whose ROM first spawn column is not the derived one (area 11 rooms 2 and 3).
+const FIRST_SPAWN_COLUMN_ROOMS: [&str; 2] = ["rooms/5-1-3.tmj", "rooms/5-1-4.tmj"];
 
-/// The read pending cells that also set bit 6 (`$C0 | id`, all in 7-2): the format has no
-/// field for it and the spawner never reads it (`spawn_at` takes bit 7 and the id, `lock_at`
-/// needs `$40` exactly), so it imports as 0, pending the owner.
-const PENDING_BIT_6: usize = 24;
+/// The read pending cells that also set bit 6 (`$C0 | id`, all in 7-2): the format does not
+/// carry it, since nothing reads it ([`bit_6_of_a_pending_cell_is_read_by_nothing`]).
+const BIT_6_CELLS: usize = 24;
 
 /// The page-table actors' kinds and the page each writes into the table at runtime.
 const PAGE_TABLE_WRITERS: [(u8, u8); 4] = [(0x9C, 6), (0x76, 7), (0xC8, 0), (0xB2, 0)];
@@ -44,12 +45,17 @@ fn the_original_game_imports_to_the_assets_the_game_reads() {
     let levels = Levels::from_rom(&rom.prg, &rom.chr).expect("the ROM's levels");
     let catalog = Catalog::from_rom(&rom.prg, &rom.chr).expect("the ROM's catalog");
     let files = write(&levels, &catalog);
-    let imported = import(&files, &catalog).expect("the export imports");
+    let imported = import(&files, &catalog, Source::Original).expect("the export imports");
     assert_eq!(imported.stages.len(), levels.stages.len());
-    let (mut rooms, mut records, mut writers, mut pending_bit_6) = (0, 0, 0, 0);
-    for (stage, back) in levels.stages.iter().zip(&imported.stages) {
+    let (mut rooms, mut records, mut writers, mut bit_6_cells) = (0, 0, 0, 0);
+    assert_eq!(imported.stages.len(), 18);
+    for ((index, stage), back) in (0..).zip(&levels.stages).zip(&imported.stages) {
         let at = &stage.stage.name;
         assert!(back.stage == stage.stage, "{at}: stage");
+        assert!(
+            back.stage.descriptor == Descriptor::from_rom(&rom.prg, index),
+            "{at}: descriptor"
+        );
         assert!(back.terrain == stage.terrain, "{at}: terrain");
         let shown: BTreeSet<u8> = stage
             .rooms
@@ -61,7 +67,7 @@ fn the_original_game_imports_to_the_assets_the_game_reads() {
         {
             let shown = shown.contains(&u8::try_from(cell >> 4).expect("a page"));
             let expected = if shown && value & CELL_PENDING != 0 {
-                pending_bit_6 += usize::from(value & CELL_FLAGS == CELL_FLAGS);
+                bit_6_cells += usize::from(value & CELL_FLAGS == CELL_FLAGS);
                 CELL_PENDING | (value & CELL_RECORD)
             } else if shown && value & CELL_FLAGS == CELL_LOCK {
                 value
@@ -80,9 +86,14 @@ fn the_original_game_imports_to_the_assets_the_game_reads() {
             if !orientation::horizontal_two_page(assets.room.orientation) {
                 layout.raised_page_count = assets.room.raised_page_count;
             }
-            if FIRST_SPAWN_COLUMN_PENDING.contains(&file.as_str()) {
-                layout.start.first_spawn_column = assets.room.start.first_spawn_column;
-            }
+            let map: Map = serde_json::from_str(&files[&file]).expect("a room");
+            assert_eq!(
+                map.properties
+                    .iter()
+                    .any(|property| property.name == "first_spawn_column"),
+                FIRST_SPAWN_COLUMN_ROOMS.contains(&file.as_str()),
+                "{file}: first_spawn_column"
+            );
             assert!(layout == assets.room, "{file}: room");
             let ids = read_ids(&assets.room, &stage.schedule);
             for &id in &ids {
@@ -115,9 +126,71 @@ fn the_original_game_imports_to_the_assets_the_game_reads() {
     );
     assert!(writers > 0, "no page-table actor was checked");
     assert_eq!(
-        pending_bit_6, PENDING_BIT_6,
+        bit_6_cells, BIT_6_CELLS,
         "read pending cells with bit 6, which imports as 0"
     );
+    assert_eq!(imported.extra_passwords, levels.extra_passwords);
+    assert_eq!(levels.extra_passwords.len(), 1);
+}
+
+/// What reads a schedule cell: `spawn_at` and `spawn_row` (bit 7, then the id), `lock_at`
+/// (`$40` exactly), `despawn` (ORs into a cell already cleared to its id), and
+/// `collision::class_at`, which reads cells `$00-$2F` as the class of a metatile id `$D0` and
+/// up. Some of 7-2's bit 6 cells are in `$00-$2F`, but its stream has no id `$D0` and up.
+#[test]
+fn bit_6_of_a_pending_cell_is_read_by_nothing() {
+    let Some(rom) = rotj_rom::for_test() else {
+        return;
+    };
+    let levels = Levels::from_rom(&rom.prg, &rom.chr).expect("the ROM's levels");
+    let mut checked = 0;
+    for stage in &levels.stages {
+        let cells: Vec<u8> = (0..=u8::MAX)
+            .filter(|&cell| stage.schedule[usize::from(cell)] & CELL_FLAGS == CELL_FLAGS)
+            .collect();
+        if cells.is_empty() {
+            continue;
+        }
+        assert!(
+            stage.terrain.stream.iter().all(|&id| id < 0xD0),
+            "{}: a metatile class_at reads from the schedule",
+            stage.stage.name
+        );
+        for assets in &stage.rooms {
+            let schedule = Schedule {
+                cells: stage.schedule,
+                ..Schedule::default()
+            };
+            for &cell in cells
+                .iter()
+                .filter(|&&cell| assets.room.pages.contains(&(cell >> 4)))
+            {
+                let mut cleared = schedule.clone();
+                cleared.cells[usize::from(cell)] &= !0x40;
+                let after = |mut schedule: Schedule, row: bool| {
+                    let mut slots = Slots::default();
+                    if row {
+                        spawn_row(&mut slots, &mut schedule, &assets.spawns, cell & 0xF0);
+                    } else {
+                        spawn_at(&mut slots, &mut schedule, &assets.spawns, cell);
+                    }
+                    (slots, schedule.cells[usize::from(cell)])
+                };
+                for row in [false, true] {
+                    assert!(
+                        after(schedule.clone(), row) == after(cleared.clone(), row),
+                        "cell {cell:#04x}"
+                    );
+                }
+                assert_eq!(
+                    lock_at(&schedule, cell, 0x0F, 0xF0, 0x55),
+                    lock_at(&cleared, cell, 0x0F, 0xF0, 0x55)
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked >= BIT_6_CELLS, "{checked} bit 6 cells checked");
 }
 
 #[test]
@@ -127,7 +200,7 @@ fn the_original_game_round_trips_byte_for_byte() {
     };
     let files = export(&rom.prg, &rom.chr).expect("the ROM exports");
     let catalog = Catalog::from_rom(&rom.prg, &rom.chr).expect("the ROM's catalog");
-    let imported = import(&files, &catalog).expect("the export imports");
+    let imported = import(&files, &catalog, Source::Original).expect("the export imports");
     assert!(
         write(&imported, &catalog) == files,
         "export(import(export(rom))) differs"
@@ -157,7 +230,7 @@ fn the_original_game_round_trips_byte_for_byte() {
     let mut edited = files.clone();
     edited.insert(path.into(), text);
     assert!(
-        import(&edited, &catalog).expect("the edited pack imports") == imported,
+        import(&edited, &catalog, Source::Original).expect("the edited pack imports") == imported,
         "an unknown field or layer changed the import"
     );
 }
@@ -236,7 +309,7 @@ fn hand_made() -> Levels {
     c_pages[16..].fill(4);
     let mut d_pages = [1; TABLE_ENTRIES];
     d_pages[1..16].fill(3);
-    let a = room(
+    let mut a = room(
         a_pages,
         [1, 2, 3, 4],
         &[
@@ -245,6 +318,7 @@ fn hand_made() -> Levels {
             (20, record(0, false, 0x0C)),
         ],
     );
+    a.room.start.first_spawn_column = 0x13;
     let mut b = room(b_pages, [5, 6, 7, 0x88], &[(5, record(0x1200, true, 0x02))]);
     b.room.raster = Some(Raster {
         armed: true,
@@ -286,7 +360,14 @@ fn hand_made() -> Levels {
             stage: Stage {
                 name: "9-9".into(),
                 area: 0,
-                hud_label: "9-9".into(),
+                descriptor: Descriptor {
+                    area: 0,
+                    banner: [9, 9],
+                    music: Music::Song(0x03),
+                    picture: Some(0x05),
+                    password: Some(*b"ABCD"),
+                    on_clear: OnClear::Ending,
+                },
             },
             terrain: Terrain {
                 stream,
@@ -297,6 +378,10 @@ fn hand_made() -> Levels {
             schedule,
             rooms: vec![a, b, c, d],
         }],
+        extra_passwords: vec![ExtraPassword {
+            letters: *b"WXYZ",
+            stage: 0,
+        }],
     }
 }
 
@@ -305,7 +390,7 @@ fn a_hand_made_pack_imports_what_the_game_reads() {
     let levels = hand_made();
     let catalog = Catalog::from_levels(&levels);
     let files = write(&levels, &catalog);
-    let imported = import(&files, &catalog).expect("imports");
+    let imported = import(&files, &catalog, Source::User).expect("imports");
     let mut expected = levels.clone();
     let stage = &mut expected.stages[0];
     stage.schedule[0x20] = 0;
@@ -348,6 +433,20 @@ fn a_hand_made_pack_imports_what_the_game_reads() {
         Some(&serde_json::json!([{"type": "int", "value": 18}, {"type": "int", "value": 23}]))
     );
     assert!(files[ROOM_A].contains("\"x\": 29.9375"));
+    let first_spawn_column = a.properties.iter().find(|p| p.name == "first_spawn_column");
+    assert_eq!(first_spawn_column.map(|p| &p.value), Some(&19.into()));
+    assert!(!b.properties.iter().any(|p| p.name == "first_spawn_column"));
+    let stage = serde_json::to_value(&pack.stages[0]).expect("a stage");
+    assert_eq!(
+        (&stage["hud_label"], &stage["music"], &stage["cutscene"]),
+        (&"9-9".into(), &"song-03".into(), &"picture-05".into())
+    );
+    assert_eq!(
+        (&stage["password"], &stage["on_clear"]),
+        (&"ABCD".into(), &"ending".into())
+    );
+    assert_eq!(pack.extra_passwords[0].password, "WXYZ");
+    assert_eq!(pack.extra_passwords[0].stage, "9-9");
 }
 
 /// The hand-made pack's files and catalog, to break one thing at a time.
@@ -369,7 +468,7 @@ impl Fixture {
     fn refuses(&self, needle: &str, edit: impl FnOnce(&mut PackFiles)) {
         let mut files = self.files.clone();
         edit(&mut files);
-        let Err(error) = import(&files, &self.catalog) else {
+        let Err(error) = import(&files, &self.catalog, Source::User) else {
             panic!("a pack that should fail on `{needle}` imports");
         };
         let error = error.to_string();
@@ -543,6 +642,8 @@ fn a_room_whose_areas_or_splits_do_not_resolve_is_refused() {
     let mut other = levels.stages[0].clone();
     other.stage.area = 1;
     other.stage.name = "9-8".into();
+    other.stage.descriptor.area = 2;
+    other.stage.descriptor.password = None;
     for assets in &mut other.rooms {
         (assets.room.raster, assets.room.arrival) = (None, Arrival::Unchanged);
     }
@@ -617,7 +718,7 @@ fn unknown_layers_are_kept_and_ignored() {
     let levels = hand_made();
     let catalog = Catalog::from_levels(&levels);
     let mut files = write(&levels, &catalog);
-    let imported = import(&files, &catalog).expect("imports");
+    let imported = import(&files, &catalog, Source::User).expect("imports");
     let mut map: Map = serde_json::from_str(&files[ROOM_A]).expect("room A");
     let sky = Layer {
         name: "sky".into(),
@@ -627,5 +728,101 @@ fn unknown_layers_are_kept_and_ignored() {
     map.layers.insert(0, sky);
     files.insert(ROOM_A.into(), to_text(&map));
     assert!(files[ROOM_A].contains("\"sky\""));
-    assert_eq!(import(&files, &catalog).expect("imports"), imported);
+    assert_eq!(
+        import(&files, &catalog, Source::User).expect("imports"),
+        imported
+    );
+}
+
+#[test]
+fn a_stage_whose_knobs_break_the_format_is_refused() {
+    let fixture = Fixture::new(&hand_made());
+    fixture.refuses_pack("stage `9-9`: `hud_label`: unknown value `10-1`", |pack| {
+        pack.stages[0].hud_label = "10-1".into();
+    });
+    fixture.refuses_pack("`music`: unknown value `song-80`", |pack| {
+        pack.stages[0].music = "song-80".into();
+    });
+    fixture.refuses_pack("`music`: unknown value `song-3`", |pack| {
+        pack.stages[0].music = "song-3".into();
+    });
+    fixture.refuses_pack("`cutscene`: unknown value `picture-zz`", |pack| {
+        pack.stages[0].cutscene = Some("picture-zz".into());
+    });
+    fixture.refuses_pack("`password`: unknown value `abcd`", |pack| {
+        pack.stages[0].password = Some("abcd".into());
+    });
+    fixture.refuses_pack("`password`: unknown value `ABCDE`", |pack| {
+        pack.stages[0].password = Some("ABCDE".into());
+    });
+    fixture.refuses_pack("`on_clear`: unknown value `restart`", |pack| {
+        pack.stages[0].on_clear = "restart".into();
+    });
+    fixture.refuses("missing field `music`", |files| {
+        let mut pack: serde_json::Value = serde_json::from_str(&files["pack.json"]).expect("json");
+        pack["stages"][0]
+            .as_object_mut()
+            .expect("a stage")
+            .remove("music");
+        files.insert("pack.json".into(), to_text(&pack));
+    });
+    fixture.refuses_pack("the first stage needs a `password`", |pack| {
+        pack.stages[0].password = None;
+        pack.extra_passwords.clear();
+    });
+    fixture.refuses_pack("the last stage's `on_clear` is `next-stage`", |pack| {
+        pack.stages[0].on_clear = "next-stage".into();
+    });
+    fixture.refuses_pack("password `ABCD` is used twice", |pack| {
+        pack.extra_passwords[0].password = "ABCD".into();
+    });
+    fixture.refuses_pack("`extra_passwords`: unknown password `wxyz`", |pack| {
+        pack.extra_passwords[0].password = "wxyz".into();
+    });
+    fixture.refuses_pack("`extra_passwords`: unknown stage `9-7`", |pack| {
+        pack.extra_passwords[0].stage = "9-7".into();
+    });
+    fixture.refuses_pack("stage `9-9` names more than one stage", |pack| {
+        let twin = pack.stages[0].clone();
+        pack.stages.push(twin);
+    });
+    fixture.refuses_pack("stage `9-7` is not a checkpoint", |pack| {
+        let mut other = pack.stages[0].clone();
+        (other.name, other.password) = ("9-7".into(), None);
+        pack.stages.push(other);
+        pack.extra_passwords[0].stage = "9-7".into();
+    });
+    fixture.refuses_map(
+        "property `first_spawn_column` 512 is not a column 0-511",
+        ROOM_A,
+        |map| {
+            let column = map
+                .properties
+                .iter_mut()
+                .find(|p| p.name == "first_spawn_column");
+            column.expect("a first spawn column").value = 512.into();
+        },
+    );
+}
+
+#[test]
+fn a_user_pack_naming_an_actor_the_game_has_no_handler_for_is_refused() {
+    let fixture = Fixture::new(&hand_made());
+    fixture.refuses_map("object 6: the game has no handler for it", ROOM_B, |map| {
+        let object = &mut objects(map, 1)[0];
+        object.kind = "no_handler".into();
+        set_property(object, "variant", "type-4a".into());
+    });
+    let Some(rom) = rotj_rom::for_test() else {
+        return;
+    };
+    let files = export(&rom.prg, &rom.chr).expect("the ROM exports");
+    let catalog = Catalog::from_rom(&rom.prg, &rom.chr).expect("the ROM's catalog");
+    assert!(files.values().any(|text| text.contains("\"no_handler\"")));
+    let error = import(&files, &catalog, Source::User).expect_err("a user pack");
+    assert!(
+        error.to_string().contains("the game has no handler for it"),
+        "{error}"
+    );
+    assert!(import(&files, &catalog, Source::Original).is_ok());
 }

@@ -283,6 +283,9 @@ pub struct PackFile {
     pub engine: String,
     /// The stages in play order.
     pub stages: Vec<PackStage>,
+    /// The password screen's passwords the pause never shows.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra_passwords: Vec<ExtraPassword>,
     /// Fields this model does not know.
     #[serde(flatten)]
     pub extra: Extra,
@@ -297,9 +300,31 @@ pub struct PackStage {
     pub rooms: Vec<String>,
     /// The area's 16 physical pages in order, each the room regions that show it.
     pub pages: Vec<Vec<Region>>,
-    /// The HUD's stage label.
+    /// The HUD's stage label, `d-d`.
     pub hud_label: String,
+    /// The song it starts, `song-xx`, or `keep`.
+    pub music: String,
+    /// The picture shown before its banner, `picture-xx`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cutscene: Option<String>,
+    /// The checkpoint's password, four letters `A`-`Z`; a stage with none is no checkpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    /// What clearing it does: `next-stage` or `ending`.
+    pub on_clear: String,
     /// Fields (and knobs) this model does not know.
+    #[serde(flatten)]
+    pub extra: Extra,
+}
+
+/// A password the pause never shows, in `pack.json`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExtraPassword {
+    /// Four letters `A`-`Z`.
+    pub password: String,
+    /// The name of the checkpoint it starts.
+    pub stage: String,
+    /// Fields this model does not know.
     #[serde(flatten)]
     pub extra: Extra,
 }

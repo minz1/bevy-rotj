@@ -16,7 +16,7 @@ use crate::prg::Prg;
 use crate::render::{Mirroring, ctrl, mask};
 
 /// The WRAM byte at `addr` once `$98C3` has copied the payload (CHR `$F0-$F7`, in order).
-fn payload_byte(chr: &[u8], addr: u16) -> u8 {
+pub(crate) fn payload_byte(chr: &[u8], addr: u16) -> u8 {
     chr[usize::from(BOOT_FIRST_BANK) * 0x400 + usize::from(addr - 0x6000)]
 }
 
@@ -70,7 +70,7 @@ const ENTRY: u16 = 0x6E12;
 const LETTER_TILES: u16 = 0x6E52;
 /// The fourteen passwords, four letters each, the stage they start by their place;
 /// the fourteenth starts the thirteenth stage too (`$6E6C`).
-const PASSWORDS: u16 = 0x6E6C;
+pub(crate) const PASSWORDS: u16 = 0x6E6C;
 /// The rejected password's message (`$6E38`) and the screen's two fixed sprites.
 const REJECTED: u16 = 0x6E38;
 const PASSWORD_SPRITES: [(u16, u8, u8); 2] = [(0x6EA4, 0x50, 0xA0), (0x6F0A, 0xA0, 0xC0)];

@@ -4,15 +4,17 @@
 use std::collections::BTreeMap;
 
 use super::model::{
-    Extra, Layer, Map, Object, PackFile, PackStage, Position, Property, Region, TilesetRef, World,
-    WorldMap, to_text,
+    self, Extra, Layer, Map, Object, PackFile, PackStage, Position, Property, Region, TilesetRef,
+    World, WorldMap, to_text,
 };
 use super::{
-    Catalog, Levels, PAGE_CELLS, PAGES, PackFiles, RoomAssets, Stage, StageAssets, TABLE_ENTRIES,
-    along_across, class_of, region_place, schedule_cell, tile_index,
+    Catalog, ExtraPassword, Levels, PAGE_CELLS, PAGES, PackFiles, RoomAssets, Stage, StageAssets,
+    TABLE_ENTRIES, along_across, class_of, derived_first_spawn_column, region_place, schedule_cell,
+    tile_index,
 };
-use crate::actor::engine::rom_byte;
+use crate::actor::boot::{PASSWORDS, payload_byte};
 use crate::actor::spawn::SpawnTable;
+use crate::actor::stage::{Music, OnClear, Stage as Descriptor};
 use crate::actor::world::orientation;
 use crate::actors::{CELL_FLAGS, CELL_LOCK, CELL_PENDING, CELL_RECORD, spawn_schedule};
 use crate::rooms::{Arrival, Room, listed_rooms};
@@ -28,10 +30,14 @@ const FIRST_LOCK_ID: u32 = 67;
 const WORLD_ROW: i64 = 4352;
 /// The px between rooms in a world row.
 const WORLD_GAP: i64 = 256;
+/// The password screen's place the pause never shows (`$6E6C`'s fourteenth).
+const EXTRA_PLACE: u16 = 13;
+/// The checkpoint it starts (`check_password`'s `place.min(12)`), counted from 0.
+const EXTRA_CHECKPOINT: usize = 12;
 
 impl Levels {
-    /// The original game's levels, from today's importers and the banner's stage digits
-    /// (bank 2 `$93F0`); `None` where an area's terrain, schedule or room does not import.
+    /// The original game's levels, from today's importers, the stage descriptors and the
+    /// password screen; `None` where an area's terrain, schedule or room does not import.
     #[must_use]
     pub fn from_rom(prg: &[u8], chr: &[u8]) -> Option<Levels> {
         let rooms = listed_rooms(prg);
@@ -41,8 +47,7 @@ impl Levels {
                 break;
             };
             let offset = area * 2;
-            let digits = rom_byte(prg, 2, 0x93F0 + u16::from(area));
-            let name = format!("{}-{}", digits >> 4, digits & 0x0F);
+            let descriptor = Descriptor::from_rom(prg, area);
             let rooms = rooms
                 .iter()
                 .filter(|&&(room_area, _)| room_area == offset)
@@ -55,17 +60,34 @@ impl Levels {
                 .collect::<Option<_>>()?;
             stages.push(StageAssets {
                 stage: Stage {
-                    name: name.clone(),
+                    name: hud_label(&descriptor),
                     area,
-                    hud_label: name,
+                    descriptor,
                 },
                 terrain,
                 schedule: spawn_schedule(prg, offset).ok()?.try_into().ok()?,
                 rooms,
             });
         }
-        Some(Levels { stages })
+        let stage = (0..stages.len())
+            .filter(|&index| stages[index].stage.descriptor.password.is_some())
+            .nth(EXTRA_CHECKPOINT)?;
+        let letters =
+            [0, 1, 2, 3].map(|i| b'A' + payload_byte(chr, PASSWORDS + 4 * EXTRA_PLACE + i));
+        Some(Levels {
+            stages,
+            extra_passwords: vec![ExtraPassword { letters, stage }],
+        })
     }
+}
+
+/// The banner's digits as `pack.json` writes them, `3-2`.
+fn hud_label(descriptor: &Descriptor) -> String {
+    format!("{}-{}", descriptor.banner[0], descriptor.banner[1])
+}
+
+fn letters_text(letters: [u8; 4]) -> String {
+    letters.iter().copied().map(char::from).collect()
 }
 
 /// The original game's pack, "The Original Game", from the ROM.
@@ -79,7 +101,8 @@ pub fn export(prg: &[u8], chr: &[u8]) -> Option<PackFiles> {
 /// pending and lock cells on the rooms' pages, and the records they name.
 ///
 /// # Panics
-/// On a room page of 16 or more, a room whose CHR the catalog lacks, or a read cell naming
+/// On a room page of 16 or more, a room whose CHR the catalog lacks, a first spawn column
+/// off the room's pages, an extra password's stage past the stages, or a read cell naming
 /// a record the room lacks or whose kind has no class: [`import`](super::import) and
 /// [`Levels::from_rom`] give none of these.
 #[must_use]
@@ -88,6 +111,7 @@ pub fn write(levels: &Levels, catalog: &Catalog) -> PackFiles {
     let mut world = Vec::new();
     let mut stages = Vec::new();
     for (row, stage) in (0i64..).zip(&levels.stages) {
+        let descriptor = &stage.stage.descriptor;
         let names: Vec<String> = (1..=stage.rooms.len())
             .map(|room| format!("rooms/{}-{room}.tmj", stage.stage.name))
             .collect();
@@ -123,16 +147,39 @@ pub fn write(levels: &Levels, catalog: &Catalog) -> PackFiles {
                         .collect()
                 })
                 .collect(),
-            hud_label: stage.stage.hud_label.clone(),
+            hud_label: hud_label(descriptor),
+            music: match descriptor.music {
+                Music::Song(song) => format!("song-{song:02x}"),
+                Music::Keep => "keep".into(),
+            },
+            cutscene: descriptor
+                .picture
+                .map(|picture| format!("picture-{picture:02x}")),
+            password: descriptor.password.map(letters_text),
+            on_clear: match descriptor.on_clear {
+                OnClear::NextStage => "next-stage",
+                OnClear::Ending => "ending",
+            }
+            .into(),
             extra: Extra::new(),
         });
     }
+    let extra_passwords = levels
+        .extra_passwords
+        .iter()
+        .map(|extra| model::ExtraPassword {
+            password: letters_text(extra.letters),
+            stage: levels.stages[extra.stage].stage.name.clone(),
+            extra: Extra::new(),
+        })
+        .collect();
     let pack = PackFile {
         format: 1,
         name: "The Original Game".into(),
         author: "Sunsoft".into(),
         engine: "classic".into(),
         stages,
+        extra_passwords,
         extra: Extra::new(),
     };
     files.insert("pack.json".into(), to_text(&pack));
@@ -302,7 +349,20 @@ fn room_properties(room: &Room, vertical: bool) -> Vec<Property> {
     } else {
         "none"
     };
-    vec![
+    let start = &room.start;
+    let derived = derived_first_spawn_column(vertical, start.camera_x, start.camera_y, &room.pages);
+    let first_spawn_column = (start.first_spawn_column != derived).then(|| {
+        let column = (0..TABLE_ENTRIES * 16)
+            .find(|&column| {
+                schedule_cell(&room.pages, column) == usize::from(start.first_spawn_column)
+            })
+            .expect("the first spawn column is on the room's pages");
+        Property::int(
+            "first_spawn_column",
+            i64::try_from(column).expect("a column fits"),
+        )
+    });
+    let mut properties = vec![
         Property::enumerated("arrival", "arrival", arrival),
         Property::enumerated(
             "background_palette",
@@ -320,7 +380,9 @@ fn room_properties(room: &Room, vertical: bool) -> Vec<Property> {
             "sprite_palette",
             &format!("sprites-{:02x}", room.sprite_palette),
         ),
-    ]
+    ];
+    properties.extend(first_spawn_column);
+    properties
 }
 
 /// The room's spawn objects (one per record a pending cell on its pages names) and its

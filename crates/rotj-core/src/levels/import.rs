@@ -8,10 +8,12 @@ use thiserror::Error;
 
 use super::model::{Layer, Map, Object, PackFile, PackStage, Property};
 use super::{
-    Catalog, Levels, PAGE_CELLS, PAGES, PackFiles, RoomAssets, Split, Stage, StageAssets,
-    TABLE_ENTRIES, TILESET_TILES, along_across, kind_of, region_place, schedule_cell, tile_index,
+    Catalog, ExtraPassword, Levels, NO_HANDLER, PAGE_CELLS, PAGES, PackFiles, RoomAssets, Source,
+    Split, Stage, StageAssets, TABLE_ENTRIES, TILESET_TILES, along_across,
+    derived_first_spawn_column, kind_of, region_place, schedule_cell, tile_index,
 };
 use crate::actor::spawn::SpawnTable;
+use crate::actor::stage::{Music, OnClear, Stage as Descriptor};
 use crate::actor::world::orientation;
 use crate::actors::{CELL_LOCK, CELL_PENDING, CELL_RECORD, SpawnRecord};
 use crate::render::Mirroring;
@@ -50,8 +52,9 @@ const FLIP_BITS: u32 = 0xF000_0000;
 /// The spawn table's record ids.
 const RECORD_IDS: usize = CELL_RECORD as usize + 1;
 
-/// The levels `pack` holds, its tilesets resolved against `catalog`.
-pub fn import(pack: &PackFiles, catalog: &Catalog) -> Result<Levels, ImportError> {
+/// The levels `pack` holds, its tilesets resolved against `catalog`; a `source` of
+/// [`Source::User`] refuses `no_handler` objects.
+pub fn import(pack: &PackFiles, catalog: &Catalog, source: Source) -> Result<Levels, ImportError> {
     let file: PackFile = parse(pack, "pack.json")?;
     if file.format != 1 || file.engine != "classic" {
         return Err(invalid(
@@ -62,12 +65,129 @@ pub fn import(pack: &PackFiles, catalog: &Catalog) -> Result<Levels, ImportError
             ),
         ));
     }
-    let stages = file
+    let stages: Vec<StageAssets> = file
         .stages
         .iter()
-        .map(|stage| import_stage(pack, catalog, stage))
+        .map(|stage| import_stage(pack, catalog, stage, source))
         .collect::<Result<_, _>>()?;
-    Ok(Levels { stages })
+    let descriptors: Vec<&Descriptor> = stages.iter().map(|s| &s.stage.descriptor).collect();
+    if descriptors
+        .first()
+        .is_none_or(|first| first.password.is_none())
+    {
+        return Err(invalid("pack.json", "the first stage needs a `password`"));
+    }
+    if let Some(last) = stages.last()
+        && last.stage.descriptor.on_clear == OnClear::NextStage
+    {
+        return Err(invalid(
+            "pack.json",
+            format!(
+                "stage `{}`: the last stage's `on_clear` is `next-stage`",
+                last.stage.name
+            ),
+        ));
+    }
+    let extra_passwords = file
+        .extra_passwords
+        .iter()
+        .map(|extra| extra_password(&stages, extra))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut seen = BTreeSet::new();
+    let passwords = descriptors
+        .iter()
+        .filter_map(|descriptor| descriptor.password);
+    if let Some(twice) = passwords
+        .chain(extra_passwords.iter().map(|extra| extra.letters))
+        .find(|&letters| !seen.insert(letters))
+    {
+        let twice = String::from_utf8_lossy(&twice).into_owned();
+        return Err(invalid(
+            "pack.json",
+            format!("password `{twice}` is used twice"),
+        ));
+    }
+    Ok(Levels {
+        stages,
+        extra_passwords,
+    })
+}
+
+fn extra_password(
+    stages: &[StageAssets],
+    extra: &super::model::ExtraPassword,
+) -> Result<ExtraPassword, ImportError> {
+    let at = |reason: String| invalid("pack.json", format!("`extra_passwords`: {reason}"));
+    let letters = letters(&extra.password)
+        .ok_or_else(|| at(format!("unknown password `{}`", extra.password)))?;
+    let mut named = (0..stages.len()).filter(|&index| stages[index].stage.name == extra.stage);
+    let stage = match (named.next(), named.next()) {
+        (Some(stage), None) => stage,
+        (None, _) => return Err(at(format!("unknown stage `{}`", extra.stage))),
+        (Some(_), Some(_)) => {
+            return Err(at(format!(
+                "stage `{}` names more than one stage",
+                extra.stage
+            )));
+        }
+    };
+    if stages[stage].stage.descriptor.password.is_none() {
+        return Err(at(format!("stage `{}` is not a checkpoint", extra.stage)));
+    }
+    Ok(ExtraPassword { letters, stage })
+}
+
+/// Four letters `A`-`Z`.
+fn letters(value: &str) -> Option<[u8; 4]> {
+    <[u8; 4]>::try_from(value.as_bytes())
+        .ok()
+        .filter(|letters| letters.iter().all(u8::is_ascii_uppercase))
+}
+
+/// The selector of a `bg-xx`-style name: exactly two lowercase hex digits after `prefix`.
+fn selector(value: &str, prefix: &str) -> Option<u8> {
+    value
+        .strip_prefix(prefix)
+        .and_then(|hex| u8::from_str_radix(hex, 16).ok())
+        .filter(|selector| format!("{prefix}{selector:02x}") == value)
+}
+
+/// A stage's descriptor from its `pack.json` knobs.
+fn descriptor(stage: &PackStage, area: u8) -> Result<Descriptor, ImportError> {
+    let knob =
+        |key: &str, value: &str| at_stage(stage, &format!("`{key}`: unknown value `{value}`"));
+    let banner = match *stage.hud_label.as_bytes() {
+        [tens @ b'0'..=b'9', b'-', ones @ b'0'..=b'9'] => [tens - b'0', ones - b'0'],
+        _ => return Err(knob("hud_label", &stage.hud_label)),
+    };
+    let below_80 = |value: &str, prefix| selector(value, prefix).filter(|&id| id < 0x80);
+    let music = match stage.music.as_str() {
+        "keep" => Music::Keep,
+        song => Music::Song(below_80(song, "song-").ok_or_else(|| knob("music", song))?),
+    };
+    let picture = stage
+        .cutscene
+        .as_deref()
+        .map(|picture| below_80(picture, "picture-").ok_or_else(|| knob("cutscene", picture)))
+        .transpose()?;
+    let password = stage
+        .password
+        .as_deref()
+        .map(|password| letters(password).ok_or_else(|| knob("password", password)))
+        .transpose()?;
+    let on_clear = match stage.on_clear.as_str() {
+        "next-stage" => OnClear::NextStage,
+        "ending" => OnClear::Ending,
+        other => return Err(knob("on_clear", other)),
+    };
+    Ok(Descriptor {
+        area: area * 2,
+        banner,
+        music,
+        picture,
+        password,
+        on_clear,
+    })
 }
 
 fn parse<T: DeserializeOwned>(pack: &PackFiles, file: &str) -> Result<T, ImportError> {
@@ -102,6 +222,7 @@ fn import_stage(
     pack: &PackFiles,
     catalog: &Catalog,
     stage: &PackStage,
+    source: Source,
 ) -> Result<StageAssets, ImportError> {
     let maps: Vec<Map> = stage
         .rooms
@@ -142,7 +263,7 @@ fn import_stage(
         let (map, shape) = (&maps[index], &shapes[index]);
         let in_file = |reason| invalid(file, reason);
         let room = import_room(map, shape, pages, catalog_area.split).map_err(in_file)?;
-        let spawns = import_spawns(map, &pages, &mut schedule).map_err(in_file)?;
+        let spawns = import_spawns(map, &pages, &mut schedule, source).map_err(in_file)?;
         import_locks(map, shape.vertical, &pages, &mut schedule).map_err(in_file)?;
         rooms.push(RoomAssets { room, spawns });
     }
@@ -150,7 +271,7 @@ fn import_stage(
         stage: Stage {
             name: stage.name.clone(),
             area,
-            hud_label: stage.hud_label.clone(),
+            descriptor: descriptor(stage, area)?,
         },
         terrain: Terrain {
             stream,
@@ -321,14 +442,10 @@ fn int<T: TryFrom<i64> + Default>(properties: &[Property], name: &str) -> Result
         .ok_or_else(|| format!("property `{name}` is not an int in range"))
 }
 
-/// A `bg-xx`-style preset's selector: exactly two lowercase hex digits.
+/// A `bg-xx`-style preset's selector.
 fn preset(properties: &[Property], name: &str, prefix: &str) -> Result<u8, String> {
     let value = string(properties, name)?;
-    value
-        .strip_prefix(prefix)
-        .and_then(|hex| u8::from_str_radix(hex, 16).ok())
-        .filter(|selector| format!("{prefix}{selector:02x}") == value)
-        .ok_or_else(|| format!("property `{name}`: unknown preset `{value}`"))
+    selector(value, prefix).ok_or_else(|| format!("property `{name}`: unknown preset `{value}`"))
 }
 
 fn shape(map: &Map, catalog: &Catalog) -> Result<Shape, String> {
@@ -440,8 +557,18 @@ fn import_room(
     let at =
         |object: &Object, reason: String| format!("layer `markers` object {}: {reason}", object.id);
     let (camera_x, camera_y) = (camera.x.0, camera.y.0);
-    let (along, across) = along_across(shape.vertical, camera_x, camera_y);
-    let entry_under_camera = usize::from(across >= 0x1000) * PAGES + usize::from(along >> 12);
+    let first_spawn_column = match property(&map.properties, "first_spawn_column") {
+        Some(property) => {
+            let column = column(&property.value).ok_or_else(|| {
+                format!(
+                    "property `first_spawn_column` {} is not a column 0-511",
+                    property.value
+                )
+            })?;
+            u8::try_from(schedule_cell(&pages, column)).expect("a page's cell")
+        }
+        None => derived_first_spawn_column(shape.vertical, camera_x, camera_y, &pages),
+    };
     let last = pages[PAGES - 1];
     let trailing = pages[..PAGES]
         .iter()
@@ -482,7 +609,7 @@ fn import_room(
                 (false, true) => Mirroring::Stacked,
                 (false, false) => Mirroring::SingleLow,
             },
-            first_spawn_column: pages[entry_under_camera] << 4,
+            first_spawn_column,
             facing: player_int("facing")?,
         },
         raster: split.map(|split| split.raster),
@@ -516,6 +643,7 @@ fn import_spawns(
     map: &Map,
     pages: &[u8; TABLE_ENTRIES],
     schedule: &mut [Option<u8>; PAGE_CELLS],
+    source: Source,
 ) -> Result<SpawnTable, String> {
     let mut records = vec![None; RECORD_IDS];
     for object in objects(map, "spawns")? {
@@ -534,6 +662,9 @@ fn import_spawns(
             None => None,
         };
         let (second_class, kind) = kind_of(&object.kind, variant).map_err(at)?;
+        if source == Source::User && object.kind == NO_HANDLER.0 {
+            return Err(at("the game has no handler for it".into()));
+        }
         let field = |name| int(properties, name).map_err(at);
         records[id] = Some(SpawnRecord {
             x: object.x.0,

@@ -234,7 +234,7 @@ file, layer and object. `Levels { stages: Vec<StageAssets> }`:
   field over what the game reads:
   - `Terrain`: all four fields, equal.
   - `Room`: every field, except `raised_page_count` outside the two horizontal two-page rooms
-    (not read there) and the two fields pending the owner, skipped by name.
+    (not read there).
   - `SpawnTable`: the records the room's read cells name (a pending cell on a page of its table),
     every field; the other ids, which no cell names and the game never spawns, are skipped.
   - The schedule: every pending or lock cell on a page some room's table shows, equal; every
@@ -253,10 +253,10 @@ file, layer and object. `Levels { stages: Vec<StageAssets> }`:
   an unknown class or variant).
 - Residue is dropped (owner's answer 2) and must import as 0. Release 3's spec decides how the
   lockstep treats those `$7410-$750F` cells and puts any proof change to the owner.
-- Pending the owner: `first_spawn_column` in area 11 rooms 2 and 3 (`rooms/5-1-3.tmj`,
-  `5-1-4.tmj`; ROM `$00` and `$70`), which no approved field carries. The importer writes the
-  derived value; the equivalence test skips these two fields by name; release 3 waits for the
-  answer.
+- Answered by the owner (2026-10-23) in release 2: `first_spawn_column` in area 11 rooms 2 and 3
+  (`rooms/5-1-3.tmj`, `5-1-4.tmj`; ROM `$00` and `$70`) is an optional room property, so the
+  equivalence test compares every room field; bit 6 of the 24 7-2 cells is not carried, since
+  nothing reads it (`docs/specs/2026-10-24-level-packs-release-2-design.md`).
 
 ## Not here
 

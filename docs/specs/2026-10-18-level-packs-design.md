@@ -55,21 +55,27 @@ my-world/                       the pack, what people share
     {
       "name": "The Plant",
       "rooms": ["rooms/plant-1.tmj", "rooms/plant-2.tmj"],
-      "music": "stage-1",
-      "sprite_palettes": "stage-1",
       "hud_label": "1-1",
-      "boss": { "family": "stage3_boss", "room": "rooms/plant-2.tmj" },
-      "on_clear": "next-stage"
+      "music": "song-01",
+      "cutscene": "picture-00",
+      "password": "ABCD",
+      "on_clear": "ending"
     }
-  ]
+  ],
+  "extra_passwords": [{ "password": "WXYZ", "stage": "The Plant" }]
 }
 ```
 
 - `engine`: `classic` or `modern` for the whole pack.
 - A stage's rooms run in the listed order; room exits (actors) lead to the next.
-- The knobs (`music`, `sprite_palettes`, `hud_label`, `boss`, `on_clear`) are the stage settings;
-  release 2 fixes their full list as everything the engine reads by area number today. Values
-  are names (songs, palette sets, boss families), never ROM addresses.
+- The knobs are the stage settings, everything the engine's stage descriptor reads (release 2,
+  `docs/specs/2026-10-24-level-packs-release-2-design.md`): `hud_label` (`d-d`), `music`
+  (`song-xx` or `keep`), `cutscene` (`picture-xx`, optional), `password` (four letters `A`-`Z`,
+  optional; a stage with one is a checkpoint, and the first stage must be one) and `on_clear`
+  (`next-stage` or `ending`). Values are names, never ROM addresses. `extra_passwords` lists the
+  password screen's passwords the pause never shows, each starting a named checkpoint. Rooms
+  carry their own sprite palette, so there is no `sprite_palettes`; `boss` is an editor-wizard
+  field, not runtime format (an unknown key survives a load and save).
 
 ## A room (`.tmj`)
 
