@@ -1,4 +1,4 @@
-# Status — where 1.1.43 stands
+# Status — where 1.1.44 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -67,6 +67,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.41 | **done, tag `1.1.41`** (2026-10-24): the forty-first patch, no change to Classic (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). Modern reaches the `$D3` 4 boss rooms (`.orchestration/briefs/spec-boss-bar.md`, the owner's review #5): the boss bar is a strip layer, a second set of chunks in screen space drawn from its nametable rows with its own banks, checked by the background gate's strip half and the lockstep. The final boss's room (area `$22`) stays Classic for now: its parts' death tiles are written to VRAM only |
 | 1.1.42 | **done, tag `1.1.42`** (2026-10-24): the forty-second patch, no change to Classic (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). Modern draws the final boss's room (area `$22`, `.orchestration/briefs/spec-final-boss-bar.md`, the owner's note on the 1.1.41 deviation): its playfield is read from the nametables in screen space, the way 1.1.41 reads the boss bar, so the parts' VRAM-only death tiles show; checked by the background gate through every `$22` frame of the chain and the lockstep |
 | 1.1.43 | **done, tag `1.1.43`** (2026-10-24): level packs release 2's pack side, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical; nothing in the game reads `levels` yet). The stage knobs (`docs/specs/2026-10-24-level-packs-release-2-design.md`, the owner's answers under "Owner decisions made"): `pack.json` stages carry `hud_label`, `music` (`song-xx` or `keep`), `cutscene`, `password` and `on_clear`, exported from and imported to the stage descriptor; `extra_passwords` carries the password screen's fourteenth password; rooms may carry `first_spawn_column` (area 11 rooms 2 and 3 export it); the importer refuses `no_handler` kinds in user packs by name and only the original game's export keeps them. The original pack still round-trips byte-exact |
+| 1.1.44 | **done, tag `1.1.44`** (2026-10-24): level packs release 3, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The game reads its levels through `Levels` (`docs/specs/2026-10-24-level-packs-release-3-design.md`): `Levels::original` is the imported original pack plus a ROM overlay of the 225 schedule cells the format drops and of 1-1-2's start mirroring, and `Prg::levels` replaces `Prg::stages`, so rooms, spawns, terrain, schedules and passwords are read from it. The exporter now lists 1-1's rooms 2 and 4 (38 rooms). `bevy_asset_loader` moves to release 6, since the ROM is embedded and there is nothing to load |
 
 ## Verified working
 
@@ -143,7 +144,8 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    runner: tagged `1.1.40`** (2026-10-24). **1.1.41, Modern's `$D3` 4 boss bar as a strip layer:
    tagged `1.1.41`** (2026-10-24). **1.1.42, Modern draws the final boss's room:
    tagged `1.1.42`** (2026-10-24). **1.1.43, level packs release 2's pack side:
-   tagged `1.1.43`** (2026-10-24). Next: the fresh survey's list.
+   tagged `1.1.43`** (2026-10-24). **1.1.44, level packs release 3, the game reads its levels
+   through `Levels`: tagged `1.1.44`** (2026-10-24). Next: the fresh survey's list.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and
@@ -168,14 +170,17 @@ from the game's own requests.
 
 ## Owner decisions pending
 
-- **Level packs, 1-1-2's mirroring (before release 6's `--pack`)**: should rooms carry an optional
-  `mirroring` property (like `first_spawn_column`) so the pack round-trips 1-1-2, a vertical room
-  in `SingleLow`, without `Levels::original`'s ROM overlay?
+None.
 
 ## Owner decisions made
 
-- **Level packs, the schedule residue (release 3, 2026-10-24, the Opus stand-in; owner may
-  review)**: the pack keeps dropping the residue and the bit 6 of 7-2's 24 cells; the game reads
+- **Level packs, 1-1-2's mirroring and the 1.1.43 names (2026-10-24)**: release 6 adds an
+  optional per-room `mirroring` property, like `first_spawn_column`, so the pack round-trips
+  1-1-2's `SingleLow` start without the ROM overlay; the names `first_spawn_column` and
+  `extra_passwords` are approved.
+
+- **Level packs, the schedule residue (release 3, 2026-10-24, the Opus stand-in; approved by the
+  owner, as were `bevy_asset_loader` moving to release 6 and 1.1.43's missing 1-1 rooms fix)**: the pack keeps dropping the residue and the bit 6 of 7-2's 24 cells; the game reads
   `Levels::original`, the imported pack plus a ROM overlay of the 225 cells and of 1-1-2's start
   mirroring (a vertical room in `SingleLow`, which the derived rule cannot give), so the lockstep
   and the tapes see the ROM's bytes.

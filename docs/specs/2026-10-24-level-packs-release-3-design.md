@@ -263,8 +263,9 @@ Each commit is green on the Classic suites. Commits 2-4 also replay the chain ta
 Status: approved by the Opus stand-in (2026-10-24) with ten changes applied (room indexing,
 signatures, residue wording, overlay wording, app-test Prg reuse, one from_rom, shorter
 equivalence test, area-keyed tables, password letters); bevy_asset_loader deferred to release 6
-(deviation, owner to review); plus an exporter fix (stand-in, 2026-10-24): `listed_rooms` assumed
+(deviation, owner approved); plus an exporter fix (stand-in, 2026-10-24): `listed_rooms` assumed
 the per-area room tables do not overlap, but area 0's runs into the next, so 1.1.43's pack lacked
 1-1's rooms 2 and 4. The pack now has 38 rooms (40 files), and the schema is unchanged. 1-1-2's
 start mirroring (`SingleLow`, a vertical room) does not fit the derived rule, so
-`Levels::original` overlays it from the ROM like the schedule residue (owner to review).
+`Levels::original` overlays it from the ROM like the schedule residue (owner approved).
+Implemented in 1.1.44.
