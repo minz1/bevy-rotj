@@ -4,7 +4,7 @@ Status: approved with changes by the Opus stand-in, 2026-10-24 (applied: `spawn_
 readers and one ROM fact asserted; the payload read via `boot`; name resolution, duplicate passwords
 and the last stage's `on_clear` refused; one `first_spawn_column` rule; `format` stays 1;
 `BIT_6_CELLS`; `Source` threaded to `import_spawns`). Names approved: `first_spawn_column`,
-`extra_passwords`. Implemented (the release adds its version here).
+`extra_passwords`. Implemented in 1.1.43.
 
 The pack side of release 2 of `docs/specs/2026-10-18-level-packs-design.md`; the engine side
 (`actor::stage::Stage`, `Prg::stages`) shipped in 1.1.23

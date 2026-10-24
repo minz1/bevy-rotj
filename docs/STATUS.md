@@ -1,4 +1,4 @@
-# Status — where 1.1.42 stands
+# Status — where 1.1.43 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -66,6 +66,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.40 | **done, tag `1.1.40`** (2026-10-24): the fortieth modernisation patch, no behaviour change (the Classic suites, a per-frame RAM and WRAM digest of every release lockstep test, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The remaining script step machines on the shared runner (`.orchestration/briefs/spec-script-machines.md`, the owner's review #8): the sound test, the continue screen, the next-area load and the room-change slide are tables of named rows (`Row`, `ContinueRow`, `LoadRow`, `RoomRow`) stepped by the runner Boot and Ending already use, one step variant per table |
 | 1.1.41 | **done, tag `1.1.41`** (2026-10-24): the forty-first patch, no change to Classic (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). Modern reaches the `$D3` 4 boss rooms (`.orchestration/briefs/spec-boss-bar.md`, the owner's review #5): the boss bar is a strip layer, a second set of chunks in screen space drawn from its nametable rows with its own banks, checked by the background gate's strip half and the lockstep. The final boss's room (area `$22`) stays Classic for now: its parts' death tiles are written to VRAM only |
 | 1.1.42 | **done, tag `1.1.42`** (2026-10-24): the forty-second patch, no change to Classic (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). Modern draws the final boss's room (area `$22`, `.orchestration/briefs/spec-final-boss-bar.md`, the owner's note on the 1.1.41 deviation): its playfield is read from the nametables in screen space, the way 1.1.41 reads the boss bar, so the parts' VRAM-only death tiles show; checked by the background gate through every `$22` frame of the chain and the lockstep |
+| 1.1.43 | **done, tag `1.1.43`** (2026-10-24): level packs release 2's pack side, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical; nothing in the game reads `levels` yet). The stage knobs (`docs/specs/2026-10-24-level-packs-release-2-design.md`, the owner's answers under "Owner decisions made"): `pack.json` stages carry `hud_label`, `music` (`song-xx` or `keep`), `cutscene`, `password` and `on_clear`, exported from and imported to the stage descriptor; `extra_passwords` carries the password screen's fourteenth password; rooms may carry `first_spawn_column` (area 11 rooms 2 and 3 export it); the importer refuses `no_handler` kinds in user packs by name and only the original game's export keeps them. The original pack still round-trips byte-exact |
 
 ## Verified working
 
@@ -141,7 +142,8 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    tagged `1.1.39`** (2026-10-23). **1.1.40, the remaining script step machines on the shared
    runner: tagged `1.1.40`** (2026-10-24). **1.1.41, Modern's `$D3` 4 boss bar as a strip layer:
    tagged `1.1.41`** (2026-10-24). **1.1.42, Modern draws the final boss's room:
-   tagged `1.1.42`** (2026-10-24). Next: the fresh survey's list.
+   tagged `1.1.42`** (2026-10-24). **1.1.43, level packs release 2's pack side:
+   tagged `1.1.43`** (2026-10-24). Next: the fresh survey's list.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and

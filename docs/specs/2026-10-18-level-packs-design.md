@@ -68,8 +68,8 @@ my-world/                       the pack, what people share
 
 - `engine`: `classic` or `modern` for the whole pack.
 - A stage's rooms run in the listed order; room exits (actors) lead to the next.
-- The knobs are the stage settings, everything the engine's stage descriptor reads (release 2,
-  `docs/specs/2026-10-24-level-packs-release-2-design.md`): `hud_label` (`d-d`), `music`
+- The knobs are the stage settings, everything the engine's stage descriptor reads (release 2, implemented in
+  1.1.43, `docs/specs/2026-10-24-level-packs-release-2-design.md`): `hud_label` (`d-d`), `music`
   (`song-xx` or `keep`), `cutscene` (`picture-xx`, optional), `password` (four letters `A`-`Z`,
   optional; a stage with one is a checkpoint, and the first stage must be one) and `on_clear`
   (`next-stage` or `ending`). Values are names, never ROM addresses. `extra_passwords` lists the
