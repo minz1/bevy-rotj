@@ -10,7 +10,7 @@
 //! through `$826F`) and `$A934` (`store`).
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::{Body, Field};
+use crate::actor::slots::{Body, Field, Metatile};
 use crate::actor::world::{Cx, sound};
 
 const HOME_BANK: u8 = 11;
@@ -64,7 +64,7 @@ fn fall(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) -> bool {
         u16::from_be_bytes([body.subtype, body.behaviour]).wrapping_add(u16::from(GRAVITY));
     [body.subtype, body.behaviour] = fall_speed.to_be_bytes();
     work.y = work.y.wrapping_add(fall_speed);
-    if work.y.to_be_bytes()[0] >= FLOOR_ROW {
+    if work.y.row() >= FLOOR_ROW {
         cx.effects.sound[1] = sound::STOMP;
         work.y = u16::from_be_bytes([FLOOR_ROW, 0]);
         body.phase = LANDING_START;

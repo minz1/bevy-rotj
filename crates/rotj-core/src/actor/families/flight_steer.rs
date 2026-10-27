@@ -4,7 +4,7 @@
 
 use crate::actor::button::Buttons;
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Metatile};
 use crate::actor::world::{Cx, Motion, stage_script};
 
 const NO_CLAMP: u8 = 0xFF;
@@ -69,7 +69,7 @@ impl State {
                     }
                 } else {
                     player.y = player.y.wrapping_add(STEP);
-                    if player.y.to_be_bytes()[0] >= Y_MAX {
+                    if player.y.row() >= Y_MAX {
                         player.y = u16::from(Y_MAX) << 8;
                     }
                 }

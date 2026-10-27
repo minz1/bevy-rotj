@@ -1,7 +1,7 @@
 //! Type `$0A`, the green enemy of stage 1-1 (bank 8 `$85FD`).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, Metatile};
 use crate::actor::world::{Cx, sound};
 
 const METASPRITES: u16 = 0x8763;
@@ -48,7 +48,7 @@ impl State {
                 }
             }
             Some(Phase::Diving) => {
-                if work.y.to_be_bytes()[0] >= FLOOR_ROW {
+                if work.y.row() >= FLOOR_ROW {
                     work.y = u16::from_be_bytes([FLOOR_ROW - 1, 0xFF]);
                     cx.effects.sound[0] = sound::DIVER_LANDS;
                     work.vy = HOVER;
@@ -72,7 +72,7 @@ impl State {
                 }
             }
             Some(Phase::Rising) => {
-                if work.y.to_be_bytes()[0] == body.subtype {
+                if work.y.row() == body.subtype {
                     body.phase = Phase::Hovering.byte();
                     body.anim = 0;
                     work.vy = 0;

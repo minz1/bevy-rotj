@@ -9,7 +9,7 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Metatile};
 use crate::actor::world::{Cx, sound};
 
 /// The metasprite pointer (`$83CB`): bank 9's `$A946`.
@@ -67,7 +67,7 @@ impl State {
                 }
             }
             Some(Phase::Falling) => {
-                if work.y.to_be_bytes()[0] >= FALL_LIMIT_ROW {
+                if work.y.row() >= FALL_LIMIT_ROW {
                     *kind = 0;
                     return;
                 }
@@ -79,7 +79,7 @@ impl State {
                     engine::spawn_parts(BURST_VARIANT, work, cx);
                     work.y = work.y.wrapping_sub(BURST_OFFSET);
                 }
-                if work.y.to_be_bytes()[0] >= ACCEL_ROW {
+                if work.y.row() >= ACCEL_ROW {
                     work.vy = work.vy.wrapping_add(FALL_STEP);
                 }
             }

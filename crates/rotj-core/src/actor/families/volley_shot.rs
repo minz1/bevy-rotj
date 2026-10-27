@@ -10,7 +10,7 @@
 //! metasprite index.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, Metatile};
 use crate::actor::world::Cx;
 
 const BANK: u8 = 11;
@@ -66,7 +66,7 @@ impl State {
             let offset = cx.prg.families.volley_shot.x_offset[usize::from(body.phase)];
             work.x = work.x.wrapping_add_signed(offset);
             work.y = work.y.wrapping_add(0x0010);
-            if work.y.to_be_bytes()[0] >= FLOOR {
+            if work.y.row() >= FLOOR {
                 work.y = u16::from_be_bytes([FLOOR, 0]);
                 body.timer = DYING;
                 body.counter = 0x02;

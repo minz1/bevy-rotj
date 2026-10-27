@@ -12,7 +12,7 @@
 //! draw is `engine::draw(work, 9, cx)`.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Metatile};
 use crate::actor::world::Cx;
 
 /// The handler's bank, for its metasprite pointer table.
@@ -54,7 +54,7 @@ impl State {
             .y
             .wrapping_add_signed(i16::from_be_bytes([body.counter, body.timer]));
         // `$9650`: the `$0B00` floor bounces the part.
-        if work.y.to_be_bytes()[0] >= FLOOR {
+        if work.y.row() >= FLOOR {
             work.y = u16::from_be_bytes([FLOOR, 0]);
             let vy = i16::from_be_bytes([body.counter, body.timer]).wrapping_neg();
             [body.counter, body.timer] = vy.to_be_bytes();

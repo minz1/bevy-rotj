@@ -7,7 +7,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, Counter, Field, contact};
+use crate::actor::slots::{Body, Counter, Field, Metatile, contact};
 use crate::actor::world::{Cx, sound};
 
 const BANK: u8 = 11;
@@ -43,7 +43,7 @@ impl State {
         work.attr = body.flags;
         engine::integrate(body, work);
         let landing_y = u16::from_be_bytes([body.counter, body.timer]);
-        if work.y.to_be_bytes()[0] & 0x80 == 0 && work.y >= landing_y && body.anim & LANDING == 0 {
+        if work.y.row() & 0x80 == 0 && work.y >= landing_y && body.anim & LANDING == 0 {
             cx.effects.sound[0] = sound::IMPACT;
             body.flags &= attr::PALETTE;
             work.attr = body.flags;

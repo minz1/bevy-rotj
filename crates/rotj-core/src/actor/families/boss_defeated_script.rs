@@ -6,7 +6,7 @@
 //! loads the working set, draws or collides.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::{Body, Counter, Field};
+use crate::actor::slots::{Body, Counter, Field, Metatile};
 use crate::actor::stage::{self, OnClear};
 use crate::actor::world::{Cx, Motion, attack, hurt, sound, stage_script};
 
@@ -90,7 +90,7 @@ fn child_slot(body: &Body, cx: &Cx<'_>) -> Option<(usize, u16, u16)> {
     let (source_x, source_y) = position(cx, usize::from(body.timer));
     let x = source_x.wrapping_add(tables.child_x_offsets[index]);
     let y = source_y.wrapping_add(tables.child_y_offsets[index]);
-    if x.to_be_bytes()[0] & 0xF0 != 0 || y.to_be_bytes()[0] & 0xF0 != 0 {
+    if x.to_be_bytes()[0] & 0xF0 != 0 || y.row() & 0xF0 != 0 {
         return None;
     }
     let child = cx.slots.free_main(0..16)?;

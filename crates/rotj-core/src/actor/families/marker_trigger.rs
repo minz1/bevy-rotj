@@ -9,7 +9,7 @@
 //! (`$0462`) and motion (`$046E`).
 
 use crate::actor::engine::Work;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Metatile};
 use crate::actor::world::{Cx, Motion};
 use crate::actors::STATE_UNTARGETED;
 
@@ -30,7 +30,7 @@ impl State {
     /// One frame of the handler (`$8D4F`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
         let player = cx.effects.player;
-        if player.y.to_be_bytes()[0] < ROW {
+        if player.y.row() < ROW {
             body.phase = WAITING;
             return;
         }

@@ -10,7 +10,7 @@
 //! clears a bit of the behaviour of the slot named in `$7C30` (its parent).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Field};
+use crate::actor::slots::{Body, Field, Metatile};
 use crate::actor::world::Cx;
 
 /// The bank-12 table of six bank-9 metasprite pointers (`$97AA`), indexed by
@@ -44,11 +44,11 @@ impl State {
         let y_velocity = i16::from_be_bytes([body.counter, body.timer]);
         work.x = work.x.wrapping_add_signed(x_velocity);
         work.y = work.y.wrapping_add_signed(y_velocity);
-        if work.y.to_be_bytes()[0] & 0xF0 != 0 {
+        if work.y.row() & 0xF0 != 0 {
             free(kind, body, cx);
             return;
         }
-        if y_velocity >= 0 && work.y.to_be_bytes()[0] >= FLOOR_ROW {
+        if y_velocity >= 0 && work.y.row() >= FLOOR_ROW {
             work.y = u16::from(FLOOR_ROW) << 8;
             [body.counter, body.timer] = y_velocity.wrapping_neg().to_be_bytes();
         }

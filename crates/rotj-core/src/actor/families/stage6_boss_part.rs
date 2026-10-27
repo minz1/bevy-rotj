@@ -10,7 +10,7 @@
 //! (`engine::boss_contact`, mode `$80`: touch only, no weapon scan).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Metatile};
 use crate::actor::world::Cx;
 
 /// The bank-12 pointer table for the part's metasprite, indexed by `$F1 & 2`.
@@ -42,7 +42,7 @@ impl State {
         work.y = work
             .y
             .wrapping_add(u16::from_be_bytes([body.anim, body.counter]));
-        if work.y.to_be_bytes()[0] >= FLOOR_ROW {
+        if work.y.row() >= FLOOR_ROW {
             *kind = 0;
             return;
         }

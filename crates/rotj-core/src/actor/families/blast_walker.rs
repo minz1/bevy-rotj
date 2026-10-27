@@ -7,7 +7,7 @@
 
 use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, Metatile};
 use crate::actor::world::Cx;
 use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
 
@@ -130,12 +130,12 @@ fn blasting(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
 /// Falling (`$8EC5`): drop one more `$7A` once it is low enough, then free the
 /// slot below row `$0F`. Returns whether the slot was freed.
 fn falling(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) -> bool {
-    if body.timer & 0x80 == 0 && work.y.to_be_bytes()[0] >= 0x0C {
+    if body.timer & 0x80 == 0 && work.y.row() >= 0x0C {
         let x = work.x;
         spawn_marker(body, x, cx);
         body.timer = 0x80;
     }
-    if work.y.to_be_bytes()[0] >= 0x0F {
+    if work.y.row() >= 0x0F {
         *kind = 0;
         return true;
     }

@@ -11,7 +11,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, Counter, Field};
+use crate::actor::slots::{Body, Counter, Field, Metatile};
 use crate::actor::world::Cx;
 use crate::actors::STATE_UNTARGETED;
 
@@ -119,7 +119,7 @@ fn idling(body: &mut Body, cx: &Cx<'_>) {
 
 /// `$908D`: rise until the head row, then drop when the feet leave the ground.
 fn rising(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-    if work.y.to_be_bytes()[0] >= 0x0D {
+    if work.y.row() >= 0x0D {
         body.phase = Phase::Spawning.byte();
         return;
     }
@@ -198,7 +198,7 @@ fn descending(body: &mut Body, work: &mut Work) {
     if body.behaviour & 0x01 == 0 {
         work.attr |= attr::FLIP_X;
     }
-    if work.y.to_be_bytes()[0] >= 0x0D {
+    if work.y.row() >= 0x0D {
         body.phase = Phase::Spawning.byte();
         return;
     }
