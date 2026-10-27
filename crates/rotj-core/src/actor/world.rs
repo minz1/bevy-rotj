@@ -745,6 +745,41 @@ pub struct Projectile {
     pub y: u16,
 }
 
+/// A circling part's step round the homing charge (`$7F40`): one of 32, though the
+/// offsets table is read by the low 6 bits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Orbit(u8);
+
+impl Orbit {
+    /// The steps in one orbit.
+    const STEPS: u8 = 0x20;
+
+    /// The byte the game keeps.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        self.0
+    }
+
+    /// The step a byte holds.
+    #[must_use]
+    pub const fn from_byte(byte: u8) -> Orbit {
+        Orbit(byte)
+    }
+
+    /// The index into the circle offsets (`$87FC`).
+    #[must_use]
+    pub fn offset(self) -> usize {
+        usize::from(self.0 & 0x3F)
+    }
+
+    /// One step on, back to 0 past the last.
+    #[must_use]
+    pub const fn next(self) -> Orbit {
+        let next = self.0.wrapping_add(1);
+        Orbit(if next >= Orbit::STEPS { 0 } else { next })
+    }
+}
+
 /// The projectile arrays, 16 wide each.
 pub const PROJECTILE_ARRAYS: [u16; 19] = [
     0x7BD0, 0x7B80, 0x7B90, 0x7F30, 0x7F20, 0x7D00, 0x7D10, 0x7D20, 0x7EB0, 0x7C80, 0x7CB0, 0x7C20,
@@ -776,6 +811,30 @@ impl Projectile {
     /// Sets the homing shot's target slot, [`homing_target::NONE`] for none.
     pub fn set_target(&mut self, target: Option<u8>) {
         self.param = target.unwrap_or(homing_target::NONE);
+    }
+
+    /// A circling part's step round the homing charge (`$7F40`).
+    #[must_use]
+    pub const fn orbit(&self) -> Orbit {
+        Orbit::from_byte(self.param)
+    }
+
+    /// Sets a circling part's step round the homing charge.
+    pub fn set_orbit(&mut self, orbit: Orbit) {
+        self.param = orbit.byte();
+    }
+
+    /// The homing charge's three circling parts' slots: `$7F50`'s high and low nibbles and
+    /// `$7F60`'s low nibble.
+    #[must_use]
+    pub const fn circlers(&self) -> [u8; 3] {
+        [self.part >> 4, self.part & 0x0F, self.part_timer & 0x0F]
+    }
+
+    /// Keeps the homing charge's three circling parts' slots (each below 16).
+    pub fn set_circlers(&mut self, [first, second, third]: [u8; 3]) {
+        self.part = first << 4 | second;
+        self.part_timer = third;
     }
 
     /// The projectile's byte in `array` (one of [`PROJECTILE_ARRAYS`]).
@@ -1217,7 +1276,40 @@ mod layout {
 
 #[cfg(test)]
 mod tests {
-    use super::{Motion, Projectile, Rng, Weapon};
+    use super::{Motion, Orbit, Projectile, Rng, Weapon};
+
+    #[test]
+    fn orbit_bytes_round_trip() {
+        for byte in 0..=u8::MAX {
+            let mut shot = Projectile {
+                param: byte,
+                ..Projectile::default()
+            };
+            let orbit = shot.orbit();
+            assert_eq!(orbit.byte(), byte);
+            assert_eq!(Orbit::from_byte(byte), orbit);
+            assert_eq!(orbit.offset(), usize::from(byte & 0x3F));
+            let next = byte.wrapping_add(1);
+            assert_eq!(orbit.next().byte(), if next >= 0x20 { 0 } else { next });
+            shot.set_orbit(orbit);
+            assert_eq!(shot.param, byte);
+        }
+    }
+
+    #[test]
+    fn circler_slots_round_trip() {
+        for byte in 0..=u8::MAX {
+            let mut shot = Projectile {
+                part: byte,
+                part_timer: byte,
+                ..Projectile::default()
+            };
+            let circlers = shot.circlers();
+            assert_eq!(circlers, [byte >> 4, byte & 0x0F, byte & 0x0F]);
+            shot.set_circlers(circlers);
+            assert_eq!((shot.part, shot.part_timer), (byte, byte & 0x0F));
+        }
+    }
 
     #[test]
     fn homing_targets_round_trip() {

@@ -12,7 +12,7 @@ use super::oam::{Mark, attr};
 use super::scroll::Scroll;
 use super::slots::{Field, contact, hit};
 use super::world::{
-    Cx, Motion, Projectile, Weapon, attack, busy, power_up, set_first_colours, shot_flags,
+    Cx, Motion, Orbit, Projectile, Weapon, attack, busy, power_up, set_first_colours, shot_flags,
     shot_state, sound, stage_script,
 };
 use crate::actor::button::Buttons;
@@ -20,6 +20,9 @@ use crate::actors::STATE_UNTARGETED;
 
 /// A charged attack's first stage, every weapon's: the `kind` the player's charge writes.
 pub const CHARGE_START: u8 = 0x80;
+
+/// The homing charge's `param` once its circling parts are out.
+const CIRCLED: u8 = 0x80;
 
 /// The homing weapon's charged attack, by projectile `kind`.
 mod homing_stage {
@@ -530,7 +533,7 @@ fn homing_retarget(slot: usize, cx: &mut Cx<'_>) -> Option<u8> {
 /// or A or a direction pressed, throws it as type `$81`.
 fn homing_gather(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     let held = cx.effects.attack & attack::CHARGING != 0;
-    if cx.effects.projectiles[slot].param & 0x80 == 0 {
+    if cx.effects.projectiles[slot].param & CIRCLED == 0 {
         if !held {
             #[cfg(test)]
             super::oracle::seen(0x8712);
@@ -558,8 +561,8 @@ fn homing_gather(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         projectile.vx = i16::from_be_bytes([step, projectile.vx.to_be_bytes()[1]]);
         if step >= 7 {
             let mut spawned = true;
-            if cx.effects.projectiles[slot].param & 0x80 == 0 {
-                cx.effects.projectiles[slot].param = 0x80;
+            if cx.effects.projectiles[slot].param & CIRCLED == 0 {
+                cx.effects.projectiles[slot].param = CIRCLED;
                 spawned = homing_spawn_circlers(slot, cx);
             }
             if spawned {
@@ -623,13 +626,11 @@ fn homing_spawn_circlers(source: usize, cx: &mut Cx<'_>) -> bool {
             projectile.damage = 1;
             projectile.flags = shot_flags::INERT;
             projectile.state = 0;
-            projectile.param = angle;
+            projectile.set_orbit(Orbit::from_byte(angle));
             parts[count] = at.cast_unsigned();
             count += 1;
             if count == 3 {
-                let projectile = &mut cx.effects.projectiles[source];
-                projectile.part = parts[0] << 4 | parts[1];
-                projectile.part_timer = parts[2];
+                cx.effects.projectiles[source].set_circlers(parts);
                 return true;
             }
             over_shots = false;
@@ -646,22 +647,14 @@ fn homing_draw_circlers(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     work.pointer = rom_word(cx.prg, 5, 0x887F);
     work.attr = 0;
     let centre = cx.effects.projectiles[slot];
-    for part in [
-        centre.part >> 4,
-        centre.part & 0x0F,
-        centre.part_timer & 0x0F,
-    ] {
+    for part in centre.circlers() {
         let part = usize::from(part);
         cx.effects.projectiles[part].flags = shot_flags::UNSTOPPABLE;
-        let (dx, dy) =
-            cx.prg.weapons.circle_offsets[usize::from(cx.effects.projectiles[part].param & 0x3F)];
+        let (dx, dy) = cx.prg.weapons.circle_offsets[cx.effects.projectiles[part].orbit().offset()];
         work.x = centre.x.wrapping_add(dx);
         work.y = centre.y.wrapping_add(dy);
         let projectile = &mut cx.effects.projectiles[part];
-        projectile.param = projectile.param.wrapping_add(1);
-        if projectile.param >= 0x20 {
-            projectile.param = 0;
-        }
+        projectile.set_orbit(projectile.orbit().next());
         if project_keep(slot, work, cx) || work.anchor & anchor::BOTTOM != 0 {
             draw(work, cx);
             let projectile = &mut cx.effects.projectiles[part];
