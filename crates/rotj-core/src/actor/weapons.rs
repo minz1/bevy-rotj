@@ -448,20 +448,22 @@ fn homing_steer(slot: usize, cx: &mut Cx<'_>) -> u16 {
     let heading = u16::try_from(heading).expect("20 headings");
     cx.effects.projectiles[slot].attr = cx.prg.weapons.homing_attributes[usize::from(heading)];
     let pointer = rom_word(cx.prg, 5, 0x844B + heading * 2);
-    let mut target = projectile.param;
-    if target & 0x80 != 0 || cx.slots.kind(usize::from(target)) == 0 {
+    let mut target = projectile.target();
+    if target.is_none_or(|target| cx.slots.kind(usize::from(target)) == 0) {
         target = homing_retarget(slot, cx);
     }
-    if target & 0x80 == 0 && cx.get(usize::from(target), Field::State) & STATE_UNTARGETED != 0 {
+    if target
+        .is_some_and(|target| cx.get(usize::from(target), Field::State) & STATE_UNTARGETED != 0)
+    {
         target = homing_retarget(slot, cx);
     }
-    if target & 0x80 != 0 {
+    let Some(target) = target else {
         return pointer;
-    }
+    };
     #[cfg(test)]
     super::oracle::seen(0x831E);
+    let target = usize::from(target);
     let position = |cx: &Cx<'_>, hi: Field, lo: Field| {
-        let target = usize::from(target);
         u16::from_be_bytes([cx.get(target, hi), cx.get(target, lo)])
     };
     let projectile = &cx.effects.projectiles[slot];
@@ -505,7 +507,7 @@ fn steer_axis(velocity: i16, down: bool) -> i16 {
 }
 
 /// `$830E`: a new target for the homing shot from `$83FC`, kept in `$7F40`.
-fn homing_retarget(slot: usize, cx: &mut Cx<'_>) -> u8 {
+fn homing_retarget(slot: usize, cx: &mut Cx<'_>) -> Option<u8> {
     let hittable = |&target: &usize| {
         let actor = &cx.slots.main[target];
         actor.kind != 0
@@ -517,8 +519,8 @@ fn homing_retarget(slot: usize, cx: &mut Cx<'_>) -> u8 {
     } else {
         (0..16).rev().find(hittable)
     };
-    let target = found.map_or(0xFF, |slot| u8::try_from(slot).expect("slot < 16"));
-    cx.effects.projectiles[slot].param = target;
+    let target = found.map(|slot| u8::try_from(slot).expect("slot < 16"));
+    cx.effects.projectiles[slot].set_target(target);
     target
 }
 

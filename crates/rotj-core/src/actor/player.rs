@@ -1068,7 +1068,7 @@ impl Port<'_, '_> {
             0x9BCE => self.shot_up(slot, -0x40, 1),
             0x9BF5 => {
                 self.shot_up(slot, -0x20, 2);
-                self.cx.effects.projectiles[slot].param = self.target();
+                self.cx.effects.projectiles[slot].set_target(self.target());
             }
             0x9C06 => self.shot_up(slot, -0x10, 2),
             0x9C2E => {
@@ -1145,7 +1145,7 @@ impl Port<'_, '_> {
                 let target = self.target();
                 let projectile = &mut self.cx.effects.projectiles[slot];
                 projectile.vx = vx;
-                projectile.param = target;
+                projectile.set_target(target);
                 shot_ahead(projectile, 1);
             }
             0x9D6F => {
@@ -1312,8 +1312,8 @@ impl Port<'_, '_> {
         left
     }
 
-    /// `$9F05`: a live, hittable actor slot below 16 from a random start, or `$FF`.
-    fn target(&self) -> u8 {
+    /// `$9F05`: a live, hittable actor slot below 16 from a random start.
+    fn target(&self) -> Option<u8> {
         let [direction, start] = self.cx.world.rng;
         let mut slot = start & 0x0F;
         for _ in 0..16 {
@@ -1322,7 +1322,7 @@ impl Port<'_, '_> {
                 && actor.body.contact & contact::UNTARGETED == 0
                 && actor.body.state & STATE_UNTARGETED == 0
             {
-                return slot;
+                return Some(slot);
             }
             slot = if direction & 0x80 != 0 {
                 (slot + 1) & 0x0F
@@ -1330,7 +1330,7 @@ impl Port<'_, '_> {
                 slot.wrapping_sub(1) & 0x0F
             };
         }
-        0xFF
+        None
     }
 
     /// `$9359`: the fire button's spawn and muzzle handling.

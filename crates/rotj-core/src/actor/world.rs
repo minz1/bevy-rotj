@@ -376,6 +376,14 @@ pub mod shot_state {
     pub const FALLING: u8 = 0x40;
 }
 
+/// A homing shot's target byte (`$7F40`).
+pub mod homing_target {
+    /// Set when the shot has no target slot.
+    pub const NONE_BIT: u8 = 0x80;
+    /// What the game writes for no target.
+    pub const NONE: u8 = 0xFF;
+}
+
 /// The flags of [`Player::pose_step`] (`$047D`) during the slide off a ledge.
 pub mod slide_ledge {
     /// The ledge probe has run.
@@ -753,6 +761,21 @@ impl Projectile {
         } else {
             false
         }
+    }
+
+    /// The homing shot's target slot (`$7F40`), none while [`homing_target::NONE_BIT`] is set.
+    #[must_use]
+    pub const fn target(&self) -> Option<u8> {
+        if self.param & homing_target::NONE_BIT == 0 {
+            Some(self.param)
+        } else {
+            None
+        }
+    }
+
+    /// Sets the homing shot's target slot, [`homing_target::NONE`] for none.
+    pub fn set_target(&mut self, target: Option<u8>) {
+        self.param = target.unwrap_or(homing_target::NONE);
     }
 
     /// The projectile's byte in `array` (one of [`PROJECTILE_ARRAYS`]).
@@ -1194,7 +1217,21 @@ mod layout {
 
 #[cfg(test)]
 mod tests {
-    use super::{Motion, Rng, Weapon};
+    use super::{Motion, Projectile, Rng, Weapon};
+
+    #[test]
+    fn homing_targets_round_trip() {
+        for byte in 0..=u8::MAX {
+            let mut shot = Projectile {
+                param: byte,
+                ..Projectile::default()
+            };
+            let target = shot.target();
+            assert_eq!(target, (byte & 0x80 == 0).then_some(byte));
+            shot.set_target(target);
+            assert_eq!(shot.param, if byte & 0x80 == 0 { byte } else { 0xFF });
+        }
+    }
 
     #[test]
     fn set_first_colours_sets_every_fourth_entry() {
