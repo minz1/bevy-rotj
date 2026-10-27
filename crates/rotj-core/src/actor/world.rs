@@ -732,12 +732,11 @@ pub struct Projectile {
     pub timer: u8,
     /// The draw's attribute (`$7C20`), read into `Work::attr`.
     pub attr: u8,
-    /// A per-slot parameter (`$7F40`): the homing target slot, a bounce direction or
-    /// an orbit index, by weapon.
+    /// A per-slot parameter by weapon (`$7F40`): [`Projectile::target`], [`Projectile::orbit`].
     pub param: u8,
-    /// A charged attack's part or spread index (`$7F50`).
+    /// A charged attack's part, spread index or frame count, or the lit bit (`$7F50`).
     pub part: u8,
-    /// A charged attack's frame counter (`$7F60`).
+    /// A charged attack's frame counter, a slot, or the lit or vertical bit (`$7F60`).
     pub part_timer: u8,
     /// The level x in 1/16 px: high byte `$7BB0` (also slots 16-23's `$7BA0`), low `$7BC0`.
     pub x: u16,

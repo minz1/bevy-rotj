@@ -24,13 +24,13 @@ pub const CHARGE_START: u8 = 0x80;
 /// The homing charge's `param` once its circling parts are out.
 const CIRCLED: u8 = 0x80;
 
-/// A power-up piece's `part_timer` or super orbiter's `part`: the piece sets the palette, the orbiter flashes it.
+/// A power-up piece's `part_timer` or super orbiter's `part`: it lights the sprite palette.
 const LIT: u8 = 0x80;
 
 /// A splitter shot's `param`: spent, it runs out its timer instead of splitting.
 const NO_SPLIT: u8 = 0x80;
 
-/// The splitter orbit's `param`, toggled every 64 frames: the turn tables 4 on and the `$8C67` throw.
+/// The splitter orbit's `param`, toggled every 64 frames: the turn tables 4 on, the `$8C67` throw.
 const SECOND_HALF: u8 = 0x80;
 
 /// A wave part's `param`: its weave adds 4 to the velocity instead of taking 4 away.
@@ -38,6 +38,9 @@ const WEAVE_INCREASING: u8 = 0x80;
 
 /// The three-way tether's `part_timer`, let go aiming up: it springs vertically.
 const VERTICAL: u8 = 0x80;
+
+/// The steps a power-up piece's `part` counts before it lands.
+const PIECE_STEPS: u8 = 8;
 
 /// The homing weapon's charged attack, by projectile `kind`.
 mod homing_stage {
@@ -251,7 +254,7 @@ fn power_up_pieces(work: &mut Work, cx: &mut Cx<'_>) {
         piece.vx = piece.vx.wrapping_add(prg.weapons.piece_step_x[corner]);
         piece.vy = piece.vy.wrapping_add(prg.weapons.piece_step_y[corner]);
         piece.part = piece.part.wrapping_add(1);
-        if piece.part < 8 {
+        if piece.part < PIECE_STEPS {
             continue;
         }
         piece.kind = 0;
@@ -1560,12 +1563,12 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     #[cfg(test)]
     super::oracle::seen(0x8A4F);
     let projectile = cx.effects.projectiles[slot];
-    let turn = u16::from(projectile.part)
-        + if projectile.param & SECOND_HALF != 0 {
-            4
-        } else {
-            0
-        };
+    let half = if projectile.param & SECOND_HALF != 0 {
+        4
+    } else {
+        0
+    };
+    let turn = u16::from(projectile.part) + half;
     let [dvx] = engine::rom_split_words(cx.prg, 5, 0x8C79 + turn, 0x8C71 + turn);
     let [dvy] = engine::rom_split_words(cx.prg, 5, 0x8C89 + turn, 0x8C81 + turn);
     let vx = projectile.vx.cast_unsigned().wrapping_add(dvx);
