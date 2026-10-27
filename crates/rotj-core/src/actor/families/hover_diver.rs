@@ -80,9 +80,10 @@ impl State {
                 } else {
                     let rise = work.vy.to_be_bytes()[1].wrapping_sub(7).max(0xE8);
                     work.vy = i16::from_be_bytes([0xFF, rise]);
-                    let (counter, carry) = body.counter.overflowing_add(rise);
+                    let [anim, counter] = u16::from_be_bytes([body.anim, body.counter])
+                        .wrapping_add_signed(work.vy)
+                        .to_be_bytes();
                     body.counter = counter;
-                    let anim = body.anim.wrapping_add(0xFF).wrapping_add(u8::from(carry));
                     body.anim = if anim & 0x80 == 0 { anim } else { 0 };
                 }
             }
@@ -158,5 +159,22 @@ mod tests {
         scene.machine.bus.trace.pokes.push((0xD450, 0x99, 0xE0));
         let coverage = assert_actor_phases(scene, 30, &[0x0A]);
         assert_eq!((coverage.occupied, coverage.drawn), (30, 0));
+    }
+
+    /// The `[anim, counter]` pair's step by the rise is the byte pair it replaced.
+    #[test]
+    fn the_rise_step_is_word_maths() {
+        for (pair, rise) in crate::actor::families::words_and_bytes() {
+            let [anim, counter] = pair.to_be_bytes();
+            let (counter_bytes, carry) = counter.overflowing_add(rise);
+            let anim_bytes = anim.wrapping_add(0xFF).wrapping_add(u8::from(carry));
+            let vy = i16::from_be_bytes([0xFF, rise]);
+            let word = u16::from_be_bytes([anim, counter]).wrapping_add_signed(vy);
+            assert_eq!(
+                word.to_be_bytes(),
+                [anim_bytes, counter_bytes],
+                "{pair:#06X} {rise:#04X}"
+            );
+        }
     }
 }

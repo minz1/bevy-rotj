@@ -503,6 +503,12 @@ impl Brain {
     }
 }
 
+/// Every word against every byte: the whole domain of a byte-wise add with carry.
+#[cfg(test)]
+pub(crate) fn words_and_bytes() -> impl Iterator<Item = (u16, u8)> {
+    (0..=u16::MAX).flat_map(|word| (0..=u8::MAX).map(move |byte| (word, byte)))
+}
+
 /// A family's state lifted from its slot's arrays.
 #[cfg(test)]
 pub(crate) fn lift(kind: u8, _wram: &[u8; 8192], _slot: usize) -> Brain {

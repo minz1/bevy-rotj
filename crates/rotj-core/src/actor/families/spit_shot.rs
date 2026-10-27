@@ -62,9 +62,7 @@ impl State {
             [body.phase, body.timer] = vy.to_le_bytes();
         }
         let offset = cx.prg.families.spit_shot.offsets[usize::from(subtype)];
-        let [x_hi, x_lo] = work.x.to_be_bytes();
-        let (x_lo, carry) = x_lo.overflowing_add(offset);
-        work.x = u16::from_be_bytes([x_hi.wrapping_add(0xFF).wrapping_add(u8::from(carry)), x_lo]);
+        work.x = work.x.wrapping_add(0xFF00 | u16::from(offset));
         let vy = i16::from_le_bytes([body.phase, body.timer]);
         work.y = work.y.wrapping_add(vy.cast_unsigned());
         let frame = u16::from((cx.world.frame & 0x04) >> 1);
@@ -239,5 +237,21 @@ mod tests {
         assert!(hits > 0, "the oracle takes no contact hit");
         let coverage = assert_actor_phases(scene, 40, &[0x8C]);
         assert!(coverage.occupied > 0, "{coverage:?}");
+    }
+
+    /// The step by a `$FF`-high offset is the byte pair it replaced.
+    #[test]
+    fn the_offset_step_is_word_maths() {
+        for (x, offset) in crate::actor::families::words_and_bytes() {
+            let [x_hi, x_lo] = x.to_be_bytes();
+            let (x_lo, carry) = x_lo.overflowing_add(offset);
+            let bytes =
+                u16::from_be_bytes([x_hi.wrapping_add(0xFF).wrapping_add(u8::from(carry)), x_lo]);
+            assert_eq!(
+                x.wrapping_add(0xFF00 | u16::from(offset)),
+                bytes,
+                "{x:#06X} {offset:#04X}"
+            );
+        }
     }
 }

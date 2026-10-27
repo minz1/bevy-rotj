@@ -87,9 +87,9 @@ fn sweeping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
             }
         };
     }
-    let [hi, lo] = work.vy.to_be_bytes();
-    let (lo, carry) = lo.overflowing_add(body.counter);
-    work.vy = i16::from_be_bytes([hi.wrapping_add(0xFF).wrapping_add(u8::from(carry)), lo]);
+    work.vy = work
+        .vy
+        .wrapping_add(i16::from_be_bytes([0xFF, body.counter]));
     if body.timer & 0x80 == 0 {
         let column = work.x.to_be_bytes()[0];
         if work.step_x >= 0 {
@@ -322,5 +322,22 @@ mod tests {
         assert!(hits > 0, "the oracle takes no contact hit");
         let coverage = assert_actor_phases(scene, 40, &[0x2A]);
         assert_eq!(coverage.occupied, 40);
+    }
+
+    /// The lift's step by a `$FF`-high counter is the byte pair it replaced.
+    #[test]
+    fn the_lift_step_is_word_maths() {
+        for (vy, counter) in crate::actor::families::words_and_bytes() {
+            let vy = vy.cast_signed();
+            let [hi, lo] = vy.to_be_bytes();
+            let (lo, carry) = lo.overflowing_add(counter);
+            let bytes =
+                i16::from_be_bytes([hi.wrapping_add(0xFF).wrapping_add(u8::from(carry)), lo]);
+            assert_eq!(
+                vy.wrapping_add(i16::from_be_bytes([0xFF, counter])),
+                bytes,
+                "{vy} {counter}"
+            );
+        }
     }
 }
