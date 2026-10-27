@@ -17,6 +17,8 @@ const SPRITE_BANK: u8 = 9;
 const HITBOX: u8 = 0x0C;
 const DAMAGE: u8 = 4;
 const CHILD: u8 = 0x24;
+/// The `$24` shot's direction (its `phase`) on the spell's first round; each round adds one.
+const FIRST_DIRECTION: u8 = 4;
 
 /// Type `$6C` keeps its state in [`Body`]: `$7E10` arms the shooting spell,
 /// `$7E90` counts it, `$7DF0` is the rest timer and `$7DD0` only an "on screen"
@@ -101,7 +103,7 @@ fn spawn_child(body: &Body, work: &Work, round: u8, slot: usize, cx: &mut Cx<'_>
     child.chr_slot = body.chr_slot;
     child.state = 0;
     child.sprite = 4;
-    child.phase = 4 + round;
+    child.phase = FIRST_DIRECTION + round;
 }
 
 #[cfg(test)]
