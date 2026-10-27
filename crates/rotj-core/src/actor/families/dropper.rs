@@ -154,10 +154,9 @@ fn lowering(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 fn lower_child(body: &Body, work: &Work, cx: &mut Cx<'_>) -> (u8, bool) {
     let child = &mut cx.slots.main[child_slot(body)].body;
     child.y = child.y.wrapping_add_signed(child.vy);
-    let [hi, lo] = child.vy.to_be_bytes();
-    let (next, carry) = lo.overflowing_add(4);
-    if next & 0x80 == 0 {
-        child.vy = i16::from_be_bytes([hi.wrapping_add(u8::from(carry)), next]);
+    let next = child.vy.wrapping_add(4);
+    if next.to_be_bytes()[1] & 0x80 == 0 {
+        child.vy = next;
     }
     if child.y < work.y.wrapping_sub(0x03B0) {
         (4, false)
@@ -457,5 +456,27 @@ mod tests {
                 phases: BTreeMap::from([(0, 1), (2, 62)]),
             }
         );
+    }
+
+    /// The child's `vy` gain, kept while its low byte stays under `$80`, is the byte
+    /// pair it replaced.
+    #[test]
+    fn the_child_gain_is_word_maths() {
+        for vy in i16::MIN..=i16::MAX {
+            let [hi, lo] = vy.to_be_bytes();
+            let (next, carry) = lo.overflowing_add(4);
+            let bytes = if next & 0x80 == 0 {
+                i16::from_be_bytes([hi.wrapping_add(u8::from(carry)), next])
+            } else {
+                vy
+            };
+            let word = vy.wrapping_add(4);
+            let kept = if word.to_be_bytes()[1] & 0x80 == 0 {
+                word
+            } else {
+                vy
+            };
+            assert_eq!(kept, bytes, "{vy}");
+        }
     }
 }
