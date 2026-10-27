@@ -6,7 +6,9 @@ use super::cutscene::Cutscene;
 use super::engine::{draw, rom_byte, rom_word};
 use super::room;
 use super::script::{Flow, Runner, wait};
-use super::world::{Motion, VramWrite, Weapon, attack, set_first_colours, sound, stage_script};
+use super::world::{
+    EntryStep, Motion, VramWrite, Weapon, attack, set_first_colours, sound, stage_script,
+};
 use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
 use crate::levels::{Levels, StageAssets};
@@ -1093,7 +1095,7 @@ impl BossIntro {
         effects.boss_hp = rom_word(prg, 13, 0xBE4E + 2 * u16::from(effects.stage_args[1]));
         effects.boss_pool = [0x40, 0x1F];
         let player = &mut effects.player;
-        (player.entry_step, player.entry_timer, player.tally) = (0, 0, 0);
+        (player.entry_step, player.entry_timer, player.tally) = (EntryStep::Arriving.byte(), 0, 0);
         player.tally_digit = 0;
         player.entry_chr = game.oam.chr[4];
         player.motion = Motion::BossEntry;
