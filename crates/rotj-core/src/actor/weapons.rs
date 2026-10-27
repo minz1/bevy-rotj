@@ -950,7 +950,7 @@ fn super_orbiter(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scr
     }
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.param = projectile.param.wrapping_add(1);
-    if projectile.param.trailing_zeros() >= 5 {
+    if projectile.param.is_multiple_of(1 << 5) {
         cx.effects.sound[0] = sound::SUPER_ORBITER;
     }
     if cx.effects.projectiles[slot].param >= 0xE0 {
@@ -1003,7 +1003,7 @@ fn super_flash(slot: usize, cx: &mut Cx<'_>) {
         cx.prg.weapons.orbiter_palette_even
     };
     cx.effects.palette[16..20].copy_from_slice(&table);
-    let first = if cx.effects.projectiles[slot].param.trailing_zeros() >= 3 {
+    let first = if cx.effects.projectiles[slot].param.is_multiple_of(1 << 3) {
         0x30
     } else {
         0x0F
@@ -1498,7 +1498,7 @@ fn three_way_tether(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     projectile.y = y;
     let count = projectile.part;
     (work.x, work.y) = beside_player(cx, x, y.wrapping_sub(0x0180));
-    if count.trailing_zeros() >= 3
+    if count.is_multiple_of(1 << 3)
         && let Some(free) = free_slot(cx)
     {
         cx.effects.sound[0] = sound::THREE_WAY_BUBBLE;

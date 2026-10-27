@@ -253,7 +253,7 @@ impl Picture<'_> {
     }
 
     fn colour(&self, line: &Line, entry: usize) -> u8 {
-        self.palette[if entry.trailing_zeros() >= 2 {
+        self.palette[if entry.is_multiple_of(1 << 2) {
             0
         } else {
             entry
@@ -660,5 +660,17 @@ mod tests {
         let frame = scene.render_with(64);
         assert_eq!(at(&frame, 64, 1), 0x16);
         assert_eq!(at(&frame, 64, 8), 0x16);
+    }
+
+    #[test]
+    fn a_power_of_two_multiple_is_its_trailing_zeros_for_every_u16_entry() {
+        for bits in 0..u16::BITS {
+            for entry in 0..=usize::from(u16::MAX) {
+                assert_eq!(
+                    entry.is_multiple_of(1 << bits),
+                    entry.trailing_zeros() >= bits
+                );
+            }
+        }
     }
 }
