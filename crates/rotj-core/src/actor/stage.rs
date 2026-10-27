@@ -837,7 +837,7 @@ fn clear_for_area(game: &mut Game) {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BossIntro {
     step: Intro,
-    /// The card's phase: 0 sliding in, 1 holding, 2 fading to white (`$12`).
+    /// The card's phase (`$12`), a [`Card`] byte.
     phase: u8,
     /// The slide's speed (`$10:$11`).
     speed: u16,
@@ -868,6 +868,32 @@ enum Intro {
     Attributes,
     Enter,
     Done,
+}
+
+/// The boss card's phases (`$12`), the index into `$BC9A`.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Card {
+    /// Sliding in from the right.
+    Sliding = 0,
+    /// Held still while the cap counts down.
+    Holding = 1,
+    /// Fading to white; the room loads once it has run.
+    FadingToWhite = 2,
+}
+
+impl Card {
+    const ALL: [Card; 3] = [Card::Sliding, Card::Holding, Card::FadingToWhite];
+
+    /// The byte `$12` holds.
+    const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    /// The phase a `$12` byte holds, if it is one.
+    fn from_byte(byte: u8) -> Option<Card> {
+        Card::ALL.get(usize::from(byte)).copied()
+    }
 }
 
 impl BossIntro {
@@ -963,8 +989,8 @@ impl BossIntro {
     /// One frame of the card (`$BB81`, through `$BC9A[$12]`, and the draw `$BC3E`);
     /// true when the fade has run and the room loads in this frame instead.
     fn slide(&mut self, game: &mut Game, prg: &Prg) -> bool {
-        match self.phase {
-            0 => {
+        match Card::from_byte(self.phase) {
+            Some(Card::Sliding) => {
                 self.speed = self.speed.wrapping_add(0x20);
                 if self.speed >> 8 >= 0x0C {
                     self.speed = 0x0600;
@@ -973,7 +999,7 @@ impl BossIntro {
                 if self.offset >> 8 >= 0x50 {
                     self.offset = 0x5000;
                     self.cap = 0x60;
-                    self.phase = 1;
+                    self.phase = Card::Holding.byte();
                     let vram = &mut game.effects.vram;
                     vram.push(
                         0x21A5,
@@ -993,13 +1019,13 @@ impl BossIntro {
                     self.fades += 1;
                 }
             }
-            1 => {
+            Some(Card::Holding) => {
                 self.cap = self.cap.wrapping_sub(1);
                 if self.cap == 0 {
-                    (self.phase, self.fades, self.cap) = (2, 0, 0);
+                    (self.phase, self.fades, self.cap) = (Card::FadingToWhite.byte(), 0, 0);
                 }
             }
-            _ => {
+            Some(Card::FadingToWhite) | None => {
                 if self.fades < 0x0A {
                     if self.fades.is_multiple_of(2) {
                         queue_whitened(game, self.cap);
@@ -1498,7 +1524,16 @@ impl Continue {
 #[cfg(test)]
 mod tests {
     use super::super::oracle::Scene;
-    use super::{EndPhase, NextArea};
+    use super::{Card, EndPhase, NextArea};
+
+    #[test]
+    fn card_bytes_round_trip() {
+        for byte in 0..=2 {
+            let card = Card::from_byte(byte).expect("a card phase");
+            assert_eq!(card.byte(), byte);
+        }
+        assert!((3..=255).all(|byte| Card::from_byte(byte).is_none()));
+    }
 
     #[test]
     fn end_phase_bytes_round_trip() {
