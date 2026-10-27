@@ -9,7 +9,7 @@
 //! draw, so the port passes bank 9 to `engine::draw`.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, Metatile};
 use crate::actor::world::{Cx, sound};
 
 /// The `$96:$97` metasprite table the moving phase selects (bank 12 `$82E5`).
@@ -49,23 +49,19 @@ impl State {
             }
         } else {
             work.attr = 1;
-            let [x_hi, x_lo] = work.x.to_be_bytes();
-            let (x_lo, carry) = x_lo.overflowing_add(body.counter);
-            work.x = u16::from_be_bytes([
-                x_hi.wrapping_add(body.anim).wrapping_add(u8::from(carry)),
-                x_lo,
-            ]);
-            let (low, carry) = body.phase.overflowing_add(3);
-            body.phase = low;
-            body.timer = body.timer.wrapping_add(u8::from(carry));
+            work.x = work
+                .x
+                .wrapping_add(u16::from_be_bytes([body.anim, body.counter]));
+            [body.timer, body.phase] = u16::from_be_bytes([body.timer, body.phase])
+                .wrapping_add(3)
+                .to_be_bytes();
             if body.timer & 0x80 == 0 && body.phase >= OFFSET_LIMIT {
                 body.phase = OFFSET_LIMIT;
             }
-            let [y_hi, y_lo] = work.y.to_be_bytes();
-            let (y_lo, carry) = y_lo.overflowing_add(body.phase);
-            let y_hi = y_hi.wrapping_add(body.timer).wrapping_add(u8::from(carry));
-            work.y = u16::from_be_bytes([y_hi, y_lo]);
-            if y_hi >= FLOOR_ROW {
+            work.y = work
+                .y
+                .wrapping_add(u16::from_be_bytes([body.timer, body.phase]));
+            if work.y.row() >= FLOOR_ROW {
                 die(body, cx);
                 return;
             }
@@ -194,5 +190,28 @@ mod tests {
                 phases: BTreeMap::from([(0xE8, 1), (0xEB, 12)]),
             }
         );
+    }
+
+    /// The x and y steps and the `[timer, phase]` gain are the byte pairs they replaced.
+    #[test]
+    fn the_steps_are_word_maths() {
+        for (position, step) in crate::actor::families::word_pairs() {
+            let [hi, lo] = position.to_be_bytes();
+            let [step_hi, step_lo] = step.to_be_bytes();
+            let (lo, carry) = lo.overflowing_add(step_lo);
+            let bytes =
+                u16::from_be_bytes([hi.wrapping_add(step_hi).wrapping_add(u8::from(carry)), lo]);
+            let word = position.wrapping_add(u16::from_be_bytes([step_hi, step_lo]));
+            assert_eq!(word, bytes, "{position:#06X} {step:#06X}");
+        }
+        for pair in 0..=u16::MAX {
+            let [timer, phase] = pair.to_be_bytes();
+            let (phase_bytes, carry) = phase.overflowing_add(3);
+            let timer_bytes = timer.wrapping_add(u8::from(carry));
+            let word = u16::from_be_bytes([timer, phase])
+                .wrapping_add(3)
+                .to_be_bytes();
+            assert_eq!(word, [timer_bytes, phase_bytes], "{pair:#06X}");
+        }
     }
 }

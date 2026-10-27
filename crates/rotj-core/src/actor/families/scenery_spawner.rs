@@ -1,7 +1,7 @@
 //! Type `$12`, the stage-1-2 controller that seeds type `$14` scenery (bank 8 `$8C56`).
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::Body;
 use crate::actor::world::{Cx, sound};
 use crate::actors::STATE_UNTARGETED;
 
@@ -47,11 +47,9 @@ impl State {
         let phase = usize::from(body.phase);
         let (low, high) = (tables.target_low[phase], tables.target_high[phase]);
         if body.timer != low || body.counter != high {
-            let (timer, carry) = body.timer.overflowing_add(1);
-            body.timer = timer;
-            if carry {
-                body.counter.tick_up();
-            }
+            [body.counter, body.timer] = u16::from_be_bytes([body.counter, body.timer])
+                .wrapping_add(1)
+                .to_be_bytes();
             return;
         }
         let Some(slot) = engine::free_child_slot(cx.slots) else {
@@ -84,14 +82,10 @@ fn spawn(slot: usize, phase: u8, cx: &mut Cx<'_>) {
     } else {
         cx.world.camera_x.wrapping_add(u16::from(index) << 4)
     };
-    let [hi, lo] = x.to_be_bytes();
     let offset = tables.x_offsets[usize::from(cam_hi == 0x90)];
-    let (lo, carry) = lo.overflowing_add(offset);
     let table = tables.high_selectors[usize::from(phase)];
-    let hi = hi
-        .wrapping_add(if table & 0x80 != 0 { 0x08 } else { 0x0A })
-        .wrapping_add(u8::from(carry));
-    let x = u16::from_be_bytes([hi, lo]);
+    let columns = if table & 0x80 != 0 { 0x08 } else { 0x0A };
+    let x = x.wrapping_add(u16::from_be_bytes([columns, offset]));
     let child = cx.slots.main[slot].spawn(CHILD, x, 0x0400);
     child.phase = 0;
     child.timer = 0;
@@ -151,5 +145,32 @@ mod tests {
             ]),
         };
         assert_eq!(coverage, expected);
+    }
+
+    /// The `[counter, timer]` count and the child's x offset are the byte pairs they replaced.
+    #[test]
+    fn the_count_and_the_offset_are_word_maths() {
+        for pair in 0..=u16::MAX {
+            let [counter, timer] = pair.to_be_bytes();
+            let (timer_bytes, carry) = timer.overflowing_add(1);
+            let counter_bytes = if carry {
+                counter.wrapping_add(1)
+            } else {
+                counter
+            };
+            let word = u16::from_be_bytes([counter, timer])
+                .wrapping_add(1)
+                .to_be_bytes();
+            assert_eq!(word, [counter_bytes, timer_bytes], "{pair:#06X}");
+        }
+        for (x, offset) in crate::actor::families::words_and_bytes() {
+            for columns in [0x08, 0x0A] {
+                let [hi, lo] = x.to_be_bytes();
+                let (lo, carry) = lo.overflowing_add(offset);
+                let hi = hi.wrapping_add(columns).wrapping_add(u8::from(carry));
+                let word = x.wrapping_add(u16::from_be_bytes([columns, offset]));
+                assert_eq!(word, u16::from_be_bytes([hi, lo]), "{x:#06X} {offset:#04X}");
+            }
+        }
     }
 }

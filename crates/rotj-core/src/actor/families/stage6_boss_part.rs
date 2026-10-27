@@ -46,9 +46,9 @@ impl State {
             *kind = 0;
             return;
         }
-        let (counter, carry) = body.counter.overflowing_add(STEP);
-        body.counter = counter;
-        body.anim = body.anim.wrapping_add(u8::from(carry));
+        [body.anim, body.counter] = u16::from_be_bytes([body.anim, body.counter])
+            .wrapping_add(u16::from(STEP))
+            .to_be_bytes();
 
         if body.anim & 0x80 == 0 && body.counter & 0x80 != 0 {
             body.counter = 0x7F;
@@ -133,5 +133,19 @@ mod tests {
         assert!(hurt > 0, "the oracle never took boss contact");
         let coverage = assert_actor_phases(scene, 90, &[0xA8]);
         assert!(coverage.occupied > 0, "{coverage:?}");
+    }
+
+    /// The `[anim, counter]` gain is the byte pair it replaced.
+    #[test]
+    fn the_gain_is_word_maths() {
+        for pair in 0..=u16::MAX {
+            let [anim, counter] = pair.to_be_bytes();
+            let (counter_bytes, carry) = counter.overflowing_add(super::STEP);
+            let anim_bytes = anim.wrapping_add(u8::from(carry));
+            let word = u16::from_be_bytes([anim, counter])
+                .wrapping_add(u16::from(super::STEP))
+                .to_be_bytes();
+            assert_eq!(word, [anim_bytes, counter_bytes], "{pair:#06X}");
+        }
     }
 }
