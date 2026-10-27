@@ -23,6 +23,7 @@ const CHILD_Y: u16 = 0x0140;
 const CHILD_CONTACT: u8 = contact::SHIELDED | contact::SMITE_PROOF;
 /// The child's `$7D90` when the parent's has no bit 7 (`$92D4`).
 const CHILD_BEHAVIOUR: u8 = 0x80;
+const AIMED: u8 = 0x80;
 
 /// Type `$80` keeps its whole state in [`Body`] (the `$7E90` spawn counter).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -50,7 +51,7 @@ fn spawn(body: &Body, work: &Work, cx: &mut Cx<'_>) {
     let Some(index) = cx.slots.free_main(0..SLOTS) else {
         return;
     };
-    let behaviour = if body.behaviour & 0x80 == 0 {
+    let behaviour = if body.behaviour & AIMED == 0 {
         body.behaviour
     } else {
         CHILD_BEHAVIOUR | u8::from(engine::player_dx(work, &cx.effects.player) < 0)

@@ -27,6 +27,8 @@ const DRAW_BANK: u8 = 9;
 const SHOT_KIND: u8 = 0x90;
 /// The `$AFD6` amount the tail drains on contact.
 const CONTACT: u16 = 0x00E0;
+const FLIP_COUNT: u8 = 0x7F;
+const DASH_AFTER_FLIP: u8 = 0x80;
 
 /// The boss's tables (bank 0).
 pub struct Tables {
@@ -138,7 +140,7 @@ fn face(body: &mut Body, work: &Work, cx: &Cx<'_>) {
     if (work.attr.wrapping_shl(1) ^ body.anim) & 0x80 != 0 {
         body.phase = Phase::Dashing.byte();
     } else {
-        body.subtype = 0x80;
+        body.subtype = DASH_AFTER_FLIP;
         body.phase = Phase::Flipping.byte();
     }
 }
@@ -302,11 +304,11 @@ fn flipping(body: &mut Body, work: &mut Work) {
     body.vy = i16::from_be_bytes([0xFF, 0xFA]);
     body.sprite = 4;
     body.subtype = body.subtype.wrapping_add(1);
-    let low = body.subtype & 0x7F;
+    let low = body.subtype & FLIP_COUNT;
     if low == 4 {
         work.attr ^= attr::FLIP_X;
     } else if low >= 8 {
-        if body.subtype & 0x80 != 0 {
+        if body.subtype & DASH_AFTER_FLIP != 0 {
             body.phase = Phase::Dashing.byte();
         } else {
             body.timer = 0;

@@ -16,6 +16,7 @@ use crate::actors::{CELL_LOCK, CELL_PENDING};
 const TRANSITION: u8 = 3;
 /// The countdown's first value (`$898F`).
 const COUNTDOWN: u8 = 0xC0;
+const PASSES_STAGE_ARGS: u8 = 0x01;
 
 /// The countdown's end: `$7DD0` reaching it arms the transition.
 const ELAPSED: u8 = 0;
@@ -80,7 +81,7 @@ impl State {
 /// weapon/energy carry-over).
 fn transition(body: &Body, cx: &mut Cx<'_>) {
     let effects = &mut *cx.effects;
-    if body.state & 0x01 != 0 {
+    if body.state & PASSES_STAGE_ARGS != 0 {
         effects.stage_args = [body.subtype, body.health.to_be_bytes()[1]];
         effects.hud = 0x80;
     } else {

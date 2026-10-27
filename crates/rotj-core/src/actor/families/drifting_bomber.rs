@@ -17,6 +17,7 @@ const METASPRITES: u16 = 0x8D0F;
 const ANIMATION: u16 = 0x8D19;
 /// The `$24` child it drops (`$8CAE`).
 const CHILD: u8 = 0x24;
+const DROPS_TWICE: u8 = 0x01;
 
 phases! {
     /// The bomber's phase (`$7DD0`), which picks its handler (`$8D0B`).
@@ -99,7 +100,7 @@ fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if !settled {
         return;
     }
-    if body.behaviour & 0x01 == 0 || body.subtype >= 0x02 {
+    if body.behaviour & DROPS_TWICE == 0 || body.subtype >= 0x02 {
         body.timer = 0x80;
         body.phase = Phase::Drifting.byte();
         body.sprite = 0;
