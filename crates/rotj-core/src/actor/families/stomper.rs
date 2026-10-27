@@ -177,9 +177,8 @@ fn landing(
         if body.hit & hit::DYING != 0 {
             return;
         }
-        let (screen_y, _) = work.screen_y.overflowing_sub(0x1A);
+        work.screen_y = work.screen_y.wrapping_sub(0x1A);
         let (screen_x, borrow) = work.screen_x.overflowing_sub(0x10);
-        work.screen_y = screen_y;
         work.screen_x = screen_x;
         if !borrow {
             engine::touch(work, 4, cx);
@@ -439,5 +438,14 @@ mod tests {
                 phases: BTreeMap::from([(0, 1), (1, 21), (0xE0, 36)]),
             }
         );
+    }
+
+    /// The impact's y lift, its borrow unread, is the byte maths it replaced.
+    #[test]
+    fn the_impact_lift_is_wrapping() {
+        for screen_y in 0..=u8::MAX {
+            let (bytes, _) = screen_y.overflowing_sub(0x1A);
+            assert_eq!(screen_y.wrapping_sub(0x1A), bytes, "{screen_y:#04X}");
+        }
     }
 }

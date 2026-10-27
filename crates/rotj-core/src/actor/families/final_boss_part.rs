@@ -199,8 +199,7 @@ fn child_index(body: &Body, cx: &Cx<'_>) -> u16 {
     let x_hi = cx.effects.player.x.to_be_bytes()[0];
     let shifted = (x_hi & 0x0E) << 2;
     let offset = if shifted < 0x20 {
-        let (value, borrow) = shifted.overflowing_sub(8);
-        if borrow { 0 } else { value }
+        shifted.saturating_sub(8)
     } else if shifted < 0x38 {
         shifted
     } else {
@@ -302,5 +301,15 @@ mod tests {
         assert!(positions.contains(&x), "${x:04X} not in {positions:X?}");
         assert_eq!(end.wram[0x1D50 + child], 0, "child $7D50 cleared");
         assert_eq!(end.wram[0x1E90 + child], 0, "child $7E90 cleared");
+    }
+
+    /// The index offset's floor at 0 is the byte maths it replaced.
+    #[test]
+    fn the_offset_floor_is_saturating() {
+        for shifted in 0..=u8::MAX {
+            let (value, borrow) = shifted.overflowing_sub(8);
+            let bytes = if borrow { 0 } else { value };
+            assert_eq!(shifted.saturating_sub(8), bytes, "{shifted:#04X}");
+        }
     }
 }
