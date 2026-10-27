@@ -12,7 +12,7 @@ use super::world::{VramWrite, sound};
 use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
 use crate::ppulist::WriteList;
-use crate::render::{ctrl, mask};
+use crate::render::{ctrl, mask, ppu};
 
 /// Its screen's direct writes (`$9BEB`), palette (`$9C36`), cursor (`$9C56`, at x `$68`
 /// and a row's y from `$9C62`), the number's metasprite (`$9C65`) and tiles (`$9C6B`),
@@ -236,7 +236,7 @@ fn show_screen(game: &mut Game, prg: &[u8]) {
     game.scroll.scroll_y = 0;
     let direct = &mut game.effects.vram.direct;
     direct.push(VramWrite {
-        addr: 0x2000,
+        addr: ppu::nametable(0),
         flags: 0,
         bytes: vec![0; 0x400],
     });

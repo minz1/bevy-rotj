@@ -11,7 +11,7 @@ use super::stage::Fade;
 use crate::actor::world::sound;
 use crate::levelmap::PAYLOAD_FIRST_BANK;
 use crate::prg::Prg;
-use crate::render::{Mirroring, mask};
+use crate::render::{Mirroring, mask, ppu};
 use crate::rooms::Raster;
 
 /// What the payload does from `$999C` on, in order: each step runs one frame or more,
@@ -289,7 +289,7 @@ impl Ending {
                     let row = read_bytes(&read, 0x66E0, 0x40);
                     game.effects
                         .vram
-                        .push(0x2400 + self.runner.frame * 0x40, 0, &row);
+                        .push(ppu::tile_addr(1, self.runner.frame * 2, 0), 0, &row);
                 }
                 frames(15)
             }

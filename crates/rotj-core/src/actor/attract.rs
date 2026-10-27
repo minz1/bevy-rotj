@@ -10,7 +10,7 @@ use super::room::build_palette;
 use super::stage::{Fade, blackout, queue_palette};
 use super::world::{VramWrite, set_first_colours, sound};
 use crate::prg::Prg;
-use crate::render::{Mirroring, ctrl, mask};
+use crate::render::{Mirroring, ctrl, mask, ppu};
 
 /// The buttons that leave the attract mode while held (`$F6 & $D0`).
 const HELD_TO_LEAVE: Buttons = Buttons::ACCEPT;
@@ -206,7 +206,7 @@ impl Attract {
                     game.scroll.mask = 0;
                     game.oam.clear();
                 }
-                if self.copy_page(game, chr, STORY + 0x400, 0x2400) {
+                if self.copy_page(game, chr, STORY + 0x400, ppu::nametable(1)) {
                     game.scroll.mask = mask::RENDERING;
                     for (shadow, bank) in game.oam.chr[..4].iter_mut().zip(0x78..) {
                         *shadow = bank;
@@ -257,7 +257,7 @@ impl Attract {
                     game.scroll.mask = 0;
                     game.oam.clear();
                 }
-                if self.copy_page(game, chr, CITY, 0x2000) {
+                if self.copy_page(game, chr, CITY, ppu::nametable(0)) {
                     game.scroll.mask = mask::RENDERING;
                     for (shadow, bank) in game.oam.chr[..4].iter_mut().zip(0x64..) {
                         *shadow = bank;
@@ -421,7 +421,9 @@ impl Attract {
         } else if self.copied < 0x400 {
             let at = usize::from(self.copied);
             let bytes = &chr[STORY + at..STORY + at + 0x40];
-            game.effects.vram.push(0x2000 + self.copied, 0, bytes);
+            game.effects
+                .vram
+                .push(ppu::nametable(0) + self.copied, 0, bytes);
             self.copied += 0x40;
         }
     }
@@ -469,7 +471,7 @@ fn stop(game: &mut Game) {
 /// `$ED-$EE` straight to the PPU, the screen's banks `$1C-$1F`, NMIs on (`$996D`).
 fn copy(game: &mut Game, chr: &[u8]) {
     game.effects.vram.direct.push(VramWrite {
-        addr: 0x2000,
+        addr: ppu::nametable(0),
         flags: 0,
         bytes: chr[CITY + 0x400..CITY + 0xC00].to_vec(),
     });

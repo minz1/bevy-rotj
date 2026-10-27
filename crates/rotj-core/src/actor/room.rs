@@ -15,7 +15,7 @@ use super::world::{
 use crate::levelmap::Cell;
 use crate::levels::RoomAssets;
 use crate::prg::Prg;
-use crate::render::{Mirroring, ctrl, mask};
+use crate::render::{Mirroring, ctrl, mask, ppu};
 use crate::rooms::{Arrival, Raster};
 
 /// The room change `$BA = 1` starts, one frame per [`RoomChange::step`] (`$B7EC`).
@@ -593,7 +593,7 @@ pub fn load(game: &mut Game, prg: &Prg) {
     player.facing = start.facing;
 
     game.scroll.gate = 0xFF;
-    game.effects.vram.origin = 0x2000;
+    game.effects.vram.origin = ppu::nametable(0);
     game.effects.attack &= attack::CHARGEABLE;
     player.vx = 0;
     player.motion = Motion::Standing;
@@ -844,7 +844,7 @@ pub fn first_page(game: &mut Game) -> Vec<VramWrite> {
                 bytes[32 + at..34 + at].copy_from_slice(&tiles[2..]);
             }
             VramWrite {
-                addr: 0x2000 + u16::from(row) * 0x40,
+                addr: ppu::tile_addr(0, u16::from(row) * 2, 0),
                 flags: 0,
                 bytes: bytes.to_vec(),
             }
@@ -854,7 +854,7 @@ pub fn first_page(game: &mut Game) -> Vec<VramWrite> {
     let attributes = &level.attributes[page..page + 64];
     game.effects.vram.attributes[..64].copy_from_slice(attributes);
     writes.push(VramWrite {
-        addr: 0x23C0,
+        addr: ppu::attribute_addr(0, 0, 0),
         flags: 0,
         bytes: attributes.to_vec(),
     });
