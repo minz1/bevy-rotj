@@ -58,13 +58,9 @@ impl State {
             }
             if pad.intersects(Buttons::UP_OR_DOWN) {
                 if pad.contains(Buttons::UP) {
-                    let (low, borrow) = player.y.to_be_bytes()[1].overflowing_sub(0x20);
-                    let mut high = player.y.to_be_bytes()[0];
-                    if borrow {
-                        high = high.wrapping_sub(1);
-                    }
-                    player.y = u16::from_be_bytes([high, low]);
-                    if borrow && high < Y_MIN {
+                    let row = player.y.row();
+                    player.y = player.y.wrapping_sub(STEP);
+                    if player.y.row() != row && player.y.row() < Y_MIN {
                         player.y = u16::from(Y_MIN) << 8;
                     }
                 } else {
@@ -119,5 +115,28 @@ mod tests {
         let coverage = assert_actor_phases(scene, 40, &[0x54]);
         assert!(coverage.occupied > 0, "{coverage:?}");
         assert_eq!(coverage.drawn, 0, "{coverage:?}");
+    }
+
+    /// The step up, clamped only when it leaves the row, is the byte pair it replaced.
+    #[test]
+    fn the_step_up_is_word_maths() {
+        use super::{STEP, Y_MIN};
+        use crate::actor::slots::Metatile;
+        for y in 0..=u16::MAX {
+            let (low, borrow) = y.to_be_bytes()[1].overflowing_sub(0x20);
+            let mut high = y.to_be_bytes()[0];
+            if borrow {
+                high = high.wrapping_sub(1);
+            }
+            let mut bytes = u16::from_be_bytes([high, low]);
+            if borrow && high < Y_MIN {
+                bytes = u16::from(Y_MIN) << 8;
+            }
+            let mut word = y.wrapping_sub(STEP);
+            if word.row() != y.row() && word.row() < Y_MIN {
+                word = u16::from(Y_MIN) << 8;
+            }
+            assert_eq!(word, bytes, "{y:#06X}");
+        }
     }
 }
