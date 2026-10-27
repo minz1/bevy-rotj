@@ -71,11 +71,10 @@ impl State {
         engine::draw(work, DRAW_BANK, cx);
         work.hitbox = 1;
         engine::boss_contact(CONTACT, MODE, body, work, cx);
-        let (chr_slot, carry) = body.chr_slot.overflowing_add(4);
-        body.chr_slot = chr_slot;
-        let (cell, _) = body.cell.overflowing_add(u8::from(carry));
-        body.cell = cell;
-        body.anim = cell.min(2);
+        [body.cell, body.chr_slot] = u16::from_be_bytes([body.cell, body.chr_slot])
+            .wrapping_add(4)
+            .to_be_bytes();
+        body.anim = body.cell.min(2);
         engine::store(body, work);
     }
 }
@@ -157,5 +156,19 @@ mod tests {
         assert!(hurt > 0, "the oracle never took boss contact");
         let coverage = assert_actor_phases(scene, 90, &[0xC0]);
         assert!(coverage.occupied > 0, "{coverage:?}");
+    }
+
+    /// The `[cell, chr_slot]` count is the byte pair it replaced.
+    #[test]
+    fn the_animation_count_is_word_maths() {
+        for pair in 0..=u16::MAX {
+            let [cell, chr_slot] = pair.to_be_bytes();
+            let (chr_slot_bytes, carry) = chr_slot.overflowing_add(4);
+            let cell_bytes = cell.wrapping_add(u8::from(carry));
+            let word = u16::from_be_bytes([cell, chr_slot])
+                .wrapping_add(4)
+                .to_be_bytes();
+            assert_eq!(word, [cell_bytes, chr_slot_bytes], "{pair:#06X}");
+        }
     }
 }
