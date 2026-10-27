@@ -629,11 +629,8 @@ impl Cell {
     /// The cell to the right; past column `$FF` the next row's first, as the flat buffer runs.
     #[must_use]
     pub fn next(self) -> Cell {
-        let (column, carry) = self.column.overflowing_add(1);
-        Cell {
-            row: self.row + u8::from(carry),
-            column,
-        }
+        let [row, column] = (u16::from_be_bytes([self.row, self.column]) + 1).to_be_bytes();
+        Cell { row, column }
     }
 
     /// The cell's offset from `$6000`.
@@ -1390,5 +1387,19 @@ mod tests {
                 column: 0x74
             }
         );
+    }
+
+    /// `Cell::next` is the byte pair it replaced, over every cell but the last.
+    #[test]
+    fn next_is_word_maths() {
+        for word in 0..u16::MAX {
+            let [row, column] = word.to_be_bytes();
+            let (next_column, carry) = column.overflowing_add(1);
+            let bytes = Cell {
+                row: row + u8::from(carry),
+                column: next_column,
+            };
+            assert_eq!(Cell { row, column }.next(), bytes, "{word:#06X}");
+        }
     }
 }

@@ -976,8 +976,7 @@ impl BossIntro {
                 self.fades += 1;
             }
         }
-        let [hi, lo] = self.offset.wrapping_neg().to_be_bytes();
-        let scroll = hi.wrapping_add(u8::from(lo & 0x80 != 0));
+        let scroll = self.offset.wrapping_neg().wrapping_add(0x80).to_be_bytes()[0];
         game.scroll.scroll_x = scroll;
         game.scroll.ppu_ctrl |= ctrl::NAMETABLE_X;
         let (mut cx, work) = game.parts(prg);
@@ -1420,9 +1419,8 @@ impl Continue {
                 }
             }
             _ => {
-                let [rows, low] = self.offset.to_be_bytes();
-                self.offset = if let Some(rows) = rows.checked_sub(4) {
-                    u16::from_be_bytes([rows, low])
+                self.offset = if let Some(offset) = self.offset.checked_sub(0x0400) {
+                    offset
                 } else {
                     (self.timer, self.phase, self.speed) = (0x30, 0, 0);
                     0
@@ -1551,5 +1549,22 @@ mod tests {
         assert_eq!(load_frames(0), 165);
         assert_eq!(load_frames(0x10), 102);
         assert_eq!(load_frames(0x01), 165);
+    }
+
+    /// The boss card's rounded scroll and the digit's four-row close are the byte pairs
+    /// they replaced.
+    #[test]
+    fn the_card_scroll_and_the_digit_close_are_word_maths() {
+        for offset in 0..=u16::MAX {
+            let [hi, lo] = offset.wrapping_neg().to_be_bytes();
+            let bytes = hi.wrapping_add(u8::from(lo & 0x80 != 0));
+            let word = offset.wrapping_neg().wrapping_add(0x80).to_be_bytes()[0];
+            assert_eq!(word, bytes, "{offset:#06X}");
+            let [rows, low] = offset.to_be_bytes();
+            let bytes = rows
+                .checked_sub(4)
+                .map(|rows| u16::from_be_bytes([rows, low]));
+            assert_eq!(offset.checked_sub(0x0400), bytes, "{offset:#06X}");
+        }
     }
 }
