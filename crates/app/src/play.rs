@@ -121,9 +121,9 @@ impl Play {
 
     /// The last frame's raster IRQs, an NMI with joypad 1 held as `pad` and the frame of
     /// the game after it, whose lines it keeps for [`Play::compose`]; the sound requests
-    /// the NMI hands the driver (`$40-$43`, 0 for none). A reset (GAME OVER,
-    /// `JMP ($FFFC)`) runs on into the boot's first frame.
-    pub fn step(&mut self, pad: u8) -> [u8; 4] {
+    /// the NMI hands the driver (`$40-$43`). A reset (GAME OVER, `JMP ($FFFC)`) runs on
+    /// into the boot's first frame.
+    pub fn step(&mut self, pad: u8) -> [Option<SoundId>; 4] {
         if self.raster {
             raster::run_irqs(&mut self.game);
         }
@@ -134,7 +134,7 @@ impl Play {
         self.label = marked(&self.oam, &self.marks, Mark::Label);
         self.copy_page(&registers);
         self.run_frame(registers);
-        vblank.sound
+        vblank.sound.map(SoundId::from_byte)
     }
 
     /// Copies the page the NMI shows, its marks and the mirror's snapshot of the game.
@@ -325,7 +325,7 @@ pub(crate) fn tick(
     }
     let sound = play.step(pad);
     if let Some(mut music) = music {
-        for request in sound.into_iter().filter_map(SoundId::from_byte) {
+        for request in sound.into_iter().flatten() {
             music.request(request);
         }
     }
@@ -446,8 +446,8 @@ pub(crate) mod tests {
         let mut songs = Vec::new();
         let mut step = |play: &mut Play, pad: u8| {
             let sound = play.step(pad);
-            if sound[1] != 0 {
-                songs.push(sound[1]);
+            if let Some(song) = sound[1] {
+                songs.push(song.byte());
             }
         };
         while !on_title(&play) {
@@ -889,7 +889,7 @@ pub(crate) mod tests {
         let mut requests = Vec::new();
         let mut split = false;
         for _ in 0..1200 {
-            requests.extend(play.step(0).into_iter().filter(|&id| id != 0));
+            requests.extend(play.step(0).into_iter().flatten().map(SoundId::byte));
             split |= play.raster;
             if play.game().world.area == 6 && play.game().script.is_none() {
                 break;
@@ -969,7 +969,7 @@ pub(crate) mod tests {
         let mut samples = Vec::new();
         let mut frame = Frame::new();
         for tick in 0..7000 {
-            requests.extend(play.step(0).into_iter().filter(|&id| id != 0));
+            requests.extend(play.step(0).into_iter().flatten().map(SoundId::byte));
             if tick % 100 == 50 {
                 play.compose(&mut frame, MAX_SPRITES_PER_LINE, false);
                 samples.push(frame.indices().to_vec());
@@ -1050,7 +1050,7 @@ pub(crate) mod tests {
         };
         let mut requests = Vec::new();
         for _ in 0..800 {
-            requests.extend(play.step(0).into_iter().filter(|&id| id != 0));
+            requests.extend(play.step(0).into_iter().flatten().map(SoundId::byte));
             if play.game().world.area == 2 && play.game().script.is_none() {
                 break;
             }
@@ -1076,10 +1076,10 @@ pub(crate) mod tests {
         };
         let request = (0..300)
             .map(|frame| play.step(if frame % 40 < 12 { 0x80 } else { 0 }))
-            .find(|sound| sound[2] == rotj_music::JUMP_SFX)
+            .find(|sound| sound[2] == SoundId::from_byte(rotj_music::JUMP_SFX))
             .expect("the jump requested $42=$24");
-        assert_eq!(request[2], 0x24);
-        assert_eq!(request[3], 0, "the jump is slot $42");
+        assert_eq!(request[2].map(SoundId::byte), Some(0x24));
+        assert_eq!(request[3], None, "the jump is slot $42");
         assert_eq!(
             play.game().effects.player.motion,
             Motion::Jumping,
@@ -1087,7 +1087,7 @@ pub(crate) mod tests {
         );
 
         let mut driver = crate::audio::driver();
-        driver.request(request[2]);
+        driver.request(request[2].expect("the jump's request").byte());
         let writes: Vec<(u16, u8)> = driver.tick().iter().map(|w| (w.addr, w.value)).collect();
         assert!(
             writes.contains(&(rotj_apu::noise::CTRL, 0x16)),
@@ -1116,10 +1116,10 @@ pub(crate) mod tests {
         };
         let request = (0..600)
             .map(|frame| play.step(if frame % 8 < 2 { 0x40 } else { 0 }))
-            .find(|sound| sound[2] == 0x2D)
+            .find(|sound| sound[2] == SoundId::from_byte(0x2D))
             .expect("firing requested $42=$2D");
-        assert_eq!(request[2], 0x2D);
-        assert_eq!(request[3], 0, "the fire effect is slot $42");
+        assert_eq!(request[2].map(SoundId::byte), Some(0x2D));
+        assert_eq!(request[3], None, "the fire effect is slot $42");
     }
 
     /// A damage-class tile under Batman makes `Play::step` return the damage
@@ -1139,10 +1139,10 @@ pub(crate) mod tests {
         let energy = play.game().effects.player.energy;
         let request = (0..120)
             .map(|_| play.step(0))
-            .find(|sound| sound[2] == 0x25)
+            .find(|sound| sound[2] == SoundId::from_byte(0x25))
             .expect("the damage requested $42=$25");
-        assert_eq!(request[2], 0x25);
-        assert_eq!(request[3], 0, "the damage effect is slot $42");
+        assert_eq!(request[2].map(SoundId::byte), Some(0x25));
+        assert_eq!(request[3], None, "the damage effect is slot $42");
         assert!(
             play.game().effects.player.energy < energy,
             "the hit cost energy ({} -> {})",
