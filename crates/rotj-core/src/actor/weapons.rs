@@ -448,12 +448,11 @@ fn homing_steer(slot: usize, cx: &mut Cx<'_>) -> u16 {
     let heading = u16::try_from(heading).expect("20 headings");
     cx.effects.projectiles[slot].attr = cx.prg.weapons.homing_attributes[usize::from(heading)];
     let pointer = rom_word(cx.prg, 5, 0x844B + heading * 2);
-    let actor = |cx: &Cx<'_>, target: u8, array: u16| cx.byte(array + u16::from(target));
     let mut target = projectile.param;
-    if target & 0x80 != 0 || actor(cx, target, 0x7CC0) == 0 {
+    if target & 0x80 != 0 || cx.slots.kind(usize::from(target)) == 0 {
         target = homing_retarget(slot, cx);
     }
-    if target & 0x80 == 0 && actor(cx, target, 0x7D50) & STATE_UNTARGETED != 0 {
+    if target & 0x80 == 0 && cx.get(usize::from(target), Field::State) & STATE_UNTARGETED != 0 {
         target = homing_retarget(slot, cx);
     }
     if target & 0x80 != 0 {
@@ -461,12 +460,13 @@ fn homing_steer(slot: usize, cx: &mut Cx<'_>) -> u16 {
     }
     #[cfg(test)]
     super::oracle::seen(0x831E);
-    let position = |cx: &Cx<'_>, hi: u16, lo: u16| {
-        u16::from_be_bytes([actor(cx, target, hi), actor(cx, target, lo)])
+    let position = |cx: &Cx<'_>, hi: Field, lo: Field| {
+        let target = usize::from(target);
+        u16::from_be_bytes([cx.get(target, hi), cx.get(target, lo)])
     };
     let projectile = &cx.effects.projectiles[slot];
-    let dy = position(cx, 0x7B40, 0x7B60).wrapping_sub(projectile.y);
-    let dx = position(cx, 0x7B00, 0x7B20).wrapping_sub(projectile.x);
+    let dy = position(cx, Field::YHigh, Field::YLow).wrapping_sub(projectile.y);
+    let dx = position(cx, Field::XHigh, Field::XLow).wrapping_sub(projectile.x);
     let (left, up) = (dx & 0x8000 != 0, dy & 0x8000 != 0);
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.vx = steer_axis(projectile.vx, left);
