@@ -131,7 +131,7 @@ pub fn level_area(levels: &Levels, level: usize) -> Option<u8> {
 /// The stage-end script's state (`$0408-$040C`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct StageEnd {
-    /// The script's phase, 0-4 (`$0408`).
+    /// The script's phase (`$0408`), an [`EndPhase`] byte; the power-up counts in it too.
     pub phase: u8,
     /// The phase's frame counter (`$0409`).
     pub timer: u8,
@@ -143,6 +143,44 @@ pub struct StageEnd {
     pub fade: u8,
 }
 
+/// The stage-end script's phases (`$0408`), the index into `$940C`'s table.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndPhase {
+    /// Play goes on until Batman reaches the stage's end.
+    Approaching = 0,
+    /// The pad is held right until he walks off at `$2740`.
+    WalkingOff = 1,
+    /// The departing sprite moves up and left for `$80` frames.
+    Departing = 2,
+    /// The sprite's colours step through `$95B9`, held until frame `$60`.
+    Recolouring = 3,
+    /// The music and then the palette fade out, and the stage ends.
+    FadingOut = 4,
+}
+
+impl EndPhase {
+    const ALL: [EndPhase; 5] = [
+        EndPhase::Approaching,
+        EndPhase::WalkingOff,
+        EndPhase::Departing,
+        EndPhase::Recolouring,
+        EndPhase::FadingOut,
+    ];
+
+    /// The byte `$0408` holds.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    /// The phase a `$0408` byte holds, if it is one.
+    #[must_use]
+    pub fn from_byte(byte: u8) -> Option<EndPhase> {
+        EndPhase::ALL.get(usize::from(byte)).copied()
+    }
+}
+
 /// One frame of the stage-end script (`$940C`): true when it ended the stage and
 /// waited for the NMI itself (`$9539`).
 ///
@@ -152,11 +190,11 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
     let x = game.effects.player.x;
     let end = &mut game.effects.stage_end;
     let mut pads = None;
-    match end.phase {
-        0 => {
+    match EndPhase::from_byte(end.phase) {
+        Some(EndPhase::Approaching) => {
             if x >= 0x2000 || (x >= 0x1F60 && !game.effects.player.faces_left()) {
                 game.effects.music = sound::music::FADE_OUT;
-                end.phase = 1;
+                end.phase = EndPhase::WalkingOff.byte();
                 for projectile in &mut game.effects.projectiles {
                     projectile.kind = 0;
                 }
@@ -164,28 +202,28 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
                 game.effects.attack &= attack::CHARGEABLE;
             }
         }
-        1 => {
+        Some(EndPhase::WalkingOff) => {
             if x >= 0x2740 {
                 game.effects.palette[25..28].fill(0x0F);
                 queue_palette(game);
                 let end = &mut game.effects.stage_end;
-                (end.timer, end.phase, end.y, end.x) = (0, 2, 0x70, 0xFF);
+                (end.timer, end.phase, end.y, end.x) = (0, EndPhase::Departing.byte(), 0x70, 0xFF);
                 game.effects.song = sound::song::STAGE_CLEAR;
                 pads = Some(Buttons::NONE);
             } else {
                 pads = Some(Buttons::RIGHT);
             }
         }
-        2 => {
+        Some(EndPhase::Departing) => {
             depart(game, prg, 0x03, 0x0F);
             let end = &mut game.effects.stage_end;
             end.timer = end.timer.wrapping_add(1);
             if end.timer >= 0x80 {
-                (end.phase, end.timer) = (3, 0);
+                (end.phase, end.timer) = (EndPhase::Recolouring.byte(), 0);
             }
             pads = Some(Buttons::NONE);
         }
-        3 => {
+        Some(EndPhase::Recolouring) => {
             depart(game, prg, 0x03, 0x0F);
             let end = &mut game.effects.stage_end;
             end.timer = end.timer.wrapping_add(1);
@@ -199,11 +237,11 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
                     queue_palette(game);
                 }
             } else if timer == 0x60 {
-                (end.phase, end.timer) = (4, 0);
+                (end.phase, end.timer) = (EndPhase::FadingOut.byte(), 0);
             }
             pads = Some(Buttons::UP);
         }
-        4 => {
+        Some(EndPhase::FadingOut) => {
             end.timer = end.timer.wrapping_add(1);
             let timer = end.timer;
             if timer >= 0x90 {
@@ -226,7 +264,7 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
             depart(game, prg, 0x07, 0x1F);
             pads = Some(Buttons::UP);
         }
-        other => panic!("stage-end phase {other} is past $940C's table"),
+        None => panic!("stage-end phase {} is past $940C's table", end.phase),
     }
     if let Some(pad) = pads {
         (game.world.pad, game.world.pressed) = (pad, pad);
@@ -1460,7 +1498,16 @@ impl Continue {
 #[cfg(test)]
 mod tests {
     use super::super::oracle::Scene;
-    use super::NextArea;
+    use super::{EndPhase, NextArea};
+
+    #[test]
+    fn end_phase_bytes_round_trip() {
+        for byte in 0..=4 {
+            let phase = EndPhase::from_byte(byte).expect("a stage-end phase");
+            assert_eq!(phase.byte(), byte);
+        }
+        assert!((5..=255).all(|byte| EndPhase::from_byte(byte).is_none()));
+    }
 
     fn load_frames(pressed: u8) -> usize {
         let Some(scene) = Scene::tas(350) else {

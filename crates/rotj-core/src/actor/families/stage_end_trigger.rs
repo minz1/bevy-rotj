@@ -4,6 +4,7 @@
 
 use crate::actor::engine::Work;
 use crate::actor::slots::Body;
+use crate::actor::stage::EndPhase;
 use crate::actor::world::Cx;
 
 /// Type `$0E` keeps no state of its own.
@@ -14,7 +15,7 @@ impl State {
     /// One frame of the handler (`$8B44`).
     pub fn step(&mut self, kind: &mut u8, _body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
         cx.effects.transition = 2;
-        cx.effects.stage_end.phase = 0;
+        cx.effects.stage_end.phase = EndPhase::Approaching.byte();
         *kind = 0;
     }
 }
