@@ -745,8 +745,7 @@ pub struct Projectile {
     pub y: u16,
 }
 
-/// A circling part's step round the homing charge (`$7F40`): one of 32, though the
-/// offsets table is read by the low 6 bits.
+/// A circling part's step round the homing charge (`$7F40`), one of 32.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Orbit(u8);
 
@@ -824,8 +823,7 @@ impl Projectile {
         self.param = orbit.byte();
     }
 
-    /// The homing charge's three circling parts' slots: `$7F50`'s high and low nibbles and
-    /// `$7F60`'s low nibble.
+    /// The homing charge's three circling parts' slots, nibbles of `$7F50` and `$7F60`.
     #[must_use]
     pub const fn circlers(&self) -> [u8; 3] {
         [self.part >> 4, self.part & 0x0F, self.part_timer & 0x0F]
