@@ -34,7 +34,7 @@ use button::Buttons;
 use engine::{Work, anchor};
 use oam::OamBuilder;
 use slots::Slots;
-use world::{Cx, Effects, Schedule, World, busy, stage_script};
+use world::{Cx, Effects, Schedule, SoundId, World, busy, stage_script};
 
 /// Everything the game loop reads and writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -333,7 +333,8 @@ impl Game {
             std::mem::take(&mut effects.song),
             std::mem::take(&mut effects.sound[0]),
             std::mem::take(&mut effects.sound[1]),
-        ];
+        ]
+        .map(SoundId::from_byte);
         let vram = &mut effects.vram;
         vram.top = 0x7F;
         let mut writes = std::mem::take(&mut vram.direct);
@@ -347,8 +348,8 @@ impl Game {
 pub struct Vblank {
     /// PPU writes, in order.
     pub writes: Vec<world::VramWrite>,
-    /// The sound driver's requests, `$40-$43` (0 for none).
-    pub sound: [u8; 4],
+    /// The sound driver's requests, `$40-$43`.
+    pub sound: [Option<SoundId>; 4],
 }
 
 /// One pass of the actor loop over slots 23 down to 0 (bank 14 `$CED5`).

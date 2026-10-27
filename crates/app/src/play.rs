@@ -134,7 +134,7 @@ impl Play {
         self.label = marked(&self.oam, &self.marks, Mark::Label);
         self.copy_page(&registers);
         self.run_frame(registers);
-        vblank.sound.map(SoundId::from_byte)
+        vblank.sound
     }
 
     /// Copies the page the NMI shows, its marks and the mirror's snapshot of the game.
