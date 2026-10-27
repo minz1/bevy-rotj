@@ -1199,7 +1199,7 @@ pub struct Continue {
     step: Countdown,
     /// Where the screen is in [`SETUP`], [`GAME_OVER`] or [`LEAVE`].
     runner: Runner,
-    /// 0 holding the digit, 1 splitting it away, 2 closing the next one in (`$10`).
+    /// The countdown's phase (`$10`), a [`DigitPhase`] byte.
     phase: u8,
     /// The digit shown (`$11`).
     digit: u8,
@@ -1225,6 +1225,36 @@ enum Countdown {
     ScrollCheck,
     /// Start pressed, the rows of [`LEAVE`].
     Leave,
+}
+
+/// The countdown digit's phases (`$10`), the index into `$9254`.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DigitPhase {
+    /// The digit holds for its timer.
+    Holding = 0,
+    /// The digit splits away.
+    Splitting = 1,
+    /// The next digit closes in.
+    Closing = 2,
+}
+
+impl DigitPhase {
+    const ALL: [DigitPhase; 3] = [
+        DigitPhase::Holding,
+        DigitPhase::Splitting,
+        DigitPhase::Closing,
+    ];
+
+    /// The byte `$10` holds.
+    const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    /// The phase a `$10` byte holds, if it is one.
+    fn from_byte(byte: u8) -> Option<DigitPhase> {
+        DigitPhase::ALL.get(usize::from(byte)).copied()
+    }
 }
 
 /// What the continue screen does before its countdown, before GAME OVER and after Start,
@@ -1276,7 +1306,7 @@ impl Default for Continue {
         Continue {
             step: Countdown::Setup,
             runner: Runner::default(),
-            phase: 0,
+            phase: DigitPhase::Holding.byte(),
             digit: 0,
             timer: 0,
             speed: 0,
@@ -1388,7 +1418,8 @@ impl Continue {
                 }
                 ContinueRow::FirstDigit => {
                     if frame == 0 {
-                        (self.phase, self.digit, self.timer) = (0, 9, 0x30);
+                        (self.phase, self.digit, self.timer) =
+                            (DigitPhase::Holding.byte(), 9, 0x30);
                         (self.speed, self.offset) = (0, 0);
                         for (bank, shadow) in (0xCC..).zip(&mut game.oam.chr[..4]) {
                             *shadow = bank;
@@ -1453,8 +1484,8 @@ impl Continue {
     /// One frame of the countdown (`$8FC9`, through `$9254[$10]`); true when the last
     /// digit has gone and the screen blacked out (`$9031`).
     fn count(&mut self, game: &mut Game, prg: &[u8]) -> bool {
-        match self.phase {
-            0 => {
+        match DigitPhase::from_byte(self.phase) {
+            Some(DigitPhase::Holding) => {
                 self.timer = self.timer.wrapping_sub(1);
                 if self.timer & 0x80 != 0 {
                     game.effects.sound[0] = if self.digit == 0 {
@@ -1462,12 +1493,12 @@ impl Continue {
                     } else {
                         sound::COUNTDOWN_TICK
                     };
-                    self.phase = 1;
+                    self.phase = DigitPhase::Splitting.byte();
                     (self.speed, self.offset) = (0, 0);
                 }
                 return false;
             }
-            1 => {
+            Some(DigitPhase::Splitting) => {
                 self.speed = self.speed.wrapping_add(0x20);
                 if self.speed >> 8 >= 6 {
                     self.speed = 0x0400;
@@ -1475,7 +1506,7 @@ impl Continue {
                 self.offset = self.offset.wrapping_add(self.speed);
                 if self.offset >> 8 >= 0x20 {
                     self.offset = 0x2000;
-                    self.phase = 2;
+                    self.phase = DigitPhase::Closing.byte();
                     self.digit = self.digit.wrapping_sub(1);
                     if self.digit & 0x80 != 0 {
                         blackout(game, prg);
@@ -1483,12 +1514,12 @@ impl Continue {
                     }
                 }
             }
-            _ => {
+            Some(DigitPhase::Closing) | None => {
                 let [rows, low] = self.offset.to_be_bytes();
                 self.offset = if let Some(rows) = rows.checked_sub(4) {
                     u16::from_be_bytes([rows, low])
                 } else {
-                    (self.timer, self.phase, self.speed) = (0x30, 0, 0);
+                    (self.timer, self.phase, self.speed) = (0x30, DigitPhase::Holding.byte(), 0);
                     0
                 };
             }
@@ -1524,7 +1555,16 @@ impl Continue {
 #[cfg(test)]
 mod tests {
     use super::super::oracle::Scene;
-    use super::{Card, EndPhase, NextArea};
+    use super::{Card, DigitPhase, EndPhase, NextArea};
+
+    #[test]
+    fn digit_phase_bytes_round_trip() {
+        for byte in 0..=2 {
+            let phase = DigitPhase::from_byte(byte).expect("a digit phase");
+            assert_eq!(phase.byte(), byte);
+        }
+        assert!((3..=255).all(|byte| DigitPhase::from_byte(byte).is_none()));
+    }
 
     #[test]
     fn card_bytes_round_trip() {
