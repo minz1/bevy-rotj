@@ -24,6 +24,21 @@ pub const CHARGE_START: u8 = 0x80;
 /// The homing charge's `param` once its circling parts are out.
 const CIRCLED: u8 = 0x80;
 
+/// A power-up piece's `part_timer` or super orbiter's `part`: the piece sets the palette, the orbiter flashes it.
+const LIT: u8 = 0x80;
+
+/// A splitter shot's `param`: spent, it runs out its timer instead of splitting.
+const NO_SPLIT: u8 = 0x80;
+
+/// The splitter orbit's `param`, toggled every 64 frames: the turn tables 4 on and the `$8C67` throw.
+const SECOND_HALF: u8 = 0x80;
+
+/// A wave part's `param`: its weave adds 4 to the velocity instead of taking 4 away.
+const WEAVE_INCREASING: u8 = 0x80;
+
+/// The three-way tether's `part_timer`, let go aiming up: it springs vertically.
+const VERTICAL: u8 = 0x80;
+
 /// The homing weapon's charged attack, by projectile `kind`.
 mod homing_stage {
     /// Gathering a ball while B is held.
@@ -240,7 +255,7 @@ fn power_up_pieces(work: &mut Work, cx: &mut Cx<'_>) {
             continue;
         }
         piece.kind = 0;
-        let lit = piece.part_timer & 0x80 != 0;
+        let lit = piece.part_timer & LIT != 0;
         let player = &mut effects.player;
         player.power_up = power_up::ON;
         effects.attack = attack::CHARGEABLE;
@@ -888,7 +903,7 @@ fn super_pairs(slot: usize, cx: &mut Cx<'_>) {
     (orbiter_weapon.x, orbiter_weapon.y) = (0x0100, 0);
     orbiter_weapon.flags = shot_flags::INERT;
     orbiter_weapon.param = 0;
-    orbiter_weapon.part = if source.part_timer == 0 { 0x80 } else { 0 };
+    orbiter_weapon.part = if source.part_timer == 0 { LIT } else { 0 };
     orbiter_weapon.vx = -8;
     orbiter_weapon.vy = 0x0080;
     orbiter_weapon.timer = source.timer;
@@ -953,7 +968,7 @@ fn super_orbiter(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scr
         return false;
     }
     super_spring(slot, centre, cx);
-    if cx.effects.projectiles[slot].part & 0x80 != 0 {
+    if cx.effects.projectiles[slot].part & LIT != 0 {
         super_flash(slot, cx);
     }
     true
@@ -1181,7 +1196,7 @@ fn splitter(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     };
     work.attr = attr;
     if phase & shot_state::SPENT != 0 {
-        if bounce & 0x80 == 0 {
+        if bounce & NO_SPLIT == 0 {
             splitter_split(slot, cx);
             return;
         }
@@ -1429,7 +1444,7 @@ fn three_way_let_go(slot: usize, cx: &mut Cx<'_>) {
     projectile.param = 0;
     projectile.part = 0;
     projectile.flags = shot_flags::UNSTOPPABLE;
-    projectile.part_timer = if aim_up { 0x80 } else { 0 };
+    projectile.part_timer = if aim_up { VERTICAL } else { 0 };
     projectile.vx = vx;
     projectile.vy = vy;
     projectile.x = x;
@@ -1480,7 +1495,7 @@ fn three_way_tether(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         projectile.kind = 0;
         return;
     }
-    if projectile.part_timer & 0x80 != 0 {
+    if projectile.part_timer & VERTICAL != 0 {
         #[cfg(test)]
         super::oracle::seen(0x93BA);
         projectile.vy = three_way_pull(projectile.vy, projectile.y & 0x8000 != 0, 0x50, 0xB0);
@@ -1545,7 +1560,12 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     #[cfg(test)]
     super::oracle::seen(0x8A4F);
     let projectile = cx.effects.projectiles[slot];
-    let turn = u16::from(projectile.part) + if projectile.param & 0x80 != 0 { 4 } else { 0 };
+    let turn = u16::from(projectile.part)
+        + if projectile.param & SECOND_HALF != 0 {
+            4
+        } else {
+            0
+        };
     let [dvx] = engine::rom_split_words(cx.prg, 5, 0x8C79 + turn, 0x8C71 + turn);
     let [dvy] = engine::rom_split_words(cx.prg, 5, 0x8C89 + turn, 0x8C81 + turn);
     let vx = projectile.vx.cast_unsigned().wrapping_add(dvx);
@@ -1555,7 +1575,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     projectile.vy = vy.cast_signed();
     projectile.part_timer = projectile.part_timer.wrapping_add(1);
     if projectile.part_timer >= 0x40 {
-        projectile.param ^= 0x80;
+        projectile.param ^= SECOND_HALF;
         projectile.part_timer = 0;
         cx.effects.sound[1] = sound::SPLITTER_ORBIT;
     }
@@ -1621,7 +1641,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
             0
         }
     };
-    let tables = if projectile.param & 0x80 != 0 {
+    let tables = if projectile.param & SECOND_HALF != 0 {
         0x8C67
     } else {
         0x8C61
@@ -1838,7 +1858,7 @@ fn wave_flight(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
 /// The `BMI`/`BEQ` after each `STA $7F40,X` tests the `CMP` before it, so a step
 /// down always ends there and a step up across goes on to y unless it reached `$40`.
 fn weave(slot: usize, cx: &mut Cx<'_>, horizontal: bool) -> bool {
-    if cx.effects.projectiles[slot].param & 0x80 == 0 {
+    if cx.effects.projectiles[slot].param & WEAVE_INCREASING == 0 {
         let projectile = &mut cx.effects.projectiles[slot];
         let velocity = axis(projectile, horizontal);
         *velocity = velocity.wrapping_sub(4);
