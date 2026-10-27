@@ -235,6 +235,24 @@ pub mod sliding {
     pub const ON: u8 = 0x80;
 }
 
+/// A request the sound driver takes from `$40-$43`: a song, a music command or an effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SoundId(u8);
+
+impl SoundId {
+    /// The request a slot's byte holds; 0 is an empty slot.
+    #[must_use]
+    pub const fn from_byte(byte: u8) -> Option<SoundId> {
+        if byte == 0 { None } else { Some(SoundId(byte)) }
+    }
+
+    /// The id the driver takes.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        self.0
+    }
+}
+
 /// The sound driver's ids. The four request slots (`$40` music, `$41` song, `$42` and `$43`
 /// sounds) share one id space; the slot belongs to the call site.
 pub mod sound {

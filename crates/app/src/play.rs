@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::*;
 use rotj_core::actor::oam::{Mark, OamEntry};
-use rotj_core::actor::world::Ppu;
+use rotj_core::actor::world::{Ppu, SoundId};
 use rotj_core::actor::{Game, Script, raster};
 use rotj_core::levels::Levels;
 use rotj_core::prg::Prg;
@@ -325,7 +325,7 @@ pub(crate) fn tick(
     }
     let sound = play.step(pad);
     if let Some(mut music) = music {
-        for request in sound.into_iter().filter(|&request| request != 0) {
+        for request in sound.into_iter().filter_map(SoundId::from_byte) {
             music.request(request);
         }
     }
