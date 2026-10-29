@@ -10,7 +10,7 @@
 //! clears a bit of the behaviour of the slot named in `$7C30` (its parent).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Field};
+use crate::actor::slots::{Body, Field, Metatile};
 use crate::actor::world::Cx;
 
 /// The bank-12 table of six bank-9 metasprite pointers (`$97AA`), indexed by
@@ -44,11 +44,11 @@ impl State {
         let y_velocity = i16::from_be_bytes([body.counter, body.timer]);
         work.x = work.x.wrapping_add_signed(x_velocity);
         work.y = work.y.wrapping_add_signed(y_velocity);
-        if work.y.to_be_bytes()[0] & 0xF0 != 0 {
+        if work.y.row() & 0xF0 != 0 {
             free(kind, body, cx);
             return;
         }
-        if y_velocity >= 0 && work.y.to_be_bytes()[0] >= FLOOR_ROW {
+        if y_velocity >= 0 && work.y.row() >= FLOOR_ROW {
             work.y = u16::from(FLOOR_ROW) << 8;
             [body.counter, body.timer] = y_velocity.wrapping_neg().to_be_bytes();
         }
@@ -71,11 +71,10 @@ impl State {
         engine::draw(work, DRAW_BANK, cx);
         work.hitbox = 1;
         engine::boss_contact(CONTACT, MODE, body, work, cx);
-        let (chr_slot, carry) = body.chr_slot.overflowing_add(4);
-        body.chr_slot = chr_slot;
-        let (cell, _) = body.cell.overflowing_add(u8::from(carry));
-        body.cell = cell;
-        body.anim = cell.min(2);
+        [body.cell, body.chr_slot] = u16::from_be_bytes([body.cell, body.chr_slot])
+            .wrapping_add(4)
+            .to_be_bytes();
+        body.anim = body.cell.min(2);
         engine::store(body, work);
     }
 }
@@ -157,5 +156,19 @@ mod tests {
         assert!(hurt > 0, "the oracle never took boss contact");
         let coverage = assert_actor_phases(scene, 90, &[0xC0]);
         assert!(coverage.occupied > 0, "{coverage:?}");
+    }
+
+    /// The `[cell, chr_slot]` count is the byte pair it replaced.
+    #[test]
+    fn the_animation_count_is_word_maths() {
+        for pair in 0..=u16::MAX {
+            let [cell, chr_slot] = pair.to_be_bytes();
+            let (chr_slot_bytes, carry) = chr_slot.overflowing_add(4);
+            let cell_bytes = cell.wrapping_add(u8::from(carry));
+            let word = u16::from_be_bytes([cell, chr_slot])
+                .wrapping_add(4)
+                .to_be_bytes();
+            assert_eq!(word, [cell_bytes, chr_slot_bytes], "{pair:#06X}");
+        }
     }
 }

@@ -47,8 +47,10 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         let frame = cx.world.frame;
         if frame.is_multiple_of(4) {
-            let (countdown, borrow) = body.phase.overflowing_sub(COUNTDOWN_STEP);
-            body.phase = if borrow { COUNTDOWN_RESTART } else { countdown };
+            body.phase = body
+                .phase
+                .checked_sub(COUNTDOWN_STEP)
+                .unwrap_or(COUNTDOWN_RESTART);
         }
         work.pointer = engine::rom_word(cx.prg, 0, POINTERS + 2 * u16::from(frame & 3));
         work.tile = 0;
@@ -131,5 +133,19 @@ mod tests {
         );
         let coverage = assert_actor_phases(scene, 40, &[0x5E]);
         assert_eq!(coverage.occupied, coverage.frames, "{coverage:?}");
+    }
+
+    /// The countdown and its restart are the byte maths they replaced.
+    #[test]
+    fn the_countdown_is_checked_maths() {
+        use super::{COUNTDOWN_RESTART, COUNTDOWN_STEP};
+        for phase in 0..=u8::MAX {
+            let (countdown, borrow) = phase.overflowing_sub(COUNTDOWN_STEP);
+            let bytes = if borrow { COUNTDOWN_RESTART } else { countdown };
+            let checked = phase
+                .checked_sub(COUNTDOWN_STEP)
+                .unwrap_or(COUNTDOWN_RESTART);
+            assert_eq!(checked, bytes, "{phase:#04X}");
+        }
     }
 }

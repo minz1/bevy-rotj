@@ -62,19 +62,16 @@ impl State {
 /// `$8679`: `$7D90` bit 7 picks the direction; `vy` (`$7E70:$7E80`) steps one
 /// unit a frame, flipping `$7D90` at `-$20`/`+$20`.
 fn bob(body: &mut Body) {
-    let [hi, lo] = body.vy.to_be_bytes();
     if body.behaviour & VY_INCREASING == 0 {
-        let (lo, borrow) = lo.overflowing_sub(1);
-        let hi = hi.wrapping_sub(u8::from(borrow));
-        body.vy = i16::from_be_bytes([hi, lo]);
+        body.vy = body.vy.wrapping_sub(1);
+        let [hi, lo] = body.vy.to_be_bytes();
         if hi & 0x80 != 0 && lo < DOWN_CLAMP {
             body.vy = i16::from_be_bytes([hi, DOWN_CLAMP]);
             body.behaviour = DOWN_CLAMP;
         }
     } else {
-        let (lo, carry) = lo.overflowing_add(1);
-        let hi = hi.wrapping_add(u8::from(carry));
-        body.vy = i16::from_be_bytes([hi, lo]);
+        body.vy = body.vy.wrapping_add(1);
+        let [hi, lo] = body.vy.to_be_bytes();
         if hi & 0x80 == 0 && lo >= UP_CLAMP {
             body.vy = i16::from_be_bytes([hi, UP_CLAMP]);
             body.behaviour = UP_CLAMP;
@@ -162,5 +159,45 @@ mod tests {
         let coverage = assert_actor_phases(scene, 40, &[0x66]);
         assert_eq!(coverage.occupied, coverage.frames, "{coverage:?}");
         assert!(coverage.frames > 0, "{coverage:?}");
+    }
+
+    /// `bob` over every `vy` both ways is the byte pair it replaced.
+    #[test]
+    fn bob_is_word_maths() {
+        use super::{DOWN_CLAMP, UP_CLAMP, bob};
+        use crate::actor::slots::Body;
+        fn bytes(body: &mut Body) {
+            let [hi, lo] = body.vy.to_be_bytes();
+            if body.behaviour & 0x80 == 0 {
+                let (lo, borrow) = lo.overflowing_sub(1);
+                let hi = hi.wrapping_sub(u8::from(borrow));
+                body.vy = i16::from_be_bytes([hi, lo]);
+                if hi & 0x80 != 0 && lo < DOWN_CLAMP {
+                    body.vy = i16::from_be_bytes([hi, DOWN_CLAMP]);
+                    body.behaviour = DOWN_CLAMP;
+                }
+            } else {
+                let (lo, carry) = lo.overflowing_add(1);
+                let hi = hi.wrapping_add(u8::from(carry));
+                body.vy = i16::from_be_bytes([hi, lo]);
+                if hi & 0x80 == 0 && lo >= UP_CLAMP {
+                    body.vy = i16::from_be_bytes([hi, UP_CLAMP]);
+                    body.behaviour = UP_CLAMP;
+                }
+            }
+        }
+        for vy in i16::MIN..=i16::MAX {
+            for behaviour in [0x00, 0x7F, 0x80, 0xFF] {
+                let mut body = Body {
+                    behaviour,
+                    vy,
+                    ..Body::default()
+                };
+                let mut want = body.clone();
+                bob(&mut body);
+                bytes(&mut want);
+                assert_eq!(body, want, "{vy} {behaviour:#04X}");
+            }
+        }
     }
 }

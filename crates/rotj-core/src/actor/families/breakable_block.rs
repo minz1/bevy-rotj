@@ -3,8 +3,8 @@
 //! far off screen.
 
 use crate::actor::engine::{self, TileBlock, Visibility, Work};
-use crate::actor::slots::Body;
 use crate::actor::slots::hit;
+use crate::actor::slots::{Body, Metatile};
 use crate::actor::world::{Cx, sound};
 use crate::actors::CELL_PENDING;
 use crate::levelmap::Cell;
@@ -61,7 +61,7 @@ impl State {
 
 fn shatter(body: &Body, work: &Work, cx: &mut Cx<'_>) {
     let column = work.x.to_be_bytes()[0];
-    let row = work.y.wrapping_sub(0x05D0).to_be_bytes()[0];
+    let row = work.y.wrapping_sub(0x05D0).row();
     let above = Work {
         y: work.y.wrapping_sub(0x04C0),
         ..*work

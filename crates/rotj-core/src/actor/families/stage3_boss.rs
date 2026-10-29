@@ -11,7 +11,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, Metatile};
 use crate::actor::world::{Cx, Motion};
 
 /// Metasprite pointers (`$9D85`), indexed by `$7C30`.
@@ -176,7 +176,7 @@ fn dropping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
         body.anim.tick_down();
         return;
     }
-    if work.y.to_be_bytes()[0] < 0x08 {
+    if work.y.row() < 0x08 {
         face(body, work, cx);
     }
     let step = if cx.world.frame.is_multiple_of(4) {

@@ -1,7 +1,7 @@
 //! Type `$2A` (bank 11 `$8284`), a three-phase flyer that drops `$2C` bombs.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, Metatile};
 use crate::actor::world::{Cx, sound};
 use crate::actors::STATE_UNTARGETED;
 
@@ -52,7 +52,7 @@ impl State {
 }
 
 fn camera_row(cx: &Cx<'_>) -> u8 {
-    cx.world.camera_y.to_be_bytes()[0]
+    cx.world.camera_y.row()
 }
 
 /// Starting (`$82AB`): set the first dive going.
@@ -68,7 +68,7 @@ fn starting(body: &mut Body, work: &mut Work) {
 /// Sweeping (`$82CD`): steer the lift on odd frames, sweep sideways, then flap.
 fn sweeping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
     if cx.world.frame_odd {
-        let rows = work.y.to_be_bytes()[0].checked_sub(camera_row(cx));
+        let rows = work.y.row().checked_sub(camera_row(cx));
         body.counter = match rows {
             Some(5..=6) => {
                 if cx.world.rng[0] & 0x80 == 0 {
@@ -87,9 +87,9 @@ fn sweeping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
             }
         };
     }
-    let [hi, lo] = work.vy.to_be_bytes();
-    let (lo, carry) = lo.overflowing_add(body.counter);
-    work.vy = i16::from_be_bytes([hi.wrapping_add(0xFF).wrapping_add(u8::from(carry)), lo]);
+    work.vy = work
+        .vy
+        .wrapping_add(i16::from_be_bytes([0xFF, body.counter]));
     if body.timer & 0x80 == 0 {
         let column = work.x.to_be_bytes()[0];
         if work.step_x >= 0 {
@@ -150,7 +150,7 @@ fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         body.counter = 0;
         body.subtype = 0;
     }
-    if work.y.to_be_bytes()[0].wrapping_sub(camera_row(cx)) < 4 {
+    if work.y.row().wrapping_sub(camera_row(cx)) < 4 {
         body.phase = Phase::Sweeping.byte();
         body.timer = 0;
         body.anim = 0;
@@ -322,5 +322,22 @@ mod tests {
         assert!(hits > 0, "the oracle takes no contact hit");
         let coverage = assert_actor_phases(scene, 40, &[0x2A]);
         assert_eq!(coverage.occupied, 40);
+    }
+
+    /// The lift's step by a `$FF`-high counter is the byte pair it replaced.
+    #[test]
+    fn the_lift_step_is_word_maths() {
+        for (vy, counter) in crate::actor::families::words_and_bytes() {
+            let vy = vy.cast_signed();
+            let [hi, lo] = vy.to_be_bytes();
+            let (lo, carry) = lo.overflowing_add(counter);
+            let bytes =
+                i16::from_be_bytes([hi.wrapping_add(0xFF).wrapping_add(u8::from(carry)), lo]);
+            assert_eq!(
+                vy.wrapping_add(i16::from_be_bytes([0xFF, counter])),
+                bytes,
+                "{vy} {counter}"
+            );
+        }
     }
 }

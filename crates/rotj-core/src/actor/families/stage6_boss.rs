@@ -7,7 +7,7 @@
 //! (`$B1C4`) and an `$AA` (`$8785`) once, when `$7F00` reaches 1.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, Metatile};
 use crate::actor::world::{Cx, Motion, sound};
 
 /// The `stage6_boss_part` kind.
@@ -125,10 +125,10 @@ fn drifting(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 
 /// `$8582`: bounce vy between rows 6-8 and pull x back into columns 3-11.
 fn steer(body: &mut Body, work: &mut Work) {
-    let y_hi = work.y.to_be_bytes()[0];
+    let row = work.y.row();
     body.vy = if body.vy < 0 {
-        if y_hi >= 0x06 { -8 } else { 8 }
-    } else if y_hi < 0x08 {
+        if row >= 0x06 { -8 } else { 8 }
+    } else if row < 0x08 {
         8
     } else {
         -8
@@ -153,7 +153,7 @@ fn descent(body: &mut Body, work: &mut Work) {
     if body.vy < 0 && body.vy.to_be_bytes()[1] < 0xE0 {
         body.vy = i16::from_be_bytes([0xFF, 0xE0]);
     }
-    if work.y.to_be_bytes()[0] >= 0x08 || body.vy >= 0 {
+    if work.y.row() >= 0x08 || body.vy >= 0 {
         clamp_x(body, work);
         return;
     }

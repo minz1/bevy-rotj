@@ -7,7 +7,7 @@
 
 use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, Metatile};
 use crate::actor::world::Cx;
 use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
 
@@ -130,12 +130,12 @@ fn blasting(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
 /// Falling (`$8EC5`): drop one more `$7A` once it is low enough, then free the
 /// slot below row `$0F`. Returns whether the slot was freed.
 fn falling(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) -> bool {
-    if body.timer & 0x80 == 0 && work.y.to_be_bytes()[0] >= 0x0C {
+    if body.timer & 0x80 == 0 && work.y.row() >= 0x0C {
         let x = work.x;
         spawn_marker(body, x, cx);
         body.timer = 0x80;
     }
-    if work.y.to_be_bytes()[0] >= 0x0F {
+    if work.y.row() >= 0x0F {
         *kind = 0;
         return true;
     }
@@ -237,10 +237,8 @@ fn draw_spark(work: &mut Work, cx: &mut Cx<'_>) {
 /// `$8F8C`: adds 3 to the slot's y velocity and clamps its low byte to `$3F`
 /// once it is positive and past `$40`.
 fn step_vy(body: &mut Body) {
+    body.vy = body.vy.wrapping_add(3);
     let [hi, lo] = body.vy.to_be_bytes();
-    let (lo, carry) = lo.overflowing_add(3);
-    let hi = hi.wrapping_add(u8::from(carry));
-    body.vy = i16::from_be_bytes([hi, lo]);
     if hi & 0x80 == 0 && lo >= 0x40 {
         body.vy = i16::from_be_bytes([hi, 0x3F]);
     }
@@ -328,5 +326,26 @@ mod tests {
         scene.player(x, y);
         let coverage = assert_actor_phases(scene, 60, &[0x7C]);
         assert!(coverage.occupied > 0 && coverage.drawn > 0, "{coverage:?}");
+    }
+
+    /// `step_vy` over every `vy` is the byte pair it replaced.
+    #[test]
+    fn step_vy_is_word_maths() {
+        use crate::actor::slots::Body;
+        for vy in i16::MIN..=i16::MAX {
+            let mut body = Body {
+                vy,
+                ..Body::default()
+            };
+            super::step_vy(&mut body);
+            let [hi, lo] = vy.to_be_bytes();
+            let (lo, carry) = lo.overflowing_add(3);
+            let hi = hi.wrapping_add(u8::from(carry));
+            let mut bytes = i16::from_be_bytes([hi, lo]);
+            if hi & 0x80 == 0 && lo >= 0x40 {
+                bytes = i16::from_be_bytes([hi, 0x3F]);
+            }
+            assert_eq!(body.vy, bytes, "{vy}");
+        }
     }
 }

@@ -36,12 +36,11 @@ impl State {
             (X_PAIR.0, X_PAIR.1, 2u8, 3u8, 0u16)
         };
         work.screen_x = body.get(hi_addr);
-        let (hi, borrow) = work.screen_x.overflowing_sub(hi_sub);
-        body.set(hi_addr, if borrow { 0xFF } else { hi });
-        if !borrow {
+        let hi = work.screen_x.checked_sub(hi_sub);
+        body.set(hi_addr, hi.unwrap_or(0xFF));
+        if hi.is_some() {
             work.screen_y = body.get(lo_addr);
-            let (lo, carry) = work.screen_y.overflowing_add(lo_add);
-            body.set(lo_addr, if carry { 0 } else { lo });
+            body.set(lo_addr, work.screen_y.checked_add(lo_add).unwrap_or(0));
         }
         work.pointer = engine::rom_word(cx.prg, HOME_BANK, METASPRITES + piece);
         work.attr = ATTR;
@@ -120,6 +119,30 @@ mod tests {
                 (0xFA, 0),
                 "y clamp at slot {slot}"
             );
+        }
+    }
+
+    /// The pinned steps of both pairs are the byte maths they replaced.
+    #[test]
+    fn the_pinned_steps_are_checked_maths() {
+        for (hi_sub, lo_add) in [(5u8, 6u8), (2, 3)] {
+            for hi in 0..=u8::MAX {
+                for lo in 0..=u8::MAX {
+                    let (next_hi, borrow) = hi.overflowing_sub(hi_sub);
+                    let bytes_hi = if borrow { 0xFF } else { next_hi };
+                    let bytes_lo = (!borrow).then(|| {
+                        let (next_lo, carry) = lo.overflowing_add(lo_add);
+                        if carry { 0 } else { next_lo }
+                    });
+                    let checked = hi.checked_sub(hi_sub);
+                    let checked_lo = checked.map(|_| lo.checked_add(lo_add).unwrap_or(0));
+                    assert_eq!(
+                        (checked.unwrap_or(0xFF), checked_lo),
+                        (bytes_hi, bytes_lo),
+                        "{hi:#04X} {lo:#04X}"
+                    );
+                }
+            }
         }
     }
 }

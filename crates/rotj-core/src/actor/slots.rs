@@ -2,7 +2,6 @@
 
 use std::ops::Range;
 
-use crate::actor::engine::{hi, lo};
 use crate::actor::families::{Brain, SecondBrain};
 use crate::actor::world::{PROJECTILE_ARRAYS, Projectile};
 use crate::actors::SpawnRecord;
@@ -99,6 +98,19 @@ impl Counter for u8 {
 
     fn ran_out(self) -> bool {
         self & 0x80 != 0
+    }
+}
+
+/// A level y's whole metatiles.
+pub trait Metatile {
+    /// The metatile row a level y (1/16 px) is in: its high byte, the map's page.
+    #[must_use]
+    fn row(self) -> u8;
+}
+
+impl Metatile for u16 {
+    fn row(self) -> u8 {
+        self.to_be_bytes()[0]
     }
 }
 
@@ -501,10 +513,10 @@ impl Body {
     #[must_use]
     pub fn get(&self, field: Field) -> u8 {
         match field {
-            Field::XHigh => hi(self.x),
-            Field::XLow => lo(self.x),
-            Field::YHigh => hi(self.y),
-            Field::YLow => lo(self.y),
+            Field::XHigh => self.x.to_be_bytes()[0],
+            Field::XLow => self.x.to_be_bytes()[1],
+            Field::YHigh => self.y.to_be_bytes()[0],
+            Field::YLow => self.y.to_be_bytes()[1],
             Field::Flags => self.flags,
             Field::ChrSlot => self.chr_slot,
             Field::State => self.state,
@@ -521,25 +533,25 @@ impl Body {
             Field::Scratch => self.scratch,
             Field::Contact => self.contact,
             Field::Age => self.age,
-            Field::HealthHigh => hi(self.health),
-            Field::HealthLow => lo(self.health),
-            Field::VxHigh => hi(self.vx.cast_unsigned()),
-            Field::VxLow => lo(self.vx.cast_unsigned()),
-            Field::VxDriftHigh => hi(self.vx_drift.cast_unsigned()),
-            Field::VxDriftLow => lo(self.vx_drift.cast_unsigned()),
-            Field::VyHigh => hi(self.vy.cast_unsigned()),
-            Field::VyLow => lo(self.vy.cast_unsigned()),
-            Field::RefVxHigh => hi(self.ref_vx.cast_unsigned()),
-            Field::RefVxLow => lo(self.ref_vx.cast_unsigned()),
+            Field::HealthHigh => self.health.to_be_bytes()[0],
+            Field::HealthLow => self.health.to_be_bytes()[1],
+            Field::VxHigh => self.vx.to_be_bytes()[0],
+            Field::VxLow => self.vx.to_be_bytes()[1],
+            Field::VxDriftHigh => self.vx_drift.to_be_bytes()[0],
+            Field::VxDriftLow => self.vx_drift.to_be_bytes()[1],
+            Field::VyHigh => self.vy.to_be_bytes()[0],
+            Field::VyLow => self.vy.to_be_bytes()[1],
+            Field::RefVxHigh => self.ref_vx.to_be_bytes()[0],
+            Field::RefVxLow => self.ref_vx.to_be_bytes()[1],
         }
     }
 
     /// Writes the slot's byte in `field`'s array.
     pub fn set(&mut self, field: Field, value: u8) {
-        let set_hi = |word: u16| u16::from_be_bytes([value, lo(word)]);
-        let set_lo = |word: u16| u16::from_be_bytes([hi(word), value]);
-        let set_hi_i = |word: i16| set_hi(word.cast_unsigned()).cast_signed();
-        let set_lo_i = |word: i16| set_lo(word.cast_unsigned()).cast_signed();
+        let set_hi = |word: u16| u16::from_be_bytes([value, word.to_be_bytes()[1]]);
+        let set_lo = |word: u16| u16::from_be_bytes([word.to_be_bytes()[0], value]);
+        let set_hi_i = |word: i16| i16::from_be_bytes([value, word.to_be_bytes()[1]]);
+        let set_lo_i = |word: i16| i16::from_be_bytes([word.to_be_bytes()[0], value]);
         match field {
             Field::XHigh => self.x = set_hi(self.x),
             Field::XLow => self.x = set_lo(self.x),

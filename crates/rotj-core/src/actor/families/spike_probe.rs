@@ -48,16 +48,14 @@ fn probe(work: &mut Work, cx: &mut Cx<'_>) {
     if motion == Motion::Dying {
         return;
     }
-    let [x_hi, x_lo] = player.x.to_be_bytes();
-    let [y_hi, y_lo] = player.y.to_be_bytes();
-    let (y_lo, borrow) = y_lo.overflowing_sub(0xC0);
-    let y_hi = y_hi
-        .wrapping_sub(cx.prg.families.spike_probe.motion_y_offsets[usize::from(motion.byte())])
-        .wrapping_sub(u8::from(borrow));
+    let rows = cx.prg.families.spike_probe.motion_y_offsets[usize::from(motion.byte())];
     let index = cx.effects.scroll_y.wrapping_add(0x60);
     let mut probe = Probe {
-        x: u16::from_be_bytes([x_hi, x_lo]),
-        y: u16::from_be_bytes([y_hi, y_lo]).wrapping_add(u16::from(index) << 4),
+        x: player.x,
+        y: player
+            .y
+            .wrapping_sub(u16::from_be_bytes([rows, 0xC0]))
+            .wrapping_add(u16::from(index) << 4),
         flags: 0,
         landing: [0; 2],
     };
@@ -137,5 +135,22 @@ mod tests {
             .map(|phase| (phase, if phase == 64 { 333 } else { 1 }))
             .collect();
         assert_eq!(coverage.phases, expected);
+    }
+
+    /// The probe's y, the player's less the motion's rows and `$C0`, is the byte pair
+    /// it replaced.
+    #[test]
+    fn the_probe_y_is_word_maths() {
+        for (y, rows) in crate::actor::families::words_and_bytes() {
+            let [y_hi, y_lo] = y.to_be_bytes();
+            let (y_lo, borrow) = y_lo.overflowing_sub(0xC0);
+            let y_hi = y_hi.wrapping_sub(rows).wrapping_sub(u8::from(borrow));
+            let word = y.wrapping_sub(u16::from_be_bytes([rows, 0xC0]));
+            assert_eq!(
+                word,
+                u16::from_be_bytes([y_hi, y_lo]),
+                "{y:#06X} {rows:#04X}"
+            );
+        }
     }
 }

@@ -9,7 +9,7 @@
 //! `$7DB0:$7DD0` x step and the `$7DF0:$7E10` y step.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Metatile};
 use crate::actor::world::Cx;
 
 /// The handler and its tables live in bank 12.
@@ -48,11 +48,10 @@ impl State {
         work.tile = 0;
         // `$9537`: the 16-bit y step gains 3; its low byte clamps to `$80`
         // whenever its sign bit disagrees with the high byte's.
-        let (timer, carry) = body.timer.overflowing_add(3);
-        body.timer = timer;
-        let counter = body.counter.wrapping_add(u8::from(carry));
-        body.counter = counter;
-        if (counter ^ body.timer) & 0x80 != 0 {
+        [body.counter, body.timer] = u16::from_be_bytes([body.counter, body.timer])
+            .wrapping_add(3)
+            .to_be_bytes();
+        if (body.counter ^ body.timer) & 0x80 != 0 {
             body.timer = 0x80;
         }
         // `$9560`: once it is falling the behaviour counts to `$20` and the slot frees.
@@ -70,7 +69,7 @@ impl State {
         work.y = work
             .y
             .wrapping_add(u16::from_be_bytes([body.counter, body.timer]));
-        if body.anim == 0 && work.y.to_be_bytes()[0] >= FREE_ROW {
+        if body.anim == 0 && work.y.row() >= FREE_ROW {
             // `$959B`: it crossed row `$0B`, so it parks, falls 32 frames, and
             // takes the RNG's x direction and subtype.
             body.anim = 1;
@@ -184,5 +183,19 @@ mod tests {
         assert!(hurt > 0, "the oracle never took boss contact");
         let coverage = assert_actor_phases(scene, 90, &[0xBC]);
         assert!(coverage.occupied > 0, "{coverage:?}");
+    }
+
+    /// The `[counter, timer]` gain is the byte pair it replaced.
+    #[test]
+    fn the_y_step_gain_is_word_maths() {
+        for pair in 0..=u16::MAX {
+            let [counter, timer] = pair.to_be_bytes();
+            let (timer_bytes, carry) = timer.overflowing_add(3);
+            let counter_bytes = counter.wrapping_add(u8::from(carry));
+            let word = u16::from_be_bytes([counter, timer])
+                .wrapping_add(3)
+                .to_be_bytes();
+            assert_eq!(word, [counter_bytes, timer_bytes], "{pair:#06X}");
+        }
     }
 }

@@ -10,7 +10,7 @@
 //! (`engine::boss_contact`, mode `$80`: touch only, no weapon scan).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Metatile};
 use crate::actor::world::Cx;
 
 /// The bank-12 pointer table for the part's metasprite, indexed by `$F1 & 2`.
@@ -42,13 +42,13 @@ impl State {
         work.y = work
             .y
             .wrapping_add(u16::from_be_bytes([body.anim, body.counter]));
-        if work.y.to_be_bytes()[0] >= FLOOR_ROW {
+        if work.y.row() >= FLOOR_ROW {
             *kind = 0;
             return;
         }
-        let (counter, carry) = body.counter.overflowing_add(STEP);
-        body.counter = counter;
-        body.anim = body.anim.wrapping_add(u8::from(carry));
+        [body.anim, body.counter] = u16::from_be_bytes([body.anim, body.counter])
+            .wrapping_add(u16::from(STEP))
+            .to_be_bytes();
 
         if body.anim & 0x80 == 0 && body.counter & 0x80 != 0 {
             body.counter = 0x7F;
@@ -133,5 +133,19 @@ mod tests {
         assert!(hurt > 0, "the oracle never took boss contact");
         let coverage = assert_actor_phases(scene, 90, &[0xA8]);
         assert!(coverage.occupied > 0, "{coverage:?}");
+    }
+
+    /// The `[anim, counter]` gain is the byte pair it replaced.
+    #[test]
+    fn the_gain_is_word_maths() {
+        for pair in 0..=u16::MAX {
+            let [anim, counter] = pair.to_be_bytes();
+            let (counter_bytes, carry) = counter.overflowing_add(super::STEP);
+            let anim_bytes = anim.wrapping_add(u8::from(carry));
+            let word = u16::from_be_bytes([anim, counter])
+                .wrapping_add(u16::from(super::STEP))
+                .to_be_bytes();
+            assert_eq!(word, [anim_bytes, counter_bytes], "{pair:#06X}");
+        }
     }
 }

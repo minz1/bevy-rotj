@@ -73,9 +73,9 @@ impl State {
             }
             return;
         }
-        let (subtype, carry) = body.subtype.overflowing_add(0x0B);
-        body.subtype = subtype;
-        body.phase = body.phase.wrapping_add(u8::from(carry));
+        [body.phase, body.subtype] = u16::from_be_bytes([body.phase, body.subtype])
+            .wrapping_add(0x0B)
+            .to_be_bytes();
         if body.phase >= READY_PHASE {
             helper(body, cx);
         }
@@ -140,8 +140,7 @@ fn helper(body: &mut Body, cx: &mut Cx<'_>) -> u8 {
     part.sprite = sprite;
 
     body.behaviour = behaviour.wrapping_sub(2);
-    let (timer, borrow) = timer.overflowing_sub(4);
-    body.timer = if borrow { 0x1C } else { timer };
+    body.timer = timer.checked_sub(4).unwrap_or(0x1C);
     body.phase = body.phase.wrapping_sub(2);
 
     sprite
@@ -196,5 +195,24 @@ mod tests {
                 phases: BTreeMap::from([(0, 137), (1, 126), (2, 1)]),
             }
         );
+    }
+
+    /// The `[phase, subtype]` count is the byte pair it replaced, and the timer reload its borrow.
+    #[test]
+    fn the_phase_count_and_the_timer_reload_are_word_maths() {
+        for pair in 0..=u16::MAX {
+            let [phase, subtype] = pair.to_be_bytes();
+            let (subtype_bytes, carry) = subtype.overflowing_add(0x0B);
+            let phase_bytes = phase.wrapping_add(u8::from(carry));
+            let word = u16::from_be_bytes([phase, subtype])
+                .wrapping_add(0x0B)
+                .to_be_bytes();
+            assert_eq!(word, [phase_bytes, subtype_bytes], "{pair:#06X}");
+        }
+        for timer in 0..=u8::MAX {
+            let (next, borrow) = timer.overflowing_sub(4);
+            let bytes = if borrow { 0x1C } else { next };
+            assert_eq!(timer.checked_sub(4).unwrap_or(0x1C), bytes, "{timer:#04X}");
+        }
     }
 }

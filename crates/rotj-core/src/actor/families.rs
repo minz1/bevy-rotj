@@ -503,6 +503,35 @@ impl Brain {
     }
 }
 
+/// Every word against every byte: the whole domain of a byte-wise add with carry.
+#[cfg(test)]
+pub(crate) fn words_and_bytes() -> impl Iterator<Item = (u16, u8)> {
+    (0..=u16::MAX).flat_map(|word| (0..=u8::MAX).map(move |byte| (word, byte)))
+}
+
+/// Word pairs that reach every byte-wise carry and borrow: every low-byte pair under
+/// high bytes at both signs and both edges, and every high-byte pair under low bytes
+/// that carry, borrow and do neither.
+#[cfg(test)]
+pub(crate) fn word_pairs() -> impl Iterator<Item = (u16, u16)> {
+    const HIGHS: [(u8, u8); 4] = [(0x00, 0x00), (0x7F, 0x80), (0x80, 0x7F), (0xFF, 0xFF)];
+    const LOWS: [(u8, u8); 4] = [(0x00, 0x00), (0xFF, 0x01), (0x80, 0x80), (0x7F, 0x80)];
+    let bytes = || 0..=u8::MAX;
+    let pair = |(a_hi, b_hi): (u8, u8), (a_lo, b_lo): (u8, u8)| {
+        (
+            u16::from_be_bytes([a_hi, a_lo]),
+            u16::from_be_bytes([b_hi, b_lo]),
+        )
+    };
+    let lows = HIGHS.into_iter().flat_map(move |high| {
+        bytes().flat_map(move |a_lo| bytes().map(move |b_lo| pair(high, (a_lo, b_lo))))
+    });
+    let highs = LOWS.into_iter().flat_map(move |low| {
+        bytes().flat_map(move |a_hi| bytes().map(move |b_hi| pair((a_hi, b_hi), low)))
+    });
+    lows.chain(highs)
+}
+
 /// A family's state lifted from its slot's arrays.
 #[cfg(test)]
 pub(crate) fn lift(kind: u8, _wram: &[u8; 8192], _slot: usize) -> Brain {

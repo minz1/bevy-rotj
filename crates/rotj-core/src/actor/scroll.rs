@@ -331,12 +331,11 @@ fn vertical(game: &mut Game, prg: &Prg) {
 fn move_y(game: &mut Game) {
     let speed = game.scroll.speed_y;
     game.world.camera_y = game.world.camera_y.wrapping_add(speed.cast_unsigned());
-    let [ring_row, ring_fraction] = game.scroll.ring_y.to_be_bytes();
-    let [speed_hi, speed_lo] = speed.to_be_bytes();
-    let (fraction, carry) = ring_fraction.overflowing_add(speed_lo);
-    let mut row = ring_row
-        .wrapping_add(speed_hi)
-        .wrapping_add(u8::from(carry));
+    let [mut row, fraction] = game
+        .scroll
+        .ring_y
+        .wrapping_add(speed.cast_unsigned())
+        .to_be_bytes();
     if row & 0x0F == 0x0F {
         row = if speed < 0 {
             row.wrapping_sub(1)
@@ -661,5 +660,21 @@ mod tests {
             step(&mut call.state, call.prg);
         });
         assert!(checked > 1000, "{checked}");
+    }
+
+    /// The ring's step by the y speed is the byte pair it replaced.
+    #[test]
+    fn the_ring_step_is_word_maths() {
+        for (ring, speed) in crate::actor::families::word_pairs() {
+            let speed = speed.cast_signed();
+            let [ring_row, ring_fraction] = ring.to_be_bytes();
+            let [speed_hi, speed_lo] = speed.to_be_bytes();
+            let (fraction, carry) = ring_fraction.overflowing_add(speed_lo);
+            let row = ring_row
+                .wrapping_add(speed_hi)
+                .wrapping_add(u8::from(carry));
+            let word = ring.wrapping_add(speed.cast_unsigned()).to_be_bytes();
+            assert_eq!(word, [row, fraction], "{ring:#06X} {speed}");
+        }
     }
 }

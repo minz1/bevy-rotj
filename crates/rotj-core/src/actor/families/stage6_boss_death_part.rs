@@ -62,9 +62,7 @@ impl State {
                 body.counter = 1;
                 body.sprite = 3 + u8::from(cx.world.frame & 0x04 != 0);
                 work.y = work.y.wrapping_add_signed(body.vy);
-                let [hi, lo] = body.vy.to_be_bytes();
-                let (lo, borrow) = lo.overflowing_sub(1);
-                let hi = if borrow { hi.wrapping_sub(1) } else { hi };
+                let [hi, lo] = body.vy.wrapping_sub(1).to_be_bytes();
                 body.vy = i16::from_be_bytes([hi, if lo >= 0xD0 { lo } else { 0xC0 }]);
             }
             None => panic!("type $AA phase {} is past the $893B table", body.phase),
@@ -108,5 +106,16 @@ mod tests {
             phases: BTreeMap::from([(0, 79), (1, 114)]),
         };
         assert_eq!(coverage, expected);
+    }
+
+    /// The rise's `vy` step is the byte pair it replaced.
+    #[test]
+    fn the_rise_step_is_word_maths() {
+        for vy in i16::MIN..=i16::MAX {
+            let [hi, lo] = vy.to_be_bytes();
+            let (lo, borrow) = lo.overflowing_sub(1);
+            let hi = if borrow { hi.wrapping_sub(1) } else { hi };
+            assert_eq!(vy.wrapping_sub(1).to_be_bytes(), [hi, lo], "{vy}");
+        }
     }
 }

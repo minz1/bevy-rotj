@@ -12,7 +12,7 @@
 //! draw is `engine::draw(work, 9, cx)`.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, Metatile};
 use crate::actor::world::Cx;
 
 /// The handler's bank, for its metasprite pointer table.
@@ -40,9 +40,9 @@ impl State {
         work.attr = 0x03;
         // `$960E`: the y velocity gains 3, its low byte clamped to `$80` whenever
         // its sign disagrees with the high byte's.
-        let carry = body.timer.overflowing_add(3).1;
-        body.timer = body.timer.wrapping_add(3);
-        body.counter = body.counter.wrapping_add(u8::from(carry));
+        [body.counter, body.timer] = u16::from_be_bytes([body.counter, body.timer])
+            .wrapping_add(3)
+            .to_be_bytes();
         if (body.counter & 0x80 != 0) != (body.timer & 0x80 != 0) {
             body.timer = 0x80;
         }
@@ -54,7 +54,7 @@ impl State {
             .y
             .wrapping_add_signed(i16::from_be_bytes([body.counter, body.timer]));
         // `$9650`: the `$0B00` floor bounces the part.
-        if work.y.to_be_bytes()[0] >= FLOOR {
+        if work.y.row() >= FLOOR {
             work.y = u16::from_be_bytes([FLOOR, 0]);
             let vy = i16::from_be_bytes([body.counter, body.timer]).wrapping_neg();
             [body.counter, body.timer] = vy.to_be_bytes();
@@ -137,5 +137,19 @@ mod tests {
         assert!(hurt > 0, "the oracle never took boss contact");
         let coverage = assert_actor_phases(scene, 90, &[0xBE]);
         assert!(coverage.occupied > 0, "{coverage:?}");
+    }
+
+    /// The `[counter, timer]` gain is the byte pair it replaced.
+    #[test]
+    fn the_y_velocity_gain_is_word_maths() {
+        for pair in 0..=u16::MAX {
+            let [counter, timer] = pair.to_be_bytes();
+            let (timer_bytes, carry) = timer.overflowing_add(3);
+            let counter_bytes = counter.wrapping_add(u8::from(carry));
+            let word = u16::from_be_bytes([counter, timer])
+                .wrapping_add(3)
+                .to_be_bytes();
+            assert_eq!(word, [counter_bytes, timer_bytes], "{pair:#06X}");
+        }
     }
 }

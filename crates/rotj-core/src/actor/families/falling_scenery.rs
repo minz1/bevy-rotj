@@ -78,14 +78,10 @@ fn waiting(body: &mut Body, cx: &Cx<'_>) {
 
 /// Falling (`$8DF4`): fall and drift right until the feet find ground.
 fn falling(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-    let [y_hi, y_lo] = work.y.to_be_bytes();
-    let (y_lo, carry) = y_lo.overflowing_add(body.behaviour);
-    work.y = u16::from_be_bytes([y_hi.wrapping_add(u8::from(carry)), y_lo]);
+    work.y = work.y.wrapping_add(u16::from(body.behaviour));
     body.y = work.y;
-    let [x_hi, x_lo] = work.x.to_be_bytes();
-    if x_hi != 0x90 {
-        let (x_lo, carry) = x_lo.overflowing_add(0x09);
-        work.x = u16::from_be_bytes([x_hi.wrapping_add(u8::from(carry)), x_lo]);
+    if work.x.to_be_bytes()[0] != 0x90 {
+        work.x = work.x.wrapping_add(0x09);
         body.x = work.x;
     }
     work.vy = i16::from_be_bytes([work.vy.to_be_bytes()[0], 0xFF]);
@@ -222,5 +218,26 @@ mod tests {
             coverage.phases.get(&3).is_some_and(|&n| n > 0),
             "{coverage:?}"
         );
+    }
+
+    /// The fall and the drift are the byte pairs they replaced.
+    #[test]
+    fn the_fall_and_the_drift_are_word_maths() {
+        for (y, behaviour) in crate::actor::families::words_and_bytes() {
+            let [y_hi, y_lo] = y.to_be_bytes();
+            let (y_lo, carry) = y_lo.overflowing_add(behaviour);
+            let bytes = u16::from_be_bytes([y_hi.wrapping_add(u8::from(carry)), y_lo]);
+            assert_eq!(
+                y.wrapping_add(u16::from(behaviour)),
+                bytes,
+                "{y:#06X} {behaviour:#04X}"
+            );
+        }
+        for x in 0..=u16::MAX {
+            let [x_hi, x_lo] = x.to_be_bytes();
+            let (x_lo, carry) = x_lo.overflowing_add(0x09);
+            let bytes = u16::from_be_bytes([x_hi.wrapping_add(u8::from(carry)), x_lo]);
+            assert_eq!(x.wrapping_add(0x09), bytes, "{x:#06X}");
+        }
     }
 }

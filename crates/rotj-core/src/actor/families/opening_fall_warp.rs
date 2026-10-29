@@ -2,7 +2,7 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, Metatile};
 use crate::actor::world::{Cx, Motion};
 
 const METASPRITES: u16 = 0x9A16;
@@ -34,7 +34,7 @@ impl State {
             Some(Phase::Falling) => {
                 body.vx_drift = DRIFT;
                 body.sprite = 0;
-                if body.y.to_be_bytes()[0] >= FLOOR_ROW {
+                if body.y.row() >= FLOOR_ROW {
                     body.sprite = 1;
                     let mut probe = Probe::default();
                     if collision::feet(work, &mut probe, cx) {

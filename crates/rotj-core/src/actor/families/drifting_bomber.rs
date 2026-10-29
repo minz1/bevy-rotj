@@ -183,9 +183,8 @@ fn spawn_child(body: &Body, work: &Work, slot: usize, cx: &mut Cx<'_>) {
     let x = if facing_left {
         // `$8C8A: $91 - $80`, then `$7B00,x` (the *stored* x high) `- $01`.
         let [body_hi, _] = body.x.to_be_bytes();
-        let (lo, carry) = work.x.to_be_bytes()[1].overflowing_sub(0x80);
-        let hi = body_hi.wrapping_sub(1).wrapping_sub(u8::from(carry));
-        u16::from_be_bytes([hi, lo])
+        let [_, work_lo] = work.x.to_be_bytes();
+        u16::from_be_bytes([body_hi, work_lo]).wrapping_sub(0x180)
     } else {
         work.x.wrapping_add(0x180)
     };
@@ -286,5 +285,18 @@ mod tests {
             }
         }
         panic!("the oracle never spawned a $24 child");
+    }
+
+    /// The left child's x, the stored high byte over the working low byte less `$180`,
+    /// is the byte pair it replaced.
+    #[test]
+    fn the_left_child_x_is_word_maths() {
+        for x in 0..=u16::MAX {
+            let [body_hi, work_lo] = x.to_be_bytes();
+            let (lo, carry) = work_lo.overflowing_sub(0x80);
+            let hi = body_hi.wrapping_sub(1).wrapping_sub(u8::from(carry));
+            let word = u16::from_be_bytes([body_hi, work_lo]).wrapping_sub(0x180);
+            assert_eq!(word, u16::from_be_bytes([hi, lo]), "{x:#06X}");
+        }
     }
 }
