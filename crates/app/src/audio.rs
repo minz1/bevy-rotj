@@ -24,6 +24,7 @@ use bevy::audio::{
 };
 use bevy::prelude::*;
 use rotj_apu::stream::ApuStream;
+use rotj_core::actor::world::SoundId;
 
 /// Output sample rate.
 const SAMPLE_RATE: u32 = 44_100;
@@ -129,8 +130,8 @@ impl Music {
     }
 
     /// Queues a request the game made (`$40-$43`).
-    pub fn request(&mut self, id: u8) {
-        self.driver.request(id);
+    pub fn request(&mut self, id: SoundId) {
+        self.driver.request(id.byte());
     }
 
     /// The driver's power-on init (bank 10 `$8000`, from `$D394`), once.
@@ -407,7 +408,7 @@ mod tests {
         let queue = SampleQueue::default();
         let mut music = Music::new(queue.clone(), &rom.prg);
         music.start();
-        music.request(0x04);
+        music.request(SoundId::from_byte(0x04).expect("a song"));
         for _ in 0..600 {
             music.advance_frame(true, 1.0);
         }
@@ -434,7 +435,7 @@ mod tests {
         let rom = rotj_rom::for_test()?;
         let mut music = Music::new(SampleQueue::default(), &rom.prg);
         music.start();
-        music.request(0x01);
+        music.request(SoundId::from_byte(0x01).expect("a song"));
         let mut samples = Vec::new();
         for _ in 0..60 {
             frame(&mut music, &mut samples, true, 1.0);
