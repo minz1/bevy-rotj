@@ -153,6 +153,41 @@ impl Motion {
     }
 }
 
+/// The boss room entry's steps (`$0488`), motion 9's handler (bank 14 `$D03C`).
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryStep {
+    /// Four frames on his line before the tally starts.
+    Arriving = 0,
+    /// The tally counts up to the boss's hit points.
+    Tallying = 1,
+    /// Four frames with the full tally shown.
+    Tallied = 2,
+    /// The held poses, then the fight; every byte past 3 runs it too.
+    Posing = 3,
+}
+
+impl EntryStep {
+    const ALL: [EntryStep; 4] = [
+        EntryStep::Arriving,
+        EntryStep::Tallying,
+        EntryStep::Tallied,
+        EntryStep::Posing,
+    ];
+
+    /// The RAM value.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    /// The step a RAM value holds, if it is one.
+    #[must_use]
+    pub fn from_byte(byte: u8) -> Option<EntryStep> {
+        EntryStep::ALL.get(usize::from(byte)).copied()
+    }
+}
+
 /// Sets every 4-colour set's first entry (the colour pixel 0 mirrors) of a palette shadow.
 pub fn set_first_colours(palette: &mut [u8; 32], colour: u8) {
     for first in palette.iter_mut().step_by(4) {
@@ -487,7 +522,7 @@ pub struct Player {
     pub attack_timer: u8,
     /// The B-held charge counter (`$B7`); at `$30` the charge is ready.
     pub charge_timer: u8,
-    /// The boss room entry's step (`$0488`).
+    /// The boss room entry's step (`$0488`), an [`EntryStep`] byte.
     pub entry_step: u8,
     /// The entry step's frame counter (`$0489`).
     pub entry_timer: u8,
@@ -1291,7 +1326,7 @@ mod layout {
 
 #[cfg(test)]
 mod tests {
-    use super::{Motion, Orbit, Projectile, Rng, Weapon};
+    use super::{EntryStep, Motion, Orbit, Projectile, Rng, Weapon};
 
     #[test]
     fn orbit_bytes_round_trip() {
@@ -1386,6 +1421,15 @@ mod tests {
             assert_eq!(motion.byte(), byte);
         }
         assert!((12..=255).all(|byte| Motion::from_byte(byte).is_none()));
+    }
+
+    #[test]
+    fn entry_step_bytes_round_trip() {
+        for byte in 0..=3 {
+            let step = EntryStep::from_byte(byte).expect("an entry step");
+            assert_eq!(step.byte(), byte);
+        }
+        assert!((4..=255).all(|byte| EntryStep::from_byte(byte).is_none()));
     }
 
     #[test]

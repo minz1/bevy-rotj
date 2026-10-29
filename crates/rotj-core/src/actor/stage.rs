@@ -6,7 +6,9 @@ use super::cutscene::Cutscene;
 use super::engine::{draw, rom_byte, rom_word};
 use super::room;
 use super::script::{Flow, Runner, wait};
-use super::world::{Motion, VramWrite, Weapon, attack, set_first_colours, sound, stage_script};
+use super::world::{
+    EntryStep, Motion, VramWrite, Weapon, attack, set_first_colours, sound, stage_script,
+};
 use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
 use crate::levels::{Levels, StageAssets};
@@ -131,7 +133,7 @@ pub fn level_area(levels: &Levels, level: usize) -> Option<u8> {
 /// The stage-end script's state (`$0408-$040C`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct StageEnd {
-    /// The script's phase, 0-4 (`$0408`).
+    /// The script's phase (`$0408`), an [`EndPhase`] byte; the power-up counts in it too.
     pub phase: u8,
     /// The phase's frame counter (`$0409`).
     pub timer: u8,
@@ -143,6 +145,44 @@ pub struct StageEnd {
     pub fade: u8,
 }
 
+/// The stage-end script's phases (`$0408`), the index into `$940C`'s table.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndPhase {
+    /// Play goes on until Batman reaches the stage's end.
+    Approaching = 0,
+    /// The pad is held right until he walks off at `$2740`.
+    WalkingOff = 1,
+    /// The departing sprite moves up and left for `$80` frames.
+    Departing = 2,
+    /// The sprite's colours step through `$95B9`, held until frame `$60`.
+    Recolouring = 3,
+    /// The music and then the palette fade out, and the stage ends.
+    FadingOut = 4,
+}
+
+impl EndPhase {
+    const ALL: [EndPhase; 5] = [
+        EndPhase::Approaching,
+        EndPhase::WalkingOff,
+        EndPhase::Departing,
+        EndPhase::Recolouring,
+        EndPhase::FadingOut,
+    ];
+
+    /// The byte `$0408` holds.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    /// The phase a `$0408` byte holds, if it is one.
+    #[must_use]
+    pub fn from_byte(byte: u8) -> Option<EndPhase> {
+        EndPhase::ALL.get(usize::from(byte)).copied()
+    }
+}
+
 /// One frame of the stage-end script (`$940C`): true when it ended the stage and
 /// waited for the NMI itself (`$9539`).
 ///
@@ -152,11 +192,11 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
     let x = game.effects.player.x;
     let end = &mut game.effects.stage_end;
     let mut pads = None;
-    match end.phase {
-        0 => {
+    match EndPhase::from_byte(end.phase) {
+        Some(EndPhase::Approaching) => {
             if x >= 0x2000 || (x >= 0x1F60 && !game.effects.player.faces_left()) {
                 game.effects.music = sound::music::FADE_OUT;
-                end.phase = 1;
+                end.phase = EndPhase::WalkingOff.byte();
                 for projectile in &mut game.effects.projectiles {
                     projectile.kind = 0;
                 }
@@ -164,28 +204,28 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
                 game.effects.attack &= attack::CHARGEABLE;
             }
         }
-        1 => {
+        Some(EndPhase::WalkingOff) => {
             if x >= 0x2740 {
                 game.effects.palette[25..28].fill(0x0F);
                 queue_palette(game);
                 let end = &mut game.effects.stage_end;
-                (end.timer, end.phase, end.y, end.x) = (0, 2, 0x70, 0xFF);
+                (end.timer, end.phase, end.y, end.x) = (0, EndPhase::Departing.byte(), 0x70, 0xFF);
                 game.effects.song = sound::song::STAGE_CLEAR;
                 pads = Some(Buttons::NONE);
             } else {
                 pads = Some(Buttons::RIGHT);
             }
         }
-        2 => {
+        Some(EndPhase::Departing) => {
             depart(game, prg, 0x03, 0x0F);
             let end = &mut game.effects.stage_end;
             end.timer = end.timer.wrapping_add(1);
             if end.timer >= 0x80 {
-                (end.phase, end.timer) = (3, 0);
+                (end.phase, end.timer) = (EndPhase::Recolouring.byte(), 0);
             }
             pads = Some(Buttons::NONE);
         }
-        3 => {
+        Some(EndPhase::Recolouring) => {
             depart(game, prg, 0x03, 0x0F);
             let end = &mut game.effects.stage_end;
             end.timer = end.timer.wrapping_add(1);
@@ -199,11 +239,11 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
                     queue_palette(game);
                 }
             } else if timer == 0x60 {
-                (end.phase, end.timer) = (4, 0);
+                (end.phase, end.timer) = (EndPhase::FadingOut.byte(), 0);
             }
             pads = Some(Buttons::UP);
         }
-        4 => {
+        Some(EndPhase::FadingOut) => {
             end.timer = end.timer.wrapping_add(1);
             let timer = end.timer;
             if timer >= 0x90 {
@@ -226,7 +266,7 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
             depart(game, prg, 0x07, 0x1F);
             pads = Some(Buttons::UP);
         }
-        other => panic!("stage-end phase {other} is past $940C's table"),
+        None => panic!("stage-end phase {} is past $940C's table", end.phase),
     }
     if let Some(pad) = pads {
         (game.world.pad, game.world.pressed) = (pad, pad);
@@ -799,7 +839,7 @@ fn clear_for_area(game: &mut Game) {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BossIntro {
     step: Intro,
-    /// The card's phase: 0 sliding in, 1 holding, 2 fading to white (`$12`).
+    /// The card's phase (`$12`), a [`Card`] byte.
     phase: u8,
     /// The slide's speed (`$10:$11`).
     speed: u16,
@@ -830,6 +870,32 @@ enum Intro {
     Attributes,
     Enter,
     Done,
+}
+
+/// The boss card's phases (`$12`), the index into `$BC9A`.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Card {
+    /// Sliding in from the right.
+    Sliding = 0,
+    /// Held still while the cap counts down.
+    Holding = 1,
+    /// Fading to white; the room loads once it has run.
+    FadingToWhite = 2,
+}
+
+impl Card {
+    const ALL: [Card; 3] = [Card::Sliding, Card::Holding, Card::FadingToWhite];
+
+    /// The byte `$12` holds.
+    const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    /// The phase a `$12` byte holds, if it is one.
+    fn from_byte(byte: u8) -> Option<Card> {
+        Card::ALL.get(usize::from(byte)).copied()
+    }
 }
 
 impl BossIntro {
@@ -927,8 +993,8 @@ impl BossIntro {
     /// One frame of the card (`$BB81`, through `$BC9A[$12]`, and the draw `$BC3E`);
     /// true when the fade has run and the room loads in this frame instead.
     fn slide(&mut self, game: &mut Game, prg: &Prg) -> bool {
-        match self.phase {
-            0 => {
+        match Card::from_byte(self.phase) {
+            Some(Card::Sliding) => {
                 self.speed = self.speed.wrapping_add(0x20);
                 if self.speed >> 8 >= 0x0C {
                     self.speed = 0x0600;
@@ -937,7 +1003,7 @@ impl BossIntro {
                 if self.offset >> 8 >= 0x50 {
                     self.offset = 0x5000;
                     self.cap = 0x60;
-                    self.phase = 1;
+                    self.phase = Card::Holding.byte();
                     let vram = &mut game.effects.vram;
                     vram.push(
                         ppu::tile_addr(0, 13, 5),
@@ -957,13 +1023,13 @@ impl BossIntro {
                     self.fades += 1;
                 }
             }
-            1 => {
+            Some(Card::Holding) => {
                 self.cap = self.cap.wrapping_sub(1);
                 if self.cap == 0 {
-                    (self.phase, self.fades, self.cap) = (2, 0, 0);
+                    (self.phase, self.fades, self.cap) = (Card::FadingToWhite.byte(), 0, 0);
                 }
             }
-            _ => {
+            Some(Card::FadingToWhite) | None => {
                 if self.fades < 0x0A {
                     if self.fades.is_multiple_of(2) {
                         queue_whitened(game, self.cap);
@@ -1031,7 +1097,7 @@ impl BossIntro {
         effects.boss_hp = rom_word(prg, 13, 0xBE4E + 2 * u16::from(effects.stage_args[1]));
         effects.boss_pool = [0x40, 0x1F];
         let player = &mut effects.player;
-        (player.entry_step, player.entry_timer, player.tally) = (0, 0, 0);
+        (player.entry_step, player.entry_timer, player.tally) = (EntryStep::Arriving.byte(), 0, 0);
         player.tally_digit = 0;
         player.entry_chr = game.oam.chr[4];
         player.motion = Motion::BossEntry;
@@ -1137,7 +1203,7 @@ pub struct Continue {
     step: Countdown,
     /// Where the screen is in [`SETUP`], [`GAME_OVER`] or [`LEAVE`].
     runner: Runner,
-    /// 0 holding the digit, 1 splitting it away, 2 closing the next one in (`$10`).
+    /// The countdown's phase (`$10`), a [`DigitPhase`] byte.
     phase: u8,
     /// The digit shown (`$11`).
     digit: u8,
@@ -1163,6 +1229,36 @@ enum Countdown {
     ScrollCheck,
     /// Start pressed, the rows of [`LEAVE`].
     Leave,
+}
+
+/// The countdown digit's phases (`$10`), the index into `$9254`.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DigitPhase {
+    /// The digit holds for its timer.
+    Holding = 0,
+    /// The digit splits away.
+    Splitting = 1,
+    /// The next digit closes in.
+    Closing = 2,
+}
+
+impl DigitPhase {
+    const ALL: [DigitPhase; 3] = [
+        DigitPhase::Holding,
+        DigitPhase::Splitting,
+        DigitPhase::Closing,
+    ];
+
+    /// The byte `$10` holds.
+    const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    /// The phase a `$10` byte holds, if it is one.
+    fn from_byte(byte: u8) -> Option<DigitPhase> {
+        DigitPhase::ALL.get(usize::from(byte)).copied()
+    }
 }
 
 /// What the continue screen does before its countdown, before GAME OVER and after Start,
@@ -1214,7 +1310,7 @@ impl Default for Continue {
         Continue {
             step: Countdown::Setup,
             runner: Runner::default(),
-            phase: 0,
+            phase: DigitPhase::Holding.byte(),
             digit: 0,
             timer: 0,
             speed: 0,
@@ -1326,7 +1422,8 @@ impl Continue {
                 }
                 ContinueRow::FirstDigit => {
                     if frame == 0 {
-                        (self.phase, self.digit, self.timer) = (0, 9, 0x30);
+                        (self.phase, self.digit, self.timer) =
+                            (DigitPhase::Holding.byte(), 9, 0x30);
                         (self.speed, self.offset) = (0, 0);
                         for (bank, shadow) in (0xCC..).zip(&mut game.oam.chr[..4]) {
                             *shadow = bank;
@@ -1391,8 +1488,8 @@ impl Continue {
     /// One frame of the countdown (`$8FC9`, through `$9254[$10]`); true when the last
     /// digit has gone and the screen blacked out (`$9031`).
     fn count(&mut self, game: &mut Game, prg: &[u8]) -> bool {
-        match self.phase {
-            0 => {
+        match DigitPhase::from_byte(self.phase) {
+            Some(DigitPhase::Holding) => {
                 self.timer = self.timer.wrapping_sub(1);
                 if self.timer & 0x80 != 0 {
                     game.effects.sound[0] = if self.digit == 0 {
@@ -1400,12 +1497,12 @@ impl Continue {
                     } else {
                         sound::COUNTDOWN_TICK
                     };
-                    self.phase = 1;
+                    self.phase = DigitPhase::Splitting.byte();
                     (self.speed, self.offset) = (0, 0);
                 }
                 return false;
             }
-            1 => {
+            Some(DigitPhase::Splitting) => {
                 self.speed = self.speed.wrapping_add(0x20);
                 if self.speed >> 8 >= 6 {
                     self.speed = 0x0400;
@@ -1413,7 +1510,7 @@ impl Continue {
                 self.offset = self.offset.wrapping_add(self.speed);
                 if self.offset >> 8 >= 0x20 {
                     self.offset = 0x2000;
-                    self.phase = 2;
+                    self.phase = DigitPhase::Closing.byte();
                     self.digit = self.digit.wrapping_sub(1);
                     if self.digit & 0x80 != 0 {
                         blackout(game, prg);
@@ -1421,12 +1518,12 @@ impl Continue {
                     }
                 }
             }
-            _ => {
+            Some(DigitPhase::Closing) | None => {
                 let [rows, low] = self.offset.to_be_bytes();
                 self.offset = if let Some(rows) = rows.checked_sub(4) {
                     u16::from_be_bytes([rows, low])
                 } else {
-                    (self.timer, self.phase, self.speed) = (0x30, 0, 0);
+                    (self.timer, self.phase, self.speed) = (0x30, DigitPhase::Holding.byte(), 0);
                     0
                 };
             }
@@ -1464,7 +1561,34 @@ impl Continue {
 #[cfg(test)]
 mod tests {
     use super::super::oracle::Scene;
-    use super::NextArea;
+    use super::{Card, DigitPhase, EndPhase, NextArea};
+
+    #[test]
+    fn digit_phase_bytes_round_trip() {
+        for byte in 0..=2 {
+            let phase = DigitPhase::from_byte(byte).expect("a digit phase");
+            assert_eq!(phase.byte(), byte);
+        }
+        assert!((3..=255).all(|byte| DigitPhase::from_byte(byte).is_none()));
+    }
+
+    #[test]
+    fn card_bytes_round_trip() {
+        for byte in 0..=2 {
+            let card = Card::from_byte(byte).expect("a card phase");
+            assert_eq!(card.byte(), byte);
+        }
+        assert!((3..=255).all(|byte| Card::from_byte(byte).is_none()));
+    }
+
+    #[test]
+    fn end_phase_bytes_round_trip() {
+        for byte in 0..=4 {
+            let phase = EndPhase::from_byte(byte).expect("a stage-end phase");
+            assert_eq!(phase.byte(), byte);
+        }
+        assert!((5..=255).all(|byte| EndPhase::from_byte(byte).is_none()));
+    }
 
     fn load_frames(pressed: u8) -> usize {
         let Some(scene) = Scene::tas(350) else {

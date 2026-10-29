@@ -12,8 +12,8 @@ use super::engine::{
 use super::oam::attr;
 use super::slots::contact;
 use super::world::{
-    Cx, Motion, Player, Projectile, Weapon, attack, busy, death, hurt, orientation, pose, power_up,
-    set_first_colours, shot_flags, slide_ledge, sliding, sound, stage_script,
+    Cx, EntryStep, Motion, Player, Projectile, Weapon, attack, busy, death, hurt, orientation,
+    pose, power_up, set_first_colours, shot_flags, slide_ledge, sliding, sound, stage_script,
 };
 use crate::actor::button::Buttons;
 use crate::actors::STATE_UNTARGETED;
@@ -2402,20 +2402,20 @@ impl Port<'_, '_> {
     fn boss_entry(&mut self) {
         self.cx.effects.busy = busy::SCRIPTED;
         let player = &mut *self.player;
-        match player.entry_step {
-            0 => {
+        match EntryStep::from_byte(player.entry_step) {
+            Some(EntryStep::Arriving) => {
                 player.entry_timer = player.entry_timer.wrapping_add(1);
                 if player.entry_timer >= 4 {
                     self.cx.effects.sound[0] = sound::TALLY_TICK;
                     (player.entry_timer, player.tally_digit) = (0, 0);
-                    player.entry_step += 1;
+                    player.entry_step = EntryStep::Tallying.byte();
                     return;
                 }
                 self.work.chr_slot = 5;
                 self.entry_pose(1);
                 self.entry_line(0);
             }
-            1 => {
+            Some(EntryStep::Tallying) => {
                 player.entry_timer = player.entry_timer.wrapping_add(1);
                 let pose = if player.entry_timer & 0x02 != 0 { 1 } else { 2 };
                 self.work.chr_slot = 5;
@@ -2433,7 +2433,7 @@ impl Port<'_, '_> {
                 }
                 player.tally = player.tally.wrapping_add(0x64);
                 let colour = if player.tally >= u16::from_le_bytes(self.cx.effects.boss_pool) {
-                    player.entry_step += 1;
+                    player.entry_step = EntryStep::Tallied.byte();
                     player.entry_timer = 0;
                     0x0F
                 } else if self.cx.world.frame.is_multiple_of(8) {
@@ -2447,7 +2447,7 @@ impl Port<'_, '_> {
                 // `$C34B` -> `$C0C6`: its `ADC #$00` on the return address's high byte ($C3).
                 self.overflow = false;
             }
-            2 => {
+            Some(EntryStep::Tallied) => {
                 if player.entry_timer == 0 {
                     let target = u16::from_le_bytes(self.cx.effects.boss_pool);
                     self.queue_tally(target, None);
@@ -2459,11 +2459,11 @@ impl Port<'_, '_> {
                 player.entry_timer = player.entry_timer.wrapping_add(1);
                 if player.entry_timer >= 4 {
                     self.cx.effects.sound[0] = sound::EXPLOSION;
-                    player.entry_step += 1;
+                    player.entry_step = EntryStep::Posing.byte();
                     player.entry_timer = 0;
                 }
             }
-            _ => {
+            Some(EntryStep::Posing) | None => {
                 let held = usize::from(player.entry_timer >> 2);
                 self.work.chr_slot = 5;
                 self.entry_pose(self.cx.prg.player.entry_poses[held]);

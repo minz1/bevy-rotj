@@ -19,6 +19,8 @@ const BODY_SPRITES: u16 = 0x8852;
 const CHILD_SPRITES: u16 = 0x885A;
 const HITBOX: u8 = 0x0B;
 const DAMAGE: u8 = 2;
+/// The phase byte dying frees the child on, which `$7DD0` never holds (0, 2 and 4).
+const DYING_FREES_CHILD: u8 = 1;
 
 /// The dropper's tables (bank 11).
 pub struct Tables {
@@ -59,8 +61,7 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         if engine::dying(kind, body, work, 0x80, cx) {
-            // The game frees the child on phase 1, which never occurs (0, 2, 4); kept for parity.
-            if body.phase == 1 {
+            if body.phase == DYING_FREES_CHILD {
                 free_child(body, cx);
             }
             return;
