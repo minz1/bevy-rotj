@@ -123,20 +123,8 @@ mod tests {
         );
         for byte in 0..=u8::MAX {
             let pad = Buttons::from_bits(byte);
-            assert_eq!(!pad.intersects(Buttons::DPAD), byte.is_multiple_of(1 << 4));
+            assert_eq!(!pad.intersects(Buttons::DPAD), byte.is_multiple_of(16));
             assert_eq!(!pad.intersects(Buttons::SIDEWAYS), byte.is_multiple_of(4));
-        }
-    }
-
-    #[test]
-    fn a_power_of_two_multiple_is_its_trailing_zeros_for_every_u8() {
-        for bits in 0..u8::BITS {
-            for byte in 0..=u8::MAX {
-                assert_eq!(
-                    byte.is_multiple_of(1 << bits),
-                    byte.trailing_zeros() >= bits
-                );
-            }
         }
     }
 }

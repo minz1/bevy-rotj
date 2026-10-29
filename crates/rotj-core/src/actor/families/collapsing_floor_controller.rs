@@ -108,14 +108,11 @@ fn helper(body: &mut Body, cx: &mut Cx<'_>) -> u8 {
         return cx.slots.kind(31);
     };
     let timer = body.timer;
+    let row = ppu::tile_addr(0, 24, 0);
+    cx.effects.vram.push(row | u16::from(timer), 0, &[0; 4]);
     cx.effects
         .vram
-        .push(ppu::tile_addr(0, 24, 0) | u16::from(timer), 0, &[0; 4]);
-    cx.effects.vram.push(
-        ppu::tile_addr(0, 24, 0) | u16::from(timer | 0x20),
-        0,
-        &[0; 4],
-    );
+        .push(row | u16::from(timer | 0x20), 0, &[0; 4]);
 
     let behaviour = body.behaviour;
     let offset = cx.prg.families.collapsing_floor_controller.map_table[usize::from(behaviour >> 4)]

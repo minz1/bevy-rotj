@@ -814,7 +814,7 @@ impl Port<'_, '_> {
         self.set_overflow_from(self.player.power_up);
         if self.player.power_up & power_up::ON != 0 {
             self.player.flash_timer = self.player.flash_timer.wrapping_add(1);
-            if self.player.flash_timer.is_multiple_of(1 << 6) {
+            if self.player.flash_timer.is_multiple_of(64) {
                 self.overflow = adc_overflows(self.cx.effects.meter, !2, true);
                 self.cx.effects.meter = self.cx.effects.meter.wrapping_sub(2);
                 if self.cx.effects.meter & 0x80 != 0 {

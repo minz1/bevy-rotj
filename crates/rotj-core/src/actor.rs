@@ -877,7 +877,7 @@ mod tests {
             state ^= state << 5;
             let [length, direction, buttons, extra] = state.to_le_bytes();
             let mut pad = DIRECTIONS[usize::from(direction % 9)]
-                | u8::from(buttons.is_multiple_of(1 << 2))
+                | u8::from(buttons.is_multiple_of(4))
                 | if buttons & 0x0C == 0 { 0 } else { 0x02 }
                 | if extra == 0 { 0x04 } else { 0 };
             unpause = match unpause {

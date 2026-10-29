@@ -938,7 +938,7 @@ pub fn enter(game: &mut Game, prg: &Prg, target: u8) -> Mirroring {
     game.world.room = game.world.room.wrapping_add(2);
     load(game, prg);
     let replaced = game.scroll.mirroring;
-    game.scroll.mirroring = if target.is_multiple_of(1 << 2) {
+    game.scroll.mirroring = if target.is_multiple_of(4) {
         Mirroring::Stacked
     } else {
         Mirroring::SideBySide

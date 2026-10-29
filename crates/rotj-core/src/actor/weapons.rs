@@ -963,7 +963,7 @@ fn super_orbiter(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scr
     }
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.param = projectile.param.wrapping_add(1);
-    if projectile.param.is_multiple_of(1 << 5) {
+    if projectile.param.is_multiple_of(32) {
         cx.effects.sound[0] = sound::SUPER_ORBITER;
     }
     if cx.effects.projectiles[slot].param >= 0xE0 {
@@ -1016,7 +1016,7 @@ fn super_flash(slot: usize, cx: &mut Cx<'_>) {
         cx.prg.weapons.orbiter_palette_even
     };
     cx.effects.palette[16..20].copy_from_slice(&table);
-    let first = if cx.effects.projectiles[slot].param.is_multiple_of(1 << 3) {
+    let first = if cx.effects.projectiles[slot].param.is_multiple_of(8) {
         0x30
     } else {
         0x0F
@@ -1511,7 +1511,7 @@ fn three_way_tether(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     projectile.y = y;
     let count = projectile.part;
     (work.x, work.y) = beside_player(cx, x, y.wrapping_sub(0x0180));
-    if count.is_multiple_of(1 << 3)
+    if count.is_multiple_of(8)
         && let Some(free) = free_slot(cx)
     {
         cx.effects.sound[0] = sound::THREE_WAY_BUBBLE;
@@ -1563,12 +1563,12 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     #[cfg(test)]
     super::oracle::seen(0x8A4F);
     let projectile = cx.effects.projectiles[slot];
-    let half = if projectile.param & SECOND_HALF != 0 {
+    let second_half_offset = if projectile.param & SECOND_HALF != 0 {
         4
     } else {
         0
     };
-    let turn = u16::from(projectile.part) + half;
+    let turn = u16::from(projectile.part) + second_half_offset;
     let [dvx] = engine::rom_split_words(cx.prg, 5, 0x8C79 + turn, 0x8C71 + turn);
     let [dvy] = engine::rom_split_words(cx.prg, 5, 0x8C89 + turn, 0x8C81 + turn);
     let vx = projectile.vx.cast_unsigned().wrapping_add(dvx);

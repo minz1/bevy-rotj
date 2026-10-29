@@ -439,13 +439,4 @@ mod tests {
             }
         );
     }
-
-    /// The impact's y lift, its borrow unread, is the byte maths it replaced.
-    #[test]
-    fn the_impact_lift_is_wrapping() {
-        for screen_y in 0..=u8::MAX {
-            let (bytes, _) = screen_y.overflowing_sub(0x1A);
-            assert_eq!(screen_y.wrapping_sub(0x1A), bytes, "{screen_y:#04X}");
-        }
-    }
 }

@@ -182,7 +182,7 @@ pub fn floor(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
             land(work, probe, [0x00, 0x00])
         }
         Surface::Slippery => {
-            work.ax = if work.age.is_multiple_of(1 << 5) {
+            work.ax = if work.age.is_multiple_of(32) {
                 (work.ax.wrapping_sub(work.ref_vx) >> 2).wrapping_neg()
             } else {
                 0
