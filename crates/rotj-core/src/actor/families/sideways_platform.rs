@@ -4,6 +4,7 @@ use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
 const STEP: u16 = 0x10;
+const MOVING_RIGHT: u8 = 0x01;
 /// The travel's low byte, which the game keeps in health's low byte.
 const TRAVEL_LOW: Field = Field::HealthLow;
 
@@ -15,7 +16,7 @@ impl State {
     /// One frame (`$8000`): move 1 px, turn round after the travel in `$7BD8,x`.
     pub fn step(&mut self, index: usize, body: &mut Body, cx: &mut Cx<'_>) {
         body.scratch = 0;
-        let velocity = if body.state & 1 != 0 {
+        let velocity = if body.state & MOVING_RIGHT != 0 {
             body.x = body.x.wrapping_add(STEP);
             STEP
         } else {

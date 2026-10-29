@@ -28,6 +28,7 @@ const DYING_FRAMES: u8 = 0x0C;
 const FLOOR_ROW: u8 = 0x0C;
 /// The y the dying tail parks the slot at (`$0C20`).
 const DEATH_Y: u16 = 0x0C20;
+const DYING: u8 = 0x80;
 
 /// Type `$9A` keeps its whole state in [`Body`] (`$7DD0`/`$7DF0` offset,
 /// `$7E10`/`$7E90` x velocity then dying counter, `$7DB0` animation, `$7D90` phase).
@@ -38,7 +39,7 @@ impl State {
     /// One frame of the handler (`$8208`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
-        if body.behaviour & 0x80 != 0 {
+        if body.behaviour & DYING != 0 {
             work.attr = 3;
             let frame = (body.anim >> 1) & 0x06;
             work.pointer = engine::rom_word(cx.prg, 12, DYING_METASPRITES + u16::from(frame));
@@ -96,7 +97,7 @@ impl State {
 fn die(body: &mut Body, cx: &mut Cx<'_>) {
     cx.effects.sound[1] = sound::IMPACT;
     body.y = DEATH_Y;
-    body.behaviour = 0x80;
+    body.behaviour = DYING;
     body.anim = 0;
 }
 

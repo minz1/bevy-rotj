@@ -188,13 +188,7 @@ impl Level {
     /// first load after boot), from the ROM's PRG tables and CHR ([`crate::levelmap`]).
     #[must_use]
     pub fn from_rom(prg: &[u8], chr: &[u8], area: usize) -> Option<Level> {
-        Level::loaded(prg, chr, area, crate::levelmap::payload_image(chr)?)
-    }
-
-    /// Area `area`'s terrain as the loader `$89FE` leaves it over `image`, the
-    /// `$7000-$7FFF` it finds: imported from the ROM, then built over the image.
-    #[must_use]
-    pub fn loaded(prg: &[u8], chr: &[u8], area: usize, image: [u8; 0x1000]) -> Option<Level> {
+        let image = crate::levelmap::payload_image(chr)?;
         Some(Level::from_terrain(
             &crate::terrain::Terrain::import(prg, chr, area)?,
             image,

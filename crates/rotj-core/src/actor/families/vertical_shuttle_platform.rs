@@ -4,6 +4,7 @@ use crate::actor::slots::{Body, Field};
 use crate::actor::world::Cx;
 
 const STEP: u8 = 0x18;
+const RISING: u8 = 0x08;
 /// The travel's low byte, which the game keeps in health's low byte.
 const TRAVEL_LOW: Field = Field::HealthLow;
 
@@ -20,7 +21,7 @@ impl State {
         body.anim = 0;
         body.hit = STEP;
         body.behaviour = 0;
-        body.y = if body.state & 0x08 == 0 {
+        body.y = if body.state & RISING == 0 {
             body.y.wrapping_add(u16::from(STEP))
         } else {
             body.y.wrapping_sub(u16::from(STEP))
@@ -35,7 +36,7 @@ impl State {
             body.timer = 0;
             body.set(TRAVEL_LOW, 0);
             body.state ^= 0x0C;
-            if body.state & 0x08 == 0 {
+            if body.state & RISING == 0 {
                 body.subtype = 0;
                 body.phase = REST;
             }

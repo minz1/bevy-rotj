@@ -24,6 +24,8 @@ const HITBOX: u8 = 3;
 const DAMAGE: u8 = 2;
 /// The type `$8D84` spawns, at the parent's x with `$7B40:$7B60` = `$0C00`.
 const CHILD: u8 = 0x7A;
+const FALLS_AFTER_SWING: u8 = 0x80;
+const DRIFTS_RIGHT: u8 = 0x01;
 
 /// The spinner's tables (bank 0).
 pub struct Tables {
@@ -140,7 +142,7 @@ fn rising(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 fn swinging(body: &mut Body, cx: &Cx<'_>) {
     body.anim.tick_up();
     let time = body.anim;
-    let vy_table: &[i16] = if body.behaviour & 0x80 == 0 {
+    let vy_table: &[i16] = if body.behaviour & FALLS_AFTER_SWING == 0 {
         if time >= 0x0C {
             body.vy = 0;
             body.phase = Phase::Rising.byte();
@@ -167,7 +169,7 @@ fn falling(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     work.y = work.y.wrapping_sub(0x40);
     if below {
         body.vy = cx.prg.families.spinner.falling_vy[usize::from(cx.world.frame & 0x07)];
-        body.vx_drift = if body.behaviour & 0x01 == 0 {
+        body.vx_drift = if body.behaviour & DRIFTS_RIGHT == 0 {
             i16::from_be_bytes([0xFF, 0xF0])
         } else {
             0x0010
@@ -182,7 +184,7 @@ fn falling(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 
 /// `$918E`: flash (`$40` in the attr) while `$7E90` counts to 8, then hold.
 fn flashing(body: &mut Body, work: &mut Work) {
-    if body.behaviour & 0x01 == 0 {
+    if body.behaviour & DRIFTS_RIGHT == 0 {
         work.attr |= attr::FLIP_X;
     }
     body.anim.tick_up();
@@ -195,7 +197,7 @@ fn flashing(body: &mut Body, work: &mut Work) {
 
 /// `$91B9`: flash while descending to the head row, else ramp the vy.
 fn descending(body: &mut Body, work: &mut Work) {
-    if body.behaviour & 0x01 == 0 {
+    if body.behaviour & DRIFTS_RIGHT == 0 {
         work.attr |= attr::FLIP_X;
     }
     if work.y.to_be_bytes()[0] >= 0x0D {

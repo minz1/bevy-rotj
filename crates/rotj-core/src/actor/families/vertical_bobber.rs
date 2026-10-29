@@ -24,6 +24,7 @@ const DAMAGE: u8 = 4;
 const DOWN_CLAMP: u8 = 0xE0;
 /// The bob's positive clamp (`$86B8`).
 const UP_CLAMP: u8 = 0x20;
+const VY_INCREASING: u8 = 0x80;
 
 /// Type `$66` keeps its whole state in [`Body`] (`$7DD0`, `$7D90`, `$7E70:$7E80`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -62,7 +63,7 @@ impl State {
 /// unit a frame, flipping `$7D90` at `-$20`/`+$20`.
 fn bob(body: &mut Body) {
     let [hi, lo] = body.vy.to_be_bytes();
-    if body.behaviour & 0x80 == 0 {
+    if body.behaviour & VY_INCREASING == 0 {
         let (lo, borrow) = lo.overflowing_sub(1);
         let hi = hi.wrapping_sub(u8::from(borrow));
         body.vy = i16::from_be_bytes([hi, lo]);
