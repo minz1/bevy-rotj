@@ -4,7 +4,7 @@ use super::button::Buttons;
 use super::oam::{OamBuilder, attr};
 use super::scroll::Scroll;
 use super::slots::{Counter, Slots};
-use crate::render::Mirroring;
+use crate::render::{Mirroring, ppu};
 
 /// The live spawn schedule (`$7410`) and its page -> row table (`$0440`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -679,7 +679,7 @@ impl Ppu {
                 at &= 0x0F;
             }
             self.palette[at] = byte;
-        } else if addr >= 0x2000 {
+        } else if addr >= ppu::nametable(0) {
             let table = usize::from((addr >> 10) & 3);
             let physical = mirroring.physical(table);
             self.nametables[physical][usize::from(addr & 0x3FF)] = byte;

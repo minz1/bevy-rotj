@@ -14,7 +14,7 @@ use crate::actor::world::{Weapon, set_first_colours, sound};
 use crate::levelmap::BOOT_FIRST_BANK;
 use crate::levels::{Levels, StageAssets};
 use crate::prg::Prg;
-use crate::render::{Mirroring, ctrl, mask};
+use crate::render::{Mirroring, ctrl, mask, ppu};
 
 /// The WRAM byte at `addr` once `$98C3` has copied the payload (CHR `$F0-$F7`, in order).
 pub(crate) fn payload_byte(chr: &[u8], addr: u16) -> u8 {
@@ -1135,7 +1135,9 @@ fn show_banks(game: &mut Game, chr: &[u8]) {
         *shadow = bank;
     }
     let attributes = payload_bytes(chr, 0x68F5, 0x1F);
-    game.effects.vram.push(0x23D9, 0, &attributes);
+    game.effects
+        .vram
+        .push(ppu::attribute_addr(0, 3, 1), 0, &attributes);
 }
 
 /// A new game's state (bank 14 `$D48D`): the first room, no weapon, the meter, full

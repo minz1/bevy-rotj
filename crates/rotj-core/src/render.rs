@@ -117,6 +117,53 @@ pub mod mask {
     }
 }
 
+/// The nametable addresses the game writes through `$2006`.
+pub mod ppu {
+    /// The first nametable's address.
+    const FIRST_NAMETABLE: u16 = 0x2000;
+    /// Bytes from one nametable's start to the next's.
+    const NAMETABLE_STRIDE: u16 = 0x400;
+    /// Tiles in one nametable row.
+    const ROW_TILES: u16 = 32;
+    /// The attribute table's offset in a nametable.
+    const ATTRIBUTE_TABLE: u16 = 0x3C0;
+    /// Attribute bytes in one attribute row.
+    const ROW_ATTRIBUTES: u16 = 8;
+
+    /// The first byte of logical nametable `n` (0-3).
+    #[must_use]
+    pub const fn nametable(n: u16) -> u16 {
+        FIRST_NAMETABLE + n * NAMETABLE_STRIDE
+    }
+
+    /// The tile at `row` (0-31) and `col` (0-31) of nametable `table`.
+    #[must_use]
+    pub const fn tile_addr(table: u16, row: u16, col: u16) -> u16 {
+        nametable(table) + row * ROW_TILES + col
+    }
+
+    /// The attribute byte at `row` (0-7) and `col` (0-7) of nametable `table`, each byte
+    /// a 4x4-tile block.
+    #[must_use]
+    pub const fn attribute_addr(table: u16, row: u16, col: u16) -> u16 {
+        nametable(table) + ATTRIBUTE_TABLE + row * ROW_ATTRIBUTES + col
+    }
+
+    /// An address in rows 30-31 of nametable 0 or 1 moved to the same column of rows 0-1
+    /// of that table (`addr & $243F`).
+    #[must_use]
+    pub const fn wrap_to_top_rows(addr: u16) -> u16 {
+        addr & 0x243F
+    }
+
+    /// An address at or past the first nametable's attributes stepped over them, to rows
+    /// 0-1 of the first nametable (`(addr + $40) & $23FF`).
+    #[must_use]
+    pub const fn skip_attributes(addr: u16) -> u16 {
+        addr.wrapping_add(0x40) & 0x23FF
+    }
+}
+
 /// Which physical nametable each logical one uses (`$EC`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Mirroring {
@@ -671,6 +718,100 @@ mod tests {
                     entry.trailing_zeros() >= bits
                 );
             }
+        }
+    }
+
+    #[test]
+    fn nametable_is_its_literal_arithmetic() {
+        for n in 0..4u16 {
+            assert_eq!(ppu::nametable(n), 0x2000 + n * 0x400);
+        }
+        assert_eq!(
+            [0, 1, 2, 3].map(ppu::nametable),
+            [0x2000, 0x2400, 0x2800, 0x2C00]
+        );
+    }
+
+    #[test]
+    fn tile_addr_is_its_literal_arithmetic() {
+        for table in 0..4u16 {
+            for row in 0..32u16 {
+                for col in 0..32u16 {
+                    let addr = ppu::tile_addr(table, row, col);
+                    assert_eq!(addr, 0x2000 + table * 0x400 + row * 0x20 + col);
+                    assert_eq!(addr, 0x2000 | (table << 10) | (row << 5) | col);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn attribute_addr_is_its_literal_arithmetic() {
+        for table in 0..4u16 {
+            for row in 0..8u16 {
+                for col in 0..8u16 {
+                    let addr = ppu::attribute_addr(table, row, col);
+                    assert_eq!(addr, 0x23C0 + table * 0x400 + row * 8 + col);
+                    assert_eq!(addr, 0x23C0 | (table << 10) | (row << 3) | col);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_row_wraps_are_their_literal_masks() {
+        for addr in 0..=0xFFFFu16 {
+            assert_eq!(ppu::wrap_to_top_rows(addr), addr & 0x243F);
+            assert_eq!(ppu::skip_attributes(addr), addr.wrapping_add(0x40) & 0x23FF);
+        }
+        for table in 0..2u16 {
+            for row in 30..32u16 {
+                for col in 0..32u16 {
+                    let addr = ppu::tile_addr(table, row, col);
+                    let top = ppu::tile_addr(table, row - 30, col);
+                    assert_eq!(ppu::wrap_to_top_rows(addr), top);
+                }
+            }
+        }
+        for row in 30..32u16 {
+            for col in 0..32u16 {
+                let addr = ppu::tile_addr(0, row, col);
+                assert_eq!(ppu::skip_attributes(addr), ppu::tile_addr(0, row - 30, col));
+            }
+        }
+    }
+
+    #[test]
+    fn the_helpers_give_the_addresses_they_replaced() {
+        let pairs = [
+            (ppu::nametable(0), 0x2000),
+            (ppu::nametable(1), 0x2400),
+            (ppu::nametable(2), 0x2800),
+            (ppu::tile_addr(0, 11, 0), 0x2160),
+            (ppu::tile_addr(0, 12, 0), 0x2180),
+            (ppu::tile_addr(0, 13, 0), 0x21A0),
+            (ppu::tile_addr(0, 14, 0), 0x21C0),
+            (ppu::tile_addr(0, 15, 0), 0x21E0),
+            (ppu::tile_addr(0, 12, 12), 0x218C),
+            (ppu::tile_addr(0, 13, 5), 0x21A5),
+            (ppu::tile_addr(0, 14, 5), 0x21C5),
+            (ppu::tile_addr(0, 13, 15), 0x21AF),
+            (ppu::tile_addr(0, 14, 15), 0x21CF),
+            (ppu::tile_addr(0, 13, 17), 0x21B1),
+            (ppu::tile_addr(0, 14, 17), 0x21D1),
+            (ppu::tile_addr(0, 24, 0), 0x2300),
+            (ppu::tile_addr(0, 26, 8), 0x2348),
+            (ppu::tile_addr(0, 27, 8), 0x2368),
+            (ppu::tile_addr(0, 26, 18), 0x2352),
+            (ppu::tile_addr(0, 27, 18), 0x2372),
+            (ppu::tile_addr(0, 29, 0), 0x23A0),
+            (ppu::attribute_addr(0, 0, 0), 0x23C0),
+            (ppu::attribute_addr(0, 3, 1), 0x23D9),
+            (ppu::attribute_addr(0, 6, 0), 0x23F0),
+            (ppu::attribute_addr(1, 0, 0), 0x27C0),
+        ];
+        for (helper, literal) in pairs {
+            assert_eq!(helper, literal, "{literal:#06X}");
         }
     }
 }

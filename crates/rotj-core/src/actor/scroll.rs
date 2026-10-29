@@ -9,7 +9,7 @@ use super::world::orientation;
 use crate::actors::CELL_PENDING;
 use crate::levelmap::Cell;
 use crate::prg::Prg;
-use crate::render::{Mirroring, ctrl};
+use crate::render::{Mirroring, ctrl, ppu};
 use crate::rooms::Raster;
 
 /// The bits of [`Scroll::mode`] (`$C3`); the other bits have no reader.
@@ -315,12 +315,12 @@ fn vertical(game: &mut Game, prg: &Prg) {
                 *origin = origin.wrapping_add(0x20);
                 let [hi, lo] = origin.to_be_bytes();
                 if lo >= 0xC0 && hi >= 0x23 {
-                    *origin = 0x2000;
+                    *origin = ppu::nametable(0);
                 }
             } else {
                 *origin = origin.wrapping_sub(0x20);
-                if *origin < 0x2000 {
-                    *origin = 0x23A0;
+                if *origin < ppu::nametable(0) {
+                    *origin = ppu::tile_addr(0, 29, 0);
                 }
             }
         }
@@ -378,7 +378,11 @@ fn stream_column(game: &mut Game, right: bool) {
     let vram = &mut game.effects.vram;
     let mut push_run = |top: u8, end: u8| {
         let bytes: Vec<u8> = (top..end).flat_map(tiles).collect();
-        vram.push(0x2000 + u16::from(top) * 64 + tile_column, 4, &bytes);
+        vram.push(
+            ppu::tile_addr(0, u16::from(top) * 2, tile_column),
+            4,
+            &bytes,
+        );
     };
     let mut run_end = None;
     for row in (0..15u8).rev() {
@@ -405,13 +409,15 @@ fn stream_column(game: &mut Game, right: bool) {
         let mirror = &mut vram.attributes;
         let below = merge(&mut mirror[lower], source[lower], keep, fixed[4 + pair]);
         let above = merge(&mut mirror[upper], source[upper], keep, fixed[pair]);
-        let at = 0x23C0 + u16::try_from(upper).expect("an attribute index");
+        let row = u16::try_from(pair).expect("an attribute row");
+        let col = u16::try_from(quad).expect("an attribute column");
+        let at = ppu::attribute_addr(0, row, col);
         vram.push(at, 4, &[above, below]);
     }
 }
 
 /// One nametable half [`stream_column_across`] fills: its map column, the metatile
-/// rows drawn, the VRAM base and the attribute shadow offset.
+/// rows drawn, the nametable and the attribute shadow offset.
 struct AcrossPage {
     base: u8,
     rows: std::ops::Range<u8>,
@@ -435,13 +441,13 @@ fn stream_column_across(game: &mut Game, right: bool) {
         AcrossPage {
             base: page_columns[page + 16] | (column & 0x0F),
             rows: 0..15,
-            table: 0x2000,
+            table: 0,
             mirror: 0,
         },
         AcrossPage {
             base: page_columns[page] | (column & 0x0F),
             rows: 1..16,
-            table: 0x2800,
+            table: 2,
             mirror: 64,
         },
     ];
@@ -463,7 +469,7 @@ fn stream_column_across(game: &mut Game, right: bool) {
                 [corners[half], corners[half + 2]]
             })
             .collect();
-        vram.push(entry.table + tile_column, 4, &bytes);
+        vram.push(ppu::tile_addr(entry.table, 0, tile_column), 4, &bytes);
     }
     let keep = if camera & 1 == 0 { 0xCC } else { 0x33 };
     let quad = usize::from((camera & 0x0F) >> 1);
@@ -485,7 +491,9 @@ fn stream_column_across(game: &mut Game, right: bool) {
                 keep,
                 0,
             );
-            let at = entry.table + 0x3C0 + u16::try_from(upper).expect("an attribute index");
+            let row = u16::try_from(pair).expect("an attribute row");
+            let col = u16::try_from(quad).expect("an attribute column");
+            let at = ppu::attribute_addr(entry.table, row, col);
             vram.push(at, 4, &[above, below]);
         }
     }
@@ -548,12 +556,9 @@ fn stream_row(game: &mut Game, down: bool) {
             *byte = (value & take) | (mirror[quads + i] & keep);
             mirror[quads + i] = *byte;
         }
-        let at = 0x23C0 | u16::try_from(quads & 0x3F).expect("an attribute row");
-        vram.push(
-            at | (u16::try_from(table).expect("0 or 1") << 10),
-            0,
-            &bytes,
-        );
+        let nametable = u16::try_from(table).expect("0 or 1");
+        let attribute_row = u16::try_from(quads >> 3).expect("an attribute row");
+        vram.push(ppu::attribute_addr(nametable, attribute_row, 0), 0, &bytes);
     }
 }
 

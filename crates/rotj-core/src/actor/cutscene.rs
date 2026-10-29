@@ -6,7 +6,7 @@ use super::oam::{DrawCall, Metasprite};
 use super::script::{Flow, Runner, wait};
 use crate::actor::world::sound;
 use crate::levelmap::PAYLOAD_FIRST_BANK;
-use crate::render::{Mirroring, ctrl, mask};
+use crate::render::{Mirroring, ctrl, mask, ppu};
 
 /// CHR offset of the payload's WRAM `$6000-$7E5F` (banks `$F8-$FF`).
 const PAYLOAD: usize = 0xF8 * 0x400;
@@ -304,11 +304,11 @@ impl ScreenClear {
                 game.effects.vram.push_palette(&[0x0F; 32]);
             }
             2..=33 => {
-                let addr = 0x2000 + u16::from(frame - 2) * 0x40;
+                let addr = ppu::nametable(0) + u16::from(frame - 2) * 0x40;
                 game.effects.vram.push(addr, 0, &[self.fill; 0x40]);
             }
             34 | 35 => {
-                let addr = 0x23C0 + u16::from(frame - 34) * 0x400;
+                let addr = ppu::attribute_addr(u16::from(frame - 34), 0, 0);
                 game.effects.vram.push(addr, 0, &[0; 0x40]);
             }
             _ => return true,

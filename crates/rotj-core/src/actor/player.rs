@@ -17,6 +17,7 @@ use super::world::{
 };
 use crate::actor::button::Buttons;
 use crate::actors::STATE_UNTARGETED;
+use crate::render::ppu;
 
 /// Test-only branch coverage; the test asserts and reports which paths ran.
 #[cfg(test)]
@@ -2524,12 +2525,12 @@ impl Port<'_, '_> {
         };
         let vram = &mut self.cx.effects.vram;
         let (top, bottom) = rows(tally, last);
-        vram.push(0x2348, 0, &top);
-        vram.push(0x2368, 0, &bottom);
+        vram.push(ppu::tile_addr(0, 26, 8), 0, &top);
+        vram.push(ppu::tile_addr(0, 27, 8), 0, &bottom);
         let (top, bottom) = rows(self.cx.effects.boss_hp, None);
         let vram = &mut self.cx.effects.vram;
-        vram.push(0x2352, 0, &top);
-        vram.push(0x2372, 0, &bottom);
+        vram.push(ppu::tile_addr(0, 26, 18), 0, &top);
+        vram.push(ppu::tile_addr(0, 27, 18), 0, &bottom);
     }
 
     /// `$91B5`: motion 8, held while the power-up's pieces close in: hidden on odd frames.

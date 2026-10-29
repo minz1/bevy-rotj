@@ -32,6 +32,7 @@ use thiserror::Error;
 
 use crate::ines::FME7_PRG_BANK_SIZE;
 use crate::ppulist::WriteList;
+use crate::render::ppu;
 
 /// PRG bank holding the level loader and its tables.
 pub const LEVEL_BANK: u8 = 0x02;
@@ -97,7 +98,7 @@ impl Patch {
     /// Bytes that fall outside the image are ignored, matching the PPU wrap
     /// behaviour closely enough for the level's own patches (all in range).
     pub fn apply(&self, nametables: &mut [u8]) {
-        let base = usize::from(self.addr.wrapping_sub(0x2000));
+        let base = usize::from(self.addr.wrapping_sub(ppu::nametable(0)));
         for (i, byte) in self.data.iter().enumerate() {
             if let Some(slot) = nametables.get_mut(base + i) {
                 *slot = *byte;
@@ -222,7 +223,7 @@ impl LevelData {
         let mut matches = 0;
         let mut total = 0;
         for patch in &self.patches {
-            let base = usize::from(patch.addr.wrapping_sub(0x2000));
+            let base = usize::from(patch.addr.wrapping_sub(ppu::nametable(0)));
             for (i, byte) in patch.data.iter().enumerate() {
                 if let Some(&captured) = nametables.get(base + i) {
                     total += 1;

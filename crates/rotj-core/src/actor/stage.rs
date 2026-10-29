@@ -12,7 +12,7 @@ use crate::actors::bank_slice;
 use crate::levels::{Levels, StageAssets};
 use crate::ppulist::WriteList;
 use crate::prg::Prg;
-use crate::render::{Mirroring, ctrl, mask};
+use crate::render::{Mirroring, ctrl, mask, ppu};
 
 /// The stages there are: `$0400 / 2` indexes their tables.
 const STAGES: u8 = 18;
@@ -852,14 +852,14 @@ impl BossIntro {
                 room::load_level(game, prg, chr, room::Leftover::LastArea);
                 let vram = &mut game.effects.vram;
                 vram.direct.push(VramWrite {
-                    addr: 0x2000,
+                    addr: ppu::nametable(0),
                     flags: 0,
                     bytes: vec![0; 2048],
                 });
-                for (row, addr) in (0u16..).zip([0x2160, 0x2180, 0x21A0, 0x21C0, 0x21E0]) {
+                for row in 0..5u16 {
                     let bytes = (0..5).map(|i| rom_byte(prg, 13, 0xBEDD + row * 5 + i));
                     vram.direct.push(VramWrite {
-                        addr,
+                        addr: ppu::tile_addr(0, 11 + row, 0),
                         flags: 0,
                         bytes: bytes.collect(),
                     });
@@ -900,7 +900,7 @@ impl BossIntro {
             Intro::Rows => {
                 let at = rom_word(prg, 14, 0xD87C) + u16::from(self.rows) * 0x40;
                 let bytes: Vec<u8> = (0..0x40).map(|i| rom_byte(prg, 14, at + i)).collect();
-                let addr = 0x2300 + u16::from(self.rows) * 0x40;
+                let addr = ppu::tile_addr(0, 24 + u16::from(self.rows) * 2, 0);
                 game.effects.vram.push(addr, 0, &bytes);
                 self.rows += 1;
                 if self.rows == 3 {
@@ -909,7 +909,9 @@ impl BossIntro {
             }
             Intro::Attributes => {
                 let bytes: Vec<u8> = (0..0x10).map(|i| rom_byte(prg, 14, 0xD93E + i)).collect();
-                game.effects.vram.push(0x23F0, 0, &bytes);
+                game.effects
+                    .vram
+                    .push(ppu::attribute_addr(0, 6, 0), 0, &bytes);
                 self.step = Intro::Enter;
             }
             Intro::Enter => {
@@ -938,12 +940,12 @@ impl BossIntro {
                     self.phase = 1;
                     let vram = &mut game.effects.vram;
                     vram.push(
-                        0x21A5,
+                        ppu::tile_addr(0, 13, 5),
                         0,
                         &[rom_byte(prg, 13, 0xBCA0), rom_byte(prg, 13, 0xBCA1)],
                     );
                     vram.push(
-                        0x21C5,
+                        ppu::tile_addr(0, 14, 5),
                         0,
                         &[rom_byte(prg, 13, 0xBCA2), rom_byte(prg, 13, 0xBCA3)],
                     );
@@ -1066,11 +1068,11 @@ fn request_song(game: &mut Game, prg: &Prg) {
 fn banner(prg: &Prg, area: u8) -> Vec<VramWrite> {
     let mut writes = text(prg, 0x93D7);
     let [tens, ones] = at(&prg.levels, area).banner;
-    for (digit, column) in [(tens, 0x21AF), (ones, 0x21B1)] {
+    for (digit, column) in [(tens, 15), (ones, 17)] {
         let glyph = rom_byte(prg, 2, 0x9402 + u16::from(digit));
-        for (row, tile) in [(0, glyph), (0x20, glyph | 1)] {
+        for (row, tile) in [(13, glyph), (14, glyph | 1)] {
             writes.push(VramWrite {
-                addr: column + row,
+                addr: ppu::tile_addr(0, row, column),
                 flags: 0,
                 bytes: vec![tile],
             });
@@ -1090,7 +1092,7 @@ fn text(prg: &[u8], at: u16) -> Vec<VramWrite> {
         bytes: run.data.to_vec(),
     });
     std::iter::once(VramWrite {
-        addr: 0x2000,
+        addr: ppu::nametable(0),
         flags: 0,
         bytes: vec![0; 1024],
     })
@@ -1452,7 +1454,9 @@ impl Continue {
             return;
         }
         for (row, bytes) in (0u16..).zip(buffer.chunks(8)) {
-            game.effects.vram.push(0x218C + row * 0x20, 0, bytes);
+            game.effects
+                .vram
+                .push(ppu::tile_addr(0, 12 + row, 12), 0, bytes);
         }
     }
 }

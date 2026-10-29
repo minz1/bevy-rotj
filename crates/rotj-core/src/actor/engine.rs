@@ -9,6 +9,7 @@ use super::world::{
 use crate::actors::{STATE_DROPS_PICKUP, bank_slice};
 use crate::levelmap::Cell;
 use crate::prg;
+use crate::render::ppu;
 
 /// The bits of [`Work::probe_flags`] (`$9F`), which [`Player::hit`](super::world::Player::hit)
 /// also receives whole.
@@ -375,8 +376,7 @@ pub fn queue_block(block: &TileBlock<'_>, cx: &mut Cx<'_>) {
         let [hi, lo] = addr.to_be_bytes();
         if hi & 0x23 == 0x23 && lo >= 0xC0 {
             if world.orientation & orientation::VERTICAL != 0 {
-                // Rows 30-31 wrap to rows 0-1.
-                addr &= 0x243F;
+                addr = ppu::wrap_to_top_rows(addr);
                 if let Some(attributes) = attributes.as_mut() {
                     attributes.rows = attributes.rows.wrapping_add(1);
                 }
@@ -436,8 +436,8 @@ fn place(block: &TileBlock<'_>, world: &World, origin: u16) -> Option<(u16, u8, 
             (delta >> 2, 0)
         };
         let mut addr = addr.wrapping_add(origin);
-        if addr >= 0x23C0 {
-            addr = addr.wrapping_add(0x40) & 0x23FF;
+        if addr >= ppu::attribute_addr(0, 0, 0) {
+            addr = ppu::skip_attributes(addr);
         }
         let far_page = block.column & 0x10 != 0;
         if world.orientation & orientation::TWO_PAGES != 0 && far_page {
@@ -478,11 +478,11 @@ fn place(block: &TileBlock<'_>, world: &World, origin: u16) -> Option<(u16, u8, 
             + (u16::from(column & 0x0F) << 1)
             + u16::from(left & 1);
         if world.orientation & orientation::TWO_PAGES == 0 {
-            addr += 0x2000;
+            addr += ppu::nametable(0);
         } else if block.row & 0x10 != 0 {
-            addr += 0x2400;
+            addr += ppu::nametable(1);
         } else {
-            addr = addr.wrapping_sub(0x20).wrapping_add(0x2000);
+            addr = addr.wrapping_sub(0x20).wrapping_add(ppu::nametable(0));
         }
         (addr, 0, left, right)
     })
@@ -868,7 +868,7 @@ pub fn boss_defeated(timer: u8, cx: &mut Cx<'_>) {
 
 /// Queues the status bar's two 5-digit counters: `value` and the boss's hit points (`$D1F5`).
 pub fn queue_counters(value: u16, cx: &mut Cx<'_>) {
-    for (number, column) in [(value, 0x48), (cx.effects.boss_hp, 0x52)] {
+    for (number, column) in [(value, 8), (cx.effects.boss_hp, 18)] {
         let mut top = [0x0A; 6];
         let mut bottom = [0x0B; 6];
         let mut rest = number;
@@ -878,8 +878,10 @@ pub fn queue_counters(value: u16, cx: &mut Cx<'_>) {
             top[i] = cx.prg.digit_tiles[usize::from(digit)];
             bottom[i] = top[i] | 1;
         }
-        cx.effects.vram.push(0x2300 | column, 0, &top);
-        cx.effects.vram.push(0x2320 | column, 0, &bottom);
+        cx.effects.vram.push(ppu::tile_addr(0, 26, column), 0, &top);
+        cx.effects
+            .vram
+            .push(ppu::tile_addr(0, 27, column), 0, &bottom);
     }
 }
 
