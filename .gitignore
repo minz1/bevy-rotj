@@ -56,3 +56,4 @@ disasm/rotj.cfg
 # the owner's AI-generated cut-content survey stays local
 /docs/Batman Return Joker Cut Content.txt
 .autopilot/runs/
+.autopilot/rules.md

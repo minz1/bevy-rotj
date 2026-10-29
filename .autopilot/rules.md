@@ -31,13 +31,20 @@ Exit `STOP <reason>` and park the item for:
 - Enhanced features (1.2.0).
 - Re-recording a tape, or any change that cannot keep the tapes unchanged.
 - New public names beyond the approved ones, or a change to the approved level-format schema.
-- Level packs release 3 (waits on "Owner decisions pending" in `docs/STATUS.md`).
+- Level-pack work beyond the owner's 2026-10-29 decisions (HANDOFF.md "Owner decisions, 2026-10-29"): those, including the optional room `mirroring` property, are approved; any other schema change is not.
 - Destructive or hard-to-reverse steps: deleting a branch or worktree with unmerged work, `git push --force`, `git reset --hard` on shared branches.
 - Under 50 GB free on `/` after cleaning `target/debug`; a red release gate (`release-checks.sh` on main) that two attempts did not fix. A red item check follows the item rules instead (`[!]` after two attempts).
 
 ## Where to look for more work
 Mandate: keep releasing 1.1.x patches until the codebase is modernised, except what is strictly needed to prove Classic (the oracle and its harness, the RAM/WRAM projection and lift, the tapes, Classic's named rules).
-- `.orchestration/survey2.md`: ranked survey items (first is child and shot spawning written once).
-- `docs/MODERNIZE.md`, section "The owner's review of the passed-on candidates (2026-10-18)": the owner's review list.
-- `docs/STATUS.md`: "Next, in order" and "Leads not yet verified".
-- `HANDOFF.md`, "Next, in order" item 2: the small items already found.
+- `HANDOFF.md`, "Roadmap to the end of 1.1.x": the ordered list and the owner's 2026-10-29 decisions.
+- `.orchestration/survey2.md`: #7 still open (#17 is queued).
+- `docs/MODERNIZE.md`, "The owner's review of the passed-on candidates (2026-10-18)".
+- The level-pack specs: `docs/specs/2026-10-18-level-packs-design.md` ("Releases, in order") and the release-3 spec's "Open questions".
+
+## Skills
+- work: `superpowers:writing-plans` (the spec or plan before each item's code); `superpowers:test-driven-development` (equivalence tests before a refactor, a failing test before a fix).
+- retry: `superpowers:systematic-debugging` (root-cause a red full set or a divergence before the second attempt).
+- done: `superpowers:verification-before-completion` (read the full set summary and the tape `cmp` in the same session before marking done).
+- review: `superpowers:receiving-code-review` (check each reviewer finding before applying it).
+- Reviewer stand-in: `ponytail:ponytail-review` as its review pass.
