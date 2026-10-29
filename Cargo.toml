@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/rotj-rom", "crates/rotj-core", "crates/rotj-apu", "crates/rotj-music", "tools/rotj-tools", "tools/rotj-verify", "tools/rotj-oracle", "crates/app"]
 
 [workspace.package]
-version = "1.1.44"
+version = "1.1.45"
 edition = "2024"
 rust-version = "1.99.0"
 license = "MIT OR Apache-2.0"
