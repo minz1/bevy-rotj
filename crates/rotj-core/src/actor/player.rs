@@ -127,7 +127,7 @@ pub struct Tables {
     pub splitter_launch: [i16; 2],
     /// The wave's launch speed, by side (`$9E03`/`$9E01`).
     pub wave_launch: [i16; 2],
-    /// The two-part shots' velocity, by part; its high bytes are the `target` (`$9E05`/`$9E07`).
+    /// The two-part shots' velocity, by part; high bytes the weave direction (`$9E05`/`$9E07`).
     pub pair_velocities: [i16; 2],
     /// The three-way shot's velocity aiming up, by part (`$9CD3`/`$9CD6`).
     pub threeway_up_velocities: [i16; 3],
@@ -1068,19 +1068,19 @@ impl Port<'_, '_> {
             0x9BCE => self.shot_up(slot, -0x40, 1),
             0x9BF5 => {
                 self.shot_up(slot, -0x20, 2);
-                self.cx.effects.projectiles[slot].param = self.target();
+                self.cx.effects.projectiles[slot].set_target(self.target());
             }
             0x9C06 => self.shot_up(slot, -0x10, 2),
             0x9C2E => {
                 let vx = self.cx.prg.player.pair_velocities;
-                let target = vx.map(|v| v.to_be_bytes()[0]);
+                let weave = vx.map(|v| v.to_be_bytes()[0]);
                 let part = |projectile: &mut Projectile, y: usize| {
                     projectile.vy = -0x40;
                     projectile.timer = 0xFF;
                     projectile.vx = vx[y];
                     projectile.state = 0;
                     projectile.flags = 0;
-                    projectile.param = target[y];
+                    projectile.param = weave[y];
                     projectile.damage = 2;
                 };
                 part(&mut self.cx.effects.projectiles[slot], 1);
@@ -1145,7 +1145,7 @@ impl Port<'_, '_> {
                 let target = self.target();
                 let projectile = &mut self.cx.effects.projectiles[slot];
                 projectile.vx = vx;
-                projectile.param = target;
+                projectile.set_target(target);
                 shot_ahead(projectile, 1);
             }
             0x9D6F => {
@@ -1160,14 +1160,14 @@ impl Port<'_, '_> {
             }
             0x9DA0 => {
                 let vy = self.cx.prg.player.pair_velocities;
-                let target = vy.map(|v| v.to_be_bytes()[0]);
+                let weave = vy.map(|v| v.to_be_bytes()[0]);
                 let (attr, vx) = (
                     self.cx.prg.player.shot_attributes[right],
                     self.cx.prg.player.wave_launch[right],
                 );
                 let part = |projectile: &mut Projectile, y: usize| {
                     projectile.vy = vy[y];
-                    projectile.param = target[y];
+                    projectile.param = weave[y];
                     projectile.damage = 2;
                     projectile.state = 0;
                     projectile.timer = 0;
@@ -1312,8 +1312,8 @@ impl Port<'_, '_> {
         left
     }
 
-    /// `$9F05`: a live, hittable actor slot below 16 from a random start, or `$FF`.
-    fn target(&self) -> u8 {
+    /// `$9F05`: a live, hittable actor slot below 16 from a random start.
+    fn target(&self) -> Option<u8> {
         let [direction, start] = self.cx.world.rng;
         let mut slot = start & 0x0F;
         for _ in 0..16 {
@@ -1322,7 +1322,7 @@ impl Port<'_, '_> {
                 && actor.body.contact & contact::UNTARGETED == 0
                 && actor.body.state & STATE_UNTARGETED == 0
             {
-                return slot;
+                return Some(slot);
             }
             slot = if direction & 0x80 != 0 {
                 (slot + 1) & 0x0F
@@ -1330,7 +1330,7 @@ impl Port<'_, '_> {
                 slot.wrapping_sub(1) & 0x0F
             };
         }
-        0xFF
+        None
     }
 
     /// `$9359`: the fire button's spawn and muzzle handling.

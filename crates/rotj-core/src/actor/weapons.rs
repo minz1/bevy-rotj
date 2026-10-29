@@ -12,7 +12,7 @@ use super::oam::{Mark, attr};
 use super::scroll::Scroll;
 use super::slots::{Field, contact, hit};
 use super::world::{
-    Cx, Motion, Projectile, Weapon, attack, busy, power_up, set_first_colours, shot_flags,
+    Cx, Motion, Orbit, Projectile, Weapon, attack, busy, power_up, set_first_colours, shot_flags,
     shot_state, sound, stage_script,
 };
 use crate::actor::button::Buttons;
@@ -20,6 +20,27 @@ use crate::actors::STATE_UNTARGETED;
 
 /// A charged attack's first stage, every weapon's: the `kind` the player's charge writes.
 pub const CHARGE_START: u8 = 0x80;
+
+/// The homing charge's `param` once its circling parts are out.
+const CIRCLED: u8 = 0x80;
+
+/// A power-up piece's `part_timer` or super orbiter's `part`: it lights the sprite palette.
+const LIT: u8 = 0x80;
+
+/// A splitter shot's `param`: spent, it runs out its timer instead of splitting.
+const NO_SPLIT: u8 = 0x80;
+
+/// The splitter orbit's `param`, toggled every 64 frames: the turn tables 4 on, the `$8C67` throw.
+const SECOND_HALF: u8 = 0x80;
+
+/// A wave part's `param`: its weave adds 4 to the velocity instead of taking 4 away.
+const WEAVE_INCREASING: u8 = 0x80;
+
+/// The three-way tether's `part_timer`, let go aiming up: it springs vertically.
+const VERTICAL: u8 = 0x80;
+
+/// The steps a power-up piece's `part` counts before it lands.
+const PIECE_STEPS: u8 = 8;
 
 /// The homing weapon's charged attack, by projectile `kind`.
 mod homing_stage {
@@ -233,11 +254,11 @@ fn power_up_pieces(work: &mut Work, cx: &mut Cx<'_>) {
         piece.vx = piece.vx.wrapping_add(prg.weapons.piece_step_x[corner]);
         piece.vy = piece.vy.wrapping_add(prg.weapons.piece_step_y[corner]);
         piece.part = piece.part.wrapping_add(1);
-        if piece.part < 8 {
+        if piece.part < PIECE_STEPS {
             continue;
         }
         piece.kind = 0;
-        let lit = piece.part_timer & 0x80 != 0;
+        let lit = piece.part_timer & LIT != 0;
         let player = &mut effects.player;
         player.power_up = power_up::ON;
         effects.attack = attack::CHARGEABLE;
@@ -448,25 +469,27 @@ fn homing_steer(slot: usize, cx: &mut Cx<'_>) -> u16 {
     let heading = u16::try_from(heading).expect("20 headings");
     cx.effects.projectiles[slot].attr = cx.prg.weapons.homing_attributes[usize::from(heading)];
     let pointer = rom_word(cx.prg, 5, 0x844B + heading * 2);
-    let actor = |cx: &Cx<'_>, target: u8, array: u16| cx.byte(array + u16::from(target));
-    let mut target = projectile.param;
-    if target & 0x80 != 0 || actor(cx, target, 0x7CC0) == 0 {
+    let mut target = projectile.target();
+    if target.is_none_or(|target| cx.slots.kind(usize::from(target)) == 0) {
         target = homing_retarget(slot, cx);
     }
-    if target & 0x80 == 0 && actor(cx, target, 0x7D50) & STATE_UNTARGETED != 0 {
+    if target
+        .is_some_and(|target| cx.get(usize::from(target), Field::State) & STATE_UNTARGETED != 0)
+    {
         target = homing_retarget(slot, cx);
     }
-    if target & 0x80 != 0 {
+    let Some(target) = target else {
         return pointer;
-    }
+    };
     #[cfg(test)]
     super::oracle::seen(0x831E);
-    let position = |cx: &Cx<'_>, hi: u16, lo: u16| {
-        u16::from_be_bytes([actor(cx, target, hi), actor(cx, target, lo)])
+    let target = usize::from(target);
+    let position = |cx: &Cx<'_>, hi: Field, lo: Field| {
+        u16::from_be_bytes([cx.get(target, hi), cx.get(target, lo)])
     };
     let projectile = &cx.effects.projectiles[slot];
-    let dy = position(cx, 0x7B40, 0x7B60).wrapping_sub(projectile.y);
-    let dx = position(cx, 0x7B00, 0x7B20).wrapping_sub(projectile.x);
+    let dy = position(cx, Field::YHigh, Field::YLow).wrapping_sub(projectile.y);
+    let dx = position(cx, Field::XHigh, Field::XLow).wrapping_sub(projectile.x);
     let (left, up) = (dx & 0x8000 != 0, dy & 0x8000 != 0);
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.vx = steer_axis(projectile.vx, left);
@@ -505,7 +528,7 @@ fn steer_axis(velocity: i16, down: bool) -> i16 {
 }
 
 /// `$830E`: a new target for the homing shot from `$83FC`, kept in `$7F40`.
-fn homing_retarget(slot: usize, cx: &mut Cx<'_>) -> u8 {
+fn homing_retarget(slot: usize, cx: &mut Cx<'_>) -> Option<u8> {
     let hittable = |&target: &usize| {
         let actor = &cx.slots.main[target];
         actor.kind != 0
@@ -517,8 +540,8 @@ fn homing_retarget(slot: usize, cx: &mut Cx<'_>) -> u8 {
     } else {
         (0..16).rev().find(hittable)
     };
-    let target = found.map_or(0xFF, |slot| u8::try_from(slot).expect("slot < 16"));
-    cx.effects.projectiles[slot].param = target;
+    let target = found.map(|slot| u8::try_from(slot).expect("slot < 16"));
+    cx.effects.projectiles[slot].set_target(target);
     target
 }
 
@@ -528,7 +551,7 @@ fn homing_retarget(slot: usize, cx: &mut Cx<'_>) -> u8 {
 /// or A or a direction pressed, throws it as type `$81`.
 fn homing_gather(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     let held = cx.effects.attack & attack::CHARGING != 0;
-    if cx.effects.projectiles[slot].param & 0x80 == 0 {
+    if cx.effects.projectiles[slot].param & CIRCLED == 0 {
         if !held {
             #[cfg(test)]
             super::oracle::seen(0x8712);
@@ -556,8 +579,8 @@ fn homing_gather(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         projectile.vx = i16::from_be_bytes([step, projectile.vx.to_be_bytes()[1]]);
         if step >= 7 {
             let mut spawned = true;
-            if cx.effects.projectiles[slot].param & 0x80 == 0 {
-                cx.effects.projectiles[slot].param = 0x80;
+            if cx.effects.projectiles[slot].param & CIRCLED == 0 {
+                cx.effects.projectiles[slot].param = CIRCLED;
                 spawned = homing_spawn_circlers(slot, cx);
             }
             if spawned {
@@ -621,13 +644,11 @@ fn homing_spawn_circlers(source: usize, cx: &mut Cx<'_>) -> bool {
             projectile.damage = 1;
             projectile.flags = shot_flags::INERT;
             projectile.state = 0;
-            projectile.param = angle;
+            projectile.set_orbit(Orbit::from_byte(angle));
             parts[count] = at.cast_unsigned();
             count += 1;
             if count == 3 {
-                let projectile = &mut cx.effects.projectiles[source];
-                projectile.part = parts[0] << 4 | parts[1];
-                projectile.part_timer = parts[2];
+                cx.effects.projectiles[source].set_circlers(parts);
                 return true;
             }
             over_shots = false;
@@ -644,22 +665,14 @@ fn homing_draw_circlers(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     work.pointer = rom_word(cx.prg, 5, 0x887F);
     work.attr = 0;
     let centre = cx.effects.projectiles[slot];
-    for part in [
-        centre.part >> 4,
-        centre.part & 0x0F,
-        centre.part_timer & 0x0F,
-    ] {
+    for part in centre.circlers() {
         let part = usize::from(part);
         cx.effects.projectiles[part].flags = shot_flags::UNSTOPPABLE;
-        let (dx, dy) =
-            cx.prg.weapons.circle_offsets[usize::from(cx.effects.projectiles[part].param & 0x3F)];
+        let (dx, dy) = cx.prg.weapons.circle_offsets[cx.effects.projectiles[part].orbit().offset()];
         work.x = centre.x.wrapping_add(dx);
         work.y = centre.y.wrapping_add(dy);
         let projectile = &mut cx.effects.projectiles[part];
-        projectile.param = projectile.param.wrapping_add(1);
-        if projectile.param >= 0x20 {
-            projectile.param = 0;
-        }
+        projectile.set_orbit(projectile.orbit().next());
         if project_keep(slot, work, cx) || work.anchor & anchor::BOTTOM != 0 {
             draw(work, cx);
             let projectile = &mut cx.effects.projectiles[part];
@@ -893,7 +906,7 @@ fn super_pairs(slot: usize, cx: &mut Cx<'_>) {
     (orbiter_weapon.x, orbiter_weapon.y) = (0x0100, 0);
     orbiter_weapon.flags = shot_flags::INERT;
     orbiter_weapon.param = 0;
-    orbiter_weapon.part = if source.part_timer == 0 { 0x80 } else { 0 };
+    orbiter_weapon.part = if source.part_timer == 0 { LIT } else { 0 };
     orbiter_weapon.vx = -8;
     orbiter_weapon.vy = 0x0080;
     orbiter_weapon.timer = source.timer;
@@ -958,7 +971,7 @@ fn super_orbiter(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scr
         return false;
     }
     super_spring(slot, centre, cx);
-    if cx.effects.projectiles[slot].part & 0x80 != 0 {
+    if cx.effects.projectiles[slot].part & LIT != 0 {
         super_flash(slot, cx);
     }
     true
@@ -1186,7 +1199,7 @@ fn splitter(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     };
     work.attr = attr;
     if phase & shot_state::SPENT != 0 {
-        if bounce & 0x80 == 0 {
+        if bounce & NO_SPLIT == 0 {
             splitter_split(slot, cx);
             return;
         }
@@ -1434,7 +1447,7 @@ fn three_way_let_go(slot: usize, cx: &mut Cx<'_>) {
     projectile.param = 0;
     projectile.part = 0;
     projectile.flags = shot_flags::UNSTOPPABLE;
-    projectile.part_timer = if aim_up { 0x80 } else { 0 };
+    projectile.part_timer = if aim_up { VERTICAL } else { 0 };
     projectile.vx = vx;
     projectile.vy = vy;
     projectile.x = x;
@@ -1485,7 +1498,7 @@ fn three_way_tether(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         projectile.kind = 0;
         return;
     }
-    if projectile.part_timer & 0x80 != 0 {
+    if projectile.part_timer & VERTICAL != 0 {
         #[cfg(test)]
         super::oracle::seen(0x93BA);
         projectile.vy = three_way_pull(projectile.vy, projectile.y & 0x8000 != 0, 0x50, 0xB0);
@@ -1550,7 +1563,12 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     #[cfg(test)]
     super::oracle::seen(0x8A4F);
     let projectile = cx.effects.projectiles[slot];
-    let turn = u16::from(projectile.part) + if projectile.param & 0x80 != 0 { 4 } else { 0 };
+    let half = if projectile.param & SECOND_HALF != 0 {
+        4
+    } else {
+        0
+    };
+    let turn = u16::from(projectile.part) + half;
     let [dvx] = engine::rom_split_words(cx.prg, 5, 0x8C79 + turn, 0x8C71 + turn);
     let [dvy] = engine::rom_split_words(cx.prg, 5, 0x8C89 + turn, 0x8C81 + turn);
     let vx = projectile.vx.cast_unsigned().wrapping_add(dvx);
@@ -1560,7 +1578,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     projectile.vy = vy.cast_signed();
     projectile.part_timer = projectile.part_timer.wrapping_add(1);
     if projectile.part_timer >= 0x40 {
-        projectile.param ^= 0x80;
+        projectile.param ^= SECOND_HALF;
         projectile.part_timer = 0;
         cx.effects.sound[1] = sound::SPLITTER_ORBIT;
     }
@@ -1626,7 +1644,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
             0
         }
     };
-    let tables = if projectile.param & 0x80 != 0 {
+    let tables = if projectile.param & SECOND_HALF != 0 {
         0x8C67
     } else {
         0x8C61
@@ -1843,7 +1861,7 @@ fn wave_flight(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
 /// The `BMI`/`BEQ` after each `STA $7F40,X` tests the `CMP` before it, so a step
 /// down always ends there and a step up across goes on to y unless it reached `$40`.
 fn weave(slot: usize, cx: &mut Cx<'_>, horizontal: bool) -> bool {
-    if cx.effects.projectiles[slot].param & 0x80 == 0 {
+    if cx.effects.projectiles[slot].param & WEAVE_INCREASING == 0 {
         let projectile = &mut cx.effects.projectiles[slot];
         let velocity = axis(projectile, horizontal);
         *velocity = velocity.wrapping_sub(4);
