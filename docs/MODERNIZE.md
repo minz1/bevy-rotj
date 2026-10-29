@@ -323,7 +323,11 @@ mirroring, #16 the OAM entry and #10 the menu rows typed, done in 1.1.34; #2 and
 ticks, their ran-out bit and the cadence tests named (the safe half), done in 1.1.35; #8 and #9, the
 app's tile decode and bank lookup and the PRG readers written once, done in 1.1.36; #18, the
 harness and app leftovers, done in 1.1.37; #1, child and shot spawning written once
-(`Slots::free_main`, `Slot::spawn`), done in 1.1.39.
+(`Slots::free_main`, `Slot::spawn`), done in 1.1.39. #3 the byte-pair maths as `u16` (with `row()` for the metatile row), #5 the
+PPU addresses (`render::ppu`), #6 the stage, boss card, continue and entry steps as enums, #12 and
+#13 the projectile's bytes and the homing shot's last address reads, #14 the families' mask
+bytes and #15 the sound requests as `SoundId`, done in 1.1.46. Still open: #7 the raster chain
+and #17 the music driver (the owner's call).
 
 ### The owner's review of the passed-on candidates (2026-10-18)
 
