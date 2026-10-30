@@ -651,6 +651,23 @@ mod tests {
             )),
             "the map down to the bar, its mixed line, the bar"
         );
+        let play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 9);
+        let (drawn, view) = renders_as_classic(play, 61, pad, "seven-bands");
+        assert_eq!(drawn, 61, "area $18's frames drawn Modern");
+        assert_eq!(
+            view.map(|view| (view.map_end, view.runs.iter().flatten().count())),
+            Some((0, 6)),
+            "six runs from the nametables"
+        );
+        let play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 11);
+        // From frame 40 the rotation puts two of an enemy's overlapping sprites out of draw order.
+        let (drawn, view) = renders_as_classic(play, 31, pad, "fixed-top");
+        assert_eq!(drawn, 31, "area $1C's frames drawn Modern");
+        assert_eq!(
+            view.map(|view| (view.map_end, view.runs.iter().flatten().count())),
+            Some((0, 3)),
+            "the playfield, the fixed art and the band below, from the lines after the loop"
+        );
         let mut play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 12);
         for arg in [0xC1, 0x61] {
             crate::play::tests::transition(&mut play, 1, arg);

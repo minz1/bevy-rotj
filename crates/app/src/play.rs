@@ -654,6 +654,24 @@ pub(crate) mod tests {
         checked_step(&mut play, 0x10);
     }
 
+    /// Area `$1C`'s IRQ reads the scroll the loop moves, so its runs come from the lines after it.
+    #[test]
+    fn a_split_frame_is_drawn_from_the_lines_after_its_loop() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let mut play = Play::start(prg(rom), rom.chr.clone(), 11);
+        for frame in 0..60 {
+            play.step(if frame % 4 < 2 { 0x41 } else { 0x01 });
+            let modern = play.shown.modern.as_ref().expect("drawn Modern");
+            assert_eq!(
+                Some(modern.view.runs),
+                rotj_core::actor::modern::runs(&play.lines, 0),
+                "frame {frame}"
+            );
+        }
+    }
+
     /// Arms `$BA`/`$BB` and runs the script that follows to its end.
     pub(crate) fn transition(play: &mut Play, kind: u8, arg: u8) {
         let effects = &mut play.game_mut().effects;

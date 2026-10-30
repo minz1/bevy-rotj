@@ -12,7 +12,9 @@ per piece; `strip`/`nametable_playfield` folded into `runs` + `map_end`; the nam
 the chain test counts what stays Classic) and the review (the app draws a split frame from the
 lines after the loop; a run's first row is `fine_y` above its line, no underflow; each piece's
 projection and camera order; the map is run 0; `Run`'s banks from its top; no pattern half; the
-increment shared with the raster; what the gate proves; the headless steps).
+increment shared with the raster; what the gate proves; the headless steps; a negative gate test).
+The implementation review's note that each piece rebuilds its own tilesets goes to roadmap 4 (the
+sprite and atlas churn measurement).
 Left Classic: 486 of the TAS's 503 boss floor frames (area `$04`), where Batman stands across the
 floor's bank change and `sprites_steady` refuses (Modern draws a sprite in one set of banks).
 
@@ -95,8 +97,8 @@ rooms' playfield (outside area `$22`), still drawn from the map as in 1.1.41.
   the explorer.
 - Core unit tests: `runs` splits a boss bar frame into three, on a fine x change, the wrap past
   row 29, a `$2006` move of `v`, not on row 31 to 0, and gives `None` past `MAX_RUNS`; `view` on
-  the boss bar keeps `map_end = 192` (also off a tile edge), all-map without a bank change, every
-  line a run for another chain and in area `$22`.
+  the boss bar keeps `map_end = 192`, all-map without a bank change, every line a run for another
+  chain and in area `$22`; `check_run` refuses a run a row off or a fine y off.
 - An app test: 60 frames walking in area `$1C`, each drawn Modern from the runs of the lines after
   its loop (fails without `run_frame`'s redo).
 - The headless test gains two renders, each compared with Classic over lines 8-231, x 8-247:

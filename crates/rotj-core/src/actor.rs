@@ -619,7 +619,7 @@ mod tests {
                 exceptions.half_written,
                 exceptions.unreached
             ),
-            (12485, 3655, 1477, 22816, 185, 0, 8),
+            (34815, 25985, 23807, 486, 185, 0, 8),
             "the Modern frames and the gates' exceptions: {run:?}"
         );
         assert_eq!(pictures.crowded, 0, "no split past MAX_RUNS: {run:?}");

@@ -1784,9 +1784,9 @@ pub(crate) struct Pictures {
     pub runs: usize,
     /// Of those, the ones with no playfield from the map.
     pub from_nametables: usize,
-    /// Frames in play with a split the Modern picture leaves Classic, and of those, the ones
-    /// with more than [`super::modern::MAX_RUNS`] runs.
+    /// Frames in play with a split the Modern picture leaves Classic.
     pub classic_splits: usize,
+    /// Of those, the ones with more than [`super::modern::MAX_RUNS`] runs.
     pub crowded: usize,
 }
 

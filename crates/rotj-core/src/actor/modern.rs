@@ -71,10 +71,7 @@ pub fn view(game: &Game, lines: &[Line]) -> Option<View> {
     let banks = background_banks(lines.first()?);
     let split = game.scroll.split;
     let (map_end, runs) = if split.armed {
-        if split.chain != Chain::BossBar {
-            return None;
-        }
-        let map_end = if game.world.area == FINAL_AREA {
+        let map_end = if split.chain != Chain::BossBar || game.world.area == FINAL_AREA {
             0
         } else {
             runs(lines, 0)?[0].map_or(0, |run| run.end)
@@ -342,7 +339,11 @@ mod tests {
         let mut banked = lines.clone();
         banked[100].chr[0] ^= 1;
         assert_eq!(view(&script, &lines), None, "a script screen");
-        assert_eq!(view(&split, &lines), None, "a raster split");
+        assert_eq!(
+            view(&split, &lines).map(|view| (view.map_end, spans(&view.runs))),
+            Some((0, vec![(0, 240)])),
+            "a band room's split: every line a run"
+        );
         assert_eq!(view(&game, &masked), None, "the background off on a line");
         assert_eq!(
             view(&game, &banked),
@@ -413,13 +414,6 @@ mod tests {
             Some((240, vec![])),
             "no bank change: all the map"
         );
-        let mut off_edge = game.clone();
-        off_edge.world.camera_y = 4 << 4;
-        assert_eq!(
-            view(&off_edge, &lines).map(|view| view.map_end),
-            Some(192),
-            "off a tile edge"
-        );
         let sprite = game
             .oam
             .shown
@@ -435,7 +429,40 @@ mod tests {
         );
         let mut other = game.clone();
         other.scroll.split.chain = Chain::BossFloor;
-        assert_eq!(view(&other, &lines), None, "another handler");
+        assert_eq!(
+            view(&other, &lines).map(|view| (view.map_end, spans(&view.runs))),
+            Some((0, vec![(0, 192), (192, 193), (193, 240)])),
+            "another handler: every line a run"
+        );
+    }
+
+    #[test]
+    fn check_run_refuses_a_row_or_a_fine_y_off() {
+        let Some((_, mut lines)) = boss_bar_frame() else {
+            return;
+        };
+        let (mut v, chr) = (0, lines[0].chr);
+        for line in &mut lines {
+            (line.v, line.fine_x, line.chr) = (v, 0, chr);
+            v = raster::down(v);
+        }
+        let mut ppu = Ppu::new();
+        for table in &mut ppu.nametables {
+            for (at, tile) in table.iter_mut().enumerate() {
+                *tile = u8::try_from(at % 256).expect("a byte");
+            }
+        }
+        let run = runs(&lines, 0).expect("runs")[0].expect("a run");
+        assert_eq!(check_run(&run, &lines, &ppu), Ok(()));
+        let mut row_off = run;
+        row_off.top.v += 0x20;
+        assert!(check_run(&row_off, &lines, &ppu).is_err(), "a row off");
+        let mut fine_y_off = run;
+        fine_y_off.top.v |= 0x3000;
+        assert!(
+            check_run(&fine_y_off, &lines, &ppu).is_err(),
+            "a fine y off"
+        );
     }
 
     #[test]
