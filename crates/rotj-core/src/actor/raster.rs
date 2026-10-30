@@ -167,11 +167,11 @@ fn handler(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32> {
 
 /// `$D3 = 0`, bank 14 `$DE89`: two bands, then the parallax the next frame's top shows.
 fn two_bands(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32> {
-    let [playfield, band, top, backward, ..] = &mut scroll.bands;
+    let [playfield, middle, top, backward, ..] = &mut scroll.bands;
     match scroll.split.next_irq {
         0 => {
-            irq.scroll(SCROLL, *band);
-            step(band, 2, scroll.gate);
+            irq.scroll(SCROLL, *middle);
+            step(middle, 2, scroll.gate);
             scroll.split.next_irq = 1;
             Some(next(0x1300, 180))
         }
@@ -227,11 +227,11 @@ fn three_bands(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32>
 
 /// `$D3 = 3`, `$DFDE`: the stage 1 boss: a band, the floor, the status bar's banks.
 fn boss_floor(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32> {
-    let [top, band, _, backward, ..] = &mut scroll.bands;
+    let [top, middle, _, backward, ..] = &mut scroll.bands;
     match scroll.split.next_irq {
         0 => {
-            irq.scroll(SCROLL, *band);
-            step(band, 4, scroll.gate);
+            irq.scroll(SCROLL, *middle);
+            step(middle, 4, scroll.gate);
             scroll.split.next_irq = 1;
             Some(next(0x1400, 180))
         }
@@ -403,7 +403,7 @@ fn cutscene(scroll: &mut Scroll, irq: &mut Irq<'_>) -> Option<u32> {
 }
 
 /// `$D3 = $0D`, bank 2 `$9831`: the credits' parallax (`$985B`): three 8.8 x positions
-/// moving 1/2, 1 and 1/4 px a frame, the top band and `$FD` the first's.
+/// moving 1/2, 1 and 1/4 px a frame, the first the top band's x and `$FD`'s.
 fn credits(scroll: &mut Scroll, irq: &mut Irq<'_>) -> Option<u32> {
     let [
         half_fraction,

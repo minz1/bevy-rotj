@@ -59,7 +59,7 @@ phases! {
         ThreeBands = 1,
         /// The bottom from nametable row `$2680` (area `$12`).
         FixedRow = 2,
-        /// The stage 1 boss: a band, the floor, the status bar's banks (`$DFDE`, area `$04`).
+        /// The stage 1 boss: a band, the floor, the status bar's banks (`$DFDE`, areas `$00`, `$04`).
         BossFloor = 3,
         /// The boss bar's CHR banks (areas `$0E`, `$14`, `$1E`, `$22`).
         BossBar = 4,
@@ -67,7 +67,7 @@ phases! {
         FourBands = 5,
         /// The bottom from nametable row `$2620`, its y swinging (`$E0EA`, area `$0C`).
         SwingingRow = 6,
-        /// [`Chain::FourBands`] with a shorter first band and a taller second (`$E163`, area `$18`).
+        /// [`Chain::FourBands`] with a shorter top and inner band, a taller middle (`$E163`, area `$18`).
         FourBandsTall = 7,
         /// The top at x 0, the rest the playfield (area `$1C`).
         FixedTop = 8,

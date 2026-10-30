@@ -365,7 +365,8 @@ impl Ending {
             }
             Row::Split => {
                 game.scroll.split.chain = Chain::EndingTitle;
-                game.scroll.bands[0] = 0;
+                let [title_x, ..] = &mut game.scroll.bands;
+                *title_x = 0;
                 arm_split(&mut game.scroll.split, 0x1E00);
             }
             Row::Parallax => {
