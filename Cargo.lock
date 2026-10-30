@@ -459,7 +459,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "batman-rotj"
-version = "1.1.50"
+version = "1.1.51"
 dependencies = [
  "bevy",
  "image",
@@ -4861,7 +4861,7 @@ dependencies = [
 
 [[package]]
 name = "rotj-apu"
-version = "1.1.50"
+version = "1.1.51"
 dependencies = [
  "rotj-oracle",
  "rotj-rom",
@@ -4870,7 +4870,7 @@ dependencies = [
 
 [[package]]
 name = "rotj-core"
-version = "1.1.50"
+version = "1.1.51"
 dependencies = [
  "flate2",
  "rotj-oracle",
@@ -4882,7 +4882,7 @@ dependencies = [
 
 [[package]]
 name = "rotj-music"
-version = "1.1.50"
+version = "1.1.51"
 dependencies = [
  "rotj-apu",
  "rotj-core",
@@ -4892,7 +4892,7 @@ dependencies = [
 
 [[package]]
 name = "rotj-oracle"
-version = "1.1.50"
+version = "1.1.51"
 dependencies = [
  "rotj-core",
  "rotj-music",
@@ -4901,11 +4901,11 @@ dependencies = [
 
 [[package]]
 name = "rotj-rom"
-version = "1.1.50"
+version = "1.1.51"
 
 [[package]]
 name = "rotj-tools"
-version = "1.1.50"
+version = "1.1.51"
 dependencies = [
  "clap",
  "color-eyre",
@@ -4917,7 +4917,7 @@ dependencies = [
 
 [[package]]
 name = "rotj-verify"
-version = "1.1.50"
+version = "1.1.51"
 dependencies = [
  "clap",
  "color-eyre",

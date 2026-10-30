@@ -247,6 +247,9 @@ Each commit is green on the Classic suites. Commits 2-4 also replay the chain ta
 
 ## Open questions
 
+Answered by the owner 2026-10-29: 1 refuse, naming the room and the page; 3 yes, the optional
+property; 4 the stand-in approves the refusals. Recorded in STATUS, "Owner decisions made".
+
 1. Short streams in user packs (release 5): a pack whose stream is shorter than the pages its
    rooms show inherits the NES leftover-map behaviour, where the previous area's `$7000` image
    shows through. Should `classic` validation refuse such streams, or should the format define

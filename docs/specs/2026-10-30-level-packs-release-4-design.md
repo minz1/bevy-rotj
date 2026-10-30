@@ -1,6 +1,6 @@
 # Level packs release 4: the tileset generator and the Tiled project file
 
-Status: implemented on autopilot/2026-10-29-6. The original pack does have `no_handler` objects
+Status: implemented in 1.1.51. The original pack does have `no_handler` objects
 (only `Source::Original` keeps them), so `no_handler` and its `no_handler_variant` enum are declared
 only when the levels use it (stand-in, 2026-10-30); the coverage test's undeclared set is empty.
 Approved by the Opus stand-in (L3, 2026-10-30) after the reviewer's pass. Changes from the

@@ -151,15 +151,23 @@ my-world/                       the pack, what people share
    unchanged. Implemented in 1.1.44 (`docs/specs/2026-10-24-level-packs-release-3-design.md`):
    the pack plus a ROM overlay of the 225 schedule cells and the one room mirroring the format
    drops; `bevy_asset_loader` moves to release 6.
-4. The tileset generator (PNGs from the player's ROM) and the Tiled project file.
-5. `classic` validation and custom metatiles.
-6. Playing a pack: a `--pack <dir>` launch flag first; the stage-settings panel, the menu and the
-   overworld come with the editor and the overworld work.
+4. The tileset generator (PNGs from the player's ROM) and the Tiled project file. Implemented in
+   1.1.51 (`docs/specs/2026-10-30-level-packs-release-4-design.md`): the tilesets go in the folder
+   the settings file lives in (owner, 2026-10-29).
+5. `classic` validation and custom metatiles. Owner, 2026-10-29: validation refuses a room that
+   shows pages past its stage's stream, naming the room and the page.
+6. Playing a pack: `--pack <dir>` and dropping a pack folder or its `pack.json` onto the exe, like
+   the ROM (owner, 2026-10-29); `--pack` refuses by name a pack with too few stages or rooms or a
+   bad extra password. The optional room `mirroring` property (absent = derived, `format` stays
+   1) lets the pack carry 1-1-2's start, and `Levels::original` drops that part of its overlay.
+   Which area-keyed ROM tables follow `stage.area` is the stand-in's call. The stage-settings
+   panel, the menu and the overworld come with the editor and the overworld work.
 
 ## Not here
 
 The Modern engine; the in-game editor itself; the overworld menu; art beyond the game's CHR;
-typed per-family actor properties (a later format version).
+typed per-family actor properties (a later format version); a "Load pack" menu entry (owner,
+2026-10-29: later, with the editor and the overworld).
 
 ## Release 1: what the approved schema can't carry (survey, 2026-10-18)
 
