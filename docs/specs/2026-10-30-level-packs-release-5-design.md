@@ -96,6 +96,10 @@ appended), so the equivalence and round-trip tests prove it on all 38 rooms.
   `cell_painter`'s `$60` and the stomper's rubble table (bank 8 `$8AE9`). In a stage that
   appends metatiles, such an id at or past the stage area's count draws the appended metatile
   there. Crumbling and collapsing write 0 and breakable blocks copy cells, so they are right.
+- **Stated limit**: every room needs every slot a stage-area corner uses, and 14 of the 18
+  original areas use all four, so in those stages an appended metatile must use banks already at
+  the same slots. Mixing in real areas or custom metatiles on new banks mostly works only in
+  2-2, 4-1, 4-3 and 5-2 and in user stages built on few slots.
 - The exporter writes the original game only: `write` refuses (returns `None`, its panic doc
   updated) a stage whose terrain is not its catalog area's (the editor saves the files it loaded).
 
