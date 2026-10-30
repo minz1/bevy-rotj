@@ -259,7 +259,7 @@ New candidates, each to be classified (state, flags, table index) before it chan
   (done in 1.1.37: `Map::render_nametable`).
 - Released as 1.1.14: Phase C's C3, the `Modern` picture (`app/src/modern.rs`, `actor::modern`).
   Next for it, each its own release: the `$D3` 4 boss rooms (the bar as a strip layer), then the
-  band rooms.
+  band rooms (done in 1.1.41, 1.1.42 and 1.1.49).
 - **Resolved (2026-10-17):** `stun`'s `held = (attack & $80) << 1` was always 0, and so
   is the ROM's (`$92E8`: `AND #$80`, `ASL`, `STA $047F`, `STA $0470`); the port now writes
   the zeros plainly.
@@ -343,7 +343,10 @@ To do, in the survey loop's order after #1-#3 above, level packs release 1 along
 - **#5 the Modern picture's reach**: the `$D3` 4 boss rooms next, then the band rooms, each proven
   by the background gate and the headless pixel comparison with Classic; Classic's own picture
   stays the software `Frame`, the exact NES picture and the reference. (`$D3` 4 done in 1.1.41 for
-  three of the four rooms; the final boss's room in 1.1.42, read from the nametables.)
+  three of the four rooms; the final boss's room in 1.1.42, read from the nametables; the band
+  rooms and the `$D3` 3 boss floor in 1.1.49, every split frame as line runs from the nametables.
+  Left for 1.2.0: the band rooms' playfield from the map, the prerequisite for widescreen; the
+  per-chain list is in the 1.1.49 spec's "Not here".)
 - **`LevelMap` folded into `Map`**; **the test harness's chain counts as a named struct** (and
   `TapePlayer::injected` gone) (both done in 1.1.37; `injected` stays with an empty default);
   **Modern's tilemap computed only when `picture: Modern`** (kept: the paused menu's MODERN reads it).

@@ -1,6 +1,7 @@
 # Modern's band rooms and the boss floor: every split frame as line runs
 
-Status: approved with changes by the owner-proxy (L3) and the reviewer, 2026-10-30. HANDOFF
+Status: approved with changes by the owner-proxy (L3) and the reviewer, 2026-10-30. Implemented
+in 1.1.49. HANDOFF
 roadmap 3 (item 21), owner review #5 (`docs/MODERNIZE.md`, "the Modern picture's reach"): the rest
 of the split rooms, `$D3` 3 (the boss floor) and the band rooms (`$D3` 0, 1, 2, 5-8), proven by
 the background gate and the headless pixel comparison with Classic. Builds on
