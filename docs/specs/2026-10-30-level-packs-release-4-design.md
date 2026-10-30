@@ -1,14 +1,14 @@
 # Level packs release 4: the tileset generator and the Tiled project file
 
-Status: implemented on autopilot/2026-10-29-6. One forced deviation: the original pack does have
-`no_handler` objects (only `Source::Original` keeps them), so the coverage test pins its undeclared
-set to exactly `class no_handler` rather than empty; any other undeclared class or value fails it.
+Status: implemented on autopilot/2026-10-29-6. The original pack does have `no_handler` objects
+(only `Source::Original` keeps them), so `no_handler` and its `no_handler_variant` enum are declared
+only when the levels use it (stand-in, 2026-10-30); the coverage test's undeclared set is empty.
 Approved by the Opus stand-in (L3, 2026-10-30) after the reviewer's pass. Changes from the
 draft: the startup writer rewrites stale files too (stand-in 1a); the tilesets have 256 tiles
 (release 1's rule); no per-tile `surface` (stand-in 6: the approved format gives that name to
 custom metatiles' `Surface`); a missing `variant` imports as the family's first kind (stand-in A);
 each tileset carries its banks as `chr` (stand-in B, release 1's promise); the project file is
-built in `write` from the levels; `no_handler` gets no class. Follows
+built in `write` from the levels; `no_handler` is declared only when the levels use it. Follows
 `docs/specs/2026-10-18-level-packs-design.md` ("Releases, in order" 4) and the owner's 2026-10-29
 decisions (HANDOFF.md): generated tilesets go in the same local data folder as the settings file.
 
@@ -54,6 +54,8 @@ round-trips.
   - The game, at startup, writes each file into `<data>/tilesets/` when it is missing or its bytes
     differ from what the generator makes now (measure first: generation plus compare stays
     synchronous if it costs a few ms). A failure is logged and ignored; the game never reads them.
+    Measured: about 30 ms in release (0.10 s on a cold first run) for generation, PNG encoding and
+    writing all 54 files, timed as the whole `rotj-tools tilesets` process; it stays synchronous.
 
 ## The project file
 
@@ -66,13 +68,13 @@ round-trips.
     (`standard`, `none`), `scroll` (`horizontal`, `vertical`), `background_palette` and
     `sprite_palette` (the `bg-xx` and `sprites-xx` selectors the levels' rooms use, ascending), and
     one `<class>_variant` per family with more than one kind (its variant names, as `class_of`
-    writes them).
+    writes them; `no_handler_variant` only with the `no_handler` class).
   - One class per actor family (`type: "class"`, `useAs: ["object"]`) as `classes()` names them,
-    `no_handler` left out (the importer refuses it in a pack). Members: the spawn record's int
-    fields (`behaviour`, `chr_slot`, `contact`, `flags`, `health`, `state`, `subtype`, default 0,
-    the importer's missing-int rule), `triggers` (an int list, default empty), and `variant` (its
-    enum, default the family's first kind, the importer's missing-variant rule) where the family
-    has one. Classes for the markers: `player-start` (`facing`, `scroll_mode`, `scroll_lock`),
+    `no_handler` declared only when the levels use it (the importer refuses it in a user pack).
+    Members: the spawn record's int fields (`behaviour`, `chr_slot`, `contact`, `flags`, `health`,
+    `state`, `subtype`, default 0, the importer's missing-int rule), `triggers` (an int list,
+    default empty), and `variant` (its enum, default the family's first kind, the importer's
+    missing-variant rule) where the family has one. Classes for the markers: `player-start` (`facing`, `scroll_mode`, `scroll_lock`),
     `camera-start` (none) and `scroll-lock` (`locks`). Members use Tiled's `propertyType` key.
 - `rotj-tools export-levels`' help says the pack belongs in `<data>/packs/<pack>/` for the
   tileset paths to resolve.
@@ -83,7 +85,7 @@ round-trips.
   - the original pack exports byte-exact and round-trips, now with the project file (41 files;
     the save-back loop checks it as JSON);
   - every exported room's `propertytype`s and object classes are declared in the project file
-    with the value used (so a `no_handler` object would fail it);
+    with the value used (the original pack's `no_handler` objects included);
   - a multi-kind object without `variant` imports as the family's first kind;
   - the tilesets: 27 names equal the catalog's, every picture 256x256, an FNV-1a digest of the 27
     pictures pinned, and one tile of a room with an animated bank equals the game's own state

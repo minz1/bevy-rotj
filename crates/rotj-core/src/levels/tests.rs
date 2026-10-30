@@ -829,6 +829,17 @@ fn the_project_file_declares_every_class_and_value_the_rooms_use() {
     let catalog = Catalog::from_levels(&levels);
     let mut files = write(&levels, &catalog);
     assert_eq!(undeclared(&files), BTreeSet::new());
+    let names_no_handler = |files: &PackFiles| {
+        let project: serde_json::Value =
+            serde_json::from_str(&files["rotj.tiled-project"]).expect("the project file");
+        project["propertyTypes"]
+            .as_array()
+            .expect("property types")
+            .iter()
+            .filter(|t| t["name"] == "no_handler" || t["name"] == "no_handler_variant")
+            .count()
+    };
+    assert_eq!(names_no_handler(&files), 0);
     let mut map: Map = serde_json::from_str(&files[ROOM_B]).expect("room B");
     let object = &mut objects(&mut map, 1)[0];
     object.kind = "no_handler".into();
@@ -859,10 +870,8 @@ fn the_project_file_declares_every_class_and_value_the_rooms_use() {
         return;
     };
     let files = export(&rom.prg, &rom.chr).expect("the ROM exports");
-    assert_eq!(
-        undeclared(&files),
-        BTreeSet::from(["class no_handler".into()])
-    );
+    assert_eq!(undeclared(&files), BTreeSet::new());
+    assert_eq!(names_no_handler(&files), 2);
 }
 
 #[test]

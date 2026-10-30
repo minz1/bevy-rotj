@@ -49,23 +49,27 @@ mod tests {
         };
         let dir = std::env::temp_dir().join(format!("rotj-tilesets-app-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        write(&dir, &rom.prg, &rom.chr).expect("writes");
+        let first = write(&dir, &rom.prg, &rom.chr);
         let folder = dir.join("tilesets");
-        assert_eq!(fs::read_dir(&folder).expect("the folder").count(), 54);
+        let count = fs::read_dir(&folder).map(Iterator::count);
         let (stale, equal) = (folder.join("area-01.tsj"), folder.join("area-01.png"));
-        let fresh = fs::read(&stale).expect("area-01.tsj");
-        fs::write(&stale, "stale").expect("write");
+        let fresh = fs::read(&stale);
+        let spoiled = fs::write(&stale, "stale");
         let long_ago = SystemTime::UNIX_EPOCH + Duration::from_hours(24);
-        fs::File::options()
+        let aged = fs::File::options()
             .write(true)
             .open(&equal)
-            .and_then(|file| file.set_modified(long_ago))
-            .expect("set the time");
-        write(&dir, &rom.prg, &rom.chr).expect("writes");
+            .and_then(|file| file.set_modified(long_ago));
+        let second = write(&dir, &rom.prg, &rom.chr);
         let modified = fs::metadata(&equal).and_then(|meta| meta.modified());
-        let rewritten = fs::read(&stale).expect("area-01.tsj");
+        let rewritten = fs::read(&stale);
         fs::remove_dir_all(&dir).expect("removes the folder");
-        assert!(rewritten == fresh, "the stale file is rewritten");
+        first.and(spoiled).and(aged).and(second).expect("writes");
+        assert_eq!(count.expect("the folder"), 54);
+        assert!(
+            rewritten.expect("area-01.tsj") == fresh.expect("area-01.tsj"),
+            "the stale file is rewritten"
+        );
         assert_eq!(
             modified.expect("a time"),
             long_ago,

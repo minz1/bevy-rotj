@@ -132,6 +132,7 @@ pub fn write(levels: &Levels, catalog: &Catalog) -> PackFiles {
     let mut files = PackFiles::new();
     let mut world = Vec::new();
     let mut stages = Vec::new();
+    let mut uses_no_handler = false;
     for (row, stage) in (0i64..).zip(&levels.stages) {
         let descriptor = &stage.stage.descriptor;
         let names: Vec<String> = (1..=stage.rooms.len())
@@ -142,6 +143,11 @@ pub fn write(levels: &Levels, catalog: &Catalog) -> PackFiles {
         for (index, name) in names.iter().enumerate() {
             let map = room_map(stage, &pages, index, catalog);
             let (width, height) = (map.width * 16, map.height * 16);
+            uses_no_handler |= map
+                .layers
+                .iter()
+                .flat_map(|layer| layer.objects.iter().flatten())
+                .any(|object| object.kind == NO_HANDLER.0);
             files.insert(name.clone(), to_text(&map));
             world.push(WorldMap {
                 file_name: name.clone(),
@@ -212,13 +218,16 @@ pub fn write(levels: &Levels, catalog: &Catalog) -> PackFiles {
         extra: Extra::new(),
     };
     files.insert("world.world".into(), to_text(&world));
-    files.insert("rotj.tiled-project".into(), to_text(&project(levels)));
+    files.insert(
+        "rotj.tiled-project".into(),
+        to_text(&project(levels, uses_no_handler)),
+    );
     files
 }
 
 /// The Tiled project file: the tileset folder, an enum per `propertytype` the rooms name and
-/// a class per actor family and marker.
-fn project(levels: &Levels) -> Value {
+/// a class per actor family and marker, `no_handler` only where the rooms have one.
+fn project(levels: &Levels, uses_no_handler: bool) -> Value {
     let rooms: Vec<&Room> = levels
         .stages
         .iter()
@@ -250,15 +259,15 @@ fn project(levels: &Levels) -> Value {
             selectors("sprites-", |room| room.sprite_palette),
         ),
     ];
-    let families: Vec<(&str, &[u8])> = classes(false).chain(classes(true)).collect();
+    let families: Vec<(&str, &[u8])> = classes(false)
+        .chain(classes(true))
+        .filter(|&(family, _)| uses_no_handler || family != NO_HANDLER.0)
+        .collect();
     for &(family, kinds) in families.iter().filter(|(_, kinds)| kinds.len() > 1) {
         let variants = kinds.iter().copied().map(variant_name).collect();
         types.push(enumeration(&format!("{family}_variant"), variants));
     }
-    for &(family, kinds) in families
-        .iter()
-        .filter(|(family, _)| *family != NO_HANDLER.0)
-    {
+    for &(family, kinds) in &families {
         let mut members: Vec<Value> = [
             "behaviour",
             "chr_slot",
