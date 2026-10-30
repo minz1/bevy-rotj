@@ -1,26 +1,28 @@
 //! Handler families: one module per handler, and the arms that dispatch to them.
 
-/// A family's phases (`$7DD0`) as an enum whose discriminants are the bytes the game stores,
-/// with `byte`, `from_byte` and a test that the two round-trip exactly on those bytes.
+/// A phase byte as an enum whose discriminants are the bytes the game stores, with `byte`,
+/// `from_byte` and a test that the two round-trip exactly on those bytes. A family's phases
+/// (`$7DD0`) name only the enum; elsewhere the invocation names its visibility, the byte's
+/// address and the test.
 macro_rules! phases {
-    ($(#[$meta:meta])* $name:ident {
+    ($(#[$meta:meta])* $vis:vis $name:ident at $addr:literal, $test:ident {
         $($(#[$variant_meta:meta])* $variant:ident = $byte:literal),+ $(,)?
     }) => {
         $(#[$meta])*
         #[repr(u8)]
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        pub enum $name {
+        $vis enum $name {
             $($(#[$variant_meta])* $variant = $byte),+
         }
 
         impl $name {
-            /// The byte `$7DD0` holds.
+            #[doc = concat!("The byte `", $addr, "` holds.")]
             #[must_use]
             pub const fn byte(self) -> u8 {
                 self as u8
             }
 
-            /// The phase a `$7DD0` byte holds, if it is one.
+            #[doc = concat!("The phase a `", $addr, "` byte holds, if it is one.")]
             #[must_use]
             pub const fn from_byte(byte: u8) -> Option<$name> {
                 match byte {
@@ -32,14 +34,18 @@ macro_rules! phases {
 
         #[cfg(test)]
         #[test]
-        fn phase_bytes_round_trip() {
+        fn $test() {
             for byte in 0..=u8::MAX {
                 let declared = [$($byte),+].contains(&byte);
                 assert_eq!($name::from_byte(byte).map($name::byte), declared.then_some(byte));
             }
         }
     };
+    ($(#[$meta:meta])* $name:ident { $($variants:tt)+ }) => {
+        phases! { $(#[$meta])* pub $name at "$7DD0", phase_bytes_round_trip { $($variants)+ } }
+    };
 }
+pub(crate) use phases;
 
 pub mod ace_ranger;
 pub mod ace_ranger_shot;

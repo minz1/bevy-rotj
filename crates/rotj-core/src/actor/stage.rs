@@ -4,6 +4,7 @@
 use super::Game;
 use super::cutscene::Cutscene;
 use super::engine::{draw, rom_byte, rom_word};
+use super::families::phases;
 use super::room;
 use super::script::{Flow, Runner, wait};
 use super::world::{
@@ -145,41 +146,19 @@ pub struct StageEnd {
     pub fade: u8,
 }
 
-/// The stage-end script's phases (`$0408`), the index into `$940C`'s table.
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EndPhase {
-    /// Play goes on until Batman reaches the stage's end.
-    Approaching = 0,
-    /// The pad is held right until he walks off at `$2740`.
-    WalkingOff = 1,
-    /// The departing sprite moves up and left for `$80` frames.
-    Departing = 2,
-    /// The sprite's colours step through `$95B9`, held until frame `$60`.
-    Recolouring = 3,
-    /// The music and then the palette fade out, and the stage ends.
-    FadingOut = 4,
-}
-
-impl EndPhase {
-    const ALL: [EndPhase; 5] = [
-        EndPhase::Approaching,
-        EndPhase::WalkingOff,
-        EndPhase::Departing,
-        EndPhase::Recolouring,
-        EndPhase::FadingOut,
-    ];
-
-    /// The byte `$0408` holds.
-    #[must_use]
-    pub const fn byte(self) -> u8 {
-        self as u8
-    }
-
-    /// The phase a `$0408` byte holds, if it is one.
-    #[must_use]
-    pub fn from_byte(byte: u8) -> Option<EndPhase> {
-        EndPhase::ALL.get(usize::from(byte)).copied()
+phases! {
+    /// The stage-end script's phases (`$0408`), the index into `$940C`'s table.
+    pub EndPhase at "$0408", end_phase_bytes_round_trip {
+        /// Play goes on until Batman reaches the stage's end.
+        Approaching = 0,
+        /// The pad is held right until he walks off at `$2740`.
+        WalkingOff = 1,
+        /// The departing sprite moves up and left for `$80` frames.
+        Departing = 2,
+        /// The sprite's colours step through `$95B9`, held until frame `$60`.
+        Recolouring = 3,
+        /// The music and then the palette fade out, and the stage ends.
+        FadingOut = 4,
     }
 }
 
@@ -872,29 +851,15 @@ enum Intro {
     Done,
 }
 
-/// The boss card's phases (`$12`), the index into `$BC9A`.
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Card {
-    /// Sliding in from the right.
-    Sliding = 0,
-    /// Held still while the cap counts down.
-    Holding = 1,
-    /// Fading to white; the room loads once it has run.
-    FadingToWhite = 2,
-}
-
-impl Card {
-    const ALL: [Card; 3] = [Card::Sliding, Card::Holding, Card::FadingToWhite];
-
-    /// The byte `$12` holds.
-    const fn byte(self) -> u8 {
-        self as u8
-    }
-
-    /// The phase a `$12` byte holds, if it is one.
-    fn from_byte(byte: u8) -> Option<Card> {
-        Card::ALL.get(usize::from(byte)).copied()
+phases! {
+    /// The boss card's phases (`$12`), the index into `$BC9A`.
+    Card at "$12", card_bytes_round_trip {
+        /// Sliding in from the right.
+        Sliding = 0,
+        /// Held still while the cap counts down.
+        Holding = 1,
+        /// Fading to white; the room loads once it has run.
+        FadingToWhite = 2,
     }
 }
 
@@ -1230,33 +1195,15 @@ enum Countdown {
     Leave,
 }
 
-/// The countdown digit's phases (`$10`), the index into `$9254`.
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DigitPhase {
-    /// The digit holds for its timer.
-    Holding = 0,
-    /// The digit splits away.
-    Splitting = 1,
-    /// The next digit closes in.
-    Closing = 2,
-}
-
-impl DigitPhase {
-    const ALL: [DigitPhase; 3] = [
-        DigitPhase::Holding,
-        DigitPhase::Splitting,
-        DigitPhase::Closing,
-    ];
-
-    /// The byte `$10` holds.
-    const fn byte(self) -> u8 {
-        self as u8
-    }
-
-    /// The phase a `$10` byte holds, if it is one.
-    fn from_byte(byte: u8) -> Option<DigitPhase> {
-        DigitPhase::ALL.get(usize::from(byte)).copied()
+phases! {
+    /// The countdown digit's phases (`$10`), the index into `$9254`.
+    DigitPhase at "$10", digit_phase_bytes_round_trip {
+        /// The digit holds for its timer.
+        Holding = 0,
+        /// The digit splits away.
+        Splitting = 1,
+        /// The next digit closes in.
+        Closing = 2,
     }
 }
 
@@ -1559,34 +1506,7 @@ impl Continue {
 #[cfg(test)]
 mod tests {
     use super::super::oracle::Scene;
-    use super::{Card, DigitPhase, EndPhase, NextArea};
-
-    #[test]
-    fn digit_phase_bytes_round_trip() {
-        for byte in 0..=2 {
-            let phase = DigitPhase::from_byte(byte).expect("a digit phase");
-            assert_eq!(phase.byte(), byte);
-        }
-        assert!((3..=255).all(|byte| DigitPhase::from_byte(byte).is_none()));
-    }
-
-    #[test]
-    fn card_bytes_round_trip() {
-        for byte in 0..=2 {
-            let card = Card::from_byte(byte).expect("a card phase");
-            assert_eq!(card.byte(), byte);
-        }
-        assert!((3..=255).all(|byte| Card::from_byte(byte).is_none()));
-    }
-
-    #[test]
-    fn end_phase_bytes_round_trip() {
-        for byte in 0..=4 {
-            let phase = EndPhase::from_byte(byte).expect("a stage-end phase");
-            assert_eq!(phase.byte(), byte);
-        }
-        assert!((5..=255).all(|byte| EndPhase::from_byte(byte).is_none()));
-    }
+    use super::NextArea;
 
     fn load_frames(pressed: u8) -> usize {
         let Some(scene) = Scene::tas(350) else {
