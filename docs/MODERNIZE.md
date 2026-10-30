@@ -327,7 +327,8 @@ harness and app leftovers, done in 1.1.37; #1, child and shot spawning written o
 PPU addresses (`render::ppu`), #6 the stage, boss card, continue and entry steps as enums, #12 and
 #13 the projectile's bytes and the homing shot's last address reads, #14 the families' mask
 bytes and #15 the sound requests as `SoundId`, done in 1.1.46. Still open: #7 the raster chain
-and #17 the music driver (the owner's call).
+and #17 the music driver (the owner's call). The cloud batch's follow-ups (the phase enums on an
+exported `phases!`, the word-maths tests on production code, two ROM-checked docs), done in 1.1.47.
 
 ### The owner's review of the passed-on candidates (2026-10-18)
 
