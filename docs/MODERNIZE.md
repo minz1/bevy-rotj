@@ -350,8 +350,29 @@ To do, in the survey loop's order after #1-#3 above, level packs release 1 along
 - **`LevelMap` folded into `Map`**; **the test harness's chain counts as a named struct** (and
   `TapePlayer::injected` gone) (both done in 1.1.37; `injected` stays with an empty default);
   **Modern's tilemap computed only when `picture: Modern`** (kept: the paused menu's MODERN reads it).
-- **Modern's per-frame sprite and atlas churn**: measure on the headless render; reuse only if
-  it costs.
+- **Modern's per-frame sprite and atlas churn**: measured 2026-10-30 at 1.1.49 on the headless
+  render (llvmpipe software Vulkan, WSL2, 12 threads, release build, frames 30 on; 150-300 frames a
+  scene). Kept as it is: nothing it could save shows in the frame time.
+
+  | Scene | Classic ms | Modern ms | `draw` µs | tilesets/frame (µs) | atlases/frame (µs) | sprites | rebuild all, ms | no sprites, ms |
+  |---|---|---|---|---|---|---|---|---|
+  | stage 1-1 | 2.2 | 9.7 | 82 | 0.5 (49) | 0.23 (6) | 22 | 9.3 | 7.5 |
+  | `$0E` boss bar | 2.1 | 15.9 | 62 | 0 | 0.03 (0.5) | 38 | 16.6 | 11.9 |
+  | `$18` seven bands | 2.0 | 26.8 | 148 | 0 | 1.0 (27) | 25 | 27.0 | 21.1 |
+  | `$1C` fixed top | 2.3 | 18.2 | 226 | 1.5 (121) | 0.96 (29) | 40 | 18.4 | 15.0 |
+  | final boss | 2.4 | 17.2 | 126 | 0.37 (36) | 0.4 (11) | 35 | 17.0 | 14.4 |
+
+  The ms columns are `app.update()`'s mean, `Play::step` excluded, one run per mode (Classic,
+  which no mode touches, varies about 0.3 ms run to run). Rebuilding every piece's tilesets and
+  every sprite atlas every frame ("rebuild all", GPU re-upload included) moves it by under 0.7 ms,
+  and `draw` itself never passes 0.55 ms; so the reuse already there saves little and one shared
+  tileset map across pieces would save at most `$1C`'s 0.12 ms. Despawning and respawning 40
+  sprite entities parented to a kept entity costs 70 µs an update ECS-side on a bare app (no
+  render-world sync or extraction). Dropping the sprites altogether saves 2-6 ms; the slowest
+  scenes are the ones with the most piece cameras (up to nine, plus the backdrop's), so that and
+  Modern's gap over Classic look like per-camera render work, which pooling does not change (not
+  profiled). The scratch harness (counters in `draw`, a `ROTJ_CHURN` switch, the scenes of
+  `stage_1_and_a_boss_bar_render_modern`) is not kept; rerun it if a real GPU shows otherwise.
 - **Leads to probe**: `path_platform`'s and the splitter orbit's table sizes; later, the odd-energy HUD and the
   no-free-slot `$AC16` path. The aliased-byte write-back fix comes with level packs.
 - **The music driver** (owner, 2026-10-18): its commands as an enum, the APU registers named.
