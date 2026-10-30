@@ -21,7 +21,7 @@ const CHILD: u8 = 0x7E;
 const CHILD_Y: u16 = 0x0140;
 /// The child's `$7EE0` (`$92D6`).
 const CHILD_CONTACT: u8 = contact::SHIELDED | contact::SMITE_PROOF;
-/// The child's `$7D90` when the parent's has bit 7, with the player's side in bit 0 (`$9305`).
+/// The child's `$7D90` when the parent's has bit 7, with the player's side in bit 0 (`$9307`).
 const CHILD_BEHAVIOUR: u8 = 0x80;
 /// The parent's `$7D90` bit that recomputes the child's instead of copying it (`$92FC`).
 const AIMED: u8 = 0x80;
