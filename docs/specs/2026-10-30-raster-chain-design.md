@@ -6,7 +6,7 @@ names chosen by the implementation (stand-in [review]): `TwoBands`, `ThreeBands`
 `BossFloor`, `BossBar`, `FourBands`, `SwingingRow`, `FourBandsTall`, `FixedTop`, `Intro`,
 `Cutscene`, `Closing`, `EndingTitle`, `Credits`. Survey #7 (`.orchestration/survey2.md`),
 HANDOFF roadmap 2, before Modern's `$D3` 3 boss floor and band rooms (roadmap 3). No behaviour
-change: the lockstep proves it, tapes unchanged.
+change: the lockstep proves it, tapes unchanged. Implemented in 1.1.48.
 
 ## What is there
 
