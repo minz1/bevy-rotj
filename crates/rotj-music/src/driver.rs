@@ -42,8 +42,15 @@ const SWEEP_OFF: u8 = 0x08;
 const LENGTH_LOAD: u8 = 0x08;
 /// The tuning a song starts with (`$067D`); the period tables assume it.
 const IN_TUNE: u8 = 0x80;
-/// The envelope step `$ED`/`$F1` set: decay only, never jump to the release.
-const DECAY_ONLY: u8 = 0xFF;
+/// The volume register's constant-volume bit (`$4000` bit 4).
+const CONSTANT_VOLUME: u8 = 0x10;
+/// The volume register's level (on the triangle, low linear-counter bits).
+const LEVEL: u8 = 0x0F;
+/// Song table high-byte bit: the pair is a header pointer in the driver bank.
+const IN_DRIVER_BANK: u8 = 0x80;
+/// Song table high-byte bits that select the song bank: only these reach the FME-7 on a
+/// 128 KiB cart.
+const BANK_BITS: u8 = 0x0F;
 /// `$82C4`: the lowest opcode that acts when reached mid-note (`CMP #$F5`).
 const FIRST_MID_NOTE_OP: u8 = 0xF5;
 
@@ -104,6 +111,16 @@ const fn hi(word: u16) -> u8 {
 /// `word` with its low byte replaced.
 const fn with_lo(word: u16, low: u8) -> u16 {
     u16::from_le_bytes([low, hi(word)])
+}
+
+/// A sign-magnitude byte: bit 7 negates the low 7 bits.
+const fn signed(byte: u8) -> i8 {
+    let magnitude = (byte & 0x7F).cast_signed();
+    if byte & 0x80 == 0 {
+        magnitude
+    } else {
+        -magnitude
+    }
 }
 
 /// Whether a pointer is set: the driver marks an unset one by a zero high byte.
@@ -177,7 +194,7 @@ impl Voice {
         if matches!(self, Self::Triangle) {
             0x00
         } else {
-            0x10
+            CONSTANT_VOLUME
         }
     }
 }
@@ -291,10 +308,14 @@ impl Fade {
     fn scale(&self, voice: Voice, volume: u8) -> u8 {
         if voice == Voice::Triangle {
             if self.step >= 4 { 0x00 } else { volume }
-        } else if volume & 0x10 == 0 {
-            if self.step >= 5 { 0x10 } else { volume }
+        } else if volume & CONSTANT_VOLUME == 0 {
+            if self.step >= 5 {
+                CONSTANT_VOLUME
+            } else {
+                volume
+            }
         } else {
-            (volume & 0xF0) | (volume & 0x0F).saturating_sub(self.step)
+            (volume & !LEVEL) | (volume & LEVEL).saturating_sub(self.step)
         }
     }
 }
@@ -560,6 +581,28 @@ impl SfxCommand {
     }
 }
 
+/// `$0695`: where a channel's volume envelope is.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum EnvelopeStep {
+    /// The macro position, 1-`$7F`.
+    At(u8),
+    /// The macro ended (byte 0): the volume decays, and the release can still restart it.
+    #[default]
+    Decay,
+    /// Bit 7: decay, never jump to the release (`$ED`, the rest).
+    DecayOnly,
+}
+
+impl From<u8> for EnvelopeStep {
+    fn from(byte: u8) -> Self {
+        match byte {
+            0 => Self::Decay,
+            0x80.. => Self::DecayOnly,
+            position => Self::At(position),
+        }
+    }
+}
+
 /// One music channel: a column of the RAM arrays at `$0605` (stride 8).
 #[derive(Debug, Clone, Copy, Default)]
 struct Channel {
@@ -592,9 +635,8 @@ struct Channel {
     /// `$0685/$068D`: the volume-envelope macro; when unset, the low byte is a
     /// fixed volume.
     envelope: u16,
-    /// `$0695`: the envelope macro position; 0 once it ends and decays, bit 7
-    /// set to decay without the release jump.
-    envelope_step: u8,
+    /// `$0695`: the envelope macro position, or its decay.
+    envelope_step: EnvelopeStep,
     /// `$069D`: the volume register (`$4000`) value.
     volume: u8,
     /// `$06A5`: frames between decay steps.
@@ -649,14 +691,14 @@ impl Channel {
     /// `$829B`: mid-note, start the release once the note is down to
     /// [`Self::release_at`] frames.
     fn hold(&mut self, banks: &Banks, flags: u8) -> Step {
-        let releasing = self.envelope_step & 0x80 == 0
+        let releasing = self.envelope_step != EnvelopeStep::DecayOnly
             && self.release_at == self.duration
             && flags & flag::TIE == 0
             && is_set(self.envelope);
         if !releasing {
             return Step::MidNote;
         }
-        self.envelope_step = banks.byte(self.envelope);
+        self.envelope_step = EnvelopeStep::from(banks.byte(self.envelope));
         Step::Pitch
     }
 
@@ -694,7 +736,7 @@ impl Channel {
     fn key_on(&mut self) {
         self.pitch_step = 0;
         self.pitch_wait = self.pitch_delay;
-        self.envelope_step = 1;
+        self.envelope_step = EnvelopeStep::At(1);
         self.volume = lo(self.envelope);
     }
 
@@ -711,7 +753,7 @@ impl Channel {
             self.period = banks.period(banks.driver_byte(at + 3)).wrapping_add(0x80);
             self.release_at = 0;
             self.release_frames = 0;
-            self.envelope_step = 1;
+            self.envelope_step = EnvelopeStep::At(1);
             frame.flags &= !flag::PERIOD_MACRO;
             frame.offset = u16::from(offset) + 1;
             self.start_note(&mut frame.flags);
@@ -789,7 +831,7 @@ impl Channel {
             Command::Retrigger => frame.flags |= flag::RETRIGGER | flag::TIE,
             Command::Envelope(table) => {
                 self.envelope = table;
-                self.envelope_step = 1;
+                self.envelope_step = EnvelopeStep::At(1);
             }
             Command::PitchMacro(fixed) => {
                 frame.flags &= !flag::PERIOD_MACRO;
@@ -798,12 +840,12 @@ impl Channel {
             Command::FixedVolume(volume) => {
                 self.volume = volume;
                 self.envelope = u16::from(volume);
-                self.envelope_step = 0;
+                self.envelope_step = EnvelopeStep::Decay;
             }
             Command::Decay(period) => {
                 self.decay_period = period;
                 self.decay_timer = period;
-                self.envelope_step = DECAY_ONLY;
+                self.envelope_step = EnvelopeStep::DecayOnly;
                 return Step::LatchDuration;
             }
             Command::ReleaseAt(frames) => {
@@ -819,7 +861,7 @@ impl Channel {
                 return Step::Stop;
             }
             Command::Rest => {
-                self.envelope_step = DECAY_ONLY;
+                self.envelope_step = EnvelopeStep::DecayOnly;
                 self.volume = self.voice.silent_volume();
                 return Step::LatchDuration;
             }
@@ -924,12 +966,8 @@ impl Channel {
             let at = self.pitch_macro + u16::from(position);
             match banks.byte(at) {
                 0x80 => position = banks.byte(at + 1),
-                up @ 0x00..=0x7F => {
-                    moved = period_lo.saturating_add(up);
-                    break;
-                }
-                down => {
-                    moved = period_lo.saturating_sub(down & 0x7F);
+                offset => {
+                    moved = period_lo.saturating_add_signed(signed(offset));
                     break;
                 }
             }
@@ -941,12 +979,9 @@ impl Channel {
     /// `$8394`: the triangle slide: bit 7 of the amount slides down. Crossing a
     /// period-high boundary flags `$4003` for rewriting.
     fn slide(&mut self, flags: &mut u8) {
-        let amount = lo(self.pitch_macro);
-        let slid = if amount & 0x80 == 0 {
-            self.period.wrapping_add(u16::from(amount))
-        } else {
-            self.period.wrapping_sub(u16::from(amount & 0x7F))
-        };
+        let slid = self
+            .period
+            .wrapping_add_signed(i16::from(signed(lo(self.pitch_macro))));
         if hi(slid) != hi(self.period) {
             *flags |= flag::RETRIGGER;
         }
@@ -959,10 +994,8 @@ impl Channel {
         if !is_set(self.envelope) {
             return;
         }
-        let step = self.envelope_step;
-        if step != 0
-            && step & 0x80 == 0
-            && let Some(volume) = self.envelope_macro(banks)
+        if let EnvelopeStep::At(position) = self.envelope_step
+            && let Some(volume) = self.envelope_macro(banks, position)
         {
             self.volume = volume;
             return;
@@ -972,20 +1005,19 @@ impl Channel {
 
     /// An envelope macro: nonzero bytes are volume values; a 0 is followed by
     /// either a jump position or, with bit 7, the end and its decay period.
-    fn envelope_macro(&mut self, banks: &Banks) -> Option<u8> {
-        let mut position = self.envelope_step;
+    fn envelope_macro(&mut self, banks: &Banks, mut position: u8) -> Option<u8> {
         for _ in 0..MACRO_STEP_LIMIT {
             let at = self.envelope + u16::from(position);
             let value = banks.byte(at);
             if value != 0 {
-                self.envelope_step = position.wrapping_add(1);
+                self.envelope_step = EnvelopeStep::from(position.wrapping_add(1));
                 return Some(value);
             }
             let next = banks.byte(at + 1);
             if next & 0x80 != 0 {
                 self.decay_period = next & 0x7F;
                 self.decay_timer = self.decay_period;
-                self.envelope_step = 0;
+                self.envelope_step = EnvelopeStep::Decay;
                 return None;
             }
             position = next;
@@ -996,12 +1028,12 @@ impl Channel {
     /// `$8445`: drop the volume one step every [`Self::decay_period`] frames.
     fn decay(&mut self, volume: u8) -> u8 {
         self.decay_timer = self.decay_timer.wrapping_sub(1);
-        let level = volume & 0x0F;
+        let level = volume & LEVEL;
         if self.decay_timer != 0 || level == 0 {
             return volume;
         }
         self.decay_timer = self.decay_period;
-        (volume & 0xF0) | (level - 1)
+        (volume & !LEVEL) | (level - 1)
     }
 }
 
@@ -1332,12 +1364,11 @@ impl Music {
         let entry = SONG_TABLE + u16::from(id) * 2;
         let low = self.banks.driver_byte(entry);
         let high = self.banks.driver_byte(entry + 1);
-        if high & 0x80 != 0 {
+        if high & IN_DRIVER_BANK != 0 {
             self.read_header(u16::from_le_bytes([low, high]));
             return;
         }
-        // FME-7 bank select: only the low 4 bits reach a 128 KiB cart.
-        self.banks.song_bank = high & 0x0F;
+        self.banks.song_bank = high & BANK_BITS;
         let header = self.banks.word(SONG_BASE + u16::from(low) * 2);
         self.read_header(header);
     }
@@ -2113,5 +2144,92 @@ mod tests {
             assert!(matches!(channel.read_events(&banks), SfxEvent::Abort));
             assert_eq!(channel.stream, DRIVER_BASE, "opcode {op:#04X}");
         }
+    }
+
+    /// `$0695`: 0 decays, bit 7 decays without the release, any other byte is a position.
+    #[test]
+    fn envelope_step_from_every_byte() {
+        for byte in 0..=u8::MAX {
+            let step = EnvelopeStep::from(byte);
+            assert_eq!(step == EnvelopeStep::Decay, byte == 0, "{byte:#04X}");
+            assert_eq!(
+                step == EnvelopeStep::DecayOnly,
+                byte & 0x80 != 0,
+                "{byte:#04X}"
+            );
+            if let EnvelopeStep::At(position) = step {
+                assert_eq!(position, byte);
+            }
+        }
+    }
+
+    /// `signed` matches the slide's and the period-offset macro's two-branch forms.
+    #[test]
+    fn signed_matches_sign_magnitude() {
+        for byte in 0..=u8::MAX {
+            let amount = signed(byte);
+            for period in [0x0000, 0x00FF, 0x0100, 0x07F0, 0xFFFF] {
+                let slid = if byte & 0x80 == 0 {
+                    u16::wrapping_add(period, u16::from(byte))
+                } else {
+                    u16::wrapping_sub(period, u16::from(byte & 0x7F))
+                };
+                assert_eq!(period.wrapping_add_signed(i16::from(amount)), slid);
+            }
+            for period_lo in 0..=u8::MAX {
+                let moved = if byte & 0x80 == 0 {
+                    period_lo.saturating_add(byte)
+                } else {
+                    period_lo.saturating_sub(byte & 0x7F)
+                };
+                assert_eq!(period_lo.saturating_add_signed(amount), moved);
+            }
+        }
+    }
+
+    /// An envelope stepping past position `$7F` decays without the release, as the ROM's
+    /// byte reaching `$80` does.
+    #[test]
+    fn envelope_past_position_7f_decays_only() {
+        let mut stream = vec![0x10; 0x100];
+        stream[0x7F] = 0x37;
+        stream[0x80] = 0x3F;
+        let banks = Banks {
+            driver: stream,
+            songs: Vec::new(),
+            song_bank: 0,
+        };
+        let mut channel = Channel {
+            envelope: DRIVER_BASE,
+            envelope_step: EnvelopeStep::At(0x7F),
+            decay_period: 1,
+            decay_timer: 1,
+            ..music_channel()
+        };
+        channel.run_envelope(&banks);
+        assert_eq!(channel.volume, 0x37);
+        assert_eq!(channel.envelope_step, EnvelopeStep::DecayOnly);
+        channel.run_envelope(&banks);
+        assert_eq!(channel.volume, 0x36, "decays, does not step to $80");
+        assert!(channel.hold(&banks, 0) == Step::MidNote, "no release");
+    }
+
+    /// A release position byte with bit 7 releases once, then blocks the next release.
+    #[test]
+    fn release_byte_with_bit_7_releases_once() {
+        let banks = synthetic(&[0x90]);
+        let mut channel = Channel {
+            envelope: DRIVER_BASE,
+            envelope_step: EnvelopeStep::At(5),
+            release_at: 3,
+            duration: 3,
+            ..music_channel()
+        };
+        assert!(channel.hold(&banks, 0) == Step::Pitch, "releases");
+        assert_eq!(channel.envelope_step, EnvelopeStep::DecayOnly);
+        assert!(
+            channel.hold(&banks, 0) == Step::MidNote,
+            "no second release"
+        );
     }
 }
