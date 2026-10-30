@@ -184,7 +184,7 @@ fn spawn_child(body: &Body, work: &Work, slot: usize, cx: &mut Cx<'_>) {
         // `$8C8A: $91 - $80`, then `$7B00,x` (the *stored* x high) `- $01`.
         let [body_hi, _] = body.x.to_be_bytes();
         let [_, work_lo] = work.x.to_be_bytes();
-        u16::from_be_bytes([body_hi, work_lo]).wrapping_sub(0x180)
+        left_child_x(body_hi, work_lo)
     } else {
         work.x.wrapping_add(0x180)
     };
@@ -194,6 +194,11 @@ fn spawn_child(body: &Body, work: &Work, slot: usize, cx: &mut Cx<'_>) {
     child.chr_slot = body.chr_slot;
     child.state = 0;
     child.sprite = 3;
+}
+
+/// The left child's x (`$8C8A`): the stored x high byte over the working low byte, less `$180`.
+fn left_child_x(body_hi: u8, work_lo: u8) -> u16 {
+    u16::from_be_bytes([body_hi, work_lo]).wrapping_sub(0x180)
 }
 
 #[cfg(test)]
@@ -295,7 +300,7 @@ mod tests {
             let [body_hi, work_lo] = x.to_be_bytes();
             let (lo, carry) = work_lo.overflowing_sub(0x80);
             let hi = body_hi.wrapping_sub(1).wrapping_sub(u8::from(carry));
-            let word = u16::from_be_bytes([body_hi, work_lo]).wrapping_sub(0x180);
+            let word = super::left_child_x(body_hi, work_lo);
             assert_eq!(word, u16::from_be_bytes([hi, lo]), "{x:#06X}");
         }
     }

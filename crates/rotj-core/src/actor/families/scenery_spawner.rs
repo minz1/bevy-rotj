@@ -47,9 +47,7 @@ impl State {
         let phase = usize::from(body.phase);
         let (low, high) = (tables.target_low[phase], tables.target_high[phase]);
         if body.timer != low || body.counter != high {
-            [body.counter, body.timer] = u16::from_be_bytes([body.counter, body.timer])
-                .wrapping_add(1)
-                .to_be_bytes();
+            [body.counter, body.timer] = next_count([body.counter, body.timer]);
             return;
         }
         let Some(slot) = engine::free_child_slot(cx.slots) else {
@@ -85,12 +83,22 @@ fn spawn(slot: usize, phase: u8, cx: &mut Cx<'_>) {
     let offset = tables.x_offsets[usize::from(cam_hi == 0x90)];
     let table = tables.high_selectors[usize::from(phase)];
     let columns = if table & 0x80 != 0 { 0x08 } else { 0x0A };
-    let x = x.wrapping_add(u16::from_be_bytes([columns, offset]));
+    let x = child_x(x, columns, offset);
     let child = cx.slots.main[slot].spawn(CHILD, x, 0x0400);
     child.phase = 0;
     child.timer = 0;
     child.counter = 0;
     child.state = STATE_UNTARGETED;
+}
+
+/// The `[counter, timer]` count one frame on.
+fn next_count(count: [u8; 2]) -> [u8; 2] {
+    u16::from_be_bytes(count).wrapping_add(1).to_be_bytes()
+}
+
+/// The child's x: `x` plus the `$8D5E`-selected high byte over the `$8D6E` low byte.
+fn child_x(x: u16, columns: u8, offset: u8) -> u16 {
+    x.wrapping_add(u16::from_be_bytes([columns, offset]))
 }
 
 #[cfg(test)]
@@ -158,9 +166,7 @@ mod tests {
             } else {
                 counter
             };
-            let word = u16::from_be_bytes([counter, timer])
-                .wrapping_add(1)
-                .to_be_bytes();
+            let word = super::next_count([counter, timer]);
             assert_eq!(word, [counter_bytes, timer_bytes], "{pair:#06X}");
         }
         for (x, offset) in crate::actor::families::words_and_bytes() {
@@ -168,7 +174,7 @@ mod tests {
                 let [hi, lo] = x.to_be_bytes();
                 let (lo, carry) = lo.overflowing_add(offset);
                 let hi = hi.wrapping_add(columns).wrapping_add(u8::from(carry));
-                let word = x.wrapping_add(u16::from_be_bytes([columns, offset]));
+                let word = super::child_x(x, columns, offset);
                 assert_eq!(word, u16::from_be_bytes([hi, lo]), "{x:#06X} {offset:#04X}");
             }
         }

@@ -87,9 +87,7 @@ fn sweeping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
             }
         };
     }
-    work.vy = work
-        .vy
-        .wrapping_add(i16::from_be_bytes([0xFF, body.counter]));
+    work.vy = lifted_vy(work.vy, body.counter);
     if body.timer & 0x80 == 0 {
         let column = work.x.to_be_bytes()[0];
         if work.step_x >= 0 {
@@ -221,6 +219,11 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     body.vx_drift = work.step_x;
 }
 
+/// `vy` stepped by the lift's counter under a `$FF` high byte.
+fn lifted_vy(vy: i16, counter: u8) -> i16 {
+    vy.wrapping_add(i16::from_be_bytes([0xFF, counter]))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -333,11 +336,7 @@ mod tests {
             let (lo, carry) = lo.overflowing_add(counter);
             let bytes =
                 i16::from_be_bytes([hi.wrapping_add(0xFF).wrapping_add(u8::from(carry)), lo]);
-            assert_eq!(
-                vy.wrapping_add(i16::from_be_bytes([0xFF, counter])),
-                bytes,
-                "{vy} {counter}"
-            );
+            assert_eq!(super::lifted_vy(vy, counter), bytes, "{vy} {counter}");
         }
     }
 }

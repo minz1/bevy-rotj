@@ -73,9 +73,7 @@ impl State {
             }
             return;
         }
-        [body.phase, body.subtype] = u16::from_be_bytes([body.phase, body.subtype])
-            .wrapping_add(0x0B)
-            .to_be_bytes();
+        [body.phase, body.subtype] = next_phase_count([body.phase, body.subtype]);
         if body.phase >= READY_PHASE {
             helper(body, cx);
         }
@@ -137,10 +135,20 @@ fn helper(body: &mut Body, cx: &mut Cx<'_>) -> u8 {
     part.sprite = sprite;
 
     body.behaviour = behaviour.wrapping_sub(2);
-    body.timer = timer.checked_sub(4).unwrap_or(0x1C);
+    body.timer = next_timer(timer);
     body.phase = body.phase.wrapping_sub(2);
 
     sprite
+}
+
+/// The `[phase, subtype]` count after its gain of `$0B`.
+fn next_phase_count(count: [u8; 2]) -> [u8; 2] {
+    u16::from_be_bytes(count).wrapping_add(0x0B).to_be_bytes()
+}
+
+/// The timer four down, reloaded to `$1C` on a borrow.
+fn next_timer(timer: u8) -> u8 {
+    timer.checked_sub(4).unwrap_or(0x1C)
 }
 
 #[cfg(test)]
@@ -201,15 +209,13 @@ mod tests {
             let [phase, subtype] = pair.to_be_bytes();
             let (subtype_bytes, carry) = subtype.overflowing_add(0x0B);
             let phase_bytes = phase.wrapping_add(u8::from(carry));
-            let word = u16::from_be_bytes([phase, subtype])
-                .wrapping_add(0x0B)
-                .to_be_bytes();
+            let word = super::next_phase_count([phase, subtype]);
             assert_eq!(word, [phase_bytes, subtype_bytes], "{pair:#06X}");
         }
         for timer in 0..=u8::MAX {
             let (next, borrow) = timer.overflowing_sub(4);
             let bytes = if borrow { 0x1C } else { next };
-            assert_eq!(timer.checked_sub(4).unwrap_or(0x1C), bytes, "{timer:#04X}");
+            assert_eq!(super::next_timer(timer), bytes, "{timer:#04X}");
         }
     }
 }

@@ -71,9 +71,7 @@ impl State {
         engine::draw(work, DRAW_BANK, cx);
         work.hitbox = 1;
         engine::boss_contact(CONTACT, MODE, body, work, cx);
-        [body.cell, body.chr_slot] = u16::from_be_bytes([body.cell, body.chr_slot])
-            .wrapping_add(4)
-            .to_be_bytes();
+        [body.cell, body.chr_slot] = next_animation_count([body.cell, body.chr_slot]);
         body.anim = body.cell.min(2);
         engine::store(body, work);
     }
@@ -90,6 +88,11 @@ fn free(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
         value & if body.behaviour == 0 { 0x7F } else { 0xBF },
     );
     *kind = 0;
+}
+
+/// The `[cell, chr_slot]` animation count after its gain of 4.
+fn next_animation_count(count: [u8; 2]) -> [u8; 2] {
+    u16::from_be_bytes(count).wrapping_add(4).to_be_bytes()
 }
 
 #[cfg(test)]
@@ -165,9 +168,7 @@ mod tests {
             let [cell, chr_slot] = pair.to_be_bytes();
             let (chr_slot_bytes, carry) = chr_slot.overflowing_add(4);
             let cell_bytes = cell.wrapping_add(u8::from(carry));
-            let word = u16::from_be_bytes([cell, chr_slot])
-                .wrapping_add(4)
-                .to_be_bytes();
+            let word = super::next_animation_count([cell, chr_slot]);
             assert_eq!(word, [cell_bytes, chr_slot_bytes], "{pair:#06X}");
         }
     }

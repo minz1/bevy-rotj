@@ -58,11 +58,7 @@ impl State {
             }
             if pad.intersects(Buttons::UP_OR_DOWN) {
                 if pad.contains(Buttons::UP) {
-                    let row = player.y.row();
-                    player.y = player.y.wrapping_sub(STEP);
-                    if player.y.row() != row && player.y.row() < Y_MIN {
-                        player.y = u16::from(Y_MIN) << 8;
-                    }
+                    player.y = stepped_up(player.y);
                 } else {
                     player.y = player.y.wrapping_add(STEP);
                     if player.y.row() >= Y_MAX {
@@ -73,6 +69,16 @@ impl State {
         }
         let index = usize::from((cx.world.frame & 0x06) >> 1);
         player.anim = cx.prg.families.flight_steer.walk_frames[index];
+    }
+}
+
+/// `y` one step up, clamped to row `Y_MIN` when it leaves its row under it.
+fn stepped_up(y: u16) -> u16 {
+    let stepped = y.wrapping_sub(STEP);
+    if stepped.row() != y.row() && stepped.row() < Y_MIN {
+        u16::from(Y_MIN) << 8
+    } else {
+        stepped
     }
 }
 
@@ -120,8 +126,7 @@ mod tests {
     /// The step up, clamped only when it leaves the row, is the byte pair it replaced.
     #[test]
     fn the_step_up_is_word_maths() {
-        use super::{STEP, Y_MIN};
-        use crate::actor::slots::Metatile;
+        use super::Y_MIN;
         for y in 0..=u16::MAX {
             let (low, borrow) = y.to_be_bytes()[1].overflowing_sub(0x20);
             let mut high = y.to_be_bytes()[0];
@@ -132,11 +137,7 @@ mod tests {
             if borrow && high < Y_MIN {
                 bytes = u16::from(Y_MIN) << 8;
             }
-            let mut word = y.wrapping_sub(STEP);
-            if word.row() != y.row() && word.row() < Y_MIN {
-                word = u16::from(Y_MIN) << 8;
-            }
-            assert_eq!(word, bytes, "{y:#06X}");
+            assert_eq!(super::stepped_up(y), bytes, "{y:#06X}");
         }
     }
 }

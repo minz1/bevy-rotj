@@ -40,9 +40,7 @@ impl State {
         work.attr = 0x03;
         // `$960E`: the y velocity gains 3, its low byte clamped to `$80` whenever
         // its sign disagrees with the high byte's.
-        [body.counter, body.timer] = u16::from_be_bytes([body.counter, body.timer])
-            .wrapping_add(3)
-            .to_be_bytes();
+        [body.counter, body.timer] = gained_vy([body.counter, body.timer]);
         if (body.counter & 0x80 != 0) != (body.timer & 0x80 != 0) {
             body.timer = 0x80;
         }
@@ -71,6 +69,11 @@ impl State {
         engine::boss_contact(CONTACT, CONTACT_MODE, body, work, cx);
         engine::store(body, work);
     }
+}
+
+/// The `[counter, timer]` y velocity after its gain of 3 (`$960E`).
+fn gained_vy(vy: [u8; 2]) -> [u8; 2] {
+    u16::from_be_bytes(vy).wrapping_add(3).to_be_bytes()
 }
 
 #[cfg(test)]
@@ -146,9 +149,7 @@ mod tests {
             let [counter, timer] = pair.to_be_bytes();
             let (timer_bytes, carry) = timer.overflowing_add(3);
             let counter_bytes = counter.wrapping_add(u8::from(carry));
-            let word = u16::from_be_bytes([counter, timer])
-                .wrapping_add(3)
-                .to_be_bytes();
+            let word = super::gained_vy([counter, timer]);
             assert_eq!(word, [counter_bytes, timer_bytes], "{pair:#06X}");
         }
     }

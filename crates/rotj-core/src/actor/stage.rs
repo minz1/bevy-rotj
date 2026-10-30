@@ -1009,7 +1009,7 @@ impl BossIntro {
                 self.fades += 1;
             }
         }
-        let scroll = self.offset.wrapping_neg().wrapping_add(0x80).to_be_bytes()[0];
+        let scroll = card_scroll(self.offset);
         game.scroll.scroll_x = scroll;
         game.scroll.ppu_ctrl |= ctrl::NAMETABLE_X;
         let (mut cx, work) = game.parts(prg);
@@ -1465,7 +1465,7 @@ impl Continue {
                 }
             }
             Some(DigitPhase::Closing) | None => {
-                self.offset = if let Some(offset) = self.offset.checked_sub(0x0400) {
+                self.offset = if let Some(offset) = closed_offset(self.offset) {
                     offset
                 } else {
                     (self.timer, self.phase, self.speed) = (0x30, DigitPhase::Holding.byte(), 0);
@@ -1501,6 +1501,16 @@ impl Continue {
                 .push(ppu::tile_addr(0, 12 + row, 12), 0, bytes);
         }
     }
+}
+
+/// The card's scroll x: the negated offset's high byte, rounded on its low byte.
+fn card_scroll(offset: u16) -> u8 {
+    offset.wrapping_neg().wrapping_add(0x80).to_be_bytes()[0]
+}
+
+/// The digit's offset four rows closer, or `None` once it has closed.
+fn closed_offset(offset: u16) -> Option<u16> {
+    offset.checked_sub(0x0400)
 }
 
 #[cfg(test)]
@@ -1606,13 +1616,13 @@ mod tests {
         for offset in 0..=u16::MAX {
             let [hi, lo] = offset.wrapping_neg().to_be_bytes();
             let bytes = hi.wrapping_add(u8::from(lo & 0x80 != 0));
-            let word = offset.wrapping_neg().wrapping_add(0x80).to_be_bytes()[0];
+            let word = super::card_scroll(offset);
             assert_eq!(word, bytes, "{offset:#06X}");
             let [rows, low] = offset.to_be_bytes();
             let bytes = rows
                 .checked_sub(4)
                 .map(|rows| u16::from_be_bytes([rows, low]));
-            assert_eq!(offset.checked_sub(0x0400), bytes, "{offset:#06X}");
+            assert_eq!(super::closed_offset(offset), bytes, "{offset:#06X}");
         }
     }
 }

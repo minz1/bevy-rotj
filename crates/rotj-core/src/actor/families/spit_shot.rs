@@ -62,7 +62,7 @@ impl State {
             [body.phase, body.timer] = vy.to_le_bytes();
         }
         let offset = cx.prg.families.spit_shot.offsets[usize::from(subtype)];
-        work.x = work.x.wrapping_add(0xFF00 | u16::from(offset));
+        work.x = offset_x(work.x, offset);
         let vy = i16::from_le_bytes([body.phase, body.timer]);
         work.y = work.y.wrapping_add(vy.cast_unsigned());
         let frame = u16::from((cx.world.frame & 0x04) >> 1);
@@ -80,6 +80,11 @@ impl State {
         }
         engine::store(body, work);
     }
+}
+
+/// `x` stepped by the subtype's offset under a `$FF` high byte.
+fn offset_x(x: u16, offset: u8) -> u16 {
+    x.wrapping_add(0xFF00 | u16::from(offset))
 }
 
 #[cfg(test)]
@@ -247,11 +252,7 @@ mod tests {
             let (x_lo, carry) = x_lo.overflowing_add(offset);
             let bytes =
                 u16::from_be_bytes([x_hi.wrapping_add(0xFF).wrapping_add(u8::from(carry)), x_lo]);
-            assert_eq!(
-                x.wrapping_add(0xFF00 | u16::from(offset)),
-                bytes,
-                "{x:#06X} {offset:#04X}"
-            );
+            assert_eq!(super::offset_x(x, offset), bytes, "{x:#06X} {offset:#04X}");
         }
     }
 }

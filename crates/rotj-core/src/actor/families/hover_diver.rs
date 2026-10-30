@@ -80,9 +80,7 @@ impl State {
                 } else {
                     let rise = work.vy.to_be_bytes()[1].wrapping_sub(7).max(0xE8);
                     work.vy = i16::from_be_bytes([0xFF, rise]);
-                    let [anim, counter] = u16::from_be_bytes([body.anim, body.counter])
-                        .wrapping_add_signed(work.vy)
-                        .to_be_bytes();
+                    let [anim, counter] = risen_swing([body.anim, body.counter], work.vy);
                     body.counter = counter;
                     body.anim = if anim & 0x80 == 0 { anim } else { 0 };
                 }
@@ -104,6 +102,13 @@ impl State {
         work.age = work.age.wrapping_add(1);
         engine::end_frame(body, work);
     }
+}
+
+/// The `[anim, counter]` swing stepped by the rising `vy`.
+fn risen_swing(swing: [u8; 2], vy: i16) -> [u8; 2] {
+    u16::from_be_bytes(swing)
+        .wrapping_add_signed(vy)
+        .to_be_bytes()
 }
 
 #[cfg(test)]
@@ -169,12 +174,8 @@ mod tests {
             let (counter_bytes, carry) = counter.overflowing_add(rise);
             let anim_bytes = anim.wrapping_add(0xFF).wrapping_add(u8::from(carry));
             let vy = i16::from_be_bytes([0xFF, rise]);
-            let word = u16::from_be_bytes([anim, counter]).wrapping_add_signed(vy);
-            assert_eq!(
-                word.to_be_bytes(),
-                [anim_bytes, counter_bytes],
-                "{pair:#06X} {rise:#04X}"
-            );
+            let word = super::risen_swing([anim, counter], vy);
+            assert_eq!(word, [anim_bytes, counter_bytes], "{pair:#06X} {rise:#04X}");
         }
     }
 }

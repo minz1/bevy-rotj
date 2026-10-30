@@ -78,10 +78,10 @@ fn waiting(body: &mut Body, cx: &Cx<'_>) {
 
 /// Falling (`$8DF4`): fall and drift right until the feet find ground.
 fn falling(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-    work.y = work.y.wrapping_add(u16::from(body.behaviour));
+    work.y = fallen_y(work.y, body.behaviour);
     body.y = work.y;
     if work.x.to_be_bytes()[0] != 0x90 {
-        work.x = work.x.wrapping_add(0x09);
+        work.x = drifted_x(work.x);
         body.x = work.x;
     }
     work.vy = i16::from_be_bytes([work.vy.to_be_bytes()[0], 0xFF]);
@@ -128,6 +128,16 @@ fn landed(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             child.body.flags = 0x03;
         }
     }
+}
+
+/// `y` after a frame's fall at `speed`.
+fn fallen_y(y: u16, speed: u8) -> u16 {
+    y.wrapping_add(u16::from(speed))
+}
+
+/// `x` after a frame's drift right.
+fn drifted_x(x: u16) -> u16 {
+    x.wrapping_add(0x09)
 }
 
 #[cfg(test)]
@@ -228,7 +238,7 @@ mod tests {
             let (y_lo, carry) = y_lo.overflowing_add(behaviour);
             let bytes = u16::from_be_bytes([y_hi.wrapping_add(u8::from(carry)), y_lo]);
             assert_eq!(
-                y.wrapping_add(u16::from(behaviour)),
+                super::fallen_y(y, behaviour),
                 bytes,
                 "{y:#06X} {behaviour:#04X}"
             );
@@ -237,7 +247,7 @@ mod tests {
             let [x_hi, x_lo] = x.to_be_bytes();
             let (x_lo, carry) = x_lo.overflowing_add(0x09);
             let bytes = u16::from_be_bytes([x_hi.wrapping_add(u8::from(carry)), x_lo]);
-            assert_eq!(x.wrapping_add(0x09), bytes, "{x:#06X}");
+            assert_eq!(super::drifted_x(x), bytes, "{x:#06X}");
         }
     }
 }

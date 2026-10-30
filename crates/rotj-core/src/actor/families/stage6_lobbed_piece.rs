@@ -50,18 +50,12 @@ impl State {
             }
         } else {
             work.attr = 1;
-            work.x = work
-                .x
-                .wrapping_add(u16::from_be_bytes([body.anim, body.counter]));
-            [body.timer, body.phase] = u16::from_be_bytes([body.timer, body.phase])
-                .wrapping_add(3)
-                .to_be_bytes();
+            work.x = moved(work.x, [body.anim, body.counter]);
+            [body.timer, body.phase] = gained_offset([body.timer, body.phase]);
             if body.timer & 0x80 == 0 && body.phase >= OFFSET_LIMIT {
                 body.phase = OFFSET_LIMIT;
             }
-            work.y = work
-                .y
-                .wrapping_add(u16::from_be_bytes([body.timer, body.phase]));
+            work.y = moved(work.y, [body.timer, body.phase]);
             if work.y.row() >= FLOOR_ROW {
                 die(body, cx);
                 return;
@@ -95,6 +89,16 @@ fn die(body: &mut Body, cx: &mut Cx<'_>) {
     body.y = DEATH_Y;
     body.behaviour = DYING;
     body.anim = 0;
+}
+
+/// `position` moved by the `[high, low]` velocity.
+fn moved(position: u16, velocity: [u8; 2]) -> u16 {
+    position.wrapping_add(u16::from_be_bytes(velocity))
+}
+
+/// The `[timer, phase]` offset after its gain of 3.
+fn gained_offset(offset: [u8; 2]) -> [u8; 2] {
+    u16::from_be_bytes(offset).wrapping_add(3).to_be_bytes()
 }
 
 #[cfg(test)]
@@ -202,16 +206,14 @@ mod tests {
             let (lo, carry) = lo.overflowing_add(step_lo);
             let bytes =
                 u16::from_be_bytes([hi.wrapping_add(step_hi).wrapping_add(u8::from(carry)), lo]);
-            let word = position.wrapping_add(u16::from_be_bytes([step_hi, step_lo]));
+            let word = super::moved(position, [step_hi, step_lo]);
             assert_eq!(word, bytes, "{position:#06X} {step:#06X}");
         }
         for pair in 0..=u16::MAX {
             let [timer, phase] = pair.to_be_bytes();
             let (phase_bytes, carry) = phase.overflowing_add(3);
             let timer_bytes = timer.wrapping_add(u8::from(carry));
-            let word = u16::from_be_bytes([timer, phase])
-                .wrapping_add(3)
-                .to_be_bytes();
+            let word = super::gained_offset([timer, phase]);
             assert_eq!(word, [timer_bytes, phase_bytes], "{pair:#06X}");
         }
     }

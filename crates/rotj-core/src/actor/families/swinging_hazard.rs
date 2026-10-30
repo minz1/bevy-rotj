@@ -47,10 +47,7 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         let frame = cx.world.frame;
         if frame.is_multiple_of(4) {
-            body.phase = body
-                .phase
-                .checked_sub(COUNTDOWN_STEP)
-                .unwrap_or(COUNTDOWN_RESTART);
+            body.phase = next_countdown(body.phase);
         }
         work.pointer = engine::rom_word(cx.prg, 0, POINTERS + 2 * u16::from(frame & 3));
         work.tile = 0;
@@ -75,6 +72,13 @@ impl State {
             }
         }
     }
+}
+
+/// The countdown one step down, restarted at `COUNTDOWN_RESTART` on a borrow.
+fn next_countdown(phase: u8) -> u8 {
+    phase
+        .checked_sub(COUNTDOWN_STEP)
+        .unwrap_or(COUNTDOWN_RESTART)
 }
 
 #[cfg(test)]
@@ -142,9 +146,7 @@ mod tests {
         for phase in 0..=u8::MAX {
             let (countdown, borrow) = phase.overflowing_sub(COUNTDOWN_STEP);
             let bytes = if borrow { COUNTDOWN_RESTART } else { countdown };
-            let checked = phase
-                .checked_sub(COUNTDOWN_STEP)
-                .unwrap_or(COUNTDOWN_RESTART);
+            let checked = super::next_countdown(phase);
             assert_eq!(checked, bytes, "{phase:#04X}");
         }
     }

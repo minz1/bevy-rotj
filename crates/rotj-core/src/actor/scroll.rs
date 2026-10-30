@@ -331,11 +331,7 @@ fn vertical(game: &mut Game, prg: &Prg) {
 fn move_y(game: &mut Game) {
     let speed = game.scroll.speed_y;
     game.world.camera_y = game.world.camera_y.wrapping_add(speed.cast_unsigned());
-    let [mut row, fraction] = game
-        .scroll
-        .ring_y
-        .wrapping_add(speed.cast_unsigned())
-        .to_be_bytes();
+    let [mut row, fraction] = stepped_ring(game.scroll.ring_y, speed).to_be_bytes();
     if row & 0x0F == 0x0F {
         row = if speed < 0 {
             row.wrapping_sub(1)
@@ -624,6 +620,11 @@ mod layout {
     }
 }
 
+/// The `ring_y` row and fraction stepped by the y speed.
+fn stepped_ring(ring: u16, speed: i16) -> u16 {
+    ring.wrapping_add(speed.cast_unsigned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::oracle::{Scene, assert_routine};
@@ -673,7 +674,7 @@ mod tests {
             let row = ring_row
                 .wrapping_add(speed_hi)
                 .wrapping_add(u8::from(carry));
-            let word = ring.wrapping_add(speed.cast_unsigned()).to_be_bytes();
+            let word = super::stepped_ring(ring, speed).to_be_bytes();
             assert_eq!(word, [row, fraction], "{ring:#06X} {speed}");
         }
     }

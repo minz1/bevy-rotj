@@ -52,10 +52,7 @@ fn probe(work: &mut Work, cx: &mut Cx<'_>) {
     let index = cx.effects.scroll_y.wrapping_add(0x60);
     let mut probe = Probe {
         x: player.x,
-        y: player
-            .y
-            .wrapping_sub(u16::from_be_bytes([rows, 0xC0]))
-            .wrapping_add(u16::from(index) << 4),
+        y: raised_y(player.y, rows).wrapping_add(u16::from(index) << 4),
         flags: 0,
         landing: [0; 2],
     };
@@ -93,6 +90,11 @@ fn swap(body: &mut Body, cx: &mut Cx<'_>) {
         cx.effects.palette[4 + usize::from(i)] = cx.prg.families.spike_probe.flash_palettes[index];
     }
     cx.effects.palette_dirty = 0x80;
+}
+
+/// The player's `y` less the motion's `rows` and `$C0`.
+fn raised_y(y: u16, rows: u8) -> u16 {
+    y.wrapping_sub(u16::from_be_bytes([rows, 0xC0]))
 }
 
 #[cfg(test)]
@@ -145,7 +147,7 @@ mod tests {
             let [y_hi, y_lo] = y.to_be_bytes();
             let (y_lo, borrow) = y_lo.overflowing_sub(0xC0);
             let y_hi = y_hi.wrapping_sub(rows).wrapping_sub(u8::from(borrow));
-            let word = y.wrapping_sub(u16::from_be_bytes([rows, 0xC0]));
+            let word = super::raised_y(y, rows);
             assert_eq!(
                 word,
                 u16::from_be_bytes([y_hi, y_lo]),

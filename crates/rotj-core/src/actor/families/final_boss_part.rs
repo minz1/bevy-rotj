@@ -198,14 +198,19 @@ fn spawn_child(body: &Body, work: &Work, cx: &mut Cx<'_>) {
 fn child_index(body: &Body, cx: &Cx<'_>) -> u16 {
     let x_hi = cx.effects.player.x.to_be_bytes()[0];
     let shifted = (x_hi & 0x0E) << 2;
-    let offset = if shifted < 0x20 {
+    let offset = clamped_offset(shifted);
+    u16::from(body.subtype.wrapping_shl(1).wrapping_add(offset))
+}
+
+/// The `$92EA` clamp of the shifted x high byte.
+fn clamped_offset(shifted: u8) -> u8 {
+    if shifted < 0x20 {
         shifted.saturating_sub(8)
     } else if shifted < 0x38 {
         shifted
     } else {
         0x30
-    };
-    u16::from(body.subtype.wrapping_shl(1).wrapping_add(offset))
+    }
 }
 
 #[cfg(test)]
@@ -308,8 +313,16 @@ mod tests {
     fn the_offset_floor_is_saturating() {
         for shifted in 0..=u8::MAX {
             let (value, borrow) = shifted.overflowing_sub(8);
-            let bytes = if borrow { 0 } else { value };
-            assert_eq!(shifted.saturating_sub(8), bytes, "{shifted:#04X}");
+            let bytes = if shifted >= 0x38 {
+                0x30
+            } else if shifted >= 0x20 {
+                shifted
+            } else if borrow {
+                0
+            } else {
+                value
+            };
+            assert_eq!(super::clamped_offset(shifted), bytes, "{shifted:#04X}");
         }
     }
 }

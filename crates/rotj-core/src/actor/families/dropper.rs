@@ -155,10 +155,7 @@ fn lowering(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 fn lower_child(body: &Body, work: &Work, cx: &mut Cx<'_>) -> (u8, bool) {
     let child = &mut cx.slots.main[child_slot(body)].body;
     child.y = child.y.wrapping_add_signed(child.vy);
-    let next = child.vy.wrapping_add(4);
-    if next.to_be_bytes()[1] & 0x80 == 0 {
-        child.vy = next;
-    }
+    child.vy = gained_vy(child.vy);
     if child.y < work.y.wrapping_sub(0x03B0) {
         (4, false)
     } else {
@@ -233,6 +230,16 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     work.hitbox = HITBOX;
     engine::contact(kind, body, work, DAMAGE, cx);
     engine::end_frame(body, work);
+}
+
+/// The child's `vy` after its gain of 4, kept only while its low byte stays under `$80`.
+fn gained_vy(vy: i16) -> i16 {
+    let next = vy.wrapping_add(4);
+    if next.to_be_bytes()[1] & 0x80 == 0 {
+        next
+    } else {
+        vy
+    }
 }
 
 #[cfg(test)]
@@ -471,13 +478,7 @@ mod tests {
             } else {
                 vy
             };
-            let word = vy.wrapping_add(4);
-            let kept = if word.to_be_bytes()[1] & 0x80 == 0 {
-                word
-            } else {
-                vy
-            };
-            assert_eq!(kept, bytes, "{vy}");
+            assert_eq!(super::gained_vy(vy), bytes, "{vy}");
         }
     }
 }

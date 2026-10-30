@@ -46,9 +46,7 @@ impl State {
             *kind = 0;
             return;
         }
-        [body.anim, body.counter] = u16::from_be_bytes([body.anim, body.counter])
-            .wrapping_add(u16::from(STEP))
-            .to_be_bytes();
+        [body.anim, body.counter] = gained_vy([body.anim, body.counter]);
 
         if body.anim & 0x80 == 0 && body.counter & 0x80 != 0 {
             body.counter = 0x7F;
@@ -64,6 +62,13 @@ impl State {
         engine::boss_contact(CONTACT, MODE, body, work, cx);
         engine::store(body, work);
     }
+}
+
+/// The `[anim, counter]` y velocity after its `$7E10 += 3` gain.
+fn gained_vy(vy: [u8; 2]) -> [u8; 2] {
+    u16::from_be_bytes(vy)
+        .wrapping_add(u16::from(STEP))
+        .to_be_bytes()
 }
 
 #[cfg(test)]
@@ -142,9 +147,7 @@ mod tests {
             let [anim, counter] = pair.to_be_bytes();
             let (counter_bytes, carry) = counter.overflowing_add(super::STEP);
             let anim_bytes = anim.wrapping_add(u8::from(carry));
-            let word = u16::from_be_bytes([anim, counter])
-                .wrapping_add(u16::from(super::STEP))
-                .to_be_bytes();
+            let word = super::gained_vy([anim, counter]);
             assert_eq!(word, [anim_bytes, counter_bytes], "{pair:#06X}");
         }
     }
