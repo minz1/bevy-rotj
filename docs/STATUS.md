@@ -1,4 +1,4 @@
-# Status — where 1.1.49 stands
+# Status — where 1.1.50 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -73,6 +73,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.47 | **done, tag `1.1.47`** (2026-10-30): the cloud batch's follow-ups, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The stage end, boss card, continue and entry phase enums use an exported `phases!`, which names each enum's address and round-trip test; the word-maths tests call the production step instead of restating it; the spinner spawner's child-behaviour doc and the splitter's `NO_SPLIT` doc match the ROM (`$9305`, `$8A3F`) |
 | 1.1.48 | **done, tag `1.1.48`** (2026-10-30): survey #7, the raster chain typed, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). `$D3` is a `Chain` enum (rooms.rs) built where the chain is entered, and each raster handler names its band bytes by destructuring the `[u8; 8]` bands; the cycle tables stay Classic's rule (`docs/specs/2026-10-30-raster-chain-design.md`) |
 | 1.1.49 | **done, tag `1.1.49`** (2026-10-30): Modern's picture reaches the band rooms and the boss floor, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). A split frame is drawn as line runs read from the nametables, one camera per run with its own viewport and the sprites on a shared layer; every chain (`$D3` 0-8) goes through it, proven by the background gate and headless pixel comparisons with Classic. 486 boss-floor frames, where Batman stands across the floor's bank change, stay Classic (`docs/specs/2026-10-30-modern-band-rooms-design.md`). The band rooms' playfield from the map is a 1.2.0 prerequisite |
+| 1.1.50 | **done, tag `1.1.50`** (2026-10-30): survey #17, the music driver's residual bytes, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical, the oracle's music tests write for write). The envelope step is an `EnvelopeStep` enum; the volume, slide and song-bank bits are named consts with a sign-magnitude helper (`docs/specs/2026-10-30-music-driver-typed-design.md`). Modern's per-frame sprite and atlas churn measured and kept as it is (`docs/MODERNIZE.md`) |
 
 ## Verified working
 
@@ -155,7 +156,9 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    tagged `1.1.46`** (2026-10-29). **1.1.47, the cloud batch's follow-ups:
    tagged `1.1.47`** (2026-10-30). **1.1.48, survey #7, the raster chain typed:
    tagged `1.1.48`** (2026-10-30). **1.1.49, Modern's band rooms and the boss floor:
-   tagged `1.1.49`** (2026-10-30). Next: Modern's per-frame sprite and atlas churn, measured.
+   tagged `1.1.49`** (2026-10-30). **1.1.50, survey #17, the music driver typed:
+   tagged `1.1.50`** (2026-10-30). Next: level packs release 4, the tileset generator and the
+   Tiled project file.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and

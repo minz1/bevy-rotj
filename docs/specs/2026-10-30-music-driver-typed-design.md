@@ -1,6 +1,6 @@
 # The music driver's residual bytes: the envelope step typed, the other bits named
 
-Status: signed off by owner-proxy (L3) 2026-10-30, after the reviewer's pass: `EnvelopeStep` the
+Status: implemented in 1.1.50. Signed off by owner-proxy (L3) 2026-10-30, after the reviewer's pass: `EnvelopeStep` the
 only new type, the other bits named consts and a sign-magnitude helper (stand-in [review]); every
 computed step through `From`. Survey #17 (`.orchestration/survey2.md`), HANDOFF roadmap 5, approved
 by the owner 2026-10-29. No behaviour change: the oracle's music tests (`every_song_to_its_loop`,

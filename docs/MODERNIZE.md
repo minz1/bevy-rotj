@@ -329,7 +329,8 @@ PPU addresses (`render::ppu`), #6 the stage, boss card, continue and entry steps
 bytes and #15 the sound requests as `SoundId`, done in 1.1.46. The cloud batch's follow-ups (the
 phase enums on an exported `phases!`, the word-maths tests on production code, two ROM-checked
 docs), done in 1.1.47. #7 the raster chain as a `Chain` enum, each handler naming its band bytes,
-done in 1.1.48. Still open: #17 the music driver (approved 2026-10-29).
+done in 1.1.48. #17 the music driver's residual bytes (the envelope step as `EnvelopeStep`, the
+volume, slide and song-bank bits named), done in 1.1.50.
 
 ### The owner's review of the passed-on candidates (2026-10-18)
 
