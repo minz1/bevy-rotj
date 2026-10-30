@@ -219,11 +219,14 @@ fn the_original_game_round_trips_byte_for_byte() {
         write(&imported, &catalog) == files,
         "export(import(export(rom))) differs"
     );
-    assert_eq!(files.len(), 40);
+    assert_eq!(files.len(), 41);
     for (path, text) in &files {
         let saved = match path.as_str() {
             "pack.json" => to_text(&serde_json::from_str::<PackFile>(text).expect("pack.json")),
             "world.world" => to_text(&serde_json::from_str::<World>(text).expect("world.world")),
+            "rotj.tiled-project" => {
+                to_text(&serde_json::from_str::<serde_json::Value>(text).expect("the project file"))
+            }
             _ => to_text(&serde_json::from_str::<Map>(text).expect("a room")),
         };
         assert!(saved == *text, "{path} does not save back byte-equal");
@@ -736,11 +739,6 @@ fn a_room_whose_objects_break_the_format_is_refused() {
             set_property(&mut objects(map, 1)[1], "variant", variant.into());
         });
     }
-    fixture.refuses_map("class `breakable_block` needs a `variant`", ROOM_A, |map| {
-        objects(map, 1)[1]
-            .properties
-            .retain(|p| p.name != "variant");
-    });
     fixture.refuses_map("property `flags` is not an int in range", ROOM_A, |map| {
         set_property(&mut objects(map, 1)[0], "flags", 256.into());
     });
@@ -775,6 +773,117 @@ fn a_room_whose_objects_break_the_format_is_refused() {
     fixture.refuses_map("more than six bits", ROOM_A, |map| {
         set_property(&mut objects(map, 2)[2], "locks", 64.into());
     });
+}
+
+/// What `files`' rooms name that their project file does not declare: each object class,
+/// and each `propertytype` with the value used.
+fn undeclared(files: &PackFiles) -> BTreeSet<String> {
+    let project: serde_json::Value =
+        serde_json::from_str(&files["rotj.tiled-project"]).expect("the project file");
+    let types = project["propertyTypes"].as_array().expect("property types");
+    let declared = |kind: &str, name: &str| {
+        types
+            .iter()
+            .find(|declared| declared["type"] == kind && declared["name"] == name)
+    };
+    let mut missing = BTreeSet::new();
+    for text in files
+        .iter()
+        .filter(|(path, _)| path.starts_with("rooms/"))
+        .map(|(_, text)| text)
+    {
+        let map: Map = serde_json::from_str(text).expect("a room");
+        let mut properties: Vec<&Property> = map.properties.iter().collect();
+        for object in map
+            .layers
+            .iter()
+            .filter_map(|layer| layer.objects.as_deref())
+            .flatten()
+        {
+            if declared("class", &object.kind).is_none() {
+                missing.insert(format!("class {}", object.kind));
+            }
+            properties.extend(&object.properties);
+        }
+        for property in properties {
+            let Some(propertytype) = &property.propertytype else {
+                continue;
+            };
+            let known = declared("enum", propertytype).is_some_and(|declared| {
+                declared["values"]
+                    .as_array()
+                    .expect("values")
+                    .contains(&property.value)
+            });
+            if !known {
+                missing.insert(format!("{propertytype} {}", property.value));
+            }
+        }
+    }
+    missing
+}
+
+#[test]
+fn the_project_file_declares_every_class_and_value_the_rooms_use() {
+    let levels = hand_made();
+    let catalog = Catalog::from_levels(&levels);
+    let mut files = write(&levels, &catalog);
+    assert_eq!(undeclared(&files), BTreeSet::new());
+    let mut map: Map = serde_json::from_str(&files[ROOM_B]).expect("room B");
+    let object = &mut objects(&mut map, 1)[0];
+    object.kind = "no_handler".into();
+    set_property(object, "variant", "type-4a".into());
+    files.insert(ROOM_B.into(), to_text(&map));
+    assert_eq!(
+        undeclared(&files),
+        BTreeSet::from(["class no_handler".into()])
+    );
+
+    let project: serde_json::Value =
+        serde_json::from_str(&files["rotj.tiled-project"]).expect("the project file");
+    assert_eq!(
+        project["folders"],
+        serde_json::json!([".", "../../tilesets"])
+    );
+    let types = project["propertyTypes"].as_array().expect("property types");
+    let ids: Vec<u64> = types.iter().filter_map(|t| t["id"].as_u64()).collect();
+    assert_eq!(ids, (1..=types.len() as u64).collect::<Vec<_>>());
+    let block = types.iter().find(|t| t["name"] == "breakable_block");
+    let variant = &block.expect("a breakable_block class")["members"][8];
+    assert_eq!(
+        (&variant["propertyType"], &variant["value"]),
+        (&"breakable_block_variant".into(), &"type-04".into())
+    );
+
+    let Some(rom) = rotj_rom::for_test() else {
+        return;
+    };
+    let files = export(&rom.prg, &rom.chr).expect("the ROM exports");
+    assert_eq!(
+        undeclared(&files),
+        BTreeSet::from(["class no_handler".into()])
+    );
+}
+
+#[test]
+fn a_multi_kind_object_without_a_variant_imports_as_its_familys_first_kind() {
+    let levels = hand_made();
+    let catalog = Catalog::from_levels(&levels);
+    let mut files = write(&levels, &catalog);
+    let mut map: Map = serde_json::from_str(&files[ROOM_A]).expect("room A");
+    let block = &mut objects(&mut map, 1)[1];
+    assert_eq!(block.kind, "breakable_block");
+    block.properties.retain(|p| p.name != "variant");
+    files.insert(ROOM_A.into(), to_text(&map));
+    let imported = import(&files, &catalog, Source::User).expect("imports");
+    let record = imported.stages[0].rooms[0].spawns.records[9].expect("record 9");
+    assert_eq!(
+        (
+            levels.stages[0].rooms[0].spawns.records[9].map(|r| r.kind),
+            record.kind
+        ),
+        (Some(0x06), 0x04)
+    );
 }
 
 #[test]
@@ -894,4 +1003,107 @@ fn a_user_pack_naming_an_actor_the_game_has_no_handler_for_is_refused() {
         "{error}"
     );
     assert!(import(&files, &catalog, Source::Original).is_ok());
+}
+
+/// The 27 pictures' FNV-1a digest, end to end.
+const TILESET_PICTURES: u64 = 0xc977_101e_3dfd_1ce3;
+
+#[test]
+fn the_tilesets_draw_each_variant_as_the_game_loads_it() {
+    let Some(rom) = rotj_rom::for_test() else {
+        return;
+    };
+    let prg = crate::prg::for_test().expect("the test PRG");
+    let tilesets = tilesets(&rom.prg, &rom.chr).expect("the ROM's tilesets");
+    let catalog = Catalog::from_rom(&rom.prg, &rom.chr).expect("the ROM's catalog");
+    let names: Vec<String> = catalog
+        .areas
+        .iter()
+        .flat_map(|area| (0..area.variants.len()).map(|variant| tileset_name(area.area, variant)))
+        .collect();
+    assert_eq!(names.len(), 27);
+    assert_eq!(
+        tilesets
+            .iter()
+            .map(|tileset| &tileset.name)
+            .collect::<Vec<_>>(),
+        names.iter().collect::<Vec<_>>()
+    );
+    let side = TILESET_PX as usize;
+    assert!(
+        tilesets
+            .iter()
+            .all(|tileset| tileset.picture.len() == side * side * 4)
+    );
+    let pictures: Vec<u8> = tilesets
+        .iter()
+        .flat_map(|tileset| tileset.picture.clone())
+        .collect();
+    assert_eq!(crate::digest::fnv1a(&pictures), TILESET_PICTURES);
+
+    let tsj: serde_json::Value = serde_json::from_str(&tilesets[0].text).expect("a tileset");
+    let chr =
+        catalog.areas[0].variants[0].map(|bank| serde_json::json!({"type": "int", "value": bank}));
+    assert_eq!(
+        (
+            &tsj["image"],
+            &tsj["tilecount"],
+            &tsj["properties"][0]["value"]
+        ),
+        (&"area-01.png".into(), &256.into(), &serde_json::json!(chr))
+    );
+
+    let (area, variant, room_index) = catalog
+        .areas
+        .iter()
+        .zip(&prg.levels.stages)
+        .find_map(|(area, stage)| {
+            let variant = area
+                .variants
+                .iter()
+                .position(|chr| chr.iter().any(|&bank| bank & 0x80 != 0))?;
+            let room_index = stage
+                .rooms
+                .iter()
+                .position(|assets| assets.room.chr == area.variants[variant])?;
+            Some((area, variant, room_index))
+        })
+        .expect("a room with an animated bank");
+    let mut game = crate::actor::room::start(prg, &rom.chr, 0);
+    game.world.area = area.area * 2;
+    game.world.room = u8::try_from(room_index * 2).expect("a room");
+    crate::actor::room::load(&mut game, prg);
+    let shadow = area.variants[variant]
+        .iter()
+        .position(|&bank| bank & 0x80 != 0)
+        .expect("an animated shadow");
+    let terrain = &area.terrain;
+    let id = (0..terrain.corners.len())
+        .find(|&id| {
+            terrain.corners[id]
+                .iter()
+                .any(|&tile| usize::from(tile >> 6) == shadow)
+        })
+        .expect("a metatile drawn from the animated bank");
+    let class = usize::from(terrain.palette_classes[id]);
+    let tileset = tilesets
+        .iter()
+        .find(|tileset| tileset.name == tileset_name(area.area, variant));
+    let picture = &tileset.expect("the room's tileset").picture;
+    for (corner, &tile) in terrain.corners[id].iter().enumerate() {
+        let pattern = crate::chr::tile(&rom.chr, &game.oam.chr[..4], usize::from(tile) * 16);
+        for (y, x) in (0..8).flat_map(|y| (0..8).map(move |x| (y, x))) {
+            let value = usize::from(crate::chr::pixel(pattern, x, y));
+            let colour = crate::palette::rgba(game.effects.palette[4 * class + value]);
+            let column = id % 16 * 16 + corner % 2 * 8 + x;
+            let row = id / 16 * 16 + corner / 2 * 8 + y;
+            assert_eq!(
+                picture[(row * side + column) * 4..][..4],
+                colour,
+                "corner {corner} ({x}, {y})"
+            );
+        }
+    }
+    let past = terrain.corners.len();
+    assert!(past == 256 || picture[(past / 16 * 16 * side + past % 16 * 16) * 4..][..4] == [0; 4]);
 }

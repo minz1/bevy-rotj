@@ -885,17 +885,32 @@ fn animate_banks(game: &mut Game, prg: &[u8]) {
         if bank & 0x80 == 0 {
             continue;
         }
-        let record = rom_word(prg, 14, 0xC06C + u16::from((bank << 1) & 0x7F));
-        let byte = |i: u16| rom_byte(prg, 0, record + i);
+        let byte = animation_byte(prg, bank);
         let frames = byte(0);
         display.timers[shadow] = [byte(1), frames, 0, 0];
-        let mut last = bank;
         for frame in 0..frames {
-            last = byte(2 + u16::from(frame));
-            display.banks[shadow * 8 + usize::from(frame)] = last;
+            display.banks[shadow * 8 + usize::from(frame)] = byte(2 + u16::from(frame));
         }
-        game.oam.chr[shadow] = last;
+        game.oam.chr[shadow] = loaded_bank(prg, bank);
     }
+}
+
+/// The bank a room loads for `bank`: an animation handle's (bit 7) last frame.
+pub(crate) fn loaded_bank(prg: &[u8], bank: u8) -> u8 {
+    if bank & 0x80 == 0 {
+        return bank;
+    }
+    let byte = animation_byte(prg, bank);
+    match byte(0) {
+        0 => bank,
+        frames => byte(1 + u16::from(frames)),
+    }
+}
+
+/// The bytes of animation handle `bank`'s record: its frame count, timer and frames.
+fn animation_byte(prg: &[u8], bank: u8) -> impl Fn(u16) -> u8 + '_ {
+    let record = rom_word(prg, 14, 0xC06C + u16::from((bank << 1) & 0x7F));
+    move |i| rom_byte(prg, 0, record + i)
 }
 
 /// The room's parameters, the stream masks and the room's player setup (`$D992`).

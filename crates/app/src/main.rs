@@ -9,6 +9,7 @@ mod pacing;
 mod play;
 mod screen;
 mod settings;
+mod tilesets;
 mod ui;
 
 use bevy::camera::{OrthographicProjection, Projection, ScalingMode};
@@ -118,7 +119,7 @@ fn main() {
     .init_resource::<screen::Colours>()
     .insert_resource(settings::SettingsDir(dir))
     .init_state::<GameState>()
-    .add_systems(Startup, spawn_camera)
+    .add_systems(Startup, (spawn_camera, write_tilesets))
     .add_systems(Update, fit_camera)
     .add_plugins((
         pacing::PacingPlugin,
@@ -142,6 +143,21 @@ fn main() {
 /// The camera that shows the screen quad in the window, the only one [`fit_camera`] fits.
 #[derive(Component)]
 struct ScreenCamera;
+
+/// Writes the tilesets beside the settings file for level packs; a failure is logged and
+/// the game goes on.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Bevy system params, rust-clippy#8940"
+)]
+fn write_tilesets(rom: Res<'_, RomData>, dir: Res<'_, settings::SettingsDir>) {
+    let Some(dir) = &dir.0 else {
+        return;
+    };
+    if let Err(error) = tilesets::write(dir, &rom.0.prg, &rom.0.chr) {
+        warn!("{}: {error}", dir.join("tilesets").display());
+    }
+}
 
 /// `Camera2d` over the 4x-scaled screen quad (1024x960 world units), sized to the
 /// window by [`fit_camera`].

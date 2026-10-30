@@ -189,13 +189,26 @@ enum Cmd {
         #[arg(long)]
         verify: bool,
     },
-    /// Write the original game's levels as a level pack (`pack.json`, `world.world` and
-    /// `rooms/`); the pack is ROM-derived, so keep it out of the repository.
+    /// Write the original game's levels as a level pack (`pack.json`, `world.world`,
+    /// `rotj.tiled-project` and `rooms/`); the pack is ROM-derived, so keep it out of the
+    /// repository. Put it in `<data>/packs/<pack>/`, `<data>` the game's folder, for its maps
+    /// to find the tilesets the game writes into `<data>/tilesets/`.
     ExportLevels {
         /// Path to the .nes ROM file.
         #[arg(short, long)]
         rom: PathBuf,
         /// The pack's folder.
+        #[arg(short, long)]
+        out: PathBuf,
+    },
+    /// Write the tilesets a pack's maps name (a `.tsj` and a `.png` per area and CHR
+    /// variant), as the game writes them into `<data>/tilesets/`; they are ROM-derived, so
+    /// keep them out of the repository.
+    Tilesets {
+        /// Path to the .nes ROM file.
+        #[arg(short, long)]
+        rom: PathBuf,
+        /// The tilesets' folder.
         #[arg(short, long)]
         out: PathBuf,
     },
@@ -274,6 +287,7 @@ impl Cli {
             Cmd::Dmc { rom, out } => dmc_extract(&rom, &out),
             Cmd::Music { rom, out } => music::extract(&rom, &out),
             Cmd::ExportLevels { rom, out } => export_levels(&rom, &out),
+            Cmd::Tilesets { rom, out } => tilesets(&rom, &out),
         }
     }
 }
@@ -284,6 +298,29 @@ fn export_levels(rom: &Path, out: &Path) -> Result<()> {
         .ok_or_else(|| eyre!("the ROM's levels do not import"))?;
     write_pack(&files, out)?;
     println!("{} ({} files)", out.display(), files.len());
+    Ok(())
+}
+
+fn tilesets(rom: &Path, out: &Path) -> Result<()> {
+    let rom = rotj_rom::Rom::load(Some(rom)).map_err(|error| eyre!(error))?;
+    let tilesets = rotj_core::levels::tilesets(&rom.prg, &rom.chr)
+        .ok_or_else(|| eyre!("the ROM's levels do not import"))?;
+    write_tilesets(&tilesets, out)?;
+    println!("{} ({} files)", out.display(), 2 * tilesets.len());
+    Ok(())
+}
+
+/// Writes each tileset's `.tsj` and `.png` into `out`.
+fn write_tilesets(tilesets: &[rotj_core::levels::Tileset], out: &Path) -> Result<()> {
+    std::fs::create_dir_all(out)?;
+    for tileset in tilesets {
+        let tsj = out.join(format!("{}.tsj", tileset.name));
+        std::fs::write(&tsj, &tileset.text)
+            .wrap_err_with(|| format!("writing {}", tsj.display()))?;
+        let side = rotj_core::levels::TILESET_PX;
+        let png = out.join(format!("{}.png", tileset.name));
+        write_png(&png, side, side, tileset.picture.clone())?;
+    }
     Ok(())
 }
 
@@ -581,5 +618,20 @@ mod tests {
         std::fs::remove_dir_all(&out).expect("removes the pack");
         assert_eq!((rooms, world), (38, true));
         assert!(pack == files["pack.json"], "pack.json differs");
+    }
+
+    /// Every tileset's two files land in a temporary folder, which is removed.
+    #[test]
+    fn tilesets_writes_a_tsj_and_a_png_per_tileset() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let tilesets = rotj_core::levels::tilesets(&rom.prg, &rom.chr).expect("the tilesets");
+        let out = std::env::temp_dir().join(format!("rotj-tilesets-{}", std::process::id()));
+        write_tilesets(&tilesets, &out).expect("writes");
+        let files = std::fs::read_dir(&out).expect("the folder").count();
+        let png = image::open(out.join("area-06-b.png")).expect("a PNG");
+        std::fs::remove_dir_all(&out).expect("removes the tilesets");
+        assert_eq!((files, png.width(), png.height()), (54, 256, 256));
     }
 }

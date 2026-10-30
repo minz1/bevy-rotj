@@ -1,16 +1,19 @@
 //! The exporter: the original game's levels from the ROM, and any [`Levels`] written as a
 //! pack.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+
+use serde_json::{Value, json};
 
 use super::model::{
     self, Extra, Layer, Map, Object, PackFile, PackStage, Position, Property, Region, TilesetRef,
     World, WorldMap, to_text,
 };
 use super::{
-    Catalog, ExtraPassword, Levels, PAGE_CELLS, PAGES, PackFiles, RoomAssets, Source, Stage,
-    StageAssets, TABLE_ENTRIES, along_across, class_of, derived_first_spawn_column, import,
-    region_place, schedule_cell, tile_index,
+    Catalog, ExtraPassword, JSON_VERSION, Levels, NO_HANDLER, PAGE_CELLS, PAGES, PackFiles,
+    RoomAssets, Source, Stage, StageAssets, TABLE_ENTRIES, TILED_VERSION, along_across, class_of,
+    classes, derived_first_spawn_column, import, region_place, schedule_cell, tile_index,
+    variant_name,
 };
 use crate::actor::boot::{PASSWORDS, payload_byte};
 use crate::actor::spawn::SpawnTable;
@@ -209,7 +212,121 @@ pub fn write(levels: &Levels, catalog: &Catalog) -> PackFiles {
         extra: Extra::new(),
     };
     files.insert("world.world".into(), to_text(&world));
+    files.insert("rotj.tiled-project".into(), to_text(&project(levels)));
     files
+}
+
+/// The Tiled project file: the tileset folder, an enum per `propertytype` the rooms name and
+/// a class per actor family and marker.
+fn project(levels: &Levels) -> Value {
+    let rooms: Vec<&Room> = levels
+        .stages
+        .iter()
+        .flat_map(|stage| &stage.rooms)
+        .map(|assets| &assets.room)
+        .collect();
+    let selectors = |prefix: &str, selector: fn(&Room) -> u8| {
+        let used: BTreeSet<u8> = rooms.iter().map(|&room| selector(room)).collect();
+        used.iter()
+            .map(|selector| format!("{prefix}{selector:02x}"))
+            .collect()
+    };
+    let mut types = vec![
+        enumeration(
+            "arrival",
+            ["unchanged", "held", "flying"].map(String::from).into(),
+        ),
+        enumeration("hud_split", ["standard", "none"].map(String::from).into()),
+        enumeration(
+            "scroll",
+            ["horizontal", "vertical"].map(String::from).into(),
+        ),
+        enumeration(
+            "background_palette",
+            selectors("bg-", |room| room.background_palette),
+        ),
+        enumeration(
+            "sprite_palette",
+            selectors("sprites-", |room| room.sprite_palette),
+        ),
+    ];
+    let families: Vec<(&str, &[u8])> = classes(false).chain(classes(true)).collect();
+    for &(family, kinds) in families.iter().filter(|(_, kinds)| kinds.len() > 1) {
+        let variants = kinds.iter().copied().map(variant_name).collect();
+        types.push(enumeration(&format!("{family}_variant"), variants));
+    }
+    for &(family, kinds) in families
+        .iter()
+        .filter(|(family, _)| *family != NO_HANDLER.0)
+    {
+        let mut members: Vec<Value> = [
+            "behaviour",
+            "chr_slot",
+            "contact",
+            "flags",
+            "health",
+            "state",
+            "subtype",
+        ]
+        .map(int_member)
+        .into();
+        members.push(json!({ "name": "triggers", "type": "list", "value": [] }));
+        if kinds.len() > 1 {
+            members.push(json!({
+                "name": "variant",
+                "propertyType": format!("{family}_variant"),
+                "type": "string",
+                "value": variant_name(kinds[0]),
+            }));
+        }
+        types.push(class(family, members));
+    }
+    types.push(class(
+        "player-start",
+        ["facing", "scroll_lock", "scroll_mode"]
+            .map(int_member)
+            .into(),
+    ));
+    types.push(class("camera-start", Vec::new()));
+    types.push(class("scroll-lock", vec![int_member("locks")]));
+    for (id, entry) in (1..).zip(&mut types) {
+        entry["id"] = Value::from(id);
+    }
+    json!({
+        "automappingRulesFile": "",
+        "commands": [],
+        "compatibilityVersion": 1100,
+        "extensionsPath": "extensions",
+        "folders": [".", "../../tilesets"],
+        "properties": [],
+        "propertyTypes": types,
+    })
+}
+
+fn enumeration(name: &str, values: Vec<String>) -> Value {
+    json!({
+        "name": name,
+        "storageType": "string",
+        "type": "enum",
+        "values": Value::from(values),
+        "valuesAsFlags": false,
+    })
+}
+
+fn class(name: &str, members: Vec<Value>) -> Value {
+    json!({
+        "color": "#ffa0a0a4",
+        "drawFill": true,
+        "members": Value::from(members),
+        "name": name,
+        "type": "class",
+        "useAs": ["object"],
+    })
+}
+
+/// A class member: an `int`, 0 when an object leaves it out.
+fn int_member(name: &str) -> Value {
+    json!({ "name": name, "type": "int", "value": 0 })
 }
 
 /// The stage's physical page map: each page's (room, entry) regions, sorted, with the
@@ -294,7 +411,7 @@ fn room_map(
         orientation: "orthogonal".into(),
         properties: room_properties(room, vertical),
         renderorder: "right-down".into(),
-        tiledversion: "1.12.0".into(),
+        tiledversion: TILED_VERSION.into(),
         tileheight: 16,
         tilesets: vec![TilesetRef {
             firstgid: 1,
@@ -303,8 +420,7 @@ fn room_map(
         }],
         tilewidth: 16,
         kind: "map".into(),
-        // Tiled 1.12.0's `FileFormat::versionString` still writes JSON format "1.11".
-        version: "1.11".into(),
+        version: JSON_VERSION.into(),
         extra: Extra::new(),
     }
 }

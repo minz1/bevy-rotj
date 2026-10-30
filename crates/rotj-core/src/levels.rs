@@ -14,9 +14,11 @@ use crate::terrain::Terrain;
 pub mod export;
 pub mod import;
 pub mod model;
+pub mod tilesets;
 
 pub use export::{export, write};
 pub use import::{ImportError, import};
+pub use tilesets::{TILESET_PX, Tileset, tilesets};
 
 /// A pack's files: each path, relative to the pack's folder, to its text.
 pub type PackFiles = BTreeMap<String, String>;
@@ -29,6 +31,10 @@ const TABLE_ENTRIES: usize = 32;
 const PAGES: usize = 16;
 /// The tiles of every tileset a pack names.
 const TILESET_TILES: u32 = 256;
+/// The Tiled version a pack's files say saved them.
+const TILED_VERSION: &str = "1.12.0";
+/// Tiled 1.12.0's `FileFormat::versionString` still writes JSON format "1.11".
+const JSON_VERSION: &str = "1.11";
 
 /// Every stage's assets, in play order.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -203,10 +209,16 @@ fn classes(second_class: bool) -> impl Iterator<Item = (&'static str, &'static [
 /// several kinds.
 fn class_of(second_class: bool, kind: u8) -> Option<(&'static str, Option<String>)> {
     let (class, kinds) = classes(second_class).find(|(_, kinds)| kinds.contains(&kind))?;
-    Some((class, (kinds.len() > 1).then(|| format!("type-{kind:02x}"))))
+    Some((class, (kinds.len() > 1).then(|| variant_name(kind))))
 }
 
-/// The slot class and kind a class and variant name.
+/// The `variant` a kind of a class with several kinds is written as.
+fn variant_name(kind: u8) -> String {
+    format!("type-{kind:02x}")
+}
+
+/// The slot class and kind a class and variant name; a class with several kinds and no
+/// variant is its first kind.
 fn kind_of(class: &str, variant: Option<&str>) -> Result<(bool, u8), String> {
     let (second_class, kinds) = [false, true]
         .into_iter()
@@ -216,13 +228,12 @@ fn kind_of(class: &str, variant: Option<&str>) -> Result<(bool, u8), String> {
                 .map(|(_, kinds)| (second_class, kinds))
         })
         .ok_or_else(|| format!("unknown class `{class}`"))?;
-    if let [kind] = kinds {
-        return Ok((second_class, *kind));
-    }
-    let variant = variant.ok_or_else(|| format!("class `{class}` needs a `variant`"))?;
+    let Some(variant) = variant.filter(|_| kinds.len() > 1) else {
+        return Ok((second_class, kinds[0]));
+    };
     kinds
         .iter()
-        .find(|&&kind| format!("type-{kind:02x}") == variant)
+        .find(|&&kind| variant_name(kind) == variant)
         .map(|&kind| (second_class, kind))
         .ok_or_else(|| format!("unknown `{class}` variant `{variant}`"))
 }
