@@ -629,10 +629,15 @@ mod tests {
         };
         let tilesets = rotj_core::levels::tilesets(&rom.prg, &rom.chr).expect("the tilesets");
         let out = std::env::temp_dir().join(format!("rotj-tilesets-{}", std::process::id()));
-        write_tilesets(tilesets, &out).expect("writes");
-        let files = std::fs::read_dir(&out).expect("the folder").count();
-        let png = image::open(out.join("area-06-b.png")).expect("a PNG");
+        let written = write_tilesets(tilesets, &out);
+        let files = std::fs::read_dir(&out).map(Iterator::count);
+        let png = image::open(out.join("area-06-b.png"));
         std::fs::remove_dir_all(&out).expect("removes the tilesets");
-        assert_eq!((files, png.width(), png.height()), (54, 256, 256));
+        written.expect("writes");
+        let png = png.expect("a PNG");
+        assert_eq!(
+            (files.expect("the folder"), png.width(), png.height()),
+            (54, 256, 256)
+        );
     }
 }

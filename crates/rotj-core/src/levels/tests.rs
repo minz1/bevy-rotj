@@ -860,7 +860,10 @@ fn the_project_file_declares_every_class_and_value_the_rooms_use() {
     let ids: Vec<u64> = types.iter().filter_map(|t| t["id"].as_u64()).collect();
     assert_eq!(ids, (1..=types.len() as u64).collect::<Vec<_>>());
     let block = types.iter().find(|t| t["name"] == "breakable_block");
-    let variant = &block.expect("a breakable_block class")["members"][8];
+    let members = block.expect("a breakable_block class")["members"].as_array();
+    let variant = members
+        .and_then(|members| members.iter().find(|member| member["name"] == "variant"))
+        .expect("a variant member");
     assert_eq!(
         (&variant["propertyType"], &variant["value"]),
         (&"breakable_block_variant".into(), &"type-04".into())
