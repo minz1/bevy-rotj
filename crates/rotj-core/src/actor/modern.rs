@@ -7,6 +7,7 @@ use super::{Game, Script};
 use crate::chr;
 use crate::levelmap::Cell;
 use crate::render::{Line, ctrl, mask};
+use crate::rooms::Chain;
 
 /// What the Modern picture draws of a frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,7 +48,7 @@ pub fn view(game: &Game, lines: &[Line]) -> Option<View> {
     let top = i32::from(rounded(game.world.camera_y));
     let strip = match game.scroll.split {
         split if !split.armed => None,
-        split if split.handler == 4 => Some(strip(lines, banks, top)?),
+        split if split.chain == Chain::BossBar => Some(strip(lines, banks, top)?),
         _ => return None,
     };
     let nametable_playfield = match strip {
@@ -340,7 +341,7 @@ mod tests {
         let ((mut game, _), rom) = (stage_1()?, rotj_rom::for_test()?);
         game.frame(crate::prg::for_test().expect("the PRG"), &rom.chr);
         game.scroll.split.armed = true;
-        game.scroll.split.handler = 4;
+        game.scroll.split.chain = Chain::BossBar;
         game.scroll.split.first_irq_cycles = 0x5E00;
         game.scroll.split.next_irq = 0;
         let lines = raster::lines(&raster::Registers::of(&game), &game);
@@ -404,7 +405,7 @@ mod tests {
             "a sprite spanning a bank change"
         );
         let mut other = game.clone();
-        other.scroll.split.handler = 3;
+        other.scroll.split.chain = Chain::BossFloor;
         assert_eq!(view(&other, &lines), None, "another handler");
         let mut off_edge = game.clone();
         off_edge.world.camera_y = 4 << 4;
@@ -451,7 +452,7 @@ mod tests {
             "no split armed: from the map"
         );
         let mut other_handler = game.clone();
-        other_handler.scroll.split.handler = 3;
+        other_handler.scroll.split.chain = Chain::BossFloor;
         let other_lines = raster::lines(&raster::Registers::of(&other_handler), &other_handler);
         assert!(
             view(&other_handler, &other_lines)

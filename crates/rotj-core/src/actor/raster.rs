@@ -15,6 +15,7 @@
 use super::Game;
 use super::scroll::Scroll;
 use crate::render::{Line, Mirroring, ctrl, mask};
+use crate::rooms::Chain;
 
 /// A register an IRQ writes, by the write that changes what the PPU draws.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,28 +77,27 @@ impl Irq<'_> {
 /// The scroll offsets most handlers write `$2005` at (`JSR $E1B4` after their dispatch).
 const SCROLL: (u32, u32) = (86, 92);
 
-/// `$D5+i` plus `$B6 & mask`, the handlers' band step.
-fn step(scroll: &mut Scroll, i: usize, mask: u8) {
-    scroll.bands[i] = scroll.bands[i].wrapping_add(mask & scroll.gate);
+/// A band's step: `band` plus `$B6 & mask`.
+fn step(band: &mut u8, mask: u8, gate: u8) {
+    *band = band.wrapping_add(mask & gate);
 }
 
-/// `$DE30`/`$DFB0`'s bounce: every eighth frame (`$F1 & 7`) `$D5+i` drifts by `$B6 & 1`,
-/// up while `$D5+flag` bit 7 is clear until it reaches `$20`, down until below `$F0`.
-fn bounce(scroll: &mut Scroll, frame: u8, i: usize, flag: usize) {
+/// `$DE30`/`$DFB0`'s bounce: every eighth frame (`$F1 & 7`) `band` drifts by `$B6 & 1`, up
+/// while `backward` bit 7 is clear until it reaches `$20`, down until below `$F0`.
+fn bounce(band: &mut u8, backward: &mut u8, frame: u8, gate: u8) {
     if !frame.is_multiple_of(8) {
         return;
     }
-    let delta = 1 & scroll.gate;
-    let bands = &mut scroll.bands;
-    if bands[flag] & 0x80 == 0 {
-        bands[i] = bands[i].wrapping_add(delta);
-        if bands[i] & 0x80 == 0 && bands[i] >= 0x20 {
-            bands[flag] = 0x80;
+    let delta = 1 & gate;
+    if *backward & 0x80 == 0 {
+        *band = band.wrapping_add(delta);
+        if *band & 0x80 == 0 && *band >= 0x20 {
+            *backward = 0x80;
         }
     } else {
-        bands[i] = bands[i].wrapping_sub(delta);
-        if bands[i] & 0x80 != 0 && bands[i] < 0xF0 {
-            bands[flag] = 0;
+        *band = band.wrapping_sub(delta);
+        if *band & 0x80 != 0 && *band < 0xF0 {
+            *backward = 0;
         }
     }
 }
@@ -110,28 +110,23 @@ fn next(counter: u16, overhead: u32) -> u32 {
 /// The handler `$D3` runs at this IRQ (by `$D4`): its writes and RAM changes, and the
 /// cycles to the next IRQ, or `None` when the frame's chain ends.
 fn handler(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32> {
-    debug_assert!(
-        scroll.split.handler <= 0x0D,
-        "raster IRQ $D3 = {:02X} is not ported",
-        scroll.split.handler
-    );
-    match scroll.split.handler {
-        0 => bands_and_parallax(scroll, frame, irq),
-        1 => three_bands(scroll, frame, irq),
-        2 => {
+    match scroll.split.chain {
+        Chain::TwoBands => two_bands(scroll, frame, irq),
+        Chain::ThreeBands => three_bands(scroll, frame, irq),
+        Chain::FixedRow => {
             irq.write(62, Reg::AddrHigh(0x26));
             irq.write(70, Reg::AddrLow(0x80));
             irq.scroll((76, 80), 0);
             None
         }
-        3 => boss_floor(scroll, frame, irq),
-        4 => {
+        Chain::BossFloor => boss_floor(scroll, frame, irq),
+        Chain::BossBar => {
             irq.status_bar_banks([55, 67, 79]);
             None
         }
-        5 | 7 => four_bands(scroll, irq),
-        6 => swinging_row(scroll, irq),
-        8 => {
+        Chain::FourBands | Chain::FourBandsTall => four_bands(scroll, irq),
+        Chain::SwingingRow => swinging_row(scroll, irq),
+        Chain::FixedTop => {
             if scroll.split.next_irq == 0 {
                 irq.scroll((85, 91), 0);
                 scroll.split.next_irq = 1;
@@ -142,19 +137,21 @@ fn handler(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32> {
             scroll.split.next_irq = 0;
             None
         }
-        9 => intro(scroll, irq),
-        0x0A => cutscene(scroll, irq),
-        0x0B => {
-            irq.scroll(SCROLL, scroll.bands[0]);
-            if scroll.scroll_x < 0x41 && scroll.bands[0] != 0 {
-                scroll.bands[0] -= 1;
+        Chain::Intro => intro(scroll, irq),
+        Chain::Cutscene => cutscene(scroll, irq),
+        Chain::Closing => {
+            let [band, ..] = &mut scroll.bands;
+            irq.scroll(SCROLL, *band);
+            if scroll.scroll_x < 0x41 && *band != 0 {
+                *band -= 1;
             }
             None
         }
-        0x0C => {
+        Chain::EndingTitle => {
             if scroll.split.next_irq == 0 {
+                let [title_x, ..] = scroll.bands;
                 irq.write(78, Reg::Ctrl(scroll.ppu_ctrl | ctrl::NAMETABLE_X));
-                irq.scroll((95, 101), scroll.bands[0]);
+                irq.scroll((95, 101), title_x);
                 scroll.split.next_irq = 1;
                 return Some(next(0x4000, 175));
             }
@@ -164,31 +161,31 @@ fn handler(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32> {
             scroll.split.next_irq = 0;
             None
         }
-        0x0D => credits(scroll, irq),
-        _ => None,
+        Chain::Credits => credits(scroll, irq),
     }
 }
 
 /// `$D3 = 0`, bank 14 `$DE89`: two bands, then the parallax the next frame's top shows.
-fn bands_and_parallax(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32> {
+fn two_bands(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32> {
+    let [playfield, band, top, backward, ..] = &mut scroll.bands;
     match scroll.split.next_irq {
         0 => {
-            irq.scroll(SCROLL, scroll.bands[1]);
-            step(scroll, 1, 2);
+            irq.scroll(SCROLL, *band);
+            step(band, 2, scroll.gate);
             scroll.split.next_irq = 1;
             Some(next(0x1300, 180))
         }
         1 => {
-            irq.scroll(SCROLL, scroll.bands[0]);
+            irq.scroll(SCROLL, *playfield);
             scroll.split.next_irq = 2;
             Some(next(0x28C0, 167))
         }
         _ => {
-            scroll.bands[0] = scroll.scroll_x;
-            scroll.scroll_x = scroll.bands[2];
+            *playfield = scroll.scroll_x;
+            scroll.scroll_x = *top;
             scroll.split.next_irq = 0;
             scroll.split.first_irq_cycles = 0x2CA0;
-            bounce(scroll, frame, 2, 3);
+            bounce(top, backward, frame, scroll.gate);
             None
         }
     }
@@ -196,31 +193,32 @@ fn bands_and_parallax(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Opti
 
 /// `$D3 = 1`, `$DF15`: three bands, then the parallax.
 fn three_bands(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32> {
+    let [playfield, upper, top, lower, ..] = &mut scroll.bands;
     match scroll.split.next_irq {
         0 => {
-            irq.scroll(SCROLL, scroll.bands[1]);
-            step(scroll, 1, 3);
+            irq.scroll(SCROLL, *upper);
+            step(upper, 3, scroll.gate);
             scroll.split.next_irq = 1;
             Some(next(0x0F00, 181))
         }
         1 => {
-            irq.scroll(SCROLL, scroll.bands[3]);
-            step(scroll, 3, 6);
+            irq.scroll(SCROLL, *lower);
+            step(lower, 6, scroll.gate);
             scroll.split.next_irq = 2;
             Some(next(0x0600, 180))
         }
         2 => {
-            irq.scroll(SCROLL, scroll.bands[0]);
+            irq.scroll(SCROLL, *playfield);
             scroll.split.next_irq = 3;
             Some(next(0x08C0, 167))
         }
         _ => {
-            scroll.bands[0] = scroll.scroll_x;
-            scroll.scroll_x = scroll.bands[2];
+            *playfield = scroll.scroll_x;
+            scroll.scroll_x = *top;
             scroll.split.next_irq = 0;
             scroll.split.first_irq_cycles = 0x31A0;
             if frame.is_multiple_of(8) {
-                step(scroll, 2, 1);
+                step(top, 1, scroll.gate);
             }
             None
         }
@@ -229,10 +227,11 @@ fn three_bands(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32>
 
 /// `$D3 = 3`, `$DFDE`: the stage 1 boss: a band, the floor, the status bar's banks.
 fn boss_floor(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32> {
+    let [top, band, _, backward, ..] = &mut scroll.bands;
     match scroll.split.next_irq {
         0 => {
-            irq.scroll(SCROLL, scroll.bands[1]);
-            step(scroll, 1, 4);
+            irq.scroll(SCROLL, *band);
+            step(band, 4, scroll.gate);
             scroll.split.next_irq = 1;
             Some(next(0x1400, 180))
         }
@@ -243,41 +242,43 @@ fn boss_floor(scroll: &mut Scroll, frame: u8, irq: &mut Irq<'_>) -> Option<u32> 
         }
         _ => {
             irq.status_bar_banks([81, 93, 105]);
-            scroll.scroll_x = scroll.bands[0];
+            scroll.scroll_x = *top;
             scroll.split.next_irq = 0;
             scroll.split.first_irq_cycles = 0x2CA0;
-            bounce(scroll, frame, 0, 3);
+            bounce(top, backward, frame, scroll.gate);
             None
         }
     }
 }
 
-/// `$D3 = 5`, `$E076`, and 7, `$E163`: four bands, the last the playfield's.
+/// `$D3 = 5`, `$E076`, and 7, `$E163`: four bands, the last the playfield's. The screen
+/// shows the outer band, the inner, the middle, the inner again and the outer again.
 fn four_bands(scroll: &mut Scroll, irq: &mut Irq<'_>) -> Option<u32> {
-    let five = scroll.split.handler == 5;
+    let five = scroll.split.chain == Chain::FourBands;
+    let [outer, inner, middle, ..] = &mut scroll.bands;
     match scroll.split.next_irq {
         0 => {
-            irq.scroll(SCROLL, scroll.bands[1]);
-            step(scroll, 1, 4);
+            irq.scroll(SCROLL, *inner);
+            step(inner, 4, scroll.gate);
             scroll.split.next_irq = 1;
             Some(next(if five { 0x0D00 } else { 0x0C00 }, 180))
         }
         1 => {
-            irq.scroll(SCROLL, scroll.bands[2]);
-            step(scroll, 2, 1);
+            irq.scroll(SCROLL, *middle);
+            step(middle, 1, scroll.gate);
             scroll.split.next_irq = 2;
             Some(next(if five { 0x3100 } else { 0x3800 }, 181))
         }
         2 => {
-            irq.scroll(SCROLL, scroll.bands[1]);
+            irq.scroll(SCROLL, *inner);
             scroll.split.next_irq = 3;
             Some(next(0x0A00, 167))
         }
         _ => {
-            irq.scroll(SCROLL, scroll.bands[0]);
+            irq.scroll(SCROLL, *outer);
             scroll.split.first_irq_cycles = if five { 0x1800 } else { 0x1640 };
-            step(scroll, 0, 8);
-            scroll.scroll_x = scroll.bands[0];
+            step(outer, 8, scroll.gate);
+            scroll.scroll_x = *outer;
             scroll.split.next_irq = 0;
             None
         }
@@ -296,43 +297,51 @@ fn swinging_row(scroll: &mut Scroll, irq: &mut Irq<'_>) -> Option<u32> {
     }
     scroll.ppu_ctrl |= ctrl::NAMETABLE_Y;
     let delta = 1 & scroll.gate;
-    let bands = &mut scroll.bands;
-    let mut climbing = bands[1] & 0x80 != 0;
+    let [swing, climb, ..] = &mut scroll.bands;
+    let mut climbing = *climb & 0x80 != 0;
     if !climbing {
-        bands[0] = bands[0].wrapping_sub(delta);
-        if bands[0] == 0xB0 {
-            bands[1] = 0x80;
+        *swing = swing.wrapping_sub(delta);
+        if *swing == 0xB0 {
+            *climb = 0x80;
             climbing = true;
         }
     }
     if climbing {
-        bands[0] = bands[0].wrapping_add(delta);
-        if bands[0] == 0 {
-            bands[1] = 0;
+        *swing = swing.wrapping_add(delta);
+        if *swing == 0 {
+            *climb = 0;
         }
     }
-    scroll.scroll_y = bands[0].wrapping_add(0x50);
+    scroll.scroll_y = swing.wrapping_add(0x50);
     scroll.split.next_irq = 0;
     None
 }
 
-/// `$D3 = 9`, bank 2 `$95DA`: the intro's ten bands, sliding in (`$96A1`).
+/// `$DA`'s bits once all five of the intro's bands have slid in.
+pub(crate) const INTRO_SLID: u8 = 0x1F;
+
+/// `$D3 = 9`, bank 2 `$95DA`: the intro's ten bands, sliding in (`$96A1`). A band's bit in
+/// `slid` ([`INTRO_SLID`]) is set once it is in, and is also its nametable.
 fn intro(scroll: &mut Scroll, irq: &mut Irq<'_>) -> Option<u32> {
+    let [xs @ .., slid, _, _] = &mut scroll.bands;
     let phase = scroll.split.next_irq;
     if phase >= 9 {
         irq.write(78, Reg::Ctrl(scroll.ppu_ctrl | ctrl::NAMETABLE_X));
         irq.scroll((94, 100), 0);
         scroll.split.next_irq = 0;
-        let bands = &mut scroll.bands;
-        for (band, step) in [0x20u8, 0x28, 0x40, 0x50, 0x58].into_iter().enumerate() {
+        for (band, (x, step)) in xs
+            .iter_mut()
+            .zip([0x20u8, 0x28, 0x40, 0x50, 0x58])
+            .enumerate()
+        {
             let bit = 1 << band;
-            if bands[5] & bit != 0 {
+            if *slid & bit != 0 {
                 continue;
             }
-            let (value, wrapped) = bands[band].overflowing_add(step);
-            bands[band] = if wrapped { 0 } else { value };
+            let (value, wrapped) = x.overflowing_add(step);
+            *x = if wrapped { 0 } else { value };
             if wrapped {
-                bands[5] |= bit;
+                *slid |= bit;
             }
         }
         return None;
@@ -346,32 +355,31 @@ fn intro(scroll: &mut Scroll, irq: &mut Irq<'_>) -> Option<u32> {
         4 => (4, 89, (106, 112), 0x0300, 189),
         _ => (0, 81, (98, 104), 0x0600, 177),
     };
-    let nametable = (scroll.bands[5] >> band) & 1;
+    let nametable = (*slid >> band) & 1;
     irq.write(ctrl_at, Reg::Ctrl(nametable | scroll.ppu_ctrl));
     if phase == 0 {
         irq.write(91, Reg::AddrHigh(0x22));
         irq.write(97, Reg::AddrLow(0x40));
     }
-    irq.scroll(scroll_at, scroll.bands[usize::from(band)]);
+    irq.scroll(scroll_at, xs[usize::from(band)]);
     scroll.split.next_irq += 1;
     Some(next(counter, overhead))
 }
 
-/// `$D3 = $0A`, bank 2 `$9742`: the cutscene's two bands sliding home (`$977D`).
+/// `$D3 = $0A`, bank 2 `$9742`: the cutscene's two bands sliding home (`$977D`). Bits 0
+/// and 1 of `nametables` are the bands' nametables, cleared once they are home.
 fn cutscene(scroll: &mut Scroll, irq: &mut Irq<'_>) -> Option<u32> {
+    let [first, second, _, _, _, nametables, ..] = &mut scroll.bands;
     match scroll.split.next_irq {
         0 => {
-            irq.write(81, Reg::Ctrl((scroll.bands[5] & 1) | scroll.ppu_ctrl));
-            irq.scroll((98, 104), scroll.bands[0]);
+            irq.write(81, Reg::Ctrl((*nametables & 1) | scroll.ppu_ctrl));
+            irq.scroll((98, 104), *first);
             scroll.split.next_irq = 1;
             Some(next(0x1000, 180))
         }
         1 => {
-            irq.write(
-                83,
-                Reg::Ctrl(((scroll.bands[5] >> 1) & 1) | scroll.ppu_ctrl),
-            );
-            irq.scroll((100, 106), scroll.bands[1]);
+            irq.write(83, Reg::Ctrl(((*nametables >> 1) & 1) | scroll.ppu_ctrl));
+            irq.scroll((100, 106), *second);
             scroll.split.next_irq = 2;
             Some(next(0x1000, 182))
         }
@@ -379,15 +387,14 @@ fn cutscene(scroll: &mut Scroll, irq: &mut Irq<'_>) -> Option<u32> {
             irq.write(78, Reg::Ctrl(scroll.ppu_ctrl & !ctrl::NAMETABLE_X));
             irq.scroll((94, 100), 0);
             scroll.split.next_irq = 0;
-            let bands = &mut scroll.bands;
-            if bands[5] & 1 != 0 || bands[0] != 0 {
-                bands[5] &= 0xFE;
-                bands[0] = bands[0].wrapping_sub(8);
-            } else if bands[5] & 2 != 0 || bands[1] != 0 {
-                let (value, wrapped) = bands[1].overflowing_add(8);
-                bands[1] = value;
+            if *nametables & 1 != 0 || *first != 0 {
+                *nametables &= 0xFE;
+                *first = first.wrapping_sub(8);
+            } else if *nametables & 2 != 0 || *second != 0 {
+                let (value, wrapped) = second.overflowing_add(8);
+                *second = value;
                 if wrapped {
-                    bands[5] &= 0xFD;
+                    *nametables &= 0xFD;
                 }
             }
             None
@@ -395,28 +402,42 @@ fn cutscene(scroll: &mut Scroll, irq: &mut Irq<'_>) -> Option<u32> {
     }
 }
 
-/// `$D3 = $0D`, bank 2 `$9831`: the credits' parallax, its three speeds (`$985B`).
+/// `$D3 = $0D`, bank 2 `$9831`: the credits' parallax (`$985B`): three 8.8 x positions
+/// moving 1/2, 1 and 1/4 px a frame, the top band and `$FD` the first's.
 fn credits(scroll: &mut Scroll, irq: &mut Irq<'_>) -> Option<u32> {
+    let [
+        half_fraction,
+        half,
+        whole_fraction,
+        whole,
+        quarter_fraction,
+        quarter,
+        ..,
+    ] = &mut scroll.bands;
     match scroll.split.next_irq {
         0 | 2 => {
-            irq.scroll(SCROLL, scroll.bands[3]);
+            irq.scroll(SCROLL, *whole);
             scroll.split.next_irq += 1;
             Some(next(0x1000, 166))
         }
         1 => {
-            irq.scroll(SCROLL, scroll.bands[5]);
+            irq.scroll(SCROLL, *quarter);
             scroll.split.next_irq += 1;
             Some(next(0x0700, 168))
         }
         _ => {
             irq.scroll((85, 91), 0);
             scroll.split.next_irq = 0;
-            let bands = &mut scroll.bands;
-            for (at, step) in [(0, 0x80u16), (2, 0x100), (4, 0x40)] {
-                let value = u16::from_le_bytes([bands[at], bands[at + 1]]).wrapping_add(step);
-                [bands[at], bands[at + 1]] = value.to_le_bytes();
+            for (fraction, x, step) in [
+                (half_fraction, &mut *half, 0x80u16),
+                (whole_fraction, whole, 0x100),
+                (quarter_fraction, quarter, 0x40),
+            ] {
+                [*fraction, *x] = u16::from_le_bytes([*fraction, *x])
+                    .wrapping_add(step)
+                    .to_le_bytes();
             }
-            scroll.scroll_x = bands[1];
+            scroll.scroll_x = *half;
             None
         }
     }
@@ -426,9 +447,8 @@ fn credits(scroll: &mut Scroll, irq: &mut Irq<'_>) -> Option<u32> {
 /// frame began, and their RAM changes to `scroll`. `frame` is `$F1`.
 pub(crate) fn chain(scroll: &mut Scroll, frame: u8) -> Vec<(u32, Reg)> {
     let mut writes = Vec::new();
-    let d3 = usize::from(scroll.split.handler);
     let mut at =
-        u32::from(scroll.split.first_irq_cycles) + FIRST.get(d3).copied().unwrap_or(FIRST[0]);
+        u32::from(scroll.split.first_irq_cycles) + FIRST[usize::from(scroll.split.chain.byte())];
     for _ in 0..16 {
         let mut irq = Irq {
             at,

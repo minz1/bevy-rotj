@@ -560,6 +560,7 @@ fn stream_row(game: &mut Game, down: bool) {
 #[cfg(test)]
 mod layout {
     use super::{Mirroring, Raster, Scroll};
+    use crate::rooms::Chain;
 
     impl Scroll {
         pub(crate) fn lift(ram: &[u8; 2048]) -> Scroll {
@@ -586,7 +587,7 @@ mod layout {
                     Raster {
                         armed: ram[0xD0] == 0x80,
                         first_irq_cycles: u16::from_le_bytes([ram[0xD1], ram[0xD2]]),
-                        handler: ram[0xD3],
+                        chain: Chain::from_byte(ram[0xD3]).expect("a raster chain 0-13 at $D3"),
                         next_irq: ram[0xD4],
                     }
                 },
@@ -612,7 +613,7 @@ mod layout {
             ram[0xFE] = self.mask;
             ram[0xD0] = if self.split.armed { 0x80 } else { 0 };
             ram[0xD1..0xD3].copy_from_slice(&self.split.first_irq_cycles.to_le_bytes());
-            ram[0xD3] = self.split.handler;
+            ram[0xD3] = self.split.chain.byte();
             ram[0xD4] = self.split.next_irq;
             ram[0xD5..0xDD].copy_from_slice(&self.bands);
             ram[0x403] = self.start;

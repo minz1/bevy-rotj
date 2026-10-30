@@ -6,6 +6,7 @@ use super::Game;
 use super::attract::Attract;
 use super::cutscene::{ScreenClear, copy_payload, draw_block, draw_sprite};
 use super::oam::Mark;
+use super::raster::INTRO_SLID;
 use super::script::{Flow, Runner, wait};
 use super::sound_test::SoundTest;
 use super::stage::{Fade, NextArea, blackout, queue_palette};
@@ -15,6 +16,7 @@ use crate::levelmap::BOOT_FIRST_BANK;
 use crate::levels::{Levels, StageAssets};
 use crate::prg::Prg;
 use crate::render::{Mirroring, ctrl, mask, ppu};
+use crate::rooms::Chain;
 
 /// The WRAM byte at `addr` once `$98C3` has copied the payload (CHR `$F0-$F7`, in order).
 pub(crate) fn payload_byte(chr: &[u8], addr: u16) -> u8 {
@@ -605,7 +607,7 @@ impl Boot {
                 wait(frame, 1)
             }
             SlideRow::SlideUntilSplit => {
-                if game.scroll.bands[5] & 0x1F == 0x1F {
+                if game.scroll.bands[5] & INTRO_SLID == INTRO_SLID {
                     Flow::Done
                 } else {
                     game.scroll.split.armed = frame % 2 == 1;
@@ -1123,7 +1125,7 @@ fn reset(game: &mut Game) {
 /// The intro's raster split (`$604A-$6060`): `$D3 = 9`, its first IRQ `$2680` cycles
 /// after the NMI, the first nametable from y `$C0`.
 fn arm_slide(game: &mut Game) {
-    game.scroll.split.handler = 9;
+    game.scroll.split.chain = Chain::Intro;
     game.scroll.split.first_irq_cycles = 0x2680;
     game.scroll.scroll_y = 0xC0;
 }

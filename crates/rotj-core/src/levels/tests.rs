@@ -13,6 +13,7 @@ use crate::actors::{
 };
 use crate::collision::CLASS_COUNT;
 use crate::render::Mirroring;
+use crate::rooms::Chain;
 use crate::rooms::{Arrival, Start, listed_rooms};
 
 /// The ids a room's read cells name: the pending cells on the pages of its table.
@@ -386,7 +387,7 @@ fn hand_made() -> Levels {
     b.room.raster = Some(Raster {
         armed: true,
         first_irq_cycles: 0x1234,
-        handler: 3,
+        chain: Chain::BossFloor,
         next_irq: 1,
     });
     b.room.fixed_rows[0] = true;

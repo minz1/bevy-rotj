@@ -7,6 +7,7 @@ use super::script::{Flow, Runner, wait};
 use crate::actor::world::sound;
 use crate::levelmap::PAYLOAD_FIRST_BANK;
 use crate::render::{Mirroring, ctrl, mask, ppu};
+use crate::rooms::Chain;
 
 /// CHR offset of the payload's WRAM `$6000-$7E5F` (banks `$F8-$FF`).
 const PAYLOAD: usize = 0xF8 * 0x400;
@@ -162,7 +163,7 @@ impl Cutscene {
                 if frame == 0 {
                     let at = 0x7755 + 2 * u16::from(self.scene);
                     let split = &mut game.scroll.split;
-                    split.handler = 0x0A;
+                    split.chain = Chain::Cutscene;
                     split.next_irq = 0;
                     split.first_irq_cycles =
                         u16::from_le_bytes([payload_byte(chr, at), payload_byte(chr, at + 1)]);
@@ -172,8 +173,8 @@ impl Cutscene {
                 wait(frame, 1)
             }
             Row::SlideIn => {
-                let bands = &game.scroll.bands;
-                if bands[0] | bands[1] | bands[5] != 0 {
+                let [first, second, _, _, _, nametables, ..] = game.scroll.bands;
+                if first | second | nametables != 0 {
                     Flow::Waited
                 } else {
                     Flow::Done
@@ -211,9 +212,8 @@ impl Cutscene {
         game.scroll.ppu_ctrl = ctrl::NMI | ctrl::TALL_SPRITES | ctrl::SPRITE_PATTERNS_HIGH;
         game.scroll.scroll_y = 0;
         game.scroll.scroll_x = 0;
-        game.scroll.bands[0] = 0;
-        game.scroll.bands[1] = 0;
-        game.scroll.bands[5] = 3;
+        let [first, second, _, _, _, nametables, ..] = &mut game.scroll.bands;
+        (*first, *second, *nametables) = (0, 0, 3);
         game.oam.clear();
         let palette = payload_bytes(chr, 0x76EF, 32);
         game.effects.vram.push_palette(&palette);

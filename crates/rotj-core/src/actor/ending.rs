@@ -12,7 +12,7 @@ use crate::actor::world::sound;
 use crate::levelmap::PAYLOAD_FIRST_BANK;
 use crate::prg::Prg;
 use crate::render::{Mirroring, mask, ppu};
-use crate::rooms::Raster;
+use crate::rooms::{Chain, Raster};
 
 /// What the payload does from `$999C` on, in order: each step runs one frame or more,
 /// every frame ending at an NMI wait, or none and the next step runs in the same frame.
@@ -364,14 +364,14 @@ impl Ending {
                 self.buffer[32..].fill(high);
             }
             Row::Split => {
-                game.scroll.split.handler = 0x0C;
+                game.scroll.split.chain = Chain::EndingTitle;
                 game.scroll.bands[0] = 0;
                 arm_split(&mut game.scroll.split, 0x1E00);
             }
             Row::Parallax => {
                 game.scroll.bands[..6].fill(0);
                 game.scroll.scroll_x = 0;
-                game.scroll.split.handler = 0x0D;
+                game.scroll.split.chain = Chain::Credits;
                 arm_split(&mut game.scroll.split, 0x1D00);
             }
             Row::Mirroring(mirroring) => game.scroll.mirroring = mirroring,

@@ -16,7 +16,7 @@ use crate::levelmap::Cell;
 use crate::levels::RoomAssets;
 use crate::prg::Prg;
 use crate::render::{Mirroring, ctrl, mask, ppu};
-use crate::rooms::{Arrival, Raster};
+use crate::rooms::{Arrival, Chain, Raster};
 
 /// The room change `$BA = 1` starts, one frame per [`RoomChange::step`] (`$B7EC`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -702,7 +702,7 @@ pub fn start(prg: &Prg, chr: &[u8], level: usize) -> Game {
 const INTRO_SPLIT: Raster = Raster {
     armed: false,
     first_irq_cycles: 0x2680,
-    handler: 0x09,
+    chain: Chain::Intro,
     next_irq: 0,
 };
 /// The raster bands `$D5-$DC` as the intro leaves them.

@@ -1,6 +1,7 @@
 //! A room's layout as data: what the loader `$B40A` reads from the ROM on each room entry,
 //! imported so the game builds the room from data (`docs/specs/2026-10-17-rooms-design.md`).
 
+use crate::actor::families::phases;
 use crate::actors::bank_slice;
 use crate::render::Mirroring;
 
@@ -41,10 +42,46 @@ pub struct Raster {
     pub armed: bool,
     /// `$D1:$D2`: the CPU cycles to the first IRQ.
     pub first_irq_cycles: u16,
-    /// `$D3`: the IRQ handler (`actor::raster`'s 0-13).
-    pub handler: u8,
+    /// `$D3`: the IRQ handlers the frame runs.
+    pub chain: Chain,
     /// `$D4`: the index of the IRQ the chain runs next, back to 0 when the chain ends.
     pub next_irq: u8,
+}
+
+phases! {
+    /// A raster split's IRQ handlers (`$D3`, by bank 15 `$E2CA`), by what they draw.
+    #[derive(Default)]
+    pub Chain at "$D3", chain_bytes_round_trip {
+        /// Two bands, then the parallax the next frame's top shows (bank 14 `$DE89`, area `$02`).
+        #[default]
+        TwoBands = 0,
+        /// Three bands, then the parallax (`$DF15`, area `$10`).
+        ThreeBands = 1,
+        /// The bottom from nametable row `$2680` (area `$12`).
+        FixedRow = 2,
+        /// The stage 1 boss: a band, the floor, the status bar's banks (`$DFDE`, area `$04`).
+        BossFloor = 3,
+        /// The boss bar's CHR banks (areas `$0E`, `$14`, `$1E`, `$22`).
+        BossBar = 4,
+        /// Four bands, the last the playfield's (`$E076`, area `$08`).
+        FourBands = 5,
+        /// The bottom from nametable row `$2620`, its y swinging (`$E0EA`, area `$0C`).
+        SwingingRow = 6,
+        /// [`Chain::FourBands`] with a shorter first band and a taller second (`$E163`, area `$18`).
+        FourBandsTall = 7,
+        /// The top at x 0, the rest the playfield (area `$1C`).
+        FixedTop = 8,
+        /// The intro's ten bands sliding in (bank 2 `$95DA`).
+        Intro = 9,
+        /// The cutscene's two bands sliding home (bank 2 `$9742`).
+        Cutscene = 0x0A,
+        /// One band closing to x 0 while the camera is left of `$41`; nothing sets it.
+        Closing = 0x0B,
+        /// The ending title's two nametables (bank 2 `$97DD`).
+        EndingTitle = 0x0C,
+        /// The credits' parallax (bank 2 `$9831`).
+        Credits = 0x0D,
+    }
 }
 
 /// How the player arrives in a room (its screen record's handler pointer).
@@ -90,7 +127,7 @@ impl Room {
     /// sprite palette (bank 13 `$B5F5[area]`), the page order (bank 0 through bank 14
     /// `$C024[area]`), the start record and the screen record (bank 14 `$DA18[area]`).
     /// `None` where a pointer leaves the PRG, a screen record's flag byte is not 0 or `$80`,
-    /// or its handler pointer is not one of the three arrivals.
+    /// its `$D3` is not a [`Chain`], or its handler pointer is not one of the three arrivals.
     #[must_use]
     pub fn import(prg: &[u8], area: u8, room: u8) -> Option<Room> {
         let byte = |bank: u8, addr: u16| Some(*bank_slice(prg, bank, addr & 0x1FFF).ok()?.first()?);
@@ -134,7 +171,7 @@ impl Room {
             let raster = Raster {
                 armed: flag(0)?,
                 first_irq_cycles: u16::from_le_bytes([screen(1)?, screen(2)?]),
-                handler: screen(3)?,
+                chain: Chain::from_byte(screen(3)?)?,
                 next_irq: screen(4)?,
             };
             let arrival = match u16::from_le_bytes([screen(29)?, screen(30)?]) {
@@ -215,8 +252,8 @@ pub(crate) fn listed_rooms(prg: &[u8]) -> Vec<(u8, u8)> {
 mod tests {
     use super::*;
 
-    /// Every room the screen tables list imports: their flag bytes are 0 or `$80` and their
-    /// arrivals one of the three.
+    /// Every room the screen tables list imports: their flag bytes are 0 or `$80`, their
+    /// `$D3` a [`Chain`] and their arrivals one of the three.
     #[test]
     fn every_listed_room_imports() {
         let Some(rom) = rotj_rom::for_test() else {

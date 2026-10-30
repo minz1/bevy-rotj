@@ -1035,7 +1035,7 @@ impl Lockstep {
                 value,
                 "frame {}: ${addr:04X} after the raster IRQs ($D3 = {:02X}): port {:02X} oracle {value:02X}{}",
                 woke.frame,
-                game.scroll.split.handler,
+                game.scroll.split.chain.byte(),
                 port[usize::from(addr)],
                 self.context()
             );

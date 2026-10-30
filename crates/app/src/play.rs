@@ -363,6 +363,7 @@ pub(crate) mod tests {
     use rotj_core::actor::world::Motion;
     use rotj_core::digest::fnv1a;
     use rotj_core::render::{Mirroring, SCREEN_W, mask};
+    use rotj_core::rooms::Chain;
 
     /// `rom`'s `Prg`, its levels imported once for every test.
     pub(crate) fn prg(rom: &rotj_rom::Rom) -> Prg {
@@ -428,7 +429,7 @@ pub(crate) mod tests {
         let mut split = 0;
         for _ in 0..270 {
             play.step(0);
-            split += usize::from(play.raster && play.game().scroll.split.handler == 9);
+            split += usize::from(play.raster && play.game().scroll.split.chain == Chain::Intro);
             pictures.insert(picture(&play));
         }
         assert!(pictures.len() > 60, "{} distinct pictures", pictures.len());
