@@ -612,19 +612,17 @@ mod tests {
         assert_eq!(
             (
                 pictures.modern,
-                pictures.strip,
-                pictures.nametable_playfield,
+                pictures.runs,
+                pictures.from_nametables,
+                pictures.classic_splits,
                 pictures.row_15_palettes,
                 exceptions.half_written,
                 exceptions.unreached
             ),
-            (12485, 3655, 1477, 185, 0, 8),
+            (12485, 3655, 1477, 22816, 185, 0, 8),
             "the Modern frames and the gates' exceptions: {run:?}"
         );
-        assert!(
-            pictures.strip > 0,
-            "the chain drew a boss bar strip: {run:?}"
-        );
+        assert_eq!(pictures.crowded, 0, "no split past MAX_RUNS: {run:?}");
         let injected: Vec<_> = run.injected.keys().copied().collect();
         assert_eq!(
             injected,

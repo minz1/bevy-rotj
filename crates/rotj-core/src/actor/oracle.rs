@@ -874,40 +874,31 @@ impl Lockstep {
         }
     }
 
-    /// Checks a frame the Modern picture draws ([`super::modern::check_background`]) and counts
-    /// it; a strip and a nametable playfield must be the same over the snapshot's lines
-    /// (`before`'s) as over Classic's.
-    fn check_modern(
-        &mut self,
-        registers: &super::raster::Registers,
-        before: &State,
-        port: &[Line],
-        frame: u64,
-    ) {
-        if let Some(view) = super::modern::view(before, port) {
-            if view.strip.is_some() {
-                let shown = super::raster::lines(registers, before);
-                assert_eq!(
-                    super::modern::view(before, &shown)
-                        .map(|shown| (shown.strip, shown.nametable_playfield)),
-                    Some((view.strip, view.nametable_playfield)),
-                    "frame {frame}: the snapshot's lines and Classic's give the strip{}",
-                    self.context()
-                );
-                self.pictures.strip += 1;
-                self.pictures.nametable_playfield +=
-                    usize::from(view.nametable_playfield.is_some());
+    /// Checks a frame the Modern picture draws ([`super::modern::check_background`]) from the
+    /// game at its NMI (`before`) and Classic's lines, as the app draws it, and counts it. Counts
+    /// the split frames in play it leaves Classic.
+    fn check_modern(&mut self, before: &State, port: &[Line], frame: u64) {
+        let split = before.scroll.split.armed;
+        let Some(view) = super::modern::view(before, port) else {
+            if split && super::modern::in_play(before) {
+                self.pictures.classic_splits += 1;
+                self.pictures.crowded += usize::from(super::modern::runs(port, 0).is_none());
             }
-            let chr = &rotj_rom::for_test().expect("the ROM").chr;
-            match super::modern::check_background(&view, before, port, &self.ppu, chr) {
-                Ok(row_15_palettes) => self.pictures.row_15_palettes += row_15_palettes,
-                Err(why) => panic!(
-                    "frame {frame}: the Modern background: {why}{}",
-                    self.context()
-                ),
-            }
-            self.pictures.modern += 1;
+            return;
+        };
+        if split {
+            self.pictures.runs += 1;
+            self.pictures.from_nametables += usize::from(view.map_end == 0);
         }
+        let chr = &rotj_rom::for_test().expect("the ROM").chr;
+        match super::modern::check_background(&view, before, port, &self.ppu, chr) {
+            Ok(row_15_palettes) => self.pictures.row_15_palettes += row_15_palettes,
+            Err(why) => panic!(
+                "frame {frame}: the Modern background: {why}{}",
+                self.context()
+            ),
+        }
+        self.pictures.modern += 1;
     }
 
     /// The port's lines for the frame `registers`' NMI began, from its loop's end, equal
@@ -940,7 +931,7 @@ impl Lockstep {
         if let Some(why) = super::oam::undrawable(&before.oam.page, &before.oam.marks, &port) {
             panic!("frame {frame}: {why}{}", self.context());
         }
-        self.check_modern(registers, before, &port, frame);
+        self.check_modern(before, &port, frame);
         let shown = |mark| before.oam.marks.iter().filter(|&&m| m == mark).count();
         self.pictures.hud += shown(super::oam::Mark::Hud);
         self.pictures.label += shown(super::oam::Mark::Label);
@@ -1789,10 +1780,14 @@ pub(crate) struct Pictures {
     pub modern: usize,
     /// Of their cells, those showing their page's row 15 palette on row 14 ([`super::modern::check_background`]).
     pub row_15_palettes: usize,
-    /// Of the Modern frames, those drawn with a boss bar strip.
-    pub strip: usize,
-    /// Of those, the final boss's room's, its playfield from the nametables.
-    pub nametable_playfield: usize,
+    /// Of the Modern frames, those with a split, drawn with runs from the nametables.
+    pub runs: usize,
+    /// Of those, the ones with no playfield from the map.
+    pub from_nametables: usize,
+    /// Frames in play with a split the Modern picture leaves Classic, and of those, the ones
+    /// with more than [`super::modern::MAX_RUNS`] runs.
+    pub classic_splits: usize,
+    pub crowded: usize,
 }
 
 /// Runs the port's [`Game::frame`](super::Game::frame) chained from one lift at the

@@ -3,10 +3,11 @@
 //! (`docs/specs/2026-10-18-modern-picture-design.md`).
 
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
-use bevy::camera::{RenderTarget, ScalingMode};
+use bevy::camera::{RenderTarget, Viewport};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -15,7 +16,7 @@ use bevy::sprite_render::{
     TileData, TilemapChunk, TilemapChunkTileData, update_tilemap_chunk_indices,
 };
 use rotj_core::actor::Game;
-use rotj_core::actor::modern::{Strip, View, strip_tile, tile_at, view};
+use rotj_core::actor::modern::{MAX_RUNS, Run, View, run_tile, tile_at, view};
 use rotj_core::actor::oam::attr;
 use rotj_core::chr;
 use rotj_core::palette::Rgb;
@@ -53,15 +54,13 @@ impl ModernFrame {
             view.left - view.left.rem_euclid(8),
             view.top - view.top.rem_euclid(8),
         );
-        let end = view.strip.map_or(i32::MAX, |strip| {
-            view.top + i32::try_from(strip.line).expect("a line")
-        });
+        let end = view.top + i32::try_from(view.map_end).expect("a line");
         let tiles = (0..ROWS)
             .flat_map(|row| (0..COLUMNS).map(move |column| (column, row)))
             .map(|(column, row)| {
                 let [x, y] =
                     [column, row].map(|at| i32::try_from(at * 8).expect("a screen's worth"));
-                (view.nametable_playfield.is_none() && top + y < end)
+                (top + y < end)
                     .then(|| tile_at(game, left + x, top + y))
                     .flatten()
             })
@@ -79,22 +78,27 @@ impl ModernFrame {
 /// A palette's four colours, as RGB.
 type Set = [[u8; 3]; 4];
 
-/// The render layer the Modern picture's entities and camera use.
-const LAYER: usize = 1;
+/// The render layer the Modern picture's sprites use; each piece's tilemaps have their own after it.
+const SPRITES: usize = 1;
 
-/// The Modern picture's camera, image, tilemaps and the art they use.
+/// The pieces a frame is drawn in, top to bottom: the playfield from the map, then the runs.
+const PIECES: usize = MAX_RUNS + 1;
+
+/// The Modern picture's image, the camera clearing it to the backdrop, each piece's tilemaps
+/// and the art they use.
 #[derive(Resource)]
 struct Modern {
     image: Handle<Image>,
-    camera: Entity,
-    playfield: Layer,
-    strip: Layer,
+    backdrop: Entity,
+    pieces: [Layer; PIECES],
     atlases: HashMap<Key, Handle<Image>>,
     layout: Handle<TextureAtlasLayout>,
 }
 
-/// Four tilemaps, one per background palette, [`COLUMNS`] by [`ROWS`], and their tilesets.
+/// Four tilemaps, one per background palette, [`COLUMNS`] by [`ROWS`], their tilesets, and the
+/// camera drawing them and the sprites over the piece's lines.
 struct Layer {
+    camera: Entity,
     chunks: [Entity; 4],
     tilesets: [Handle<Image>; 4],
     /// The banks and colours the tilesets were last built from.
@@ -121,28 +125,14 @@ fn spawn(
         TextureFormat::Rgba8Unorm,
         Some(TextureFormat::Rgba8UnormSrgb),
     ));
-    let camera = commands
+    let backdrop = commands
         .spawn((
-            Camera2d,
-            Camera {
-                order: -1,
-                is_active: false,
-                ..default()
-            },
-            RenderTarget::Image(image.clone().into()),
-            Projection::Orthographic(OrthographicProjection {
-                scaling_mode: ScalingMode::Fixed {
-                    width: 256.0,
-                    height: 240.0,
-                },
-                ..OrthographicProjection::default_2d()
-            }),
-            Transform::from_xyz(128.0, -120.0, 0.0),
-            RenderLayers::layer(LAYER),
+            modern_camera(&image, -isize_of(PIECES) - 1, ClearColorConfig::Default),
+            RenderLayers::none(),
         ))
         .id();
-    let playfield = spawn_layer(&mut commands, &mut images);
-    let strip = spawn_layer(&mut commands, &mut images);
+    let pieces =
+        std::array::from_fn(|piece| spawn_layer(&mut commands, &mut images, &image, piece));
     let layout = layouts.add(TextureAtlasLayout::from_grid(
         UVec2::new(8, 16),
         16,
@@ -152,16 +142,56 @@ fn spawn(
     ));
     commands.insert_resource(Modern {
         image,
-        camera,
-        playfield,
-        strip,
+        backdrop,
+        pieces,
         atlases: HashMap::new(),
         layout,
     });
 }
 
-/// A layer's tilemaps, hidden, and blank tilesets.
-fn spawn_layer(commands: &mut Commands<'_, '_>, images: &mut Assets<Image>) -> Layer {
+/// `n` as a camera order.
+fn isize_of(n: usize) -> isize {
+    isize::try_from(n).expect("a few pieces")
+}
+
+/// An inactive camera drawing into `image`, one world unit a pixel, y up from the screen's top.
+fn modern_camera(
+    image: &Handle<Image>,
+    order: isize,
+    clear_color: ClearColorConfig,
+) -> impl Bundle {
+    (
+        Camera2d,
+        Camera {
+            order,
+            is_active: false,
+            clear_color,
+            ..default()
+        },
+        RenderTarget::Image(image.clone().into()),
+        Transform::from_xyz(128.0, -120.0, 0.0),
+    )
+}
+
+/// Piece `piece`'s tilemaps, hidden, blank tilesets and its camera, which draws over the
+/// earlier pieces' without clearing.
+fn spawn_layer(
+    commands: &mut Commands<'_, '_>,
+    images: &mut Assets<Image>,
+    image: &Handle<Image>,
+    piece: usize,
+) -> Layer {
+    let layer = SPRITES + 1 + piece;
+    let camera = commands
+        .spawn((
+            modern_camera(
+                image,
+                isize_of(piece) - isize_of(PIECES),
+                ClearColorConfig::None,
+            ),
+            RenderLayers::from_layers(&[SPRITES, layer]),
+        ))
+        .id();
     let tilesets: [Handle<Image>; 4] =
         std::array::from_fn(|_| images.add(tileset(&[], [0; 4], [[0; 3]; 4])));
     let chunks = tilesets.clone().map(|tileset| {
@@ -176,11 +206,12 @@ fn spawn_layer(commands: &mut Commands<'_, '_>, images: &mut Assets<Image>) -> L
                 TilemapChunkTileData(vec![None; COLUMNS * ROWS]),
                 Transform::default(),
                 Visibility::Hidden,
-                RenderLayers::layer(LAYER),
+                RenderLayers::layer(layer),
             ))
             .id()
     });
     Layer {
+        camera,
         chunks,
         tilesets,
         built: None,
@@ -240,7 +271,7 @@ struct Inputs<'w> {
 /// The entities the picture changes.
 #[derive(SystemParam)]
 struct Scene<'w, 's> {
-    cameras: Query<'w, 's, &'static mut Camera>,
+    cameras: Cameras<'w, 's>,
     quads: Query<'w, 's, &'static mut Sprite, With<ScreenSprite>>,
     chunks: Chunks<'w, 's>,
     drawers: Query<'w, 's, (Entity, &'static Drawer)>,
@@ -287,17 +318,26 @@ fn draw(
             quad.image = shown_image.clone();
         }
     }
-    let Ok(mut camera) = cameras.get_mut(modern.camera) else {
-        return;
-    };
-    camera.is_active = frame.is_some();
-    let Some(frame) = frame else {
-        return;
-    };
     let rgb = &colours_table.rgb;
-    let [red, green, blue] = colours(&play.ppu.palette, 0, frame.greyscale, rgb)[0];
-    camera.clear_color = ClearColorConfig::Custom(Color::srgb_u8(red, green, blue));
-    show_background(&mut modern, &mut images, &mut chunks, &play, frame, rgb);
+    if let Ok((mut backdrop, _)) = cameras.get_mut(modern.backdrop) {
+        backdrop.is_active = frame.is_some();
+        if let Some(frame) = frame {
+            let [red, green, blue] = colours(&play.ppu.palette, 0, frame.greyscale, rgb)[0];
+            backdrop.clear_color = ClearColorConfig::Custom(Color::srgb_u8(red, green, blue));
+        }
+    }
+    let mut out = Out {
+        images: &mut images,
+        chunks: &mut chunks,
+        cameras: &mut cameras,
+    };
+    let Some(frame) = frame else {
+        for layer in &mut modern.pieces {
+            show_layer(layer, &mut out, &play, [[[0; 3]; 4]; 4], None);
+        }
+        return;
+    };
+    show_background(&mut modern, &mut out, &play, frame, rgb);
     let faithful = settings.ui == UiStyle::Faithful;
     spawn_sprites(
         &mut commands,
@@ -319,13 +359,24 @@ type Chunks<'w, 's> = Query<
         &'static mut Transform,
         &'static mut Visibility,
     ),
+    Without<Camera>,
 >;
 
-/// The playfield's tilemaps from the frame and the strip's from the nametables, in screen space.
+/// The pieces' cameras and the backdrop's.
+type Cameras<'w, 's> = Query<'w, 's, (&'static mut Camera, &'static mut Transform)>;
+
+/// What drawing a piece changes.
+struct Out<'a, 'w, 's> {
+    images: &'a mut Assets<Image>,
+    chunks: &'a mut Chunks<'w, 's>,
+    cameras: &'a mut Cameras<'w, 's>,
+}
+
+/// Each piece's tilemaps: the playfield's from the frame's map tiles, each run's from the
+/// nametables, in screen space.
 fn show_background(
     modern: &mut Modern,
-    images: &mut Assets<Image>,
-    chunks: &mut Chunks<'_, '_>,
+    out: &mut Out<'_, '_, '_>,
     play: &Play,
     frame: &ModernFrame,
     rgb: &Rgb,
@@ -334,81 +385,84 @@ fn show_background(
         std::array::from_fn(|set| colours(&play.ppu.palette, set * 4, frame.greyscale, rgb));
     let [left, top] = [frame.view.left, frame.view.top]
         .map(|at| f32::from(u8::try_from(at.rem_euclid(8)).expect("0-7")));
-    let bar = frame.view.strip.map_or(SCREEN_H, |strip| strip.line);
-    let run = frame
+    let map = (frame.view.map_end > 0).then(|| Shown {
+        banks: frame.view.banks,
+        tiles: &frame.tiles,
+        corner: Vec2::new(-left, top),
+        lines: 0..frame.view.map_end,
+    });
+    let runs: Vec<_> = frame
         .view
-        .nametable_playfield
-        .map(|run| (run, strip_tiles(play, &run, bar)));
-    let playfield = run.as_ref().map_or(
-        Shown {
-            banks: frame.view.banks,
-            tiles: &frame.tiles,
-            corner: Vec2::new(-left, top),
-        },
-        |(run, tiles)| screen_space(run, tiles),
-    );
-    show_layer(
-        &mut modern.playfield,
-        images,
-        chunks,
-        play,
-        sets,
-        Some(playfield),
-    );
-    let strip = frame
-        .view
-        .strip
-        .map(|strip| (strip, strip_tiles(play, &strip, SCREEN_H)));
-    let strip = strip
-        .as_ref()
-        .map(|(strip, tiles)| screen_space(strip, tiles));
-    show_layer(&mut modern.strip, images, chunks, play, sets, strip);
-}
-
-/// A strip's layer in screen space, its tiles from [`strip_tiles`].
-fn screen_space<'a>(strip: &Strip, tiles: &'a [Option<(u8, u8)>]) -> Shown<'a> {
-    Shown {
-        banks: strip.banks,
-        tiles,
-        corner: Vec2::new(
-            -f32::from(strip.top.fine_x),
-            -f32::from(u8::try_from(strip.line % 8).expect("0-7")),
-        ),
+        .runs
+        .iter()
+        .flatten()
+        .map(|run| (run, run_tiles(play, run)))
+        .collect();
+    let pieces = std::iter::once(map)
+        .chain(
+            runs.iter()
+                .map(|(run, tiles)| Some(screen_space(run, tiles))),
+        )
+        .chain(std::iter::repeat_with(|| None));
+    for (layer, shown) in modern.pieces.iter_mut().zip(pieces) {
+        show_layer(layer, out, play, sets, shown);
     }
 }
 
-/// What one layer shows, its top-left tile's corner in camera coordinates (y up).
+/// A run's piece in screen space, its tiles from [`run_tiles`].
+fn screen_space<'a>(run: &Run, tiles: &'a [Option<(u8, u8)>]) -> Shown<'a> {
+    Shown {
+        banks: run.banks(),
+        tiles,
+        corner: Vec2::new(
+            -f32::from(run.top.fine_x),
+            pixels(run.fine_y()) - pixels(run.line),
+        ),
+        lines: run.line..run.end,
+    }
+}
+
+/// What one piece shows: its top-left tile's corner in camera coordinates (y up), and the
+/// screen lines it is clipped to.
 struct Shown<'a> {
     banks: [u8; 4],
     tiles: &'a [Option<(u8, u8)>],
     corner: Vec2,
+    lines: Range<usize>,
 }
 
-/// The strip's tiles on the layer's grid, from the row its first line is in down to line `end`.
-fn strip_tiles(play: &Play, strip: &Strip, end: usize) -> Vec<Option<(u8, u8)>> {
-    let (first, rows) = (strip.line / 8, (end - strip.line).div_ceil(8));
+/// The run's tiles on the layer's grid, from the tile row its first line is in down to its end.
+fn run_tiles(play: &Play, run: &Run) -> Vec<Option<(u8, u8)>> {
+    let rows = (run.end - run.line + run.fine_y()).div_ceil(8);
     (0..ROWS)
         .flat_map(|row| (0..COLUMNS).map(move |column| (column, row)))
-        .map(|(column, row)| {
-            (first..first + rows)
-                .contains(&row)
-                .then(|| strip_tile(&play.ppu, strip, column, row - first))
-        })
+        .map(|(column, row)| (row < rows).then(|| run_tile(&play.ppu, run, column, row)))
         .collect()
 }
 
-/// A layer's four tilemaps from `shown`, or hidden.
+/// A piece's four tilemaps from `shown` and its camera on its lines, or both off.
 fn show_layer(
     layer: &mut Layer,
-    images: &mut Assets<Image>,
-    chunks: &mut Chunks<'_, '_>,
+    out: &mut Out<'_, '_, '_>,
     play: &Play,
     sets: [Set; 4],
     shown: Option<Shown<'_>>,
 ) {
+    if let Ok((mut camera, mut transform)) = out.cameras.get_mut(layer.camera) {
+        camera.is_active = shown.is_some();
+        if let Some(shown) = &shown {
+            let lines = shown.lines.clone();
+            camera.viewport = Some(Viewport {
+                physical_position: UVec2::new(0, size(lines.start)),
+                physical_size: UVec2::new(size(SCREEN_W), size(lines.len())),
+                ..default()
+            });
+            transform.translation.y = -pixels(lines.start + lines.end) / 2.0;
+        }
+    }
     let Some(shown) = shown else {
         for &chunk in &layer.chunks {
-            if let Ok((_, _, mut visibility)) = chunks.get_mut(chunk) {
+            if let Ok((_, _, mut visibility)) = out.chunks.get_mut(chunk) {
                 *visibility = Visibility::Hidden;
             }
         }
@@ -416,7 +470,7 @@ fn show_layer(
     };
     if layer.built != Some((shown.banks, sets)) {
         for (set, handle) in layer.tilesets.iter().enumerate() {
-            if let Some(mut image) = images.get_mut(handle) {
+            if let Some(mut image) = out.images.get_mut(handle) {
                 *image = tileset(&play.chr, shown.banks, sets[set]);
             }
         }
@@ -428,7 +482,7 @@ fn show_layer(
         2.0,
     );
     for (set, &chunk) in layer.chunks.iter().enumerate() {
-        let Ok((mut data, mut transform, mut visibility)) = chunks.get_mut(chunk) else {
+        let Ok((mut data, mut transform, mut visibility)) = out.chunks.get_mut(chunk) else {
             continue;
         };
         let tiles = shown.tiles.iter().map(|tile| {
@@ -500,7 +554,7 @@ fn spawn_sprites(
                     -f32::from(entry.y) - 1.0,
                     depth - f32::from(order) / 1024.0,
                 ),
-                RenderLayers::layer(LAYER),
+                RenderLayers::layer(SPRITES),
             ));
             if let Some(parent) = parent {
                 spawned.insert(ChildOf(parent));
@@ -581,15 +635,21 @@ mod tests {
         let play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 0);
         let (drawn, view) = renders_as_classic(play, 180, pad, "stage-1");
         assert!(drawn > 100, "{drawn} of 180 frames drawn Modern");
-        assert_eq!(view.and_then(|view| view.strip), None);
+        assert_eq!(
+            view.map(|view| (view.map_end, view.runs[0])),
+            Some((240, None))
+        );
         let mut play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 5);
         crate::play::tests::enter_the_boss_room(&mut play, 0x0E);
         let (drawn, view) = renders_as_classic(play, 60, |_| 0, "boss-bar");
         assert_eq!(drawn, 60, "boss room frames drawn Modern");
         assert_eq!(
-            view.and_then(|view| view.strip).map(|strip| strip.line),
-            Some(192),
-            "the bar's strip"
+            view.map(|view| (view.map_end, view.runs.map(|run| run.map(|run| run.line)))),
+            Some((
+                192,
+                [Some(192), Some(193), None, None, None, None, None, None]
+            )),
+            "the map down to the bar, its mixed line, the bar"
         );
         let mut play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 12);
         for arg in [0xC1, 0x61] {
@@ -626,8 +686,9 @@ mod tests {
         // An odd frame: the allocator's rotation then puts the portrait's overlapping sprites in draw order.
         let (drawn, view) = renders_as_classic(play, 61, |_| 0, "final-boss");
         assert!(drawn > 0, "final boss frames drawn Modern");
-        assert!(
-            view.is_some_and(|view| view.nametable_playfield.is_some()),
+        assert_eq!(
+            view.map(|view| view.map_end),
+            Some(0),
             "the playfield from the nametables"
         );
     }

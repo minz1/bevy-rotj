@@ -91,9 +91,12 @@ impl Play {
     }
 
     /// The game's frame up to its NMI wait, its direct PPU writes (made in vblank or
-    /// with rendering off) and the lines the frame after `registers`' NMI is drawn with.
+    /// with rendering off) and the lines the frame after `registers`' NMI is drawn with. A
+    /// split frame's Modern picture is redone from those lines, which its IRQs drew from the
+    /// RAM the loop wrote, and the game at the NMI: the pair the background gate checks.
     fn run_frame(&mut self, registers: raster::Registers) {
         let mut registers = registers;
+        let split_at_nmi = self.game.scroll.split.armed.then(|| self.game.clone());
         self.game.frame(&self.prg, &self.chr);
         if self.game.reset() {
             self.game = Game::power_on(self.forced);
@@ -104,6 +107,9 @@ impl Play {
         let direct = std::mem::take(&mut self.game.effects.vram.direct);
         self.ppu.apply(&direct, self.game.scroll.mirroring);
         self.lines = raster::lines(&registers, &self.game);
+        if let Some(game) = split_at_nmi {
+            self.shown.modern = crate::modern::ModernFrame::of(&game, &self.lines);
+        }
     }
 
     /// The game at the end of `level`'s first loop frame, its first page already in the

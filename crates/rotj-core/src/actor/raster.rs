@@ -525,19 +525,21 @@ impl Regs {
         if self.mask & mask::RENDERING == 0 {
             return;
         }
-        let mut v = self.v;
-        if v & 0x7000 == 0x7000 {
-            v &= !0x7000;
-            let coarse_y = (v >> 5) & 0x1F;
-            v = match coarse_y {
-                29 => (v & !0x03E0) ^ 0x0800,
-                31 => v & !0x03E0,
-                _ => (v & !0x03E0) | ((coarse_y + 1) << 5),
-            };
-        } else {
-            v += 0x1000;
-        }
-        self.v = (v & !0x041F) | (self.t & 0x041F);
+        self.v = (down(self.v) & !0x041F) | (self.t & 0x041F);
+    }
+}
+
+/// `v` a line down: fine y, then coarse y (into the next nametable row at 30 tiles).
+pub(crate) fn down(v: u16) -> u16 {
+    if v & 0x7000 != 0x7000 {
+        return v + 0x1000;
+    }
+    let v = v & !0x7000;
+    let coarse_y = (v >> 5) & 0x1F;
+    match coarse_y {
+        29 => (v & !0x03E0) ^ 0x0800,
+        31 => v & !0x03E0,
+        _ => (v & !0x03E0) | ((coarse_y + 1) << 5),
     }
 }
 

@@ -16,92 +16,116 @@ pub struct View {
     pub left: i32,
     /// The screen's top edge in the level, in pixels.
     pub top: i32,
-    /// The playfield's four CHR banks, the same on every line above the strip (and a
-    /// nametable playfield's).
+    /// Line 0's four CHR banks, the map playfield's.
     pub banks: [u8; 4],
-    /// The boss bar below the playfield, on a `$D3` 4 frame.
-    pub strip: Option<Strip>,
-    /// The playfield from the nametables instead of the live map, down to the bar: area `$22`,
-    /// whose death tiles (`$9249`) reach only the nametables.
-    pub nametable_playfield: Option<Strip>,
+    /// The line the playfield from the live map stops at: 240 without a split, 0 when every
+    /// line is a run.
+    pub map_end: usize,
+    /// The lines from `map_end` down, as runs from the nametables, top to bottom.
+    pub runs: Runs,
 }
 
-/// Rows of the screen drawn from the nametables in screen space, with banks of their own.
+/// The most runs a frame drawn Modern has (area `$18` shows 7).
+pub const MAX_RUNS: usize = 8;
+
+/// A frame's runs, the unused ones `None` at the end.
+pub type Runs = [Option<Run>; MAX_RUNS];
+
+/// Lines of the screen drawn from the nametables in screen space: one scroll, one set of banks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Strip {
-    /// The screen line of its first row.
+pub struct Run {
+    /// Its first line.
     pub line: usize,
-    /// That row's line state with fine y 0: its scroll and nametable.
+    /// The line after its last.
+    pub end: usize,
+    /// `line`'s state: its scroll and nametable, its first tile row starting fine y px above.
     pub top: Line,
+}
+
+impl Run {
+    /// How far above `line` its first tile row starts.
+    #[must_use]
+    pub fn fine_y(&self) -> usize {
+        usize::from(self.top.v >> 12) & 7
+    }
+
     /// Its four background banks.
-    pub banks: [u8; 4],
+    #[must_use]
+    pub fn banks(&self) -> [u8; 4] {
+        background_banks(&self.top)
+    }
+}
+
+/// Whether the game is in play: the loop, a pause or a power-up's freeze, a stage's end.
+#[must_use]
+pub fn in_play(game: &Game) -> bool {
+    matches!(
+        game.script,
+        None | Some(Script::Pause(_) | Script::PowerUp(_) | Script::StageEnded)
+    )
 }
 
 /// The Modern view of the frame `lines` draws from `game` (its NMI state); `None` draws Classic.
 #[must_use]
 pub fn view(game: &Game, lines: &[Line]) -> Option<View> {
-    let in_play = matches!(
-        game.script,
-        None | Some(Script::Pause(_) | Script::PowerUp(_) | Script::StageEnded)
-    );
     let banks = background_banks(lines.first()?);
-    let top = i32::from(rounded(game.world.camera_y));
-    let strip = match game.scroll.split {
-        split if !split.armed => None,
-        split if split.chain == Chain::BossBar => Some(strip(lines, banks, top)?),
-        _ => return None,
-    };
-    let nametable_playfield = match strip {
-        Some(bar) if game.world.area == FINAL_AREA => Some(playfield_run(lines, banks, &bar)?),
-        _ => None,
+    let split = game.scroll.split;
+    let (map_end, runs) = if split.armed {
+        if split.chain != Chain::BossBar {
+            return None;
+        }
+        let map_end = if game.world.area == FINAL_AREA {
+            0
+        } else {
+            runs(lines, 0)?[0].map_or(0, |run| run.end)
+        };
+        (map_end, runs(lines, map_end)?)
+    } else {
+        (lines.len(), [None; MAX_RUNS])
     };
     let shown = lines.iter().all(|line| line.mask & mask::BACKGROUND != 0);
-    let steady = strip.is_some() || lines.iter().all(|line| background_banks(line) == banks);
-    (in_play && shown && steady && sprites_steady(game, lines)).then(|| View {
+    let steady = split.armed || lines.iter().all(|line| background_banks(line) == banks);
+    (in_play(game) && shown && steady && sprites_steady(game, lines)).then(|| View {
         left: screen_edge(game.world.camera_x, game.scroll.scroll_x),
-        top,
+        top: i32::from(rounded(game.world.camera_y)),
         banks,
-        strip,
-        nametable_playfield,
+        map_end,
+        runs,
     })
 }
 
-/// The playfield as one unscrolled run from line 0 down to the bar on a tile row, its rows
-/// within line 0's nametable.
-fn playfield_run(lines: &[Line], banks: [u8; 4], bar: &Strip) -> Option<Strip> {
-    let first = *lines.first()?;
-    let within = usize::from((first.v >> 5) & 0x1F) + bar.line / 8 <= 30;
-    (first.v & 0x7000 == 0 && bar.line.is_multiple_of(8) && within).then_some(Strip {
-        line: 0,
-        top: first,
-        banks,
-    })
+/// Lines `from..` as runs, split where the scroll, the banks or the mirroring change, `v`
+/// stops following the PPU's vertical increment, or it wraps past row 29; `None` past
+/// [`MAX_RUNS`].
+#[must_use]
+pub fn runs(lines: &[Line], from: usize) -> Option<Runs> {
+    let mut runs: Runs = [None; MAX_RUNS];
+    let mut count = 0;
+    for (y, line) in lines.iter().enumerate().skip(from) {
+        if y > from && follows(&lines[y - 1], line) {
+            if let Some(run) = &mut runs[count - 1] {
+                run.end = y + 1;
+            }
+            continue;
+        }
+        *runs.get_mut(count)? = Some(Run {
+            line: y,
+            end: y + 1,
+            top: *line,
+        });
+        count += 1;
+    }
+    Some(runs)
 }
 
-/// The boss bar of a `$D3` 4 frame, from the first line whose banks are not the playfield's.
-fn strip(lines: &[Line], playfield: [u8; 4], top: i32) -> Option<Strip> {
-    let changed = lines
-        .iter()
-        .position(|line| background_banks(line) != playfield)?;
-    let banks = background_banks(lines.last()?);
-    let now = background_banks(&lines[changed]);
-    let mixed = (0..4).all(|slot| now[slot] == playfield[slot] || now[slot] == banks[slot]);
-    let below = lines[changed + 1..]
-        .iter()
-        .all(|line| background_banks(line) == banks);
-    let first = lines[changed];
-    let line = changed.checked_sub(usize::from(first.v >> 12) & 7)?;
-    let edge = (top + i32::try_from(line).ok()?) % 8 == 0;
-    let rows = (lines.len() - line).div_ceil(8);
-    let within = usize::from((first.v >> 5) & 0x1F) + rows <= 30;
-    (mixed && below && edge && within).then_some(Strip {
-        line,
-        top: Line {
-            v: first.v & 0x0FFF,
-            ..first
-        },
-        banks,
-    })
+/// Whether `line` draws on from `above` in one run.
+fn follows(above: &Line, line: &Line) -> bool {
+    let wraps_nametable = above.v & 0x73E0 == 0x73A0;
+    !wraps_nametable
+        && line.v == super::raster::down(above.v)
+        && line.fine_x == above.fine_x
+        && line.mirroring == above.mirroring
+        && background_banks(line) == background_banks(above)
 }
 
 /// Whether every visible sprite sees one set of banks down its lines, as Modern draws it.
@@ -121,14 +145,15 @@ fn sprites_steady(game: &Game, lines: &[Line]) -> bool {
         })
 }
 
-/// The strip's tile and palette at a cell from its left (`top.fine_x` px off screen) and top.
+/// The run's tile and palette at a cell from its left (`top.fine_x` px off screen) and its first
+/// tile row.
 #[must_use]
-pub fn strip_tile(ppu: &Ppu, strip: &Strip, column: usize, row: usize) -> (u8, u8) {
-    let coarse_y = (((strip.top.v >> 5) & 0x1F) + u16::try_from(row).expect("a strip row")) & 0x1F;
+pub fn run_tile(ppu: &Ppu, run: &Run, column: usize, row: usize) -> (u8, u8) {
+    let coarse_y = (((run.top.v >> 5) & 0x1F) + u16::try_from(row).expect("a run's row")) & 0x1F;
     let line = Line {
-        v: (strip.top.v & !0x03E0) | (coarse_y << 5),
+        v: (run.top.v & !0x03E0) | (coarse_y << 5),
         fine_x: 0,
-        ..strip.top
+        ..run.top
     };
     nametable_tile(ppu, &line, column * 8)
 }
@@ -192,8 +217,7 @@ fn background_banks(line: &Line) -> [u8; 4] {
 /// line's, or one frame's as the camera lands). Returns how many cells showed the one
 /// difference the game makes: in a vertical room, a page's row 14 with its row 15's palette,
 /// which the game streams into row 14's attribute slot as its scroll locks at the page's end.
-/// A strip's lines are checked by [`check_strip`] instead, and so is a nametable playfield's in
-/// place of the map.
+/// The map is checked down to `map_end`, and each run's lines by [`check_run`].
 ///
 /// # Errors
 /// The first cell that differs otherwise.
@@ -206,15 +230,11 @@ pub fn check_background(
 ) -> Result<usize, String> {
     let vertical = game.world.orientation & orientation::VERTICAL != 0;
     let mut row_15_palettes = 0;
-    let end = view.strip.map_or(232, |strip| strip.line.min(232));
-    if let Some(run) = &view.nametable_playfield {
-        check_strip(run, end, lines, ppu, chr)?;
-    }
-    let tops = lines.iter().enumerate().filter(|&(y, line)| {
-        view.nametable_playfield.is_none()
-            && (8..end).contains(&y)
-            && (y == 8 || line.v & 0x7000 == 0)
-    });
+    let end = view.map_end.min(232);
+    let tops = lines
+        .iter()
+        .enumerate()
+        .filter(|&(y, line)| (8..end).contains(&y) && (y == 8 || line.v & 0x7000 == 0));
     for (y, line) in tops {
         for x in cells(line) {
             let (tile, palette) = nametable_tile(ppu, line, x);
@@ -242,8 +262,8 @@ pub fn check_background(
             }
         }
     }
-    if let Some(strip) = &view.strip {
-        check_strip(strip, 232, lines, ppu, chr)?;
+    for run in view.runs.iter().flatten() {
+        check_run(run, lines, ppu)?;
     }
     Ok(row_15_palettes)
 }
@@ -254,37 +274,32 @@ fn cells(line: &Line) -> impl Iterator<Item = usize> {
     (first..248).step_by(8).filter(|&x| x >= 8)
 }
 
-/// Checks the strip's TV-visible lines above `end` are one unscrolled run its banks draw the same.
+/// Checks the run's TV-visible lines are one run in its banks: each line's fine x is its top's,
+/// its fine y follows on, and each cell's tile is [`run_tile`]'s.
 ///
 /// # Errors
 /// The first line or cell that differs.
-fn check_strip(
-    strip: &Strip,
-    end: usize,
-    lines: &[Line],
-    ppu: &Ppu,
-    chr: &[u8],
-) -> Result<(), String> {
-    for (y, line) in lines.iter().enumerate().take(end).skip(strip.line.max(8)) {
-        let (row, fine_y) = ((y - strip.line) / 8, usize::from(line.v >> 12) & 7);
-        if line.fine_x != strip.top.fine_x || fine_y != (y - strip.line) % 8 {
+fn check_run(run: &Run, lines: &[Line], ppu: &Ppu) -> Result<(), String> {
+    let shown = run.line.max(8)..run.end.min(232);
+    for (y, line) in lines.iter().enumerate().take(shown.end).skip(shown.start) {
+        let below = y - run.line + run.fine_y();
+        let (row, fine_y) = (below / 8, usize::from(line.v >> 12) & 7);
+        let banks = background_banks(line);
+        if line.fine_x != run.top.fine_x || fine_y != below % 8 || banks != run.banks() {
             return Err(format!(
-                "line {y}: fine x {} and fine y {fine_y} in the strip, its top's fine x {}",
-                line.fine_x, strip.top.fine_x
+                "line {y}: fine x {}, fine y {fine_y}, banks {banks:02X?} in the run from line {}, its top's fine x {}, banks {:02X?}",
+                line.fine_x,
+                run.line,
+                run.top.fine_x,
+                run.banks()
             ));
         }
-        let banks = background_banks(line);
         for x in cells(line) {
             let drawn = nametable_tile(ppu, line, x);
-            let model = strip_tile(ppu, strip, (x + usize::from(line.fine_x)) / 8, row);
-            let pattern = |banks: [u8; 4]| {
-                let bytes = chr::tile(chr, &banks, usize::from(drawn.0) * 16);
-                (bytes[fine_y], bytes[fine_y + 8])
-            };
-            if drawn != model || pattern(banks) != pattern(strip.banks) {
+            let model = run_tile(ppu, run, (x + usize::from(line.fine_x)) / 8, row);
+            if drawn != model {
                 return Err(format!(
-                    "line {y} x {x}: the strip's row {row} gives {model:02X?} in banks {:02X?}, the nametable {drawn:02X?} in {banks:02X?}",
-                    strip.banks
+                    "line {y} x {x}: the run's row {row} gives {model:02X?}, the nametable {drawn:02X?}"
                 ));
             }
         }
@@ -348,18 +363,27 @@ mod tests {
         Some((game, lines))
     }
 
+    /// The runs' `(line, end)`s.
+    fn spans(runs: &Runs) -> Vec<(usize, usize)> {
+        runs.iter()
+            .flatten()
+            .map(|run| (run.line, run.end))
+            .collect()
+    }
+
     #[test]
-    fn a_d3_4_boss_bar_is_a_strip_and_each_reason_makes_it_classic() {
+    fn a_d3_4_boss_bar_is_the_map_then_runs_and_each_reason_makes_it_classic() {
         let Some((game, lines)) = boss_bar_frame() else {
             return;
         };
-        let strip = view(&game, &lines).and_then(|view| view.strip);
-        let playfield = lines[0].chr;
-        let slot_3 = playfield[3];
+        let shown = view(&game, &lines).expect("a boss bar frame");
+        let slot_3 = lines[0].chr[3];
+        assert_eq!(shown.map_end, 192, "the map down to the bank change");
+        assert_eq!(spans(&shown.runs), [(192, 193), (193, 240)]);
         assert_eq!(
-            strip.map(|strip| (strip.line, strip.top.v, strip.banks)),
-            Some((192, 0x0300, [0x39, 0x3A, 0x3B, slot_3])),
-            "the bar at line 192, its line mixed"
+            shown.runs[1].map(|bar| (bar.top.v, bar.banks())),
+            Some((0x1300, [0x39, 0x3A, 0x3B, slot_3])),
+            "the bar one line into its row, in its banks"
         );
         assert_eq!(
             lines[192].chr[..3],
@@ -369,27 +393,32 @@ mod tests {
         let with = |change: &dyn Fn(&mut Vec<Line>)| {
             let mut lines = lines.clone();
             change(&mut lines);
-            view(&game, &lines).map(|view| view.strip.map(|strip| strip.line))
+            view(&game, &lines).map(|view| (view.map_end, spans(&view.runs)))
         };
         assert_eq!(
             with(&|lines| lines[192].chr = lines[193].chr),
-            Some(Some(192)),
-            "line 192 all the strip's"
+            Some((192, vec![(192, 240)])),
+            "line 192 all the bar's"
         );
+        let playfield = lines[0].chr;
         assert_eq!(
-            with(&|lines| lines[192].chr[0] = 0x40),
-            None,
-            "line 192 a bank neither's"
+            with(&|lines| lines[192..195]
+                .iter_mut()
+                .for_each(|line| line.chr = playfield)),
+            Some((195, vec![(195, 240)])),
+            "the change a row's fourth line in"
         );
         assert_eq!(
             with(&|lines| lines.iter_mut().for_each(|line| line.chr = playfield)),
-            None,
-            "no bank change"
+            Some((240, vec![])),
+            "no bank change: all the map"
         );
+        let mut off_edge = game.clone();
+        off_edge.world.camera_y = 4 << 4;
         assert_eq!(
-            with(&|lines| lines[200].chr[1] ^= 1),
-            None,
-            "a later bank change"
+            view(&off_edge, &lines).map(|view| view.map_end),
+            Some(192),
+            "off a tile edge"
         );
         let sprite = game
             .oam
@@ -407,85 +436,95 @@ mod tests {
         let mut other = game.clone();
         other.scroll.split.chain = Chain::BossFloor;
         assert_eq!(view(&other, &lines), None, "another handler");
-        let mut off_edge = game.clone();
-        off_edge.world.camera_y = 4 << 4;
-        assert_eq!(view(&off_edge, &lines), None, "off a tile edge");
-        assert_eq!(
-            with(&|lines| lines[192..195]
-                .iter_mut()
-                .for_each(|line| line.chr = playfield)),
-            Some(Some(192)),
-            "the change a row's fourth line in"
-        );
-        assert_eq!(
-            with(&|lines| lines[192].v = (lines[192].v & !0x03E0) | (26 << 5)),
-            None,
-            "rows past its nametable's"
-        );
     }
 
     #[test]
-    fn the_final_boss_s_playfield_is_read_from_the_nametables() {
+    fn runs_split_where_the_scroll_banks_or_increment_change() {
+        let Some((_, lines)) = boss_bar_frame() else {
+            return;
+        };
+        assert_eq!(
+            runs(&lines, 0).as_ref().map(spans),
+            Some(vec![(0, 192), (192, 193), (193, 240)])
+        );
+        let mut shifted = lines.clone();
+        shifted[100].fine_x ^= 1;
+        assert_eq!(
+            runs(&shifted, 0).as_ref().map(spans),
+            Some(vec![
+                (0, 100),
+                (100, 101),
+                (101, 192),
+                (192, 193),
+                (193, 240)
+            ]),
+            "a fine x change"
+        );
+        let from_row = |row: u16| {
+            let mut from = lines.clone();
+            let mut v = row << 5;
+            for line in &mut from {
+                line.v = v;
+                v = raster::down(v);
+                line.chr = lines[0].chr;
+            }
+            from
+        };
+        assert_eq!(
+            runs(&from_row(20), 0).as_ref().map(spans),
+            Some(vec![(0, 80), (80, 240)]),
+            "the PPU's wrap past row 29"
+        );
+        assert_eq!(
+            runs(&from_row(30), 0).as_ref().map(spans),
+            Some(vec![(0, 240)]),
+            "row 31 on to row 0 of the same nametable"
+        );
+        let mut jumped = from_row(0);
+        jumped[50].v ^= 0x20;
+        assert_eq!(
+            runs(&jumped, 0).as_ref().map(spans),
+            Some(vec![(0, 50), (50, 51), (51, 240)]),
+            "a $2006 write moving v"
+        );
+        let mut crowded = lines.clone();
+        for line in &mut crowded[..=MAX_RUNS] {
+            line.fine_x = u8::try_from(line.v >> 12).expect("a fine y") & 1;
+        }
+        assert_eq!(runs(&crowded, 192), runs(&lines, 192), "from line 192");
+        assert_eq!(runs(&crowded, 0), None, "past MAX_RUNS");
+    }
+
+    #[test]
+    fn the_final_boss_s_room_is_all_runs() {
         let Some((mut game, lines)) = boss_bar_frame() else {
             return;
         };
-        let other = view(&game, &lines).expect("a strip frame");
-        assert_eq!(
-            other.nametable_playfield, None,
-            "another area's from the map"
-        );
         game.world.area = FINAL_AREA;
         let shown = view(&game, &lines).expect("the final boss's room");
         assert_eq!(
-            shown
-                .nametable_playfield
-                .map(|run| (run.line, run.top, run.banks)),
-            Some((0, lines[0], shown.banks)),
-            "line 0 down, the playfield's banks"
+            (shown.map_end, spans(&shown.runs)),
+            (0, vec![(0, 192), (192, 193), (193, 240)]),
+            "every line from the nametables"
         );
+        assert_eq!(shown.runs[0].map(|run| run.top), Some(lines[0]));
         let mut unarmed = game.clone();
         unarmed.scroll.split.armed = false;
         let unarmed_lines = raster::lines(&raster::Registers::of(&unarmed), &unarmed);
         assert_eq!(
-            view(&unarmed, &unarmed_lines).map(|view| view.nametable_playfield),
-            Some(None),
+            view(&unarmed, &unarmed_lines).map(|view| (view.map_end, view.runs[0])),
+            Some((240, None)),
             "no split armed: from the map"
-        );
-        let mut other_handler = game.clone();
-        other_handler.scroll.split.chain = Chain::BossFloor;
-        let other_lines = raster::lines(&raster::Registers::of(&other_handler), &other_handler);
-        assert!(
-            view(&other_handler, &other_lines)
-                .is_none_or(|view| view.nametable_playfield.is_none()),
-            "another handler: no run"
         );
         let mut shaken = game.clone();
         shaken.scroll.scroll_x = 0xFC;
         let shaken_lines = raster::lines(&raster::Registers::of(&shaken), &shaken);
         assert_eq!(
             view(&shaken, &shaken_lines)
-                .and_then(|view| view.nametable_playfield)
+                .and_then(|view| view.runs[0])
                 .map(|run| (run.top.v & 0x1F, run.top.fine_x)),
             Some((31, 4)),
             "a shaken frame's run from coarse x 31"
-        );
-        let mut off_edge = lines.clone();
-        off_edge[0].v |= 0x1000;
-        assert_eq!(view(&game, &off_edge), None, "line 0 off a tile edge");
-        let mut wrapping = lines.clone();
-        wrapping[0].v |= 10 << 5;
-        assert_eq!(view(&game, &wrapping), None, "rows past line 0's nametable");
-        let mut unbanked = lines.clone();
-        for line in &mut unbanked {
-            line.chr = lines[0].chr;
-        }
-        assert_eq!(view(&game, &unbanked), None, "no bank change");
-        let bar = shown.strip.expect("the bar");
-        let low_bar = Strip { line: 196, ..bar };
-        assert_eq!(
-            playfield_run(&lines, shown.banks, &low_bar),
-            None,
-            "a bar off a tile row"
         );
     }
 }
