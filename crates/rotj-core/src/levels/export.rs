@@ -238,18 +238,12 @@ fn project(levels: &Levels, uses_no_handler: bool) -> Value {
         let used: BTreeSet<u8> = rooms.iter().map(|&room| selector(room)).collect();
         used.iter()
             .map(|selector| format!("{prefix}{selector:02x}"))
-            .collect()
+            .collect::<Vec<_>>()
     };
     let mut types = vec![
-        enumeration(
-            "arrival",
-            ["unchanged", "held", "flying"].map(String::from).into(),
-        ),
-        enumeration("hud_split", ["standard", "none"].map(String::from).into()),
-        enumeration(
-            "scroll",
-            ["horizontal", "vertical"].map(String::from).into(),
-        ),
+        enumeration("arrival", ["unchanged", "held", "flying"]),
+        enumeration("hud_split", ["standard", "none"]),
+        enumeration("scroll", ["horizontal", "vertical"]),
         enumeration(
             "background_palette",
             selectors("bg-", |room| room.background_palette),
@@ -264,7 +258,7 @@ fn project(levels: &Levels, uses_no_handler: bool) -> Value {
         .filter(|&(family, _)| uses_no_handler || family != NO_HANDLER.0)
         .collect();
     for &(family, kinds) in families.iter().filter(|(_, kinds)| kinds.len() > 1) {
-        let variants = kinds.iter().copied().map(variant_name).collect();
+        let variants = kinds.iter().copied().map(variant_name);
         types.push(enumeration(&format!("{family}_variant"), variants));
     }
     for &(family, kinds) in &families {
@@ -312,12 +306,12 @@ fn project(levels: &Levels, uses_no_handler: bool) -> Value {
     })
 }
 
-fn enumeration(name: &str, values: Vec<String>) -> Value {
+fn enumeration(name: &str, values: impl IntoIterator<Item = impl Into<Value>>) -> Value {
     json!({
         "name": name,
         "storageType": "string",
         "type": "enum",
-        "values": Value::from(values),
+        "values": values.into_iter().map(Into::into).collect::<Vec<Value>>(),
         "valuesAsFlags": false,
     })
 }

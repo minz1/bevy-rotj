@@ -305,13 +305,14 @@ fn tilesets(rom: &Path, out: &Path) -> Result<()> {
     let rom = rotj_rom::Rom::load(Some(rom)).map_err(|error| eyre!(error))?;
     let tilesets = rotj_core::levels::tilesets(&rom.prg, &rom.chr)
         .ok_or_else(|| eyre!("the ROM's levels do not import"))?;
-    write_tilesets(&tilesets, out)?;
-    println!("{} ({} files)", out.display(), 2 * tilesets.len());
+    let count = 2 * tilesets.len();
+    write_tilesets(tilesets, out)?;
+    println!("{} ({count} files)", out.display());
     Ok(())
 }
 
 /// Writes each tileset's `.tsj` and `.png` into `out`.
-fn write_tilesets(tilesets: &[rotj_core::levels::Tileset], out: &Path) -> Result<()> {
+fn write_tilesets(tilesets: Vec<rotj_core::levels::Tileset>, out: &Path) -> Result<()> {
     std::fs::create_dir_all(out)?;
     for tileset in tilesets {
         let tsj = out.join(format!("{}.tsj", tileset.name));
@@ -319,7 +320,7 @@ fn write_tilesets(tilesets: &[rotj_core::levels::Tileset], out: &Path) -> Result
             .wrap_err_with(|| format!("writing {}", tsj.display()))?;
         let side = rotj_core::levels::TILESET_PX;
         let png = out.join(format!("{}.png", tileset.name));
-        write_png(&png, side, side, tileset.picture.clone())?;
+        write_png(&png, side, side, tileset.picture)?;
     }
     Ok(())
 }
@@ -628,7 +629,7 @@ mod tests {
         };
         let tilesets = rotj_core::levels::tilesets(&rom.prg, &rom.chr).expect("the tilesets");
         let out = std::env::temp_dir().join(format!("rotj-tilesets-{}", std::process::id()));
-        write_tilesets(&tilesets, &out).expect("writes");
+        write_tilesets(tilesets, &out).expect("writes");
         let files = std::fs::read_dir(&out).expect("the folder").count();
         let png = image::open(out.join("area-06-b.png")).expect("a PNG");
         std::fs::remove_dir_all(&out).expect("removes the tilesets");

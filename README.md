@@ -18,8 +18,9 @@ None of the game is in this repository or in the downloads. You need your copy o
 Each [release](https://github.com/minz1/bevy-rotj/releases) has a Windows exe and a
 Linux one. Put your ROM next to the exe, or drop it onto the exe (on Linux, pass it as
 the first argument); `ROTJ_ROM=/path/to/rom.nes` works too. The ROM stays where you put
-it; the only file the game writes is `settings.ron`, next to the exe, when you close the
-settings menu. If no ROM is found, the exe says where it looked.
+it. The game writes `settings.ron` next to the exe when you close the settings menu, and at
+startup a `tilesets/` folder beside it with the pictures level packs use in Tiled. If no ROM is
+found, the exe says where it looked.
 
 ## Build from source
 
