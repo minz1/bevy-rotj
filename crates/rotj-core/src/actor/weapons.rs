@@ -27,7 +27,8 @@ const CIRCLED: u8 = 0x80;
 /// A power-up piece's `part_timer` or super orbiter's `part`: it lights the sprite palette.
 const LIT: u8 = 0x80;
 
-/// A splitter shot's `param`: spent, it runs out its timer instead of splitting.
+/// A splitter shot's `param`: spent, it runs out its timer instead of splitting. A split part
+/// sets it from its bounce byte (`$8A3F`); a fired shot keeps whatever its slot last held.
 const NO_SPLIT: u8 = 0x80;
 
 /// The splitter orbit's `param`, toggled every 64 frames: the turn tables 4 on, the `$8C67` throw.

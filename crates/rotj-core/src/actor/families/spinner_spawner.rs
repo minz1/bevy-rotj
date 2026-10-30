@@ -17,12 +17,13 @@ const SPAWN_MASK: u8 = 0x3F;
 const SLOTS: usize = 16;
 /// The child's type (`$92CC`).
 const CHILD: u8 = 0x7E;
-/// The child's y (`$92C5`/`$92C7` = `$01`/`$40`).
+/// The child's y (`$92C2`/`$92C7` = `$01`/`$40`).
 const CHILD_Y: u16 = 0x0140;
 /// The child's `$7EE0` (`$92D6`).
 const CHILD_CONTACT: u8 = contact::SHIELDED | contact::SMITE_PROOF;
-/// The child's `$7D90` when the parent's has no bit 7 (`$92D4`).
+/// The child's `$7D90` when the parent's has bit 7, with the player's side in bit 0 (`$9305`).
 const CHILD_BEHAVIOUR: u8 = 0x80;
+/// The parent's `$7D90` bit that recomputes the child's instead of copying it (`$92FC`).
 const AIMED: u8 = 0x80;
 
 /// Type `$80` keeps its whole state in [`Body`] (the `$7E90` spawn counter).
