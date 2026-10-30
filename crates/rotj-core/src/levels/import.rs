@@ -261,6 +261,16 @@ fn import_stage(
         }
         let (map, shape) = (&maps[index], &shapes[index]);
         let in_file = |reason| invalid(file, reason);
+        let written = stream.len() / PAGE_CELLS;
+        if source == Source::User
+            && let Some(entry) =
+                held_entries(shape).find(|&entry| usize::from(pages[entry]) >= written)
+        {
+            return Err(in_file(format!(
+                "layer `terrain`: entry {entry} is page {}, past the stream's {written} pages",
+                pages[entry]
+            )));
+        }
         let room = import_room(map, shape, pages, catalog_area.split).map_err(in_file)?;
         let spawns = import_spawns(map, &pages, &mut schedule, source).map_err(in_file)?;
         import_locks(map, shape.vertical, &pages, &mut schedule).map_err(in_file)?;
@@ -495,6 +505,14 @@ fn shape(map: &Map, catalog: &Catalog) -> Result<Shape, String> {
         firstgid: tileset.firstgid,
         area,
         chr,
+    })
+}
+
+/// The page-table entries whose region lies inside the room's map.
+fn held_entries(shape: &Shape) -> impl Iterator<Item = usize> {
+    (0..TABLE_ENTRIES).filter(|&entry| {
+        let (along, band) = region_place(entry);
+        along < shape.along && band < shape.across
     })
 }
 

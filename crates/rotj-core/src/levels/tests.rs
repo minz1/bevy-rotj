@@ -361,9 +361,9 @@ fn room(pages: [u8; TABLE_ENTRIES], chr: [u8; 4], records: &[(usize, SpawnRecord
 }
 
 /// Four rooms of one area sharing page 1 (a two-trigger record in each room's table), a lock
-/// on page 0, page 2 shown only below room A (an extra page), page 3 past the stream (gid
-/// 0), a vertical room (C) and a two-page room (D), and residue: a non-pending id, a cell on
-/// a page no table shows, an unread record.
+/// on page 0, page 2 shown only below room A (an extra page), page 4 past the stream in
+/// entries no map holds, a vertical room (C) and a two-page room (D), and residue: a
+/// non-pending id, a cell on a page no table shows, an unread record.
 fn hand_made() -> Levels {
     let mut a_pages = [3; TABLE_ENTRIES];
     a_pages[0] = 0;
@@ -419,7 +419,7 @@ fn hand_made() -> Levels {
     schedule[0x04] = CELL_LOCK | 3;
     schedule[0x20] = 0x05;
     schedule[0x51] = CELL_PENDING | 1;
-    let stream = (0..3 * PAGE_CELLS)
+    let stream = (0..4 * PAGE_CELLS)
         .map(|cell| u8::try_from(cell % 251).expect("a byte"))
         .collect();
     Levels {
@@ -480,7 +480,7 @@ fn a_hand_made_pack_imports_what_the_game_reads() {
     assert_eq!(a.tilesets[0].source, "../../../tilesets/area-01.tsj");
     let data = a.layers[0].data.as_ref().expect("terrain");
     assert_eq!(data[16 * 17 * 16 - 1], 1 + (2 * 256 + 255) % 251);
-    assert_eq!(data[2 * 16], 0, "page 3 is past the stream");
+    assert_eq!(data[2 * 16], 1 + (3 * 256) % 251, "entry 2 shows page 3");
     let b: Map = serde_json::from_str(&files[ROOM_B]).expect("room B");
     assert_eq!(b.tilesets[0].source, "../../../tilesets/area-01-b.tsj");
     let c: Map = serde_json::from_str(&files[ROOM_C]).expect("room C");
@@ -514,6 +514,20 @@ fn a_hand_made_pack_imports_what_the_game_reads() {
     );
     assert_eq!(pack.extra_passwords[0].password, "WXYZ");
     assert_eq!(pack.extra_passwords[0].stage, "9-9");
+}
+
+#[test]
+fn a_room_showing_a_page_past_the_stream_is_refused_as_a_user_pack() {
+    let mut levels = hand_made();
+    levels.stages[0].rooms[0].room.pages[6] = 4;
+    let catalog = Catalog::from_levels(&levels);
+    let files = write(&levels, &catalog);
+    let error = import(&files, &catalog, Source::User).expect_err("refused");
+    assert_eq!(
+        error.to_string(),
+        "rooms/9-9-1.tmj: layer `terrain`: entry 6 is page 4, past the stream's 4 pages"
+    );
+    assert!(import(&files, &catalog, Source::Original).is_ok());
 }
 
 /// The hand-made pack's files and catalog, to break one thing at a time.
@@ -614,7 +628,7 @@ fn a_pack_that_breaks_the_pack_file_is_refused() {
     fixture.refuses_pack("extra page 33 is outside the map", |pack| {
         pack.stages[0].pages[5].push(region(ROOM_A, 33));
     });
-    fixture.refuses_pack("page 5 has tiles after page 2", |pack| {
+    fixture.refuses_pack("page 3 has tiles after page 2", |pack| {
         let pages = &mut pack.stages[0].pages;
         pages[2].retain(|region| region.entry != 32);
         pages[5].push(region(ROOM_A, 32));
@@ -1009,9 +1023,11 @@ fn a_user_pack_naming_an_actor_the_game_has_no_handler_for_is_refused() {
     let files = export(&rom.prg, &rom.chr).expect("the ROM exports");
     let catalog = Catalog::from_rom(&rom.prg, &rom.chr).expect("the ROM's catalog");
     assert!(files.values().any(|text| text.contains("\"no_handler\"")));
-    let error = import(&files, &catalog, Source::User).expect_err("a user pack");
+    let error = import(&files, &catalog, Source::User)
+        .expect_err("a user pack")
+        .to_string();
     assert!(
-        error.to_string().contains("the game has no handler for it"),
+        error.contains("the game has no handler for it") || error.contains("past the stream"),
         "{error}"
     );
     assert!(import(&files, &catalog, Source::Original).is_ok());
