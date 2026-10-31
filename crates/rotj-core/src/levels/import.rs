@@ -152,7 +152,12 @@ fn selector(value: &str, prefix: &str) -> Option<u8> {
 }
 
 /// A stage's descriptor from its `pack.json` knobs.
-fn descriptor(stage: &PackStage, area: u8) -> Result<Descriptor, ImportError> {
+/// `user` is the catalog a user pack's knobs must name values from.
+fn descriptor(
+    stage: &PackStage,
+    area: u8,
+    user: Option<&Catalog>,
+) -> Result<Descriptor, ImportError> {
     let knob =
         |key: &str, value: &str| at_stage(stage, &format!("`{key}`: unknown value `{value}`"));
     let banner = match *stage.hud_label.as_bytes() {
@@ -160,14 +165,41 @@ fn descriptor(stage: &PackStage, area: u8) -> Result<Descriptor, ImportError> {
         _ => return Err(knob("hud_label", &stage.hud_label)),
     };
     let below_80 = |value: &str, prefix| selector(value, prefix).filter(|&id| id < 0x80);
+    let in_game = |key: &str, value: &str, id: u8, known: Option<&BTreeSet<u8>>, what| match known {
+        Some(known) if !known.contains(&id) => Err(at_stage(
+            stage,
+            &format!("`{key}`: `{value}` is not {what}"),
+        )),
+        _ => Ok(id),
+    };
     let music = match stage.music.as_str() {
         "keep" => Music::Keep,
-        song => Music::Song(below_80(song, "song-").ok_or_else(|| knob("music", song))?),
+        song => {
+            let id = below_80(song, "song-").ok_or_else(|| knob("music", song))?;
+            let songs = user.map(|catalog| &catalog.songs);
+            Music::Song(in_game(
+                "music",
+                song,
+                id,
+                songs,
+                "one of the sound test's songs",
+            )?)
+        }
     };
     let picture = stage
         .cutscene
         .as_deref()
-        .map(|picture| below_80(picture, "picture-").ok_or_else(|| knob("cutscene", picture)))
+        .map(|picture| {
+            let id = below_80(picture, "picture-").ok_or_else(|| knob("cutscene", picture))?;
+            let pictures = user.map(|catalog| &catalog.pictures);
+            in_game(
+                "cutscene",
+                picture,
+                id,
+                pictures,
+                "a picture the game's stages show",
+            )
+        })
         .transpose()?;
     let password = stage
         .password
@@ -246,6 +278,7 @@ fn import_stage(
     {
         return Err(invalid(file, "its tileset's area is not the stage's"));
     }
+    let user = (source == Source::User).then_some(catalog);
     let (tables, regions) = page_regions(stage)?;
     let stream = stream(stage, &maps, &shapes, &regions)?;
     let catalog_area = catalog
@@ -271,7 +304,7 @@ fn import_stage(
                 pages[entry]
             )));
         }
-        let room = import_room(map, shape, pages, catalog_area.split).map_err(in_file)?;
+        let room = import_room(map, shape, pages, catalog_area.split, user).map_err(in_file)?;
         let spawns = import_spawns(map, &pages, &mut schedule, source).map_err(in_file)?;
         import_locks(map, shape.vertical, &pages, &mut schedule).map_err(in_file)?;
         rooms.push(RoomAssets { room, spawns });
@@ -280,7 +313,7 @@ fn import_stage(
         stage: Stage {
             name: stage.name.clone(),
             area,
-            descriptor: descriptor(stage, area)?,
+            descriptor: descriptor(stage, area, user)?,
         },
         terrain: Terrain {
             stream,
@@ -451,10 +484,22 @@ fn int<T: TryFrom<i64> + Default>(properties: &[Property], name: &str) -> Result
         .ok_or_else(|| format!("property `{name}` is not an int in range"))
 }
 
-/// A `bg-xx`-style preset's selector.
-fn preset(properties: &[Property], name: &str, prefix: &str) -> Result<u8, String> {
+/// A `bg-xx`-style preset's selector, which in a user pack must be one of `known`.
+fn preset(
+    properties: &[Property],
+    name: &str,
+    prefix: &str,
+    known: Option<&BTreeSet<u8>>,
+) -> Result<u8, String> {
     let value = string(properties, name)?;
-    selector(value, prefix).ok_or_else(|| format!("property `{name}`: unknown preset `{value}`"))
+    let preset = selector(value, prefix)
+        .ok_or_else(|| format!("property `{name}`: unknown preset `{value}`"))?;
+    match known {
+        Some(known) if !known.contains(&preset) => Err(format!(
+            "property `{name}`: `{value}` is not a preset the game's rooms use"
+        )),
+        _ => Ok(preset),
+    }
 }
 
 fn shape(map: &Map, catalog: &Catalog) -> Result<Shape, String> {
@@ -568,6 +613,7 @@ fn import_room(
     shape: &Shape,
     pages: [u8; TABLE_ENTRIES],
     split: Option<Split>,
+    user: Option<&Catalog>,
 ) -> Result<Room, String> {
     let player = marker(map, "player-start")?;
     let camera = marker(map, "camera-start")?;
@@ -606,8 +652,18 @@ fn import_room(
     };
     let player_int = |name| int(&player.properties, name).map_err(|reason| at(player, reason));
     Ok(Room {
-        background_palette: preset(&map.properties, "background_palette", "bg-")?,
-        sprite_palette: preset(&map.properties, "sprite_palette", "sprites-")?,
+        background_palette: preset(
+            &map.properties,
+            "background_palette",
+            "bg-",
+            user.map(|catalog| &catalog.background_palettes),
+        )?,
+        sprite_palette: preset(
+            &map.properties,
+            "sprite_palette",
+            "sprites-",
+            user.map(|catalog| &catalog.sprite_palettes),
+        )?,
         chr: shape.chr,
         orientation: (u8::from(shape.vertical) * orientation::VERTICAL)
             | (u8::from(shape.across == 2) * orientation::TWO_PAGES),

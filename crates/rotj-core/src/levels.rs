@@ -3,11 +3,11 @@
 //! `docs/specs/2026-10-18-level-packs-release-1-design.md`). The game reads its levels through
 //! [`Levels`] (`Prg::levels`), by default [`Levels::original`]; release 6 lets a pack replace it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::actor::families::{MAIN, SECOND};
 use crate::actor::spawn::SpawnTable;
-use crate::actor::stage::Stage as Descriptor;
+use crate::actor::stage::{Music, Stage as Descriptor};
 use crate::rooms::{Raster, Room};
 use crate::terrain::Terrain;
 
@@ -101,6 +101,13 @@ pub struct Stage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Catalog {
     areas: Vec<CatalogArea>,
+    /// The background and sprite presets the rooms load.
+    background_palettes: BTreeSet<u8>,
+    sprite_palettes: BTreeSet<u8>,
+    /// The pictures the stages' cutscenes show.
+    pictures: BTreeSet<u8>,
+    /// The songs a stage may start: the sound test's, from the ROM.
+    songs: BTreeSet<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,10 +133,14 @@ impl Catalog {
     /// The original game's catalog, from the ROM; `None` where its levels do not import.
     #[must_use]
     pub fn from_rom(prg: &[u8], chr: &[u8]) -> Option<Catalog> {
-        Some(Catalog::from_levels(&Levels::from_rom(prg, chr)?))
+        Some(Catalog {
+            songs: crate::actor::sound_test::songs(prg).into(),
+            ..Catalog::from_levels(&Levels::from_rom(prg, chr)?)
+        })
     }
 
-    /// The catalog of `levels`' areas: their CHR variants, metatiles and first screen record.
+    /// The catalog of `levels`' areas (their CHR variants, metatiles and first screen record)
+    /// and of the presets, pictures and songs they use.
     pub(crate) fn from_levels(levels: &Levels) -> Catalog {
         let areas = levels
             .stages
@@ -159,7 +170,24 @@ impl Catalog {
                 }
             })
             .collect();
-        Catalog { areas }
+        let rooms = || levels.stages.iter().flat_map(|stage| &stage.rooms);
+        let descriptors = || levels.stages.iter().map(|stage| &stage.stage.descriptor);
+        Catalog {
+            areas,
+            background_palettes: rooms()
+                .map(|assets| assets.room.background_palette)
+                .collect(),
+            sprite_palettes: rooms().map(|assets| assets.room.sprite_palette).collect(),
+            pictures: descriptors()
+                .filter_map(|descriptor| descriptor.picture)
+                .collect(),
+            songs: descriptors()
+                .filter_map(|descriptor| match descriptor.music {
+                    Music::Song(song) => Some(song),
+                    Music::Keep => None,
+                })
+                .collect(),
+        }
     }
 
     fn area(&self, area: u8) -> Option<&CatalogArea> {

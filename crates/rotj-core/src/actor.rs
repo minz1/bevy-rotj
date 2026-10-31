@@ -20,7 +20,7 @@ pub mod room;
 pub mod script;
 pub mod scroll;
 pub mod slots;
-mod sound_test;
+pub(crate) mod sound_test;
 pub mod spawn;
 pub mod stage;
 #[cfg(test)]

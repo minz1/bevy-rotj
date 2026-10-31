@@ -34,6 +34,15 @@ const EFFECT_ROW: u8 = 1;
 const SONG_COUNT: u8 = 0x0D;
 const EFFECT_COUNT: u8 = 0x1A;
 
+/// The songs it offers, in order.
+pub(crate) fn songs(prg: &[u8]) -> [u8; SONG_COUNT as usize] {
+    let mut songs = [0; SONG_COUNT as usize];
+    for (song, address) in songs.iter_mut().zip(SONGS..) {
+        *song = rom_byte(prg, 12, address);
+    }
+    songs
+}
+
 /// The sound test, one frame per [`SoundTest::step`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct SoundTest {

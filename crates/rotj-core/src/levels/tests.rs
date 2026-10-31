@@ -530,6 +530,74 @@ fn a_room_showing_a_page_past_the_stream_is_refused_as_a_user_pack() {
     assert!(import(&files, &catalog, Source::Original).is_ok());
 }
 
+#[test]
+fn a_user_packs_knobs_must_be_values_the_game_uses() {
+    let fixture = Fixture::new(&hand_made());
+    let original = |edit: &dyn Fn(&mut PackFiles)| {
+        let mut files = fixture.files.clone();
+        edit(&mut files);
+        assert!(import(&files, &fixture.catalog, Source::Original).is_ok());
+    };
+    let music = |pack: &mut PackFile| pack.stages[0].music = "song-04".into();
+    fixture.refuses_pack(
+        "pack.json: stage `9-9`: `music`: `song-04` is not one of the sound test's songs",
+        music,
+    );
+    let cutscene = |pack: &mut PackFile| pack.stages[0].cutscene = Some("picture-06".into());
+    fixture.refuses_pack(
+        "pack.json: stage `9-9`: `cutscene`: `picture-06` is not a picture the game's stages show",
+        cutscene,
+    );
+    for (name, value) in [
+        ("background_palette", "bg-0d"),
+        ("sprite_palette", "sprites-04"),
+    ] {
+        let edit = |map: &mut Map| {
+            let property = map.properties.iter_mut().find(|p| p.name == name);
+            property.expect("a preset").value = value.into();
+        };
+        fixture.refuses_map(
+            &format!(
+                "rooms/9-9-1.tmj: property `{name}`: `{value}` is not a preset the game's rooms use"
+            ),
+            ROOM_A,
+            edit,
+        );
+        original(&|files| {
+            let mut map: Map = serde_json::from_str(&files[ROOM_A]).expect("a room");
+            edit(&mut map);
+            files.insert(ROOM_A.into(), to_text(&map));
+        });
+    }
+    for edit in [music, cutscene] {
+        original(&|files| {
+            let mut pack: PackFile = serde_json::from_str(&files["pack.json"]).expect("pack.json");
+            edit(&mut pack);
+            files.insert("pack.json".into(), to_text(&pack));
+        });
+    }
+}
+
+#[test]
+fn the_original_stages_songs_are_in_the_sound_test() {
+    let Some(rom) = rotj_rom::for_test() else {
+        return;
+    };
+    let levels = Levels::from_rom(&rom.prg, &rom.chr).expect("the ROM's levels");
+    let catalog = Catalog::from_rom(&rom.prg, &rom.chr).expect("the ROM's catalog");
+    let used: BTreeSet<u8> = levels
+        .stages
+        .iter()
+        .filter_map(|assets| match assets.stage.descriptor.music {
+            Music::Song(song) => Some(song),
+            Music::Keep => None,
+        })
+        .collect();
+    assert_eq!(used.len(), 6);
+    assert_eq!(catalog.songs.len(), 13);
+    assert!(used.is_subset(&catalog.songs));
+}
+
 /// The hand-made pack's files and catalog, to break one thing at a time.
 struct Fixture {
     files: PackFiles,

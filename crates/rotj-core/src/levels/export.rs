@@ -220,22 +220,15 @@ pub fn write(levels: &Levels, catalog: &Catalog) -> PackFiles {
     files.insert("world.world".into(), to_text(&world));
     files.insert(
         "rotj.tiled-project".into(),
-        to_text(&project(levels, uses_no_handler)),
+        to_text(&project(catalog, uses_no_handler)),
     );
     files
 }
 
 /// The Tiled project file: the tileset folder, an enum per `propertytype` the rooms name and
 /// a class per actor family and marker, `no_handler` only where the rooms have one.
-fn project(levels: &Levels, uses_no_handler: bool) -> Value {
-    let rooms: Vec<&Room> = levels
-        .stages
-        .iter()
-        .flat_map(|stage| &stage.rooms)
-        .map(|assets| &assets.room)
-        .collect();
-    let selectors = |prefix: &str, selector: fn(&Room) -> u8| {
-        let used: BTreeSet<u8> = rooms.iter().map(|&room| selector(room)).collect();
+fn project(catalog: &Catalog, uses_no_handler: bool) -> Value {
+    let selectors = |prefix: &str, used: &BTreeSet<u8>| {
         used.iter()
             .map(|selector| format!("{prefix}{selector:02x}"))
             .collect::<Vec<_>>()
@@ -246,11 +239,11 @@ fn project(levels: &Levels, uses_no_handler: bool) -> Value {
         enumeration("scroll", ["horizontal", "vertical"]),
         enumeration(
             "background_palette",
-            selectors("bg-", |room| room.background_palette),
+            selectors("bg-", &catalog.background_palettes),
         ),
         enumeration(
             "sprite_palette",
-            selectors("sprites-", |room| room.sprite_palette),
+            selectors("sprites-", &catalog.sprite_palettes),
         ),
     ];
     let families: Vec<(&str, &[u8])> = classes(false)
