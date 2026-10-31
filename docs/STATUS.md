@@ -1,4 +1,4 @@
-# Status — where 1.1.51 stands
+# Status — where 1.1.52 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -75,6 +75,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.49 | **done, tag `1.1.49`** (2026-10-30): Modern's picture reaches the band rooms and the boss floor, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). A split frame is drawn as line runs read from the nametables, one camera per run with its own viewport and the sprites on a shared layer; every chain (`$D3` 0-8) goes through it, proven by the background gate and headless pixel comparisons with Classic. 486 boss-floor frames, where Batman stands across the floor's bank change, stay Classic (`docs/specs/2026-10-30-modern-band-rooms-design.md`). The band rooms' playfield from the map is a 1.2.0 prerequisite |
 | 1.1.50 | **done, tag `1.1.50`** (2026-10-30): survey #17, the music driver's residual bytes, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical, the oracle's music tests write for write). The envelope step is an `EnvelopeStep` enum; the volume, slide and song-bank bits are named consts with a sign-magnitude helper (`docs/specs/2026-10-30-music-driver-typed-design.md`). Modern's per-frame sprite and atlas churn measured and kept as it is (`docs/MODERNIZE.md`) |
 | 1.1.51 | **done, tag `1.1.51`** (2026-10-30): level packs release 4, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). One Tiled tileset per (area, CHR variant), 27 for the original game, each a `.tsj` and a 256-tile PNG drawn from the player's ROM: the game writes them at startup into `tilesets/` beside `settings.ron` (rewriting missing or stale files, about 30 ms), and `rotj-tools tilesets` writes them anywhere. Every exported pack carries `rotj.tiled-project` with Tiled's typed enums and one class per actor family; a multi-kind family's object without `variant` imports as its first kind. The original pack still exports byte-exact and round-trips (`docs/specs/2026-10-30-level-packs-release-4-design.md`) |
+| 1.1.52 | **done, tag `1.1.52`** (2026-10-31): level packs release 5, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). A user pack is checked against the NES limits at import, every error naming the file, the layer and the object: a room showing a page past its stage's stream is refused, naming the room, the entry and the page; at most 4 background banks a room and 208 metatiles a stage; palettes, pictures and songs must be ones the game has. A room's map may list several tilesets of its area and a stage's rooms several areas, and a pack's `custom.tsj` defines its own metatiles from CHR tiles, drawn locally as `custom.png`. `format` stays 1; the original pack still exports byte-exact and round-trips (`docs/specs/2026-10-30-level-packs-release-5-design.md`) |
 
 ## Verified working
 
@@ -159,8 +160,9 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    tagged `1.1.48`** (2026-10-30). **1.1.49, Modern's band rooms and the boss floor:
    tagged `1.1.49`** (2026-10-30). **1.1.50, survey #17, the music driver typed:
    tagged `1.1.50`** (2026-10-30). **1.1.51, level packs release 4, the tilesets and the Tiled
-   project file: tagged `1.1.51`** (2026-10-30). Next: level packs release 5, `classic` validation
-   and custom metatiles.
+   project file: tagged `1.1.51`** (2026-10-30). **1.1.52, level packs release 5, `classic`
+   validation, custom metatiles and mixing areas: tagged `1.1.52`** (2026-10-31). Next: level packs
+   release 6, playing a pack.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and

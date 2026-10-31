@@ -1,6 +1,6 @@
 # Level packs release 5: `classic` validation, custom metatiles, mixing areas
 
-Status: approved by the stand-in (owner-proxy, L3) after the reviewer's pass; their changes are
+Status: implemented in 1.1.52. Approved by the stand-in (owner-proxy, L3) after the reviewer's pass; their changes are
 applied: refusals for user packs only, `music` checked against the sound test's songs, one import
 path (no separate unmixed one), one id rule, one slot rule, `custom.tsj` validated before it is
 read (`tilecount` at most 208), no `rotj-tools tilesets --pack`, the runtime-written ids a stated

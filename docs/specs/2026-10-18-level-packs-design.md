@@ -155,7 +155,9 @@ my-world/                       the pack, what people share
    1.1.51 (`docs/specs/2026-10-30-level-packs-release-4-design.md`): the tilesets go in the folder
    the settings file lives in (owner, 2026-10-29).
 5. `classic` validation and custom metatiles. Owner, 2026-10-29: validation refuses a room that
-   shows pages past its stage's stream, naming the room and the page.
+   shows pages past its stage's stream, naming the room and the page. Implemented in 1.1.52
+   (`docs/specs/2026-10-30-level-packs-release-5-design.md`), with mixing areas in a room and a
+   stage.
 6. Playing a pack: `--pack <dir>` and dropping a pack folder or its `pack.json` onto the exe, like
    the ROM (owner, 2026-10-29); `--pack` refuses by name a pack with too few stages or rooms or a
    bad extra password. The optional room `mirroring` property (absent = derived, `format` stays
