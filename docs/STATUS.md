@@ -1,4 +1,4 @@
-# Status — where 1.1.54 stands
+# Status — where 1.1.55 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -78,6 +78,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.52 | **done, tag `1.1.52`** (2026-10-31): level packs release 5, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). A user pack is checked against the NES limits at import, every error naming the file, the layer and the object: a room showing a page past its stage's stream is refused, naming the room, the entry and the page; at most 4 background banks a room and 208 metatiles a stage; palettes, pictures and songs must be ones the game has. A room's map may list several tilesets of its area and a stage's rooms several areas, and a pack's `custom.tsj` defines its own metatiles from CHR tiles, drawn locally as `custom.png`. `format` stays 1; the original pack still exports byte-exact and round-trips (`docs/specs/2026-10-30-level-packs-release-5-design.md`) |
 | 1.1.53 | **done, tag `1.1.53`** (2026-10-31): level packs release 6, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). `batman-rotj --pack <dir>`, or a pack folder or its `pack.json` dropped onto the exe, plays the pack's levels with the player's ROM for the rest. A pack the game would run past (too few stages or rooms, too many for a byte, a boss the ROM has no tables for) or with a bad extra password is refused by name before the window opens, like a missing ROM. A room may carry an optional `mirroring` property (absent = derived, `format` stays 1); the exporter writes it where the derived rule is wrong, so 1-1-2's start travels in the pack. The last table keyed by stage number follows `stage.area`. Plain `std::fs`, no `bevy_asset_loader` (MODERNIZE #14 moves to the Load pack entry) (`docs/specs/2026-10-31-level-packs-release-6-design.md`) |
 | 1.1.54 | **done, tag `1.1.54`** (2026-10-31): `Weapon` and `Motion` onto `phases!` like the other phase enums, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical); their hand-written round-trip tests are dropped |
+| 1.1.55 | **done, tag `1.1.55`** (2026-10-31): slots 16-23 write back only the aliased fields their handler changed, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). The original game never reaches it; an oracle test with a pack-style scene (a `$94` spawner in slot 23 handing its child slot 7) does, red before and green after (`docs/specs/2026-10-31-aliased-write-back-design.md`) |
 
 ## Verified working
 
@@ -164,8 +165,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    tagged `1.1.50`** (2026-10-30). **1.1.51, level packs release 4, the tilesets and the Tiled
    project file: tagged `1.1.51`** (2026-10-30). **1.1.52, level packs release 5, `classic`
    validation, custom metatiles and mixing areas: tagged `1.1.52`** (2026-10-31). **1.1.53, level
-   packs release 6, playing a pack: tagged `1.1.53`** (2026-10-31). **1.1.54, `Weapon` and `Motion` on `phases!`: tagged `1.1.54`** (2026-10-31). Next: the aliased-byte
-   write-back (MODERNIZE's unreached lead), then the last 1.1.x survey.
+   packs release 6, playing a pack: tagged `1.1.53`** (2026-10-31). **1.1.54, `Weapon` and `Motion` on `phases!`: tagged `1.1.54`** (2026-10-31). **1.1.55, the aliased-byte write-back: tagged `1.1.55`** (2026-10-31). Next: the last 1.1.x survey.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
 the port's own loop and collision (the app's legacy path is deleted), every level and

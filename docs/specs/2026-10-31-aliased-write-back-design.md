@@ -3,7 +3,7 @@
 Status: approved by the stand-in (L3) 2026-10-31: approach and both limits accepted, the Body clone
 kept for every slot 0-23, the oracle's `in_slot` loads and stores under one `index < 24` guard,
 released on its own as 1.1.55. Item 11 of the 2026-10-29 run (MODERNIZE's "A lead (unreached)",
-level packs release 6's "Not here").
+level packs release 6's "Not here"). Implemented in 1.1.55.
 
 ## What is there
 
