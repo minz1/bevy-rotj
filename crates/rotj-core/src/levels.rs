@@ -11,11 +11,13 @@ use crate::actor::stage::{Music, Stage as Descriptor};
 use crate::rooms::{Raster, Room};
 use crate::terrain::Terrain;
 
+pub mod custom;
 pub mod export;
 pub mod import;
 pub mod model;
 pub mod tilesets;
 
+pub use custom::custom_picture;
 pub use export::{export, write};
 pub use import::{ImportError, import};
 pub use tilesets::{TILESET_PX, Tileset, tilesets};
@@ -192,6 +194,15 @@ impl Catalog {
 
     fn area(&self, area: u8) -> Option<&CatalogArea> {
         self.areas.iter().find(|known| known.area == area)
+    }
+
+    /// The animation handles (bit 7) the rooms load as a bank.
+    fn handles(&self) -> BTreeSet<u8> {
+        let banks = self
+            .areas
+            .iter()
+            .flat_map(|area| area.variants.iter().flatten());
+        banks.copied().filter(|bank| bank & 0x80 != 0).collect()
     }
 
     /// The tileset name of `area`'s variant `chr`: `area-06`, then `area-06-b` and on.

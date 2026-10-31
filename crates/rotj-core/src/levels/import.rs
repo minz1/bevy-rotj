@@ -1,21 +1,23 @@
 //! The importer: a pack's files into [`Levels`], the game's typed assets.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde::de::DeserializeOwned;
 use thiserror::Error;
 
+use super::custom::{CUSTOM, CUSTOM_FILE};
 use super::model::{Layer, Map, Object, PackFile, PackStage, Property};
 use super::{
-    Catalog, ExtraPassword, Levels, NO_HANDLER, PAGE_CELLS, PAGES, PackFiles, RoomAssets, Source,
-    Split, Stage, StageAssets, TABLE_ENTRIES, TILESET_TILES, along_across,
+    Catalog, CatalogArea, ExtraPassword, Levels, NO_HANDLER, PAGE_CELLS, PAGES, PackFiles,
+    RoomAssets, Source, Split, Stage, StageAssets, TABLE_ENTRIES, TILESET_TILES, along_across,
     derived_first_spawn_column, kind_of, region_place, schedule_cell, tile_index,
 };
 use crate::actor::spawn::SpawnTable;
 use crate::actor::stage::{Music, OnClear, Stage as Descriptor};
 use crate::actor::world::orientation;
 use crate::actors::{CELL_LOCK, CELL_PENDING, CELL_RECORD, SpawnRecord};
+use crate::collision::CLASS_COUNT;
 use crate::render::Mirroring;
 use crate::rooms::{Arrival, Room, Start};
 use crate::terrain::Terrain;
@@ -65,10 +67,17 @@ pub fn import(pack: &PackFiles, catalog: &Catalog, source: Source) -> Result<Lev
             ),
         ));
     }
+    let custom = pack
+        .get(CUSTOM_FILE)
+        .map(|text| {
+            super::custom::parse(text, &catalog.handles())
+                .map_err(|reason| invalid(CUSTOM_FILE, reason))
+        })
+        .transpose()?;
     let stages: Vec<StageAssets> = file
         .stages
         .iter()
-        .map(|stage| import_stage(pack, catalog, stage, source))
+        .map(|stage| import_stage(pack, catalog, custom.as_deref(), stage, source))
         .collect::<Result<_, _>>()?;
     if stages
         .first()
@@ -248,23 +257,31 @@ struct Shape {
     tilesets: Vec<RoomTileset>,
 }
 
-/// An area tileset a room's map names.
+/// A tileset a room's map names.
 struct RoomTileset {
     firstgid: u32,
-    area: u8,
-    chr: [u8; 4],
+    /// Its tiles: 256 for an area tileset, `custom.tsj`'s `tilecount`.
+    count: u32,
+    /// The area and `Room::chr` of an area tileset; `None` for `custom.tsj`.
+    area: Option<(u8, [u8; 4])>,
 }
 
-/// A cell's metatile: the stage area's id (any variant's), or another area variant's.
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// A cell's metatile: the stage area's id (any variant's), another area variant's or a
+/// custom one.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Key {
     Stage(u8),
     Other { area: u8, chr: [u8; 4], id: u8 },
+    Custom(u8),
 }
+
+/// A pack's custom metatiles by id, `None` where `custom.tsj` defines none.
+type Custom<'a> = Option<&'a [Option<Metatile>]>;
 
 fn import_stage(
     pack: &PackFiles,
     catalog: &Catalog,
+    custom: Custom<'_>,
     stage: &PackStage,
     source: Source,
 ) -> Result<StageAssets, ImportError> {
@@ -273,31 +290,53 @@ fn import_stage(
         .iter()
         .map(|file| parse(pack, file))
         .collect::<Result<_, _>>()?;
+    let names_custom = maps
+        .iter()
+        .flat_map(|map| &map.tilesets)
+        .any(|tileset| stem(&tileset.source) == CUSTOM);
+    if names_custom && custom.is_none() {
+        return Err(ImportError::Missing {
+            file: CUSTOM_FILE.into(),
+        });
+    }
+    let custom_count = custom.map_or(0, |custom| {
+        u32::try_from(custom.len()).expect("at most 208 tiles")
+    });
     let shapes: Vec<Shape> = stage
         .rooms
         .iter()
         .zip(&maps)
-        .map(|(file, map)| shape(map, catalog).map_err(|reason| invalid(file, reason)))
+        .map(|(file, map)| {
+            shape(map, catalog, custom_count).map_err(|reason| invalid(file, reason))
+        })
         .collect::<Result<_, _>>()?;
-    let area = shapes
+    let (area, _) = shapes
         .first()
         .ok_or_else(|| at_stage(stage, "no rooms"))?
         .tilesets
-        .first()
+        .iter()
+        .find_map(|tileset| tileset.area)
         .ok_or_else(|| {
             invalid(
                 &stage.rooms[0],
                 "the stage's first room names no area tileset",
             )
-        })?
-        .area;
+        })?;
     let user = (source == Source::User).then_some(catalog);
     let (tables, regions) = page_regions(stage)?;
     let written_pages = stream(stage, &maps, &shapes, &regions, area)?;
-    let stream = stream_bytes(stage, &shapes, &written_pages)?;
     let catalog_area = catalog
         .area(area)
         .expect("a tileset's area is in the catalog");
+    let (terrain, chrs) = stage_terrain(
+        stage,
+        catalog,
+        custom,
+        catalog_area,
+        &shapes,
+        &regions,
+        &written_pages,
+    )?;
     let mut schedule = [None::<u8>; PAGE_CELLS];
     let mut rooms = Vec::new();
     for (index, file) in stage.rooms.iter().enumerate() {
@@ -318,13 +357,8 @@ fn import_stage(
                 pages[entry]
             )));
         }
-        let chr = shape
-            .tilesets
-            .iter()
-            .find(|tileset| tileset.area == area)
-            .map_or(catalog_area.variants[0], |tileset| tileset.chr);
-        let room =
-            import_room(map, shape, pages, chr, catalog_area.split, user).map_err(in_file)?;
+        let room = import_room(map, shape, pages, chrs[index], catalog_area.split, user)
+            .map_err(in_file)?;
         let spawns = import_spawns(map, &pages, &mut schedule, source).map_err(in_file)?;
         import_locks(map, shape.vertical, &pages, &mut schedule).map_err(in_file)?;
         rooms.push(RoomAssets { room, spawns });
@@ -335,10 +369,7 @@ fn import_stage(
             area,
             descriptor: descriptor(stage, area, user)?,
         },
-        terrain: Terrain {
-            stream,
-            ..catalog_area.terrain.clone()
-        },
+        terrain,
         schedule: schedule.map(|cell| cell.unwrap_or(0)),
         rooms,
     })
@@ -468,27 +499,279 @@ fn stream(
         .collect())
 }
 
-/// The stream's bytes; a cell from another area's tileset is refused.
-fn stream_bytes(
+/// A metatile a stage appends after its area's: its corners as (bank, tile 0-63), its palette
+/// and collision classes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Metatile {
+    pub(super) corners: [(u8, u8); 4],
+    pub(super) palette: u8,
+    pub(super) class: u8,
+}
+
+/// The metatile another area's or a custom `key` names.
+fn appended(key: Key, catalog: &Catalog, custom: Custom<'_>) -> Metatile {
+    let (area, chr, id) = match key {
+        Key::Stage(_) => unreachable!("the stage area's metatiles keep their ids"),
+        Key::Custom(id) => {
+            let defined = custom.and_then(|custom| custom[usize::from(id)].clone());
+            return defined.expect("appended_keys checks every custom tile is defined");
+        }
+        Key::Other { area, chr, id } => (area, chr, id),
+    };
+    let terrain = &catalog.area(area).expect("a tileset's area").terrain;
+    let id = usize::from(id);
+    Metatile {
+        corners: terrain.corners[id].map(|corner| (chr[usize::from(corner >> 6)], corner & 63)),
+        palette: terrain.palette_classes[id],
+        class: terrain.classes[id],
+    }
+}
+
+/// The error for `cell` of `page`, in its first region's room.
+fn at_cell(
     stage: &PackStage,
     shapes: &[Shape],
+    page: &Page,
+    cell: usize,
+    reason: &str,
+) -> ImportError {
+    let (room, entry) = page.first;
+    let (x, y) = tile_at(&shapes[room], entry, cell);
+    invalid(
+        &stage.rooms[room],
+        format!("layer `terrain`: tile ({x}, {y}) {reason}"),
+    )
+}
+
+/// The keys a stage appends after its area's metatiles, in the order the stream first writes
+/// them.
+fn appended_keys(
+    stage: &PackStage,
+    catalog: &Catalog,
+    custom: Custom<'_>,
+    area: &CatalogArea,
+    shapes: &[Shape],
     pages: &[Page],
-) -> Result<Vec<u8>, ImportError> {
-    let mut bytes = Vec::new();
+) -> Result<Vec<Key>, ImportError> {
+    let mut keys = Vec::new();
     for page in pages {
         for (cell, &key) in page.cells.iter().enumerate() {
-            let Key::Stage(id) = key else {
-                let (room, entry) = page.first;
-                let (x, y) = tile_at(&shapes[room], entry, cell);
-                return Err(invalid(
-                    &stage.rooms[room],
-                    format!("layer `terrain`: tile ({x}, {y}) is from another area's tileset"),
-                ));
+            let (other, chr, id) = match key {
+                Key::Stage(_) => continue,
+                Key::Custom(id) => {
+                    if custom.is_none_or(|custom| custom[usize::from(id)].is_none()) {
+                        let reason =
+                            format!("is custom tile {id}, which `{CUSTOM_FILE}` does not define");
+                        return Err(at_cell(stage, shapes, page, cell, &reason));
+                    }
+                    if !keys.contains(&key) {
+                        keys.push(key);
+                    }
+                    continue;
+                }
+                Key::Other { area, chr, id } => (area, chr, id),
             };
-            bytes.push(id);
+            let count = catalog
+                .area(other)
+                .expect("a tileset's area")
+                .terrain
+                .corners
+                .len();
+            let name = catalog.tileset_name(other, chr).expect("a catalog variant");
+            if usize::from(id) >= count {
+                let reason = format!("is metatile {id}, past {name}'s {count}");
+                return Err(at_cell(stage, shapes, page, cell, &reason));
+            }
+            if usize::from(id) >= CLASS_COUNT {
+                let reason =
+                    format!("is metatile {id}, past the {CLASS_COUNT} the class table holds");
+                return Err(at_cell(stage, shapes, page, cell, &reason));
+            }
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
         }
     }
-    Ok(bytes)
+    if keys.is_empty() {
+        return Ok(keys);
+    }
+    let count = area.terrain.corners.len();
+    for page in pages {
+        for (cell, &key) in page.cells.iter().enumerate() {
+            if let Key::Stage(id) = key
+                && usize::from(id) >= count
+            {
+                let name = super::tileset_name(area.area, 0);
+                let reason = format!("is metatile {id}, past {name}'s {count}");
+                return Err(at_cell(stage, shapes, page, cell, &reason));
+            }
+        }
+    }
+    let total = count + keys.len();
+    if total > CLASS_COUNT {
+        return Err(at_stage(
+            stage,
+            &format!("{total} metatiles, past the {CLASS_COUNT} the class table holds"),
+        ));
+    }
+    Ok(keys)
+}
+
+/// The stage's terrain, its area's metatiles then the ones it appends, and each room's `chr`.
+fn stage_terrain(
+    stage: &PackStage,
+    catalog: &Catalog,
+    custom: Custom<'_>,
+    area: &CatalogArea,
+    shapes: &[Shape],
+    regions: &[Vec<(usize, usize)>],
+    pages: &[Page],
+) -> Result<(Terrain, Vec<[u8; 4]>), ImportError> {
+    let keys = appended_keys(stage, catalog, custom, area, shapes, pages)?;
+    let metatiles: Vec<Metatile> = keys
+        .iter()
+        .map(|&key| appended(key, catalog, custom))
+        .collect();
+    let stage_slots: Vec<usize> = (0..4)
+        .filter(|&slot| {
+            let mut corners = area.terrain.corners.iter().flatten();
+            corners.any(|&corner| usize::from(corner >> 6) == slot)
+        })
+        .collect();
+    let name = |chr| {
+        catalog
+            .tileset_name(area.area, chr)
+            .expect("a catalog variant")
+    };
+    let mut bases = Vec::new();
+    for (file, shape) in stage.rooms.iter().zip(shapes) {
+        let mut own = shape.tilesets.iter().filter_map(|tileset| {
+            let (tileset_area, chr) = tileset.area?;
+            (tileset_area == area.area).then_some(chr)
+        });
+        let base = own.next().unwrap_or(area.variants[0]);
+        if let Some((other, slot)) = own.find_map(|chr| {
+            let slot = stage_slots.iter().find(|&&slot| chr[slot] != base[slot])?;
+            Some((chr, slot))
+        }) {
+            return Err(invalid(
+                file,
+                format!(
+                    "tilesets `{}` and `{}` disagree on CHR slot {slot}, which the room needs",
+                    name(base),
+                    name(other)
+                ),
+            ));
+        }
+        bases.push(base);
+    }
+    let index: BTreeMap<Key, usize> = keys.iter().enumerate().map(|(i, &key)| (key, i)).collect();
+    let mut shown = vec![BTreeSet::new(); stage.rooms.len()];
+    for (page, listed) in pages.iter().zip(regions) {
+        let on_page: BTreeSet<usize> = page
+            .cells
+            .iter()
+            .filter_map(|key| index.get(key).copied())
+            .collect();
+        for &(room, entry) in listed {
+            if in_map(&shapes[room], entry) {
+                shown[room].extend(&on_page);
+            }
+        }
+    }
+    let mut taken: Vec<[Option<u8>; 4]> = bases
+        .iter()
+        .map(|base| std::array::from_fn(|slot| stage_slots.contains(&slot).then_some(base[slot])))
+        .collect();
+    let slot_of = assign_slots(stage, &metatiles, &shown, &bases, &mut taken)?;
+    let mut terrain = Terrain {
+        stream: Vec::new(),
+        ..area.terrain.clone()
+    };
+    for metatile in &metatiles {
+        let id = terrain.corners.len();
+        terrain.corners.push(
+            metatile
+                .corners
+                .map(|(bank, tile)| slot_of[&bank] * 64 + tile),
+        );
+        terrain.classes[id] = metatile.class;
+        if terrain.palette_classes.len() <= id {
+            terrain.palette_classes.resize((id / 4 + 1) * 4, 0);
+        }
+        terrain.palette_classes[id] = metatile.palette;
+    }
+    terrain.stream = pages
+        .iter()
+        .flat_map(|page| &page.cells)
+        .map(|key| match *key {
+            Key::Stage(id) => id,
+            other @ (Key::Other { .. } | Key::Custom(_)) => {
+                u8::try_from(area.terrain.corners.len() + index[&other])
+                    .expect("at most 208 metatiles")
+            }
+        })
+        .collect();
+    let chrs = taken
+        .iter()
+        .zip(&bases)
+        .map(|(taken, base)| std::array::from_fn(|slot| taken[slot].unwrap_or(base[slot])))
+        .collect();
+    Ok((terrain, chrs))
+}
+
+/// Gives every bank the appended `metatiles` use one CHR slot for the whole stage, in first-use
+/// order, marking it in `taken` for each room that `shown` says shows one of them.
+fn assign_slots(
+    stage: &PackStage,
+    metatiles: &[Metatile],
+    shown: &[BTreeSet<usize>],
+    bases: &[[u8; 4]],
+    taken: &mut [[Option<u8>; 4]],
+) -> Result<BTreeMap<u8, u8>, ImportError> {
+    let mut slot_of = BTreeMap::new();
+    for (bank, _) in metatiles.iter().flat_map(|metatile| metatile.corners) {
+        if slot_of.contains_key(&bank) {
+            continue;
+        }
+        let users: Vec<usize> = (0..shown.len())
+            .filter(|&room| {
+                shown[room]
+                    .iter()
+                    .any(|&i| metatiles[i].corners.iter().any(|&(used, _)| used == bank))
+            })
+            .collect();
+        let gives = |slot: usize| {
+            users
+                .iter()
+                .any(|&room| taken[room][slot].unwrap_or(bases[room][slot]) == bank)
+        };
+        let fits = |slot: usize| {
+            users
+                .iter()
+                .all(|&room| taken[room][slot].is_none_or(|held| held == bank))
+        };
+        let slot = (0..4)
+            .filter(|&slot| gives(slot))
+            .chain((0..4).filter(|&slot| !gives(slot)))
+            .find(|&slot| fits(slot))
+            .ok_or_else(|| {
+                let rooms: Vec<&str> = users.iter().map(|&room| stem(&stage.rooms[room])).collect();
+                at_stage(
+                    stage,
+                    &format!(
+                        "bank ${bank:02x} finds no CHR slot free in every room that uses it \
+                         (rooms {})",
+                        rooms.join(", ")
+                    ),
+                )
+            })?;
+        for &room in &users {
+            taken[room][slot] = Some(bank);
+        }
+        slot_of.insert(bank, u8::try_from(slot).expect("a slot"));
+    }
+    Ok(slot_of)
 }
 
 /// The map tile, `(x, y)`, holding `cell` of `entry`'s region.
@@ -554,7 +837,16 @@ fn preset(
     }
 }
 
-fn shape(map: &Map, catalog: &Catalog) -> Result<Shape, String> {
+/// The file stem of a map's tileset `source`, the tileset's name.
+fn stem(source: &str) -> &str {
+    Path::new(source)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_default()
+}
+
+/// The map's shape; `custom_count` is `custom.tsj`'s `tilecount`.
+fn shape(map: &Map, catalog: &Catalog, custom_count: u32) -> Result<Shape, String> {
     if map.kind != "map"
         || map.orientation != "orthogonal"
         || map.infinite
@@ -588,23 +880,27 @@ fn shape(map: &Map, catalog: &Catalog) -> Result<Shape, String> {
             if tileset.firstgid == 0 {
                 return Err("a tileset's firstgid is 1 or more".to_string());
             }
-            let name = Path::new(&tileset.source)
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or_default();
-            let (area, chr) = catalog
+            let name = stem(&tileset.source);
+            if name == CUSTOM {
+                return Ok(RoomTileset {
+                    firstgid: tileset.firstgid,
+                    count: custom_count,
+                    area: None,
+                });
+            }
+            let area = catalog
                 .tileset(name)
                 .ok_or_else(|| format!("unknown tileset `{name}`"))?;
             Ok(RoomTileset {
                 firstgid: tileset.firstgid,
-                area,
-                chr,
+                count: TILESET_TILES,
+                area: Some(area),
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
     tilesets.sort_by_key(|tileset| tileset.firstgid);
     if tilesets.windows(2).any(|pair| {
-        u64::from(pair[0].firstgid) + u64::from(TILESET_TILES) > u64::from(pair[1].firstgid)
+        u64::from(pair[0].firstgid) + u64::from(pair[0].count) > u64::from(pair[1].firstgid)
     }) {
         return Err("two tilesets' gids overlap".into());
     }
@@ -619,10 +915,13 @@ fn shape(map: &Map, catalog: &Catalog) -> Result<Shape, String> {
 
 /// The page-table entries whose region lies inside the room's map.
 fn held_entries(shape: &Shape) -> impl Iterator<Item = usize> {
-    (0..TABLE_ENTRIES).filter(|&entry| {
-        let (along, band) = region_place(entry);
-        along < shape.along && band < shape.across
-    })
+    (0..TABLE_ENTRIES).filter(|&entry| in_map(shape, entry))
+}
+
+/// Whether `entry`'s region lies inside the room's map.
+fn in_map(shape: &Shape, entry: usize) -> bool {
+    let (along, band) = region_place(entry);
+    along < shape.along && band < shape.across
 }
 
 /// The tiles of `entry`'s region, `None` when the map has no tiles there; `area` is the
@@ -657,18 +956,14 @@ fn region_tiles(shape: &Shape, map: &Map, entry: usize, area: u8) -> Result<Opti
         let (tileset, id) = tileset
             .and_then(|tileset| {
                 let id = gid - tileset.firstgid;
-                let id = u8::try_from(id).ok().filter(|_| id < TILESET_TILES)?;
+                let id = u8::try_from(id).ok().filter(|_| id < tileset.count)?;
                 Some((tileset, id))
             })
             .ok_or_else(|| format!("gid {gid} is not in a tileset"))?;
-        *key = if tileset.area == area {
-            Key::Stage(id)
-        } else {
-            Key::Other {
-                area: tileset.area,
-                chr: tileset.chr,
-                id,
-            }
+        *key = match tileset.area {
+            None => Key::Custom(id),
+            Some((tileset_area, _)) if tileset_area == area => Key::Stage(id),
+            Some((area, chr)) => Key::Other { area, chr, id },
         };
     }
     match empty {

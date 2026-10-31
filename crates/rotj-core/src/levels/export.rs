@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value, json};
 
+use super::custom::SURFACES;
 use super::model::{
     self, Extra, Layer, Map, Object, PackFile, PackStage, Position, Property, Region, TilesetRef,
     World, WorldMap, to_text,
@@ -90,7 +91,7 @@ impl Levels {
     pub fn original(prg: &[u8], chr: &[u8]) -> Option<Levels> {
         let rom = Levels::from_rom(prg, chr)?;
         let catalog = Catalog::from_levels(&rom);
-        let mut levels = import(&write(&rom, &catalog), &catalog, Source::Original).ok()?;
+        let mut levels = import(&write(&rom, &catalog)?, &catalog, Source::Original).ok()?;
         for (stage, rom_stage) in levels.stages.iter_mut().zip(&rom.stages) {
             for (cell, &rom_cell) in stage.schedule.iter_mut().zip(&rom_stage.schedule) {
                 *cell |= rom_cell;
@@ -116,19 +117,23 @@ fn letters_text(letters: [u8; 4]) -> String {
 #[must_use]
 pub fn export(prg: &[u8], chr: &[u8]) -> Option<PackFiles> {
     let levels = Levels::from_rom(prg, chr)?;
-    Some(write(&levels, &Catalog::from_levels(&levels)))
+    write(&levels, &Catalog::from_levels(&levels))
 }
 
 /// `levels` as a pack's files. It reads only what the format carries: the schedule's
-/// pending and lock cells on the rooms' pages, and the records they name.
+/// pending and lock cells on the rooms' pages, and the records they name. `None` where a
+/// stage's metatiles are not its catalog area's or a room's CHR is not one of the area's
+/// variants: it writes the original game's terrain only.
 ///
 /// # Panics
-/// On a room page of 16 or more, a room whose CHR the catalog lacks, a first spawn column
-/// off the room's pages, an extra password's stage past the stages, or a read cell naming
-/// a record the room lacks or whose kind has no class: [`import`](super::import) and
-/// [`Levels::from_rom`] give none of these.
+/// On a room page of 16 or more, a first spawn column off the room's pages, an extra
+/// password's stage past the stages, or a read cell naming a record the room lacks or whose
+/// kind has no class: [`import`](super::import) and [`Levels::from_rom`] give none of these.
 #[must_use]
-pub fn write(levels: &Levels, catalog: &Catalog) -> PackFiles {
+pub fn write(levels: &Levels, catalog: &Catalog) -> Option<PackFiles> {
+    if !levels.stages.iter().all(|stage| catalogued(stage, catalog)) {
+        return None;
+    }
     let mut files = PackFiles::new();
     let mut world = Vec::new();
     let mut stages = Vec::new();
@@ -222,7 +227,7 @@ pub fn write(levels: &Levels, catalog: &Catalog) -> PackFiles {
         "rotj.tiled-project".into(),
         to_text(&project(catalog, uses_no_handler)),
     );
-    files
+    Some(files)
 }
 
 /// The Tiled project file: the tileset folder, an enum per `propertytype` the rooms name and
@@ -245,6 +250,7 @@ fn project(catalog: &Catalog, uses_no_handler: bool) -> Value {
             "sprite_palette",
             selectors("sprites-", &catalog.sprite_palettes),
         ),
+        enumeration("surface", SURFACES.map(|(name, _)| name)),
     ];
     let families: Vec<(&str, &[u8])> = classes(false)
         .chain(classes(true))
@@ -323,6 +329,19 @@ fn class(name: &str, members: Vec<Value>) -> Value {
 /// A class member: an `int`, 0 when an object leaves it out.
 fn int_member(name: &str) -> Value {
     json!({ "name": name, "type": "int", "value": 0 })
+}
+
+/// Whether `stage`'s metatiles are its catalog area's and its rooms' CHR the area's variants.
+fn catalogued(stage: &StageAssets, catalog: &Catalog) -> bool {
+    catalog.area(stage.stage.area).is_some_and(|area| {
+        let (ours, theirs) = (&stage.terrain, &area.terrain);
+        (&ours.corners, &ours.classes, &ours.palette_classes)
+            == (&theirs.corners, &theirs.classes, &theirs.palette_classes)
+            && stage
+                .rooms
+                .iter()
+                .all(|assets| area.variants.contains(&assets.room.chr))
+    })
 }
 
 /// The stage's physical page map: each page's (room, entry) regions, sorted, with the

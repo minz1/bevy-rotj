@@ -54,7 +54,7 @@ fn the_original_game_imports_to_the_assets_the_game_reads() {
     };
     let levels = Levels::from_rom(&rom.prg, &rom.chr).expect("the ROM's levels");
     let catalog = Catalog::from_rom(&rom.prg, &rom.chr).expect("the ROM's catalog");
-    let files = write(&levels, &catalog);
+    let files = write(&levels, &catalog).expect("the original game");
     let imported = import(&files, &catalog, Source::Original).expect("the export imports");
     assert_eq!(imported.stages.len(), levels.stages.len());
     let (mut rooms, mut records, mut writers, mut bit_6_cells) = (0, 0, 0, 0);
@@ -216,7 +216,7 @@ fn the_original_game_round_trips_byte_for_byte() {
     let catalog = Catalog::from_rom(&rom.prg, &rom.chr).expect("the ROM's catalog");
     let imported = import(&files, &catalog, Source::Original).expect("the export imports");
     assert!(
-        write(&imported, &catalog) == files,
+        write(&imported, &catalog).expect("the original game") == files,
         "export(import(export(rom))) differs"
     );
     assert_eq!(files.len(), 41);
@@ -456,7 +456,7 @@ fn hand_made() -> Levels {
 fn a_hand_made_pack_imports_what_the_game_reads() {
     let levels = hand_made();
     let catalog = Catalog::from_levels(&levels);
-    let files = write(&levels, &catalog);
+    let files = write(&levels, &catalog).expect("the original game");
     let imported = import(&files, &catalog, Source::User).expect("imports");
     let mut expected = levels.clone();
     let stage = &mut expected.stages[0];
@@ -464,7 +464,10 @@ fn a_hand_made_pack_imports_what_the_game_reads() {
     stage.schedule[0x51] = 0;
     stage.rooms[0].spawns.records[20] = None;
     assert_eq!(imported, expected);
-    assert_eq!(write(&imported, &catalog), files);
+    assert_eq!(
+        write(&imported, &catalog).expect("the original game"),
+        files
+    );
 
     let pack: PackFile = serde_json::from_str(&files["pack.json"]).expect("pack.json");
     let page_2: Vec<(&str, u32)> = pack.stages[0].pages[2]
@@ -521,7 +524,7 @@ fn a_room_showing_a_page_past_the_stream_is_refused_as_a_user_pack() {
     let mut levels = hand_made();
     levels.stages[0].rooms[0].room.pages[6] = 4;
     let catalog = Catalog::from_levels(&levels);
-    let files = write(&levels, &catalog);
+    let files = write(&levels, &catalog).expect("the original game");
     let error = import(&files, &catalog, Source::User).expect_err("refused");
     assert_eq!(
         error.to_string(),
@@ -683,6 +686,292 @@ fn overlapping_tilesets_are_refused() {
     assert!(far.is_ok(), "an unused tileset at the last gid imports");
 }
 
+const ROOM_1: &str = "rooms/1-1-1.tmj";
+const ROOM_2: &str = "rooms/1-1-2.tmj";
+
+/// Stage `1-1`, area 0: 6 metatiles on CHR slots 0 and 1, rooms `1-1-1` to `1-1-3` each alone
+/// on its page, on variants a, b (agreeing with a on slots 0 and 1) and c (not); stage `2-1`,
+/// area 1: 210 metatiles, metatile k on slot 2 (k even) or 3 (odd), except 5 on slots 0 and 1.
+fn two_areas() -> Levels {
+    let stage = |name: &str, area: u8, rooms, terrain| StageAssets {
+        stage: Stage {
+            name: name.into(),
+            area,
+            descriptor: Descriptor {
+                area: area * 2,
+                banner: [area + 1, 1],
+                music: Music::Song(0x03),
+                picture: None,
+                password: (area == 0).then_some(*b"ABCD"),
+                on_clear: OnClear::Ending,
+            },
+        },
+        terrain,
+        schedule: [0; PAGE_CELLS],
+        rooms,
+    };
+    let first = Terrain {
+        stream: (0..3 * PAGE_CELLS)
+            .map(|cell| u8::try_from(cell % 6).expect("an id"))
+            .collect(),
+        corners: (0..6).map(|k| [k, k + 1, 0x40 + k, 0x41 + k]).collect(),
+        classes: [7; CLASS_COUNT],
+        palette_classes: vec![1; 8],
+    };
+    let second = Terrain {
+        stream: (0..PAGE_CELLS)
+            .map(|cell| u8::try_from(cell % 210).expect("an id"))
+            .collect(),
+        corners: (0..210)
+            .map(|k: u8| {
+                if k == 5 {
+                    return [5, 6, 0x45, 0x46];
+                }
+                let first = (2 + k % 2) * 64 + k % 60;
+                [first, first + 1, first + 2, first + 3]
+            })
+            .collect(),
+        classes: std::array::from_fn(|k| u8::try_from(k % 13).expect("a class")),
+        palette_classes: (0..212).map(|k: u8| k % 4).collect(),
+    };
+    let rooms = vec![
+        room([0; TABLE_ENTRIES], [1, 2, 3, 4], &[]),
+        room([1; TABLE_ENTRIES], [1, 2, 0x13, 9], &[]),
+        room([2; TABLE_ENTRIES], [7, 2, 3, 4], &[]),
+    ];
+    let other = vec![room([0; TABLE_ENTRIES], [0x10, 0x11, 0x12, 0x13], &[])];
+    Levels {
+        stages: vec![
+            stage("1-1", 0, rooms, first),
+            stage("2-1", 1, other, second),
+        ],
+        extra_passwords: Vec::new(),
+    }
+}
+
+/// Writes `gids` over the first cells of every page the one-across `map` shows.
+fn paint(map: &mut Map, gids: &[u32]) {
+    let width = usize::try_from(map.width).expect("a width");
+    for entry in 0..16 {
+        for (cell, &gid) in gids.iter().enumerate() {
+            tiles(map)[tile_index(false, width, region_place(entry), cell)] = gid;
+        }
+    }
+}
+
+/// The map tile, `(x, y)`, of `cell` on a one-across room's first page.
+fn tile(cell: usize) -> (usize, usize) {
+    let index = tile_index(false, 256, region_place(0), cell);
+    (index % 256, index / 256)
+}
+
+/// `two_areas`, each `(room, ids)` listing `area-02` at gid 257 and painting those ids of it.
+fn mix(edits: &[(&str, &[u32])]) -> Result<Levels, ImportError> {
+    let fixture = Fixture::new(&two_areas());
+    let mut files = fixture.files.clone();
+    for &(path, ids) in edits {
+        let mut map: Map = serde_json::from_str(&files[path]).expect("a room");
+        map.tilesets.push(tileset_ref("area-02", 257));
+        paint(&mut map, &ids.iter().map(|id| 257 + id).collect::<Vec<_>>());
+        files.insert(path.into(), to_text(&map));
+    }
+    import(&files, &fixture.catalog, Source::User)
+}
+
+fn refusal(imported: Result<Levels, ImportError>) -> String {
+    imported.expect_err("refused").to_string()
+}
+
+fn chr(levels: &Levels, room: usize) -> [u8; 4] {
+    levels.stages[0].rooms[room].room.chr
+}
+
+#[test]
+fn mixing_appends_another_areas_metatiles_after_the_stage_areas() {
+    let levels = two_areas();
+    assert!(mix(&[]).is_ok(), "the fixture imports");
+    let (original, area_1) = (&levels.stages[0].terrain, &levels.stages[1].terrain);
+    let imported = mix(&[(ROOM_1, &[3, 1])]).expect("imports");
+    let terrain = &imported.stages[0].terrain;
+    assert_eq!(terrain.corners.len(), 8);
+    assert_eq!(terrain.corners[..6], original.corners[..]);
+    for (id, source) in [(6, 3), (7, 1)] {
+        let slot_2 = area_1.corners[source].map(|corner| 2 * 64 + (corner & 63));
+        assert_eq!(terrain.corners[id], slot_2);
+        assert_eq!(terrain.classes[id], area_1.classes[source]);
+        assert_eq!(terrain.palette_classes[id], area_1.palette_classes[source]);
+    }
+    assert_eq!(
+        terrain.palette_classes.len(),
+        8,
+        "ids 6 and 7 fill the padding"
+    );
+    assert_eq!(terrain.stream[..3], [6, 7, 2]);
+    assert_eq!(chr(&imported, 0), [1, 2, 0x13, 4]);
+    assert_eq!(chr(&imported, 1), [1, 2, 0x13, 9]);
+}
+
+#[test]
+fn an_appended_id_past_the_padding_pads_it_again() {
+    let area_1 = &two_areas().stages[1].terrain;
+    let imported = mix(&[(ROOM_1, &[3, 1, 7])]).expect("imports");
+    let classes = &imported.stages[0].terrain.palette_classes;
+    assert_eq!(classes.len(), 12);
+    assert_eq!(classes[8], area_1.palette_classes[7]);
+    assert_eq!(classes[9..], [0, 0, 0]);
+}
+
+#[test]
+fn a_bank_whose_slot_is_taken_falls_through_to_the_next_slot() {
+    let imported = mix(&[(ROOM_1, &[2, 3]), (ROOM_2, &[3])]).expect("imports");
+    assert_eq!(chr(&imported, 0), [1, 2, 0x12, 0x13]);
+    assert_eq!(chr(&imported, 1), [1, 2, 0x13, 0x13]);
+}
+
+#[test]
+fn a_fifth_bank_is_refused() {
+    assert_eq!(
+        refusal(mix(&[(ROOM_1, &[2, 3, 5])])),
+        "pack.json: stage `1-1`: bank $10 finds no CHR slot free in every room that uses it \
+         (rooms 1-1-1)"
+    );
+}
+
+#[test]
+fn an_area_tile_past_its_count_is_refused_when_the_stage_appends() {
+    let fixture = Fixture::new(&two_areas());
+    let stage_tile = import_edited(&fixture.files, &fixture.catalog, ROOM_1, |map| {
+        map.tilesets.push(tileset_ref("area-02", 257));
+        paint(map, &[257, 7]);
+    });
+    let (x, y) = tile(1);
+    assert_eq!(
+        refusal(stage_tile),
+        format!(
+            "rooms/1-1-1.tmj: layer `terrain`: tile ({x}, {y}) is metatile 6, past area-01's 6"
+        )
+    );
+    let (x, y) = tile(0);
+    assert_eq!(
+        refusal(mix(&[(ROOM_1, &[210])])),
+        format!(
+            "rooms/1-1-1.tmj: layer `terrain`: tile ({x}, {y}) is metatile 210, past area-02's 210"
+        )
+    );
+    assert_eq!(
+        refusal(mix(&[(ROOM_1, &[208])])),
+        format!(
+            "rooms/1-1-1.tmj: layer `terrain`: tile ({x}, {y}) is metatile 208, past the 208 the \
+             class table holds"
+        )
+    );
+}
+
+#[test]
+fn more_than_208_metatiles_are_refused() {
+    let ids: Vec<u32> = (0..203).collect();
+    assert_eq!(
+        refusal(mix(&[(ROOM_1, &ids)])),
+        "pack.json: stage `1-1`: 209 metatiles, past the 208 the class table holds"
+    );
+}
+
+#[test]
+fn two_variants_disagreeing_on_a_needed_slot_are_refused() {
+    let fixture = Fixture::new(&two_areas());
+    fixture.refuses_map(
+        "rooms/1-1-1.tmj: tilesets `area-01` and `area-01-c` disagree on CHR slot 0, which the \
+         room needs",
+        ROOM_1,
+        |map| map.tilesets.push(tileset_ref("area-01-c", 257)),
+    );
+}
+
+#[test]
+fn write_refuses_a_mixed_stage() {
+    let levels = two_areas();
+    let catalog = Catalog::from_levels(&levels);
+    let mixed = mix(&[(ROOM_1, &[3, 1])]).expect("imports");
+    assert_eq!(write(&mixed, &catalog), None);
+    assert!(write(&levels, &catalog).is_some());
+}
+
+#[test]
+fn a_room_with_no_stage_area_tileset_takes_the_first_variant() {
+    let fixture = Fixture::new(&two_areas());
+    let imported = import_edited(&fixture.files, &fixture.catalog, ROOM_2, |map| {
+        map.tilesets = vec![tileset_ref("area-02", 1)];
+        tiles(map).fill(3);
+    });
+    assert_eq!(chr(&imported.expect("imports"), 1), [1, 2, 0x12, 4]);
+}
+
+/// `two_areas` with `custom` as `custom.tsj` and room `1-1-1` listing it at gid 257, painted
+/// with those of its `ids`.
+fn with_custom(custom: Option<&str>, ids: &[u32]) -> Result<Levels, ImportError> {
+    let fixture = Fixture::new(&two_areas());
+    let mut files = fixture.files.clone();
+    if let Some(custom) = custom {
+        files.insert("custom.tsj".into(), custom.into());
+    }
+    import_edited(&files, &fixture.catalog, ROOM_1, |map| {
+        map.tilesets.push(tileset_ref("custom", 257));
+        paint(map, &ids.iter().map(|id| 257 + id).collect::<Vec<_>>());
+    })
+}
+
+#[test]
+fn custom_metatiles_import_after_the_stage_areas() {
+    let custom = custom::tests::tileset(
+        4,
+        &[
+            (0, ["01:05", "01:06", "02:07", "02:08"], 2, "spikes"),
+            (1, ["03:00", "03:01", "03:02", "03:03"], 3, "one-way"),
+        ],
+    );
+    let imported = with_custom(Some(&custom), &[1, 0]).expect("imports");
+    let terrain = &imported.stages[0].terrain;
+    assert_eq!(terrain.corners.len(), 8);
+    assert_eq!(terrain.corners[6], [0x80, 0x81, 0x82, 0x83]);
+    assert_eq!(terrain.corners[7], [5, 6, 0x47, 0x48]);
+    assert_eq!(terrain.classes[6..8], [14, 16]);
+    assert_eq!(terrain.palette_classes[6..8], [3, 2]);
+    assert_eq!(terrain.stream[..2], [6, 7]);
+    assert_eq!(chr(&imported, 0), [1, 2, 3, 4]);
+}
+
+#[test]
+fn a_used_custom_tile_with_no_definition_is_refused() {
+    let custom = custom::tests::tileset(4, &[(0, ["01:05", "01:06", "02:07", "02:08"], 0, "open")]);
+    let (x, y) = tile(0);
+    assert_eq!(
+        refusal(with_custom(Some(&custom), &[1])),
+        format!(
+            "rooms/1-1-1.tmj: layer `terrain`: tile ({x}, {y}) is custom tile 1, which \
+             `custom.tsj` does not define"
+        )
+    );
+    assert_eq!(refusal(with_custom(None, &[])), "custom.tsj: missing");
+    assert_eq!(
+        refusal(with_custom(Some(&custom::tests::tileset(209, &[])), &[])),
+        "custom.tsj: tilecount 209, past the 208 a stage's metatiles hold"
+    );
+}
+
+#[test]
+fn a_first_room_with_no_area_tileset_is_refused() {
+    let fixture = Fixture::new(&two_areas());
+    let mut files = fixture.files.clone();
+    files.insert("custom.tsj".into(), custom::tests::tileset(4, &[]));
+    let imported = import_edited(&files, &fixture.catalog, ROOM_1, |map| {
+        map.tilesets = vec![tileset_ref("custom", 1)];
+    });
+    assert_eq!(
+        refusal(imported),
+        "rooms/1-1-1.tmj: the stage's first room names no area tileset"
+    );
+}
+
 /// The hand-made pack's files and catalog, to break one thing at a time.
 struct Fixture {
     files: PackFiles,
@@ -693,7 +982,7 @@ impl Fixture {
     fn new(levels: &Levels) -> Fixture {
         let catalog = Catalog::from_levels(levels);
         Fixture {
-            files: write(levels, &catalog),
+            files: write(levels, &catalog).expect("the original game"),
             catalog,
         }
     }
@@ -994,7 +1283,7 @@ fn undeclared(files: &PackFiles) -> BTreeSet<String> {
 fn the_project_file_declares_every_class_and_value_the_rooms_use() {
     let levels = hand_made();
     let catalog = Catalog::from_levels(&levels);
-    let mut files = write(&levels, &catalog);
+    let mut files = write(&levels, &catalog).expect("the original game");
     assert_eq!(undeclared(&files), BTreeSet::new());
     let names_no_handler = |files: &PackFiles| {
         let project: serde_json::Value =
@@ -1024,6 +1313,11 @@ fn the_project_file_declares_every_class_and_value_the_rooms_use() {
         serde_json::json!([".", "../../tilesets"])
     );
     let types = project["propertyTypes"].as_array().expect("property types");
+    let surface = types.iter().find(|t| t["name"] == "surface");
+    assert_eq!(
+        surface.expect("a surface enum")["values"],
+        serde_json::json!(custom::SURFACES.map(|(name, _)| name))
+    );
     let ids: Vec<u64> = types.iter().filter_map(|t| t["id"].as_u64()).collect();
     assert_eq!(ids, (1..=types.len() as u64).collect::<Vec<_>>());
     let block = types.iter().find(|t| t["name"] == "breakable_block");
@@ -1048,7 +1342,7 @@ fn the_project_file_declares_every_class_and_value_the_rooms_use() {
 fn a_multi_kind_object_without_a_variant_imports_as_its_familys_first_kind() {
     let levels = hand_made();
     let catalog = Catalog::from_levels(&levels);
-    let mut files = write(&levels, &catalog);
+    let mut files = write(&levels, &catalog).expect("the original game");
     let mut map: Map = serde_json::from_str(&files[ROOM_A]).expect("room A");
     let block = &mut objects(&mut map, 1)[1];
     assert_eq!(block.kind, "breakable_block");
@@ -1069,7 +1363,7 @@ fn a_multi_kind_object_without_a_variant_imports_as_its_familys_first_kind() {
 fn unknown_layers_are_kept_and_ignored() {
     let levels = hand_made();
     let catalog = Catalog::from_levels(&levels);
-    let mut files = write(&levels, &catalog);
+    let mut files = write(&levels, &catalog).expect("the original game");
     let imported = import(&files, &catalog, Source::User).expect("imports");
     let mut map: Map = serde_json::from_str(&files[ROOM_A]).expect("room A");
     let sky = Layer {

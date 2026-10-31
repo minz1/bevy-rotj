@@ -87,15 +87,28 @@ fn picture(prg: &[u8], chr: &[u8], terrain: &Terrain, room: &Room) -> Vec<u8> {
         let colours = &palette[4 * usize::from(terrain.palette_classes[id])..][..4];
         for (corner, &tile) in corners.iter().enumerate() {
             let pattern = chr::tile(chr, &banks, usize::from(tile) * chr::TILE_BYTES);
-            for y in 0..8 {
-                for x in 0..8 {
-                    let colour = colours[usize::from(chr::pixel(pattern, x, y))];
-                    let column = id % 16 * 16 + corner % 2 * 8 + x;
-                    let row = id / 16 * 16 + corner / 2 * 8 + y;
-                    picture[(row * side + column) * 4..][..4].copy_from_slice(&rgba(colour));
-                }
-            }
+            draw_corner(&mut picture, id, corner, pattern, colours);
         }
     }
     picture
+}
+
+/// Draws `pattern` in `colours` as corner `corner` (top-left, top-right, bottom-left,
+/// bottom-right) of metatile `id` in a [`TILESET_PX`]-wide RGBA `picture`.
+pub(super) fn draw_corner(
+    picture: &mut [u8],
+    id: usize,
+    corner: usize,
+    pattern: &[u8],
+    colours: &[u8],
+) {
+    let side = TILESET_PX as usize;
+    for y in 0..8 {
+        for x in 0..8 {
+            let colour = colours[usize::from(chr::pixel(pattern, x, y))];
+            let column = id % 16 * 16 + corner % 2 * 8 + x;
+            let row = id / 16 * 16 + corner / 2 * 8 + y;
+            picture[(row * side + column) * 4..][..4].copy_from_slice(&rgba(colour));
+        }
+    }
 }
