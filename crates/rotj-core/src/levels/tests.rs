@@ -954,7 +954,31 @@ fn a_used_custom_tile_with_no_definition_is_refused() {
     assert_eq!(refusal(with_custom(None, &[])), "custom.tsj: missing");
     assert_eq!(
         refusal(with_custom(Some(&custom::tests::tileset(209, &[])), &[])),
-        "custom.tsj: tilecount 209, past the 208 a stage's metatiles hold"
+        "custom.tsj: tilecount 209, not 1 to the 208 a stage's metatiles hold"
+    );
+}
+
+#[test]
+fn a_first_room_listing_custom_tsj_first_takes_its_area_from_the_area_tileset() {
+    let fixture = Fixture::new(&two_areas());
+    let mut files = fixture.files.clone();
+    files.insert("custom.tsj".into(), custom::tests::tileset(4, &[]));
+    let expected = import(&files, &fixture.catalog, Source::User).expect("imports");
+    let imported = import_edited(&files, &fixture.catalog, ROOM_1, |map| {
+        map.tilesets[0].firstgid = 5;
+        map.tilesets.push(tileset_ref("custom", 1));
+        for gid in tiles(map).iter_mut().filter(|gid| **gid != 0) {
+            *gid += 4;
+        }
+    });
+    assert_eq!(imported.expect("imports"), expected);
+    let twice = import_edited(&files, &fixture.catalog, ROOM_1, |map| {
+        map.tilesets.push(tileset_ref("custom", 257));
+        map.tilesets.push(tileset_ref("custom", 300));
+    });
+    assert_eq!(
+        refusal(twice),
+        "rooms/1-1-1.tmj: `custom.tsj` is listed twice"
     );
 }
 
@@ -1473,9 +1497,9 @@ fn a_user_pack_naming_an_actor_the_game_has_no_handler_for_is_refused() {
     let error = import(&files, &catalog, Source::User)
         .expect_err("a user pack")
         .to_string();
-    assert!(
-        error.contains("the game has no handler for it") || error.contains("past the stream"),
-        "{error}"
+    assert_eq!(
+        error,
+        "rooms/2-1-1.tmj: layer `terrain`: entry 6 is page 15, past the stream's 11 pages"
     );
     assert!(import(&files, &catalog, Source::Original).is_ok());
 }

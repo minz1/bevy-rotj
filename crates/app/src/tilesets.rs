@@ -31,12 +31,13 @@ pub fn write(dir: &Path, prg: &[u8], chr: &[u8]) -> io::Result<()> {
     };
     for pack in packs.flatten() {
         let custom = pack.path().join("custom.tsj");
-        let Ok(text) = fs::read_to_string(&custom) else {
-            continue;
+        let text = match fs::read_to_string(&custom) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            text => text,
         };
         let out = folder.join("packs").join(pack.file_name());
-        let written = custom_picture(prg, chr, &text)
-            .map_err(io::Error::other)
+        let written = text
+            .and_then(|text| custom_picture(prg, chr, &text).map_err(io::Error::other))
             .and_then(png)
             .and_then(|png| {
                 fs::create_dir_all(&out)?;

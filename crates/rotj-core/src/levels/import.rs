@@ -510,20 +510,21 @@ pub(super) struct Metatile {
 
 /// The metatile another area's or a custom `key` names.
 fn appended(key: Key, catalog: &Catalog, custom: Custom<'_>) -> Metatile {
-    let (area, chr, id) = match key {
+    match key {
         Key::Stage(_) => unreachable!("the stage area's metatiles keep their ids"),
-        Key::Custom(id) => {
-            let defined = custom.and_then(|custom| custom[usize::from(id)].clone());
-            return defined.expect("appended_keys checks every custom tile is defined");
+        Key::Custom(id) => custom
+            .and_then(|custom| custom[usize::from(id)].clone())
+            .expect("appended_keys checks every custom tile is defined"),
+        Key::Other { area, chr, id } => {
+            let terrain = &catalog.area(area).expect("a tileset's area").terrain;
+            let id = usize::from(id);
+            Metatile {
+                corners: terrain.corners[id]
+                    .map(|corner| (chr[usize::from(corner >> 6)], corner & 63)),
+                palette: terrain.palette_classes[id],
+                class: terrain.classes[id],
+            }
         }
-        Key::Other { area, chr, id } => (area, chr, id),
-    };
-    let terrain = &catalog.area(area).expect("a tileset's area").terrain;
-    let id = usize::from(id);
-    Metatile {
-        corners: terrain.corners[id].map(|corner| (chr[usize::from(corner >> 6)], corner & 63)),
-        palette: terrain.palette_classes[id],
-        class: terrain.classes[id],
     }
 }
 
@@ -556,35 +557,31 @@ fn appended_keys(
     let mut keys = Vec::new();
     for page in pages {
         for (cell, &key) in page.cells.iter().enumerate() {
-            let (other, chr, id) = match key {
+            let refusal = match key {
                 Key::Stage(_) => continue,
-                Key::Custom(id) => {
-                    if custom.is_none_or(|custom| custom[usize::from(id)].is_none()) {
-                        let reason =
-                            format!("is custom tile {id}, which `{CUSTOM_FILE}` does not define");
-                        return Err(at_cell(stage, shapes, page, cell, &reason));
+                Key::Custom(id) => custom
+                    .is_none_or(|custom| custom[usize::from(id)].is_none())
+                    .then(|| format!("is custom tile {id}, which `{CUSTOM_FILE}` does not define")),
+                Key::Other { area, chr, id } => {
+                    let count = catalog
+                        .area(area)
+                        .expect("a tileset's area")
+                        .terrain
+                        .corners
+                        .len();
+                    if usize::from(id) >= count {
+                        let name = catalog.tileset_name(area, chr).expect("a catalog variant");
+                        Some(format!("is metatile {id}, past {name}'s {count}"))
+                    } else if usize::from(id) >= CLASS_COUNT {
+                        Some(format!(
+                            "is metatile {id}, past the {CLASS_COUNT} the class table holds"
+                        ))
+                    } else {
+                        None
                     }
-                    if !keys.contains(&key) {
-                        keys.push(key);
-                    }
-                    continue;
                 }
-                Key::Other { area, chr, id } => (area, chr, id),
             };
-            let count = catalog
-                .area(other)
-                .expect("a tileset's area")
-                .terrain
-                .corners
-                .len();
-            let name = catalog.tileset_name(other, chr).expect("a catalog variant");
-            if usize::from(id) >= count {
-                let reason = format!("is metatile {id}, past {name}'s {count}");
-                return Err(at_cell(stage, shapes, page, cell, &reason));
-            }
-            if usize::from(id) >= CLASS_COUNT {
-                let reason =
-                    format!("is metatile {id}, past the {CLASS_COUNT} the class table holds");
+            if let Some(reason) = refusal {
                 return Err(at_cell(stage, shapes, page, cell, &reason));
             }
             if !keys.contains(&key) {
@@ -873,6 +870,7 @@ fn shape(map: &Map, catalog: &Catalog, custom_count: u32) -> Result<Shape, Strin
             "a {width}x{height} map is not a strip of 16 or more whole pages, 1 or 2 across"
         ));
     }
+    let mut customs_seen = false;
     let mut tilesets = map
         .tilesets
         .iter()
@@ -882,6 +880,10 @@ fn shape(map: &Map, catalog: &Catalog, custom_count: u32) -> Result<Shape, Strin
             }
             let name = stem(&tileset.source);
             if name == CUSTOM {
+                if customs_seen {
+                    return Err(format!("`{CUSTOM_FILE}` is listed twice"));
+                }
+                customs_seen = true;
                 return Ok(RoomTileset {
                     firstgid: tileset.firstgid,
                     count: custom_count,
@@ -927,10 +929,10 @@ fn in_map(shape: &Shape, entry: usize) -> bool {
 /// The tiles of `entry`'s region, `None` when the map has no tiles there; `area` is the
 /// stage's.
 fn region_tiles(shape: &Shape, map: &Map, entry: usize, area: u8) -> Result<Option<Tiles>, String> {
-    let place @ (along, band) = region_place(entry);
-    if along >= shape.along || band >= shape.across {
+    if !in_map(shape, entry) {
         return Ok(None);
     }
+    let place = region_place(entry);
     let terrain = layer(map, "terrain")?;
     let data = terrain
         .data

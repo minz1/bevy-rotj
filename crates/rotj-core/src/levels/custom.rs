@@ -63,10 +63,10 @@ pub(super) fn parse(text: &str, handles: &BTreeSet<u8>) -> Result<Vec<Option<Met
     }
     let count = usize::try_from(file.tilecount)
         .ok()
-        .filter(|&count| count <= CLASS_COUNT)
+        .filter(|&count| (1..=CLASS_COUNT).contains(&count))
         .ok_or_else(|| {
             format!(
-                "tilecount {}, past the {CLASS_COUNT} a stage's metatiles hold",
+                "tilecount {}, not 1 to the {CLASS_COUNT} a stage's metatiles hold",
                 file.tilecount
             )
         })?;
@@ -94,15 +94,13 @@ fn metatile(properties: &[Property], handles: &BTreeSet<u8>) -> Result<Metatile,
             .map(|property| &property.value)
             .ok_or_else(|| format!("no `{name}`"))
     };
-    let texts: Vec<&str> = value("tiles")?
+    let texts: Option<Vec<&str>> = value("tiles")?
         .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|item| item["value"].as_str())
-        .collect();
+        .map(|items| items.iter().map(|item| item["value"].as_str()).collect())
+        .and_then(|texts| texts);
     let texts: [&str; 4] = texts
-        .try_into()
-        .map_err(|_| "`tiles` is not a list of four strings")?;
+        .and_then(|texts| texts.try_into().ok())
+        .ok_or("`tiles` is not a list of four strings")?;
     let mut corners = [(0, 0); 4];
     for (corner, text) in corners.iter_mut().zip(texts) {
         *corner = corner_of(text, handles)?;
@@ -237,11 +235,23 @@ pub(super) mod tests {
         let cases = [
             (
                 tileset(209, &[]),
-                "tilecount 209, past the 208 a stage's metatiles hold",
+                "tilecount 209, not 1 to the 208 a stage's metatiles hold",
             ),
             (
                 tileset(u64::MAX, &[]),
-                "tilecount 18446744073709551615, past the 208 a stage's metatiles hold",
+                "tilecount 18446744073709551615, not 1 to the 208 a stage's metatiles hold",
+            ),
+            (
+                tileset(0, &[]),
+                "tilecount 0, not 1 to the 208 a stage's metatiles hold",
+            ),
+            (
+                tileset(4, &[(0, GOOD, 0, "open")]).replacen(
+                    r#""value":[{"#,
+                    r#""value":[{"type":"int","value":1},{"#,
+                    1,
+                ),
+                "tile 0: `tiles` is not a list of four strings",
             ),
             (file(8, 4, &[]), "columns 8, not 16"),
             (
