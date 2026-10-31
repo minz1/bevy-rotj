@@ -1,6 +1,6 @@
 # Level packs release 6: playing a pack
 
-Status: approved by the stand-in (owner-proxy, L3) and revised after the reviewer's pass: plain
+Status: implemented in 1.1.53. Approved by the stand-in (owner-proxy, L3) and revised after the reviewer's pass: plain
 `std::fs` instead of `bevy_asset_loader` (MODERNIZE #14 moves to the in-game "Load pack" entry), a
 folder without `pack.json` refused first, the `mirroring` enum and its values inside the owner's
 approval, Modern's final-room check reading the stage's area through `&Levels`, at most 128 stages

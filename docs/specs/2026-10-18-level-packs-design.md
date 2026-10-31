@@ -162,8 +162,9 @@ my-world/                       the pack, what people share
    the ROM (owner, 2026-10-29); `--pack` refuses by name a pack with too few stages or rooms or a
    bad extra password. The optional room `mirroring` property (absent = derived, `format` stays
    1) lets the pack carry 1-1-2's start, and `Levels::original` drops that part of its overlay.
-   Which area-keyed ROM tables follow `stage.area` is the stand-in's call. The stage-settings
-   panel, the menu and the overworld come with the editor and the overworld work.
+   Which area-keyed ROM tables follow `stage.area` is the stand-in's call. Implemented in 1.1.53
+   (`docs/specs/2026-10-31-level-packs-release-6-design.md`). The stage-settings panel, the menu
+   and the overworld come with the editor and the overworld work.
 
 ## Not here
 
