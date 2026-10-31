@@ -36,117 +36,71 @@ pub struct View {
 
 pub use crate::collision::Level;
 
-/// The selected weapon (`$0476`), which picks the projectiles' handler (bank 5 `$801B`). The
-/// manual's names were never matched to RAM; each is named for what it does.
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Weapon {
-    /// The default single shot (likely the Cross Bow).
-    #[default]
-    Bolt = 0,
-    /// Turns toward a target (the manual's homing Batarang).
-    Homing = 1,
-    /// Flies on, pushing its speed toward a cruise, and splits at a wall or when spent.
-    Splitter = 2,
-    /// Two parts that weave as they fly.
-    Wave = 3,
-    /// Three parts at once (likely the Shield Star).
-    ThreeWay = 4,
-    /// The power-up's weapon.
-    Super = 5,
-    /// Not a weapon: the power-up's closing pieces, flown by the same loop.
-    PowerUpPieces = 6,
+phases! {
+    /// The selected weapon (`$0476`), which picks the projectiles' handler (bank 5 `$801B`). The
+    /// manual's names were never matched to RAM; each is named for what it does. The byte also indexes the game's per-weapon tables.
+    #[derive(Default)]
+    pub Weapon at "$0476", weapon_bytes_round_trip {
+        /// The default single shot (likely the Cross Bow).
+        #[default]
+        Bolt = 0,
+        /// Turns toward a target (the manual's homing Batarang).
+        Homing = 1,
+        /// Flies on, pushing its speed toward a cruise, and splits at a wall or when spent.
+        Splitter = 2,
+        /// Two parts that weave as they fly.
+        Wave = 3,
+        /// Three parts at once (likely the Shield Star).
+        ThreeWay = 4,
+        /// The power-up's weapon.
+        Super = 5,
+        /// Not a weapon: the power-up's closing pieces, flown by the same loop.
+        PowerUpPieces = 6,
+    }
 }
 
 impl Weapon {
-    const ALL: [Weapon; 7] = [
-        Weapon::Bolt,
-        Weapon::Homing,
-        Weapon::Splitter,
-        Weapon::Wave,
-        Weapon::ThreeWay,
-        Weapon::Super,
-        Weapon::PowerUpPieces,
-    ];
-
-    /// The RAM value, and the index into the game's per-weapon tables.
-    #[must_use]
-    pub const fn byte(self) -> u8 {
-        self as u8
-    }
-
     /// The `kind` its plain shot is spawned with; the loop flies it by the weapon, not the kind.
     #[must_use]
     pub const fn shot_kind(self) -> u8 {
         (self.byte() + 1) << 1
     }
-
-    /// The weapon a RAM value holds, if it is one.
-    #[must_use]
-    pub fn from_byte(byte: u8) -> Option<Weapon> {
-        Weapon::ALL.get(usize::from(byte)).copied()
-    }
 }
 
-/// What the player is doing (`$046E`), which picks his handler (bank 4 `$96C3`).
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Motion {
-    /// On the ground, still.
-    #[default]
-    Standing = 0,
-    /// Pad down.
-    Crouching = 1,
-    /// On the ground with a direction held.
-    Walking = 2,
-    /// Airborne with x control.
-    Jumping = 3,
-    /// Down+A from a crouch: the slide, which ends in a crouch or turns into a jump.
-    Sliding = 4,
-    /// Off a ledge or dropped.
-    Falling = 5,
-    /// Pad up: the weapons aim up.
-    AimingUp = 6,
-    /// The death, and the freeze the level's end (`$D274`) sets when a boss is beaten.
-    Dying = 7,
-    /// Held through the power-up, hidden on odd frames.
-    PoweringUp = 8,
-    /// Lowered into the boss room while the tally counts.
-    BossEntry = 9,
-    /// Held by a script (the boss beaten, room `$DA0F`): no handler runs.
-    Held = 10,
-    /// Steered through the air by the pad (actor `$54`, room `$D9FF`), only shooting.
-    Flying = 11,
+phases! {
+    /// What the player is doing (`$046E`), which picks his handler (bank 4 `$96C3`). The byte also
+    /// indexes the game's 12-entry per-motion tables.
+    #[derive(Default)]
+    pub Motion at "$046E", motion_bytes_round_trip {
+        /// On the ground, still.
+        #[default]
+        Standing = 0,
+        /// Pad down.
+        Crouching = 1,
+        /// On the ground with a direction held.
+        Walking = 2,
+        /// Airborne with x control.
+        Jumping = 3,
+        /// Down+A from a crouch: the slide, which ends in a crouch or turns into a jump.
+        Sliding = 4,
+        /// Off a ledge or dropped.
+        Falling = 5,
+        /// Pad up: the weapons aim up.
+        AimingUp = 6,
+        /// The death, and the freeze the level's end (`$D274`) sets when a boss is beaten.
+        Dying = 7,
+        /// Held through the power-up, hidden on odd frames.
+        PoweringUp = 8,
+        /// Lowered into the boss room while the tally counts.
+        BossEntry = 9,
+        /// Held by a script (the boss beaten, room `$DA0F`): no handler runs.
+        Held = 10,
+        /// Steered through the air by the pad (actor `$54`, room `$D9FF`), only shooting.
+        Flying = 11,
+    }
 }
 
 impl Motion {
-    const ALL: [Motion; 12] = [
-        Motion::Standing,
-        Motion::Crouching,
-        Motion::Walking,
-        Motion::Jumping,
-        Motion::Sliding,
-        Motion::Falling,
-        Motion::AimingUp,
-        Motion::Dying,
-        Motion::PoweringUp,
-        Motion::BossEntry,
-        Motion::Held,
-        Motion::Flying,
-    ];
-
-    /// The RAM value, and the index into the game's 12-entry per-motion tables.
-    #[must_use]
-    pub const fn byte(self) -> u8 {
-        self as u8
-    }
-
-    /// The motion a RAM value holds, if it is one.
-    #[must_use]
-    pub fn from_byte(byte: u8) -> Option<Motion> {
-        Motion::ALL.get(usize::from(byte)).copied()
-    }
-
     /// Standing, crouching or walking: on his feet and not aiming.
     #[must_use]
     pub const fn on_foot(self) -> bool {
@@ -1306,7 +1260,7 @@ mod layout {
 
 #[cfg(test)]
 mod tests {
-    use super::{Motion, Orbit, Projectile, Rng, Weapon};
+    use super::{Motion, Orbit, Projectile, Rng};
 
     #[test]
     fn orbit_bytes_round_trip() {
@@ -1383,24 +1337,6 @@ mod tests {
             ],
             [0x80, 0x40, 0x20, 0x10, 0x0F, 0x01]
         );
-    }
-
-    #[test]
-    fn weapon_bytes_round_trip() {
-        for byte in 0..=6 {
-            let weapon = Weapon::from_byte(byte).expect("a weapon");
-            assert_eq!(weapon.byte(), byte);
-        }
-        assert!((7..=255).all(|byte| Weapon::from_byte(byte).is_none()));
-    }
-
-    #[test]
-    fn motion_bytes_round_trip() {
-        for byte in 0..=11 {
-            let motion = Motion::from_byte(byte).expect("a motion");
-            assert_eq!(motion.byte(), byte);
-        }
-        assert!((12..=255).all(|byte| Motion::from_byte(byte).is_none()));
     }
 
     #[test]
