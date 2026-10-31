@@ -80,4 +80,31 @@ mod tests {
             }
         );
     }
+
+    /// Slot 23's narrow fields are slot 7's next-array bytes: with slots 8-15 held by idle
+    /// spawners (`$7DD0` = `$80`), slot 23 hands its child slot 7, and the child's `anim`,
+    /// `contact` and `health` high (`$7E97`, `$7EE7`, `$7EF7`) are slot 23's `VyLow`,
+    /// `RefVxHigh` and `Contact`. The game keeps those writes; the actor loop must too.
+    #[test]
+    fn a_child_in_a_byte_slot_23_aliases_keeps_its_bytes() {
+        let Some(mut scene) = Scene::tas(33631) else {
+            return;
+        };
+        let wram = &mut scene.machine.bus.wram;
+        for slot in std::iter::once(1).chain(8..16) {
+            wram[0x1CC0 + slot] = 0x94;
+            wram[0x1DD0 + slot] = 0x80;
+        }
+        wram[0x1CC0 + 23] = 0x94;
+        wram[0x1DD0 + 23] = 0;
+        wram[0x1E90 + 23] = 0;
+        let mut probe = scene.clone();
+        probe.isolate(&[0x94]);
+        probe.run(2, &[]);
+        let wram = &probe.machine.bus.wram;
+        assert_eq!(wram[0x1CC0 + 7], 0x96, "the child lands in slot 7");
+        assert_eq!(wram[0x1E10 + 7], 23, "slot 23 spawned it");
+        let coverage = assert_actor_phases(scene, 2, &[0x94]);
+        assert_eq!((coverage.frames, coverage.occupied), (2, 2));
+    }
 }

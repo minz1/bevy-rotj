@@ -170,7 +170,7 @@ screen record, spawns, room loads) goes through `Levels` since releases 2 and 3.
   stage-settings panel, the menu and the overworld; packs for the Modern engine.
 - The aliased-byte write-back MODERNIZE ties to level packs (a running slot 16+c's writes to
   slot c's aliased bytes undone by `store_aliases`): it needs an oracle test before any change,
-  so it is its own item after this release; MODERNIZE's lead and the release 3 spec point there.
+  so it was its own item after this release (1.1.55).
 - Recording input with a pack: `ROTJ_RECORD_INPUT`'s tapes do not name the pack, so a tape
   recorded on a pack replays only against that pack; the recorder is unchanged.
 

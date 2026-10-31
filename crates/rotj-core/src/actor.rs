@@ -361,7 +361,7 @@ pub fn step_actors(prg: &Prg, game: &mut Game) {
         }
         let mut slot = std::mem::take(&mut game.slots.main[index]);
         game.slots.main[index].kind = slot.kind;
-        slots::load_aliases(
+        let loaded = slots::load_aliases(
             &mut slot.body,
             index,
             &game.slots,
@@ -374,6 +374,7 @@ pub fn step_actors(prg: &Prg, game: &mut Game) {
         families::step(&mut slot, work, &mut cx);
         slots::store_aliases(
             &slot.body,
+            &loaded,
             index,
             &mut game.slots,
             &mut game.effects.projectiles,

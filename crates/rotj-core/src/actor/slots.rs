@@ -480,30 +480,38 @@ pub fn own_field(addr: u16, slot: usize) -> Option<u16> {
     }
 }
 
-/// Fills a slot 16-23's 16-wide fields from the arrays they alias.
+/// Fills a slot 16-23's 16-wide fields from the arrays they alias; returns the body as loaded.
+#[must_use]
 pub(crate) fn load_aliases(
     body: &mut Body,
     index: usize,
     slots: &Slots,
     projectiles: &[Projectile; 16],
-) {
+) -> Body {
     if index >= 16 {
         for field in Field::ALL.into_iter().filter(|field| field.is_narrow()) {
             body.set(field, get(slots, projectiles, index, field));
         }
     }
+    body.clone()
 }
 
-/// Writes a slot 16-23's 16-wide fields back into the arrays they alias.
+/// Writes back the 16-wide fields a slot 16-23's handler changed since `loaded`, so its
+/// writes through `cx` to the bytes they alias stand. Limits: a byte written both ways
+/// keeps the body's value unless that equals the loaded one, then the `cx` write's; the body
+/// does not see a `cx` write to its alias.
 pub(crate) fn store_aliases(
     body: &Body,
+    loaded: &Body,
     index: usize,
     slots: &mut Slots,
     projectiles: &mut [Projectile; 16],
 ) {
     if index >= 16 {
         for field in Field::ALL.into_iter().filter(|field| field.is_narrow()) {
-            set(slots, projectiles, index, field, body.get(field));
+            if body.get(field) != loaded.get(field) {
+                set(slots, projectiles, index, field, body.get(field));
+            }
         }
     }
 }

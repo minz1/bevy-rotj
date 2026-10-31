@@ -263,17 +263,13 @@ New candidates, each to be classified (state, flags, table index) before it chan
 - **Resolved (2026-10-17):** `stun`'s `held = (attack & $80) << 1` was always 0, and so
   is the ROM's (`$92E8`: `AND #$80`, `ASL`, `STA $047F`, `STA $0470`); the port now writes
   the zeros plainly.
-- **A lead (unreached):** a running slot 16+c that writes slot c's aliased bytes through
-  `cx` (slot c's narrow fields, `Anim`, `DyingTimer`) has those writes undone by
-  `store_aliases` when it finishes; in the game the write stands. No lockstep reaches it
-  (the stand-in review of `docs/specs/2026-10-17-slot-fields-design.md`); worth an oracle
-  test before any change. Probed 2026-10-17 (a throwaway check around `step_actors`'
-  `store_aliases`): slots 16-23 ran about 27,000 handler steps over the TAS, and no step
-  in the TAS, the lib suite, the Classic suites, a 1-seed sweep or a 300-branch
-  exploration wrote an aliased byte through `cx`. Unreached by the game as shipped; new
-  content that places actors differently (kaizo levels) could reach it, so the fix (write
-  back only the fields the handler changed) belongs with that content's own tests. Packs play
-  since level packs release 6, so it is the next step on its own: an oracle test first.
+- **Resolved (1.1.55, reached by a pack-style scene):** a running slot 16+c that wrote slot
+  c's aliased bytes through `cx` (slot c's narrow fields, `Anim`, `DyingTimer`) had those
+  writes undone by `store_aliases`; in the game the write stands. The 2026-10-17 probe found
+  no step in the TAS, the suites, a sweep or an exploration that does it. The oracle test
+  `a_child_in_a_byte_slot_23_aliases_keeps_its_bytes` (a `$94` spawner in slot 23 hands its
+  child slot 7) reaches it; `store_aliases` now writes back only the fields the handler
+  changed (`docs/specs/2026-10-31-aliased-write-back-design.md`).
 
 ### The survey loop, 2026-10-18 (after HANDOFF's list)
 
@@ -378,7 +374,7 @@ To do, in the survey loop's order after #1-#3 above, level packs release 1 along
   profiled). The scratch harness (counters in `draw`, a `ROTJ_CHURN` switch, the scenes of
   `stage_1_and_a_boss_bar_render_modern`) is not kept; rerun it if a real GPU shows otherwise.
 - **Leads to probe**: `path_platform`'s and the splitter orbit's table sizes; later, the odd-energy HUD and the
-  no-free-slot `$AC16` path. The aliased-byte write-back is its own step after level packs release 6 (the lead above).
+  no-free-slot `$AC16` path. The aliased-byte write-back shipped in 1.1.55.
 - **The music driver** (owner, 2026-10-18): its commands as an enum, the APU registers named.
 
 Kept as they are: #7 (`animate_chr` is game state the lockstep checks; Modern rebuilds its

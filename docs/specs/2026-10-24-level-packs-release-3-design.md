@@ -243,7 +243,7 @@ Each commit is green on the Classic suites. Commits 2-4 also replay the chain ta
 
 - Playing a user pack: `--pack <dir>`, `bevy_asset_loader` and `bevy_common_assets` (release 6).
 - The aliased-byte write-back that MODERNIZE ties to level packs. Only new content can reach it,
-  so it goes with user-pack play (its own step after release 6).
+  so it went with user-pack play: fixed in 1.1.55 with an oracle test.
 - A user pack's `$7410` without residue, and its leftover map pages on `$100`-byte streams.
 - Which area-keyed ROM tables should follow `stage.area` (release 6).
 

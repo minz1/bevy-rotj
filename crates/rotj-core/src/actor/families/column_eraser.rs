@@ -59,7 +59,7 @@ mod tests {
                 let mut state = State::lift(begin);
                 let mut taken = std::mem::take(&mut state.slots.main[slot]);
                 state.slots.main[slot].kind = taken.kind;
-                load_aliases(
+                let loaded = load_aliases(
                     &mut taken.body,
                     slot,
                     &state.slots,
@@ -77,6 +77,7 @@ mod tests {
                 super::State.step(&mut taken.kind, &mut taken.body, &mut state.work, &mut cx);
                 store_aliases(
                     &taken.body,
+                    &loaded,
                     slot,
                     &mut state.slots,
                     &mut state.effects.projectiles,

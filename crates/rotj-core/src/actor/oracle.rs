@@ -476,19 +476,20 @@ impl Routine<'_> {
                 taken
             })
             .unwrap_or_default();
-        if index < 24 {
+        let loaded = (index < 24).then(|| {
             super::slots::load_aliases(
                 &mut slot.body,
                 index,
                 &state.slots,
                 &state.effects.projectiles,
-            );
-        }
+            )
+        });
         let (mut cx, work) = state.parts(self.prg);
         let result = f(&mut slot, work, &mut cx);
-        if index < 24 {
+        if let Some(loaded) = &loaded {
             super::slots::store_aliases(
                 &slot.body,
+                loaded,
                 index,
                 &mut state.slots,
                 &mut state.effects.projectiles,
