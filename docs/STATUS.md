@@ -1,4 +1,4 @@
-# Status — where 1.1.53 stands
+# Status — where 1.1.54 stands
 
 1.0.0 means **full-game parity**: all 7 stages, 5 bosses, every actor behaviour and
 the complete soundtrack (release ladder in `docs/PLAN.md`). This file is the
@@ -77,6 +77,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
 | 1.1.51 | **done, tag `1.1.51`** (2026-10-30): level packs release 4, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). One Tiled tileset per (area, CHR variant), 27 for the original game, each a `.tsj` and a 256-tile PNG drawn from the player's ROM: the game writes them at startup into `tilesets/` beside `settings.ron` (rewriting missing or stale files, about 30 ms), and `rotj-tools tilesets` writes them anywhere. Every exported pack carries `rotj.tiled-project` with Tiled's typed enums and one class per actor family; a multi-kind family's object without `variant` imports as its first kind. The original pack still exports byte-exact and round-trips (`docs/specs/2026-10-30-level-packs-release-4-design.md`) |
 | 1.1.52 | **done, tag `1.1.52`** (2026-10-31): level packs release 5, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). A user pack is checked against the NES limits at import, every error naming the file, the layer and the object: a room showing a page past its stage's stream is refused, naming the room, the entry and the page; at most 4 background banks a room and 208 metatiles a stage; palettes, pictures and songs must be ones the game has. A room's map may list several tilesets of its area and a stage's rooms several areas, and a pack's `custom.tsj` defines its own metatiles from CHR tiles, drawn locally as `custom.png`. `format` stays 1; the original pack still exports byte-exact and round-trips (`docs/specs/2026-10-30-level-packs-release-5-design.md`) |
 | 1.1.53 | **done, tag `1.1.53`** (2026-10-31): level packs release 6, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical). `batman-rotj --pack <dir>`, or a pack folder or its `pack.json` dropped onto the exe, plays the pack's levels with the player's ROM for the rest. A pack the game would run past (too few stages or rooms, too many for a byte, a boss the ROM has no tables for) or with a bad extra password is refused by name before the window opens, like a missing ROM. A room may carry an optional `mirroring` property (absent = derived, `format` stays 1); the exporter writes it where the derived rule is wrong, so 1-1-2's start travels in the pack. The last table keyed by stage number follows `stage.area`. Plain `std::fs`, no `bevy_asset_loader` (MODERNIZE #14 moves to the Load pack entry) (`docs/specs/2026-10-31-level-packs-release-6-design.md`) |
+| 1.1.54 | **done, tag `1.1.54`** (2026-10-31): `Weapon` and `Motion` onto `phases!` like the other phase enums, no change to the game (the Classic suites, a random play sweep and a 300-branch exploration unchanged, the chain's tape byte-identical); their hand-written round-trip tests are dropped |
 
 ## Verified working
 
@@ -163,7 +164,7 @@ Last reconciled 2026-10-17 (agent merges are recorded here as they land).
    tagged `1.1.50`** (2026-10-30). **1.1.51, level packs release 4, the tilesets and the Tiled
    project file: tagged `1.1.51`** (2026-10-30). **1.1.52, level packs release 5, `classic`
    validation, custom metatiles and mixing areas: tagged `1.1.52`** (2026-10-31). **1.1.53, level
-   packs release 6, playing a pack: tagged `1.1.53`** (2026-10-31). Next: the aliased-byte
+   packs release 6, playing a pack: tagged `1.1.53`** (2026-10-31). **1.1.54, `Weapon` and `Motion` on `phases!`: tagged `1.1.54`** (2026-10-31). Next: the aliased-byte
    write-back (MODERNIZE's unreached lead), then the last 1.1.x survey.
 
 Settled since the 0.3.0-era list that stood here (2026-10-15): the whole game runs on
