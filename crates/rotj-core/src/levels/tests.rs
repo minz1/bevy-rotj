@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use super::model::{
-    Extra, Layer, Map, Object, PackFile, Position, Property, Region, World, to_text,
+    Extra, Layer, Map, Object, PackFile, Position, Property, Region, TilesetRef, World, to_text,
 };
 use super::*;
 use crate::actor::slots::Slots;
@@ -598,6 +598,91 @@ fn the_original_stages_songs_are_in_the_sound_test() {
     assert!(used.is_subset(&catalog.songs));
 }
 
+/// `hand_made` with room B on a second variant that agrees with A's on slot 0, the only
+/// slot its metatiles use.
+fn two_variants() -> Levels {
+    let mut levels = hand_made();
+    levels.stages[0].rooms[1].room.chr = [1, 2, 3, 5];
+    levels
+}
+
+fn tileset_ref(name: &str, firstgid: u32) -> TilesetRef {
+    TilesetRef {
+        firstgid,
+        source: format!("../../../tilesets/{name}.tsj"),
+        extra: Extra::new(),
+    }
+}
+
+/// Imports `files` after `edit` changes room `path`'s map.
+fn import_edited(
+    files: &PackFiles,
+    catalog: &Catalog,
+    path: &str,
+    edit: impl FnOnce(&mut Map),
+) -> Result<Levels, ImportError> {
+    let mut files = files.clone();
+    let mut map: Map = serde_json::from_str(&files[path]).expect("a room");
+    edit(&mut map);
+    files.insert(path.into(), to_text(&map));
+    import(&files, catalog, Source::User)
+}
+
+#[test]
+fn a_room_may_list_several_variants_of_its_area() {
+    let levels = two_variants();
+    let fixture = Fixture::new(&levels);
+    let expected = import(&fixture.files, &fixture.catalog, Source::User).expect("imports");
+    let imported = import_edited(&fixture.files, &fixture.catalog, ROOM_B, |map| {
+        map.tilesets.push(tileset_ref("area-01", 257));
+        for gid in tiles(map).iter_mut().filter(|gid| **gid != 0) {
+            *gid += 256;
+        }
+    });
+    assert_eq!(imported.expect("imports"), expected);
+}
+
+#[test]
+fn rooms_sharing_a_page_agree_by_key_whatever_their_tileset_order() {
+    let fixture = Fixture::new(&two_variants());
+    let expected = import(&fixture.files, &fixture.catalog, Source::User).expect("imports");
+    let mut files = fixture.files.clone();
+    let mut a: Map = serde_json::from_str(&files[ROOM_A]).expect("room A");
+    a.tilesets.push(tileset_ref("area-01-b", 257));
+    files.insert(ROOM_A.into(), to_text(&a));
+    let imported = import_edited(&files, &fixture.catalog, ROOM_B, |map| {
+        map.tilesets.push(tileset_ref("area-01", 257));
+        for gid in tiles(map).iter_mut().step_by(2).filter(|gid| **gid != 0) {
+            *gid += 256;
+        }
+    });
+    assert_eq!(imported.expect("imports"), expected);
+}
+
+#[test]
+fn overlapping_tilesets_are_refused() {
+    let fixture = Fixture::new(&two_variants());
+    fixture.refuses_map(
+        "rooms/9-9-1.tmj: two tilesets' gids overlap",
+        ROOM_A,
+        |map| {
+            map.tilesets.push(tileset_ref("area-01-b", 100));
+        },
+    );
+    fixture.refuses_map(
+        "rooms/9-9-1.tmj: layer `terrain`: gid 513 is not in a tileset",
+        ROOM_A,
+        |map| {
+            map.tilesets.push(tileset_ref("area-01-b", 257));
+            tiles(map)[0] = 513;
+        },
+    );
+    let far = import_edited(&fixture.files, &fixture.catalog, ROOM_A, |map| {
+        map.tilesets.push(tileset_ref("area-01-b", u32::MAX));
+    });
+    assert!(far.is_ok(), "an unused tileset at the last gid imports");
+}
+
 /// The hand-made pack's files and catalog, to break one thing at a time.
 struct Fixture {
     files: PackFiles,
@@ -724,7 +809,7 @@ fn a_room_that_breaks_the_map_format_is_refused() {
     fixture.refuses_map("unknown tileset `area-99`", ROOM_A, |map| {
         map.tilesets[0].source = "../../../tilesets/area-99.tsj".into();
     });
-    fixture.refuses_map("exactly one tileset", ROOM_A, |map| {
+    fixture.refuses_map("two tilesets' gids overlap", ROOM_A, |map| {
         let second = map.tilesets[0].clone();
         map.tilesets.push(second);
     });
@@ -764,7 +849,7 @@ fn a_room_that_breaks_the_map_format_is_refused() {
     fixture.refuses_map("flipped", ROOM_A, |map| {
         tiles(map)[0] |= 0x8000_0000;
     });
-    fixture.refuses_map("gid 257 is not in the tileset", ROOM_A, |map| {
+    fixture.refuses_map("gid 257 is not in a tileset", ROOM_A, |map| {
         tiles(map)[0] = 257;
     });
     fixture.refuses_map("mixes gid 0 and tiles", ROOM_A, |map| {
@@ -798,7 +883,7 @@ fn a_room_whose_areas_or_splits_do_not_resolve_is_refused() {
     }
     levels.stages.push(other);
     let fixture = Fixture::new(&levels);
-    fixture.refuses_map("its tileset's area is not the stage's", ROOM_B, |map| {
+    fixture.refuses_map("disagrees with page 1's first region", ROOM_B, |map| {
         map.tilesets[0].source = "../../../tilesets/area-02-b.tsj".into();
     });
     fixture.refuses_map("the area has no standard split", "rooms/9-8-1.tmj", |map| {

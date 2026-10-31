@@ -238,15 +238,28 @@ fn invalid(file: &str, reason: impl Into<String>) -> ImportError {
     }
 }
 
-/// A room map's size and tileset.
+/// A room map's size and tilesets.
 struct Shape {
     vertical: bool,
     across: usize,
     along: usize,
     width: usize,
+    /// By ascending `firstgid`.
+    tilesets: Vec<RoomTileset>,
+}
+
+/// An area tileset a room's map names.
+struct RoomTileset {
     firstgid: u32,
     area: u8,
     chr: [u8; 4],
+}
+
+/// A cell's metatile: the stage area's id (any variant's), or another area variant's.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Key {
+    Stage(u8),
+    Other { area: u8, chr: [u8; 4], id: u8 },
 }
 
 fn import_stage(
@@ -269,18 +282,19 @@ fn import_stage(
     let area = shapes
         .first()
         .ok_or_else(|| at_stage(stage, "no rooms"))?
+        .tilesets
+        .first()
+        .ok_or_else(|| {
+            invalid(
+                &stage.rooms[0],
+                "the stage's first room names no area tileset",
+            )
+        })?
         .area;
-    if let Some((file, _)) = stage
-        .rooms
-        .iter()
-        .zip(&shapes)
-        .find(|(_, shape)| shape.area != area)
-    {
-        return Err(invalid(file, "its tileset's area is not the stage's"));
-    }
     let user = (source == Source::User).then_some(catalog);
     let (tables, regions) = page_regions(stage)?;
-    let stream = stream(stage, &maps, &shapes, &regions)?;
+    let written_pages = stream(stage, &maps, &shapes, &regions, area)?;
+    let stream = stream_bytes(stage, &shapes, &written_pages)?;
     let catalog_area = catalog
         .area(area)
         .expect("a tileset's area is in the catalog");
@@ -294,7 +308,7 @@ fn import_stage(
         }
         let (map, shape) = (&maps[index], &shapes[index]);
         let in_file = |reason| invalid(file, reason);
-        let written = stream.len() / PAGE_CELLS;
+        let written = written_pages.len();
         if source == Source::User
             && let Some(entry) =
                 held_entries(shape).find(|&entry| usize::from(pages[entry]) >= written)
@@ -304,7 +318,13 @@ fn import_stage(
                 pages[entry]
             )));
         }
-        let room = import_room(map, shape, pages, catalog_area.split, user).map_err(in_file)?;
+        let chr = shape
+            .tilesets
+            .iter()
+            .find(|tileset| tileset.area == area)
+            .map_or(catalog_area.variants[0], |tileset| tileset.chr);
+        let room =
+            import_room(map, shape, pages, chr, catalog_area.split, user).map_err(in_file)?;
         let spawns = import_spawns(map, &pages, &mut schedule, source).map_err(in_file)?;
         import_locks(map, shape.vertical, &pages, &mut schedule).map_err(in_file)?;
         rooms.push(RoomAssets { room, spawns });
@@ -384,18 +404,25 @@ fn page_regions(stage: &PackStage) -> Result<PageRegions, ImportError> {
 enum Tiles {
     /// Gid 0: a page the stream does not write.
     Unwritten,
-    /// Metatile ids.
-    Metatiles(Vec<u8>),
+    /// Metatiles.
+    Metatiles(Vec<Key>),
 }
 
-/// The map stream: each leading page's cells from its first region with tiles, which every
-/// other region with tiles of the page must match.
+/// A page the stream writes: its cells, from its first region with tiles `(room, entry)`.
+struct Page {
+    cells: Vec<Key>,
+    first: (usize, usize),
+}
+
+/// The pages the stream writes: each leading page's cells from its first region with tiles,
+/// which every other region with tiles of the page must match.
 fn stream(
     stage: &PackStage,
     maps: &[Map],
     shapes: &[Shape],
     regions: &[Vec<(usize, usize)>],
-) -> Result<Vec<u8>, ImportError> {
+    area: u8,
+) -> Result<Vec<Page>, ImportError> {
     let mut pages = Vec::new();
     for (page, listed) in regions.iter().enumerate() {
         let mut first = None;
@@ -403,7 +430,7 @@ fn stream(
             let file = &stage.rooms[room];
             let in_terrain = |reason| invalid(file, format!("layer `terrain`: {reason}"));
             let Some(tiles) =
-                region_tiles(&shapes[room], &maps[room], entry).map_err(in_terrain)?
+                region_tiles(&shapes[room], &maps[room], entry, area).map_err(in_terrain)?
             else {
                 if entry >= TABLE_ENTRIES {
                     return Err(in_terrain(format!("extra page {entry} is outside the map")));
@@ -411,8 +438,8 @@ fn stream(
                 continue;
             };
             match &first {
-                None => first = Some(tiles),
-                Some(first) if *first != tiles => {
+                None => first = Some((tiles, (room, entry))),
+                Some((first, _)) if *first != tiles => {
                     return Err(invalid(
                         file,
                         format!(
@@ -423,26 +450,51 @@ fn stream(
                 Some(_) => {}
             }
         }
-        pages.push(first.unwrap_or(Tiles::Unwritten));
+        pages.push(match first {
+            Some((Tiles::Metatiles(cells), first)) => Some(Page { cells, first }),
+            _ => None,
+        });
     }
-    let written = pages
-        .iter()
-        .take_while(|tiles| **tiles != Tiles::Unwritten)
-        .count();
-    if let Some(page) = (written..PAGES).find(|&page| pages[page] != Tiles::Unwritten) {
+    let written = pages.iter().take_while(|page| page.is_some()).count();
+    if let Some(page) = (written..PAGES).find(|&page| pages[page].is_some()) {
         return Err(at_stage(
             stage,
             &format!("page {page} has tiles after page {written}, which has none"),
         ));
     }
-    Ok(pages[..written]
-        .iter()
-        .flat_map(|tiles| match tiles {
-            Tiles::Metatiles(cells) => cells.as_slice(),
-            Tiles::Unwritten => &[],
-        })
-        .copied()
+    Ok(pages
+        .into_iter()
+        .map_while(std::convert::identity)
         .collect())
+}
+
+/// The stream's bytes; a cell from another area's tileset is refused.
+fn stream_bytes(
+    stage: &PackStage,
+    shapes: &[Shape],
+    pages: &[Page],
+) -> Result<Vec<u8>, ImportError> {
+    let mut bytes = Vec::new();
+    for page in pages {
+        for (cell, &key) in page.cells.iter().enumerate() {
+            let Key::Stage(id) = key else {
+                let (room, entry) = page.first;
+                let (x, y) = tile_at(&shapes[room], entry, cell);
+                return Err(invalid(
+                    &stage.rooms[room],
+                    format!("layer `terrain`: tile ({x}, {y}) is from another area's tileset"),
+                ));
+            };
+            bytes.push(id);
+        }
+    }
+    Ok(bytes)
+}
+
+/// The map tile, `(x, y)`, holding `cell` of `entry`'s region.
+fn tile_at(shape: &Shape, entry: usize, cell: usize) -> (usize, usize) {
+    let index = tile_index(shape.vertical, shape.width, region_place(entry), cell);
+    (index % shape.width, index / shape.width)
 }
 
 fn layer<'a>(map: &'a Map, name: &str) -> Result<&'a Layer, String> {
@@ -529,27 +581,39 @@ fn shape(map: &Map, catalog: &Catalog) -> Result<Shape, String> {
             "a {width}x{height} map is not a strip of 16 or more whole pages, 1 or 2 across"
         ));
     }
-    let [tileset] = map.tilesets.as_slice() else {
-        return Err("a room uses exactly one tileset".into());
-    };
-    if tileset.firstgid == 0 {
-        return Err("a tileset's firstgid is 1 or more".into());
+    let mut tilesets = map
+        .tilesets
+        .iter()
+        .map(|tileset| {
+            if tileset.firstgid == 0 {
+                return Err("a tileset's firstgid is 1 or more".to_string());
+            }
+            let name = Path::new(&tileset.source)
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or_default();
+            let (area, chr) = catalog
+                .tileset(name)
+                .ok_or_else(|| format!("unknown tileset `{name}`"))?;
+            Ok(RoomTileset {
+                firstgid: tileset.firstgid,
+                area,
+                chr,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    tilesets.sort_by_key(|tileset| tileset.firstgid);
+    if tilesets.windows(2).any(|pair| {
+        u64::from(pair[0].firstgid) + u64::from(TILESET_TILES) > u64::from(pair[1].firstgid)
+    }) {
+        return Err("two tilesets' gids overlap".into());
     }
-    let name = Path::new(&tileset.source)
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or_default();
-    let (area, chr) = catalog
-        .tileset(name)
-        .ok_or_else(|| format!("unknown tileset `{name}`"))?;
     Ok(Shape {
         vertical,
         across: across_tiles / 16,
         along: along_tiles / 16,
         width,
-        firstgid: tileset.firstgid,
-        area,
-        chr,
+        tilesets,
     })
 }
 
@@ -561,8 +625,9 @@ fn held_entries(shape: &Shape) -> impl Iterator<Item = usize> {
     })
 }
 
-/// The tiles of `entry`'s region, `None` when the map has no tiles there.
-fn region_tiles(shape: &Shape, map: &Map, entry: usize) -> Result<Option<Tiles>, String> {
+/// The tiles of `entry`'s region, `None` when the map has no tiles there; `area` is the
+/// stage's.
+fn region_tiles(shape: &Shape, map: &Map, entry: usize, area: u8) -> Result<Option<Tiles>, String> {
     let place @ (along, band) = region_place(entry);
     if along >= shape.along || band >= shape.across {
         return Ok(None);
@@ -573,9 +638,9 @@ fn region_tiles(shape: &Shape, map: &Map, entry: usize) -> Result<Option<Tiles>,
         .as_deref()
         .filter(|data| data.len() == shape.along * shape.across * PAGE_CELLS)
         .ok_or("not a tile layer the map's size")?;
-    let mut cells = [0; PAGE_CELLS];
+    let mut cells = [Key::Stage(0); PAGE_CELLS];
     let mut empty = 0;
-    for (cell, metatile) in cells.iter_mut().enumerate() {
+    for (cell, key) in cells.iter_mut().enumerate() {
         let gid = data[tile_index(shape.vertical, shape.width, place, cell)];
         if gid == 0 {
             empty += 1;
@@ -584,11 +649,27 @@ fn region_tiles(shape: &Shape, map: &Map, entry: usize) -> Result<Option<Tiles>,
         if gid & FLIP_BITS != 0 {
             return Err(format!("gid {gid:#x} is flipped"));
         }
-        *metatile = gid
-            .checked_sub(shape.firstgid)
-            .filter(|&id| id < TILESET_TILES)
-            .and_then(|id| u8::try_from(id).ok())
-            .ok_or_else(|| format!("gid {gid} is not in the tileset"))?;
+        let tileset = shape
+            .tilesets
+            .iter()
+            .rev()
+            .find(|tileset| tileset.firstgid <= gid);
+        let (tileset, id) = tileset
+            .and_then(|tileset| {
+                let id = gid - tileset.firstgid;
+                let id = u8::try_from(id).ok().filter(|_| id < TILESET_TILES)?;
+                Some((tileset, id))
+            })
+            .ok_or_else(|| format!("gid {gid} is not in a tileset"))?;
+        *key = if tileset.area == area {
+            Key::Stage(id)
+        } else {
+            Key::Other {
+                area: tileset.area,
+                chr: tileset.chr,
+                id,
+            }
+        };
     }
     match empty {
         0 => Ok(Some(Tiles::Metatiles(cells.to_vec()))),
@@ -612,6 +693,7 @@ fn import_room(
     map: &Map,
     shape: &Shape,
     pages: [u8; TABLE_ENTRIES],
+    chr: [u8; 4],
     split: Option<Split>,
     user: Option<&Catalog>,
 ) -> Result<Room, String> {
@@ -664,7 +746,7 @@ fn import_room(
             "sprites-",
             user.map(|catalog| &catalog.sprite_palettes),
         )?,
-        chr: shape.chr,
+        chr,
         orientation: (u8::from(shape.vertical) * orientation::VERTICAL)
             | (u8::from(shape.across == 2) * orientation::TWO_PAGES),
         raised_page_count: u8::try_from(PAGES - trailing).expect("a page count"),
