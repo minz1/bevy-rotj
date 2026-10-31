@@ -1,11 +1,12 @@
 //! The Modern picture's view of a frame: when it is drawn, and its background from the live map
 //! (`docs/specs/2026-10-18-modern-picture-design.md`).
 
-use super::stage::FINAL_AREA;
+use super::stage::{self, FINAL_AREA};
 use super::world::{Ppu, orientation};
 use super::{Game, Script};
 use crate::chr;
 use crate::levelmap::Cell;
+use crate::levels::Levels;
 use crate::render::{Line, ctrl, mask};
 use crate::rooms::Chain;
 
@@ -65,13 +66,16 @@ pub fn in_play(game: &Game) -> bool {
     )
 }
 
-/// The Modern view of the frame `lines` draws from `game` (its NMI state); `None` draws Classic.
+/// The Modern view of the frame `lines` draws from `game` (its NMI state) in `levels`; `None`
+/// draws Classic.
 #[must_use]
-pub fn view(game: &Game, lines: &[Line]) -> Option<View> {
+pub fn view(game: &Game, levels: &Levels, lines: &[Line]) -> Option<View> {
     let banks = background_banks(lines.first()?);
     let split = game.scroll.split;
     let (map_end, runs) = if split.armed {
-        let map_end = if split.chain != Chain::BossBar || game.world.area == FINAL_AREA {
+        let map_end = if split.chain != Chain::BossBar
+            || stage::at(levels, game.world.area).area == FINAL_AREA
+        {
             0
         } else {
             runs(lines, 0)?[0].map_or(0, |run| run.end)
@@ -316,6 +320,10 @@ mod tests {
     use super::super::{Script, raster};
     use super::*;
 
+    fn levels() -> &'static Levels {
+        &crate::prg::for_test().expect("the PRG").levels
+    }
+
     /// Stage 1-1's first loop frame and the lines it is drawn with, or `None` without the ROM.
     fn stage_1() -> Option<(Game, Vec<Line>)> {
         let rom = rotj_rom::for_test()?;
@@ -329,7 +337,7 @@ mod tests {
         let Some((game, lines)) = stage_1() else {
             return;
         };
-        assert!(view(&game, &lines).is_some(), "stage 1-1 in play");
+        assert!(view(&game, levels(), &lines).is_some(), "stage 1-1 in play");
         let mut script = game.clone();
         script.script = Some(Script::Ending(super::super::ending::Ending::default()));
         let mut split = game.clone();
@@ -338,15 +346,19 @@ mod tests {
         masked[100].mask &= !mask::BACKGROUND;
         let mut banked = lines.clone();
         banked[100].chr[0] ^= 1;
-        assert_eq!(view(&script, &lines), None, "a script screen");
+        assert_eq!(view(&script, levels(), &lines), None, "a script screen");
         assert_eq!(
-            view(&split, &lines).map(|view| (view.map_end, spans(&view.runs))),
+            view(&split, levels(), &lines).map(|view| (view.map_end, spans(&view.runs))),
             Some((0, vec![(0, 240)])),
             "a band room's split: every line a run"
         );
-        assert_eq!(view(&game, &masked), None, "the background off on a line");
         assert_eq!(
-            view(&game, &banked),
+            view(&game, levels(), &masked),
+            None,
+            "the background off on a line"
+        );
+        assert_eq!(
+            view(&game, levels(), &banked),
             None,
             "the banks changing down the screen"
         );
@@ -377,7 +389,7 @@ mod tests {
         let Some((game, lines)) = boss_bar_frame() else {
             return;
         };
-        let shown = view(&game, &lines).expect("a boss bar frame");
+        let shown = view(&game, levels(), &lines).expect("a boss bar frame");
         let slot_3 = lines[0].chr[3];
         assert_eq!(shown.map_end, 192, "the map down to the bank change");
         assert_eq!(spans(&shown.runs), [(192, 193), (193, 240)]);
@@ -394,7 +406,7 @@ mod tests {
         let with = |change: &dyn Fn(&mut Vec<Line>)| {
             let mut lines = lines.clone();
             change(&mut lines);
-            view(&game, &lines).map(|view| (view.map_end, spans(&view.runs)))
+            view(&game, levels(), &lines).map(|view| (view.map_end, spans(&view.runs)))
         };
         assert_eq!(
             with(&|lines| lines[192].chr = lines[193].chr),
@@ -430,7 +442,7 @@ mod tests {
         let mut other = game.clone();
         other.scroll.split.chain = Chain::BossFloor;
         assert_eq!(
-            view(&other, &lines).map(|view| (view.map_end, spans(&view.runs))),
+            view(&other, levels(), &lines).map(|view| (view.map_end, spans(&view.runs))),
             Some((0, vec![(0, 192), (192, 193), (193, 240)])),
             "another handler: every line a run"
         );
@@ -528,7 +540,7 @@ mod tests {
             return;
         };
         game.world.area = FINAL_AREA;
-        let shown = view(&game, &lines).expect("the final boss's room");
+        let shown = view(&game, levels(), &lines).expect("the final boss's room");
         assert_eq!(
             (shown.map_end, spans(&shown.runs)),
             (0, vec![(0, 192), (192, 193), (193, 240)]),
@@ -539,7 +551,7 @@ mod tests {
         unarmed.scroll.split.armed = false;
         let unarmed_lines = raster::lines(&raster::Registers::of(&unarmed), &unarmed);
         assert_eq!(
-            view(&unarmed, &unarmed_lines).map(|view| (view.map_end, view.runs[0])),
+            view(&unarmed, levels(), &unarmed_lines).map(|view| (view.map_end, view.runs[0])),
             Some((240, None)),
             "no split armed: from the map"
         );
@@ -547,7 +559,7 @@ mod tests {
         shaken.scroll.scroll_x = 0xFC;
         let shaken_lines = raster::lines(&raster::Registers::of(&shaken), &shaken);
         assert_eq!(
-            view(&shaken, &shaken_lines)
+            view(&shaken, levels(), &shaken_lines)
                 .and_then(|view| view.runs[0])
                 .map(|run| (run.top.v & 0x1F, run.top.fine_x)),
             Some((31, 4)),

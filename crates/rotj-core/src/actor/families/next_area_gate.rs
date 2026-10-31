@@ -16,7 +16,8 @@ use crate::actors::{CELL_LOCK, CELL_PENDING};
 const TRANSITION: u8 = 3;
 /// The countdown's first value (`$898F`).
 const COUNTDOWN: u8 = 0xC0;
-const PASSES_STAGE_ARGS: u8 = 0x01;
+/// The state bit that passes `subtype` and `health` on as `stage_args`.
+pub(crate) const PASSES_STAGE_ARGS: u8 = 0x01;
 
 /// The countdown's end: `$7DD0` reaching it arms the transition.
 const ELAPSED: u8 = 0;

@@ -296,7 +296,7 @@ fn export_levels(rom: &Path, out: &Path) -> Result<()> {
     let rom = rotj_rom::Rom::load(Some(rom)).map_err(|error| eyre!(error))?;
     let files = rotj_core::levels::export(&rom.prg, &rom.chr)
         .ok_or_else(|| eyre!("the ROM's levels do not import"))?;
-    write_pack(&files, out)?;
+    rotj_core::levels::save(out, &files).wrap_err_with(|| format!("writing {}", out.display()))?;
     println!("{} ({} files)", out.display(), files.len());
     Ok(())
 }
@@ -321,18 +321,6 @@ fn write_tilesets(tilesets: Vec<rotj_core::levels::Tileset>, out: &Path) -> Resu
         let side = rotj_core::levels::TILESET_PX;
         let png = out.join(format!("{}.png", tileset.name));
         write_png(&png, side, side, tileset.picture)?;
-    }
-    Ok(())
-}
-
-/// Writes each of a pack's files under `out`.
-fn write_pack(files: &rotj_core::levels::PackFiles, out: &Path) -> Result<()> {
-    for (path, text) in files {
-        let file = out.join(path);
-        if let Some(dir) = file.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        std::fs::write(&file, text).wrap_err_with(|| format!("writing {}", file.display()))?;
     }
     Ok(())
 }
@@ -610,7 +598,7 @@ mod tests {
         };
         let files = rotj_core::levels::export(&rom.prg, &rom.chr).expect("the ROM exports");
         let out = std::env::temp_dir().join(format!("rotj-export-levels-{}", std::process::id()));
-        write_pack(&files, &out).expect("writes");
+        rotj_core::levels::save(&out, &files).expect("writes");
         let rooms = std::fs::read_dir(out.join("rooms"))
             .expect("rooms/")
             .count();

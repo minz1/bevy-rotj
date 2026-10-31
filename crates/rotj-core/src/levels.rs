@@ -5,20 +5,25 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::actor::families::next_area_gate::PASSES_STAGE_ARGS;
 use crate::actor::families::{MAIN, SECOND};
 use crate::actor::spawn::SpawnTable;
 use crate::actor::stage::{Music, Stage as Descriptor};
+use crate::actors::SpawnRecord;
+use crate::render::Mirroring;
 use crate::rooms::{Raster, Room};
 use crate::terrain::Terrain;
 
 pub mod custom;
 pub mod export;
+pub mod folder;
 pub mod import;
 pub mod model;
 pub mod tilesets;
 
 pub use custom::custom_picture;
 pub use export::{export, write};
+pub use folder::{read, save};
 pub use import::{ImportError, import};
 pub use tilesets::{TILESET_PX, Tileset, tilesets};
 
@@ -110,6 +115,8 @@ pub struct Catalog {
     pictures: BTreeSet<u8>,
     /// The songs a stage may start: the sound test's, from the ROM.
     songs: BTreeSet<u8>,
+    /// The bosses the `next_area_gate`s introduce.
+    bosses: BTreeSet<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,6 +195,10 @@ impl Catalog {
                     Music::Song(song) => Some(song),
                     Music::Keep => None,
                 })
+                .collect(),
+            bosses: rooms()
+                .flat_map(|assets| assets.spawns.records.iter().flatten())
+                .filter_map(boss)
                 .collect(),
         }
     }
@@ -277,6 +288,14 @@ fn kind_of(class: &str, variant: Option<&str>) -> Result<(bool, u8), String> {
         .ok_or_else(|| format!("unknown `{class}` variant `{variant}`"))
 }
 
+/// The boss a `next_area_gate` record introduces: `health`'s low byte, which indexes the
+/// ROM's boss tables (`$BCA6`, `$BE4E`) when the gate passes its stage arguments.
+fn boss(record: &SpawnRecord) -> Option<u8> {
+    let (class, _) = class_of(record.second_class, record.kind)?;
+    (class == "next_area_gate" && record.state & PASSES_STAGE_ARGS != 0)
+        .then(|| record.health.to_be_bytes()[1])
+}
+
 /// Where page-table entry `entry` sits in a room's map, as (page along, band across); an
 /// extra page (32 and up) sits after page 15 in the first band.
 fn region_place(entry: usize) -> (usize, usize) {
@@ -312,6 +331,23 @@ fn derived_first_spawn_column(
     let (along, across) = along_across(vertical, camera_x, camera_y);
     let entry_under_camera = usize::from(across >= 0x1000) * PAGES + usize::from(along >> 12);
     pages[entry_under_camera] << 4
+}
+
+/// The `mirroring` property's values.
+const MIRRORINGS: [(&str, Mirroring); 4] = [
+    ("side-by-side", Mirroring::SideBySide),
+    ("stacked", Mirroring::Stacked),
+    ("single-low", Mirroring::SingleLow),
+    ("single-high", Mirroring::SingleHigh),
+];
+
+/// The start mirroring a room without a `mirroring` property gets.
+fn derived_mirroring(vertical: bool, camera_y: u16) -> Mirroring {
+    match (vertical, camera_y >= 0x1000) {
+        (true, _) => Mirroring::SideBySide,
+        (false, true) => Mirroring::Stacked,
+        (false, false) => Mirroring::SingleLow,
+    }
 }
 
 /// A level position's coordinates (along the scroll, across it).

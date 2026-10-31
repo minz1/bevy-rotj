@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 use rotj_core::actor::Game;
 use rotj_core::actor::oam::{DrawRecord, Mark};
+use rotj_core::levels::Levels;
 use rotj_core::render::Line;
 
 use crate::pacing::Step;
@@ -55,9 +56,9 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// The game at its NMI, whose frame `lines` draws.
+    /// The game at its NMI in `levels`, whose frame `lines` draws.
     #[must_use]
-    pub fn of(game: &Game, lines: &[Line]) -> Snapshot {
+    pub fn of(game: &Game, levels: &Levels, lines: &[Line]) -> Snapshot {
         let slot = |drawer, kind, x, y| DrawerState {
             drawer,
             kind: Some(kind),
@@ -91,7 +92,7 @@ impl Snapshot {
                 .chain([batman])
                 .collect(),
             camera: level_pixels(game.world.camera_x, game.world.camera_y),
-            modern: crate::modern::ModernFrame::of(game, lines),
+            modern: crate::modern::ModernFrame::of(game, levels, lines),
         }
     }
 }
@@ -208,7 +209,7 @@ mod tests {
         });
         assert!(fired, "a shot is out");
         let game = play.game();
-        let snapshot = Snapshot::of(game, &play.lines);
+        let snapshot = Snapshot::of(game, play.levels(), &play.lines);
         let state = |mark| {
             snapshot
                 .drawers

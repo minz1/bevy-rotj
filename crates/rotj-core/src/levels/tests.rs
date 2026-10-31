@@ -36,8 +36,8 @@ const BIT_6_CELLS: usize = 24;
 const RESTORED_CELLS: usize = 225;
 
 /// The rooms whose ROM start mirroring is not the derived one (1-1-2, a vertical room in
-/// `SingleLow`), which [`Levels::original`]'s ROM overlay puts back.
-const RESTORED_MIRRORING: [&str; 1] = ["rooms/1-1-2.tmj"];
+/// `SingleLow`), which carry a `mirroring` property.
+const MIRRORING_ROOMS: [&str; 1] = ["rooms/1-1-2.tmj"];
 
 /// The page-table actors' kinds and the page each writes into the table at runtime.
 const PAGE_TABLE_WRITERS: [(u8, u8); 4] = [(0x9C, 6), (0x76, 7), (0xC8, 0), (0xB2, 0)];
@@ -96,21 +96,17 @@ fn the_original_game_imports_to_the_assets_the_game_reads() {
             if !orientation::horizontal_two_page(assets.room.orientation) {
                 layout.raised_page_count = assets.room.raised_page_count;
             }
-            if RESTORED_MIRRORING.contains(&file.as_str()) {
-                assert_ne!(
-                    layout.start.mirroring, assets.room.start.mirroring,
-                    "{file}"
-                );
-                layout.start.mirroring = assets.room.start.mirroring;
-            }
             let map: Map = serde_json::from_str(&files[&file]).expect("a room");
-            assert_eq!(
-                map.properties
-                    .iter()
-                    .any(|property| property.name == "first_spawn_column"),
-                FIRST_SPAWN_COLUMN_ROOMS.contains(&file.as_str()),
-                "{file}: first_spawn_column"
-            );
+            for (name, rooms) in [
+                ("first_spawn_column", &FIRST_SPAWN_COLUMN_ROOMS[..]),
+                ("mirroring", &MIRRORING_ROOMS[..]),
+            ] {
+                assert_eq!(
+                    map.properties.iter().any(|property| property.name == name),
+                    rooms.contains(&file.as_str()),
+                    "{file}: {name}"
+                );
+            }
             assert!(layout == assets.room, "{file}: room");
             let ids = read_ids(&assets.room, &stage.schedule);
             for &id in &ids {
@@ -252,9 +248,8 @@ fn the_original_game_round_trips_byte_for_byte() {
     );
 }
 
-/// What the game reads: the export imported, with the ROM's schedules and start mirrorings,
-/// its stages by `$0400 >> 1` and its rooms by `$0402 >> 1`. The rooms' other exceptions are
-/// the equivalence's.
+/// What the game reads: the export imported, with the ROM's schedules, its stages by
+/// `$0400 >> 1` and its rooms by `$0402 >> 1`. The rooms' other exceptions are the equivalence's.
 #[test]
 fn the_original_levels_are_the_imported_export_with_the_roms_schedules() {
     let Some(rom) = rotj_rom::for_test() else {
@@ -265,7 +260,7 @@ fn the_original_levels_are_the_imported_export_with_the_roms_schedules() {
     let files = export(&rom.prg, &rom.chr).expect("the ROM exports");
     let mut imported = import(&files, &catalog, Source::Original).expect("the export imports");
     let listed = listed_rooms(&rom.prg);
-    let (mut restored, mut mirrorings) = (0, 0);
+    let mut restored = 0;
     for ((index, stage), back) in (0u8..).zip(&levels.stages).zip(&mut imported.stages) {
         let (at, area) = (&stage.stage.name, 2 * index);
         assert_eq!(stage.stage.area, index, "{at}: area");
@@ -285,21 +280,12 @@ fn the_original_levels_are_the_imported_export_with_the_roms_schedules() {
             }
             assert!(assets.room == layout, "{at}: room {room}");
         }
-        for (back, assets) in back.rooms.iter_mut().zip(&stage.rooms) {
-            mirrorings += usize::from(back.room.start.mirroring != assets.room.start.mirroring);
-            back.room.start.mirroring = assets.room.start.mirroring;
-        }
     }
     assert!(
         levels == imported,
-        "the levels differ from the import beyond the schedules and mirrorings"
+        "the levels differ from the import beyond the schedules"
     );
     assert_eq!(restored, RESTORED_CELLS, "cells the overlay restored");
-    assert_eq!(
-        mirrorings,
-        RESTORED_MIRRORING.len(),
-        "mirrorings the overlay restored"
-    );
 }
 
 const ROOM_A: &str = "rooms/9-9-1.tmj";
@@ -1605,4 +1591,130 @@ fn the_tilesets_draw_each_variant_as_the_game_loads_it() {
     }
     let past = terrain.corners.len();
     assert!(past == 256 || picture[(past / 16 * 16 * side + past % 16 * 16) * 4..][..4] == [0; 4]);
+}
+
+#[test]
+fn a_room_exit_in_a_stages_last_room_is_refused() {
+    let fixture = Fixture::new(&hand_made());
+    for class in ["room_exit", "top_screen_room_exit"] {
+        let needle = format!(
+            "rooms/9-9-4.tmj: layer `spawns` object 6: a `{class}` in the stage's last room"
+        );
+        fixture.refuses_map(&needle, ROOM_D, |map| {
+            objects(map, 1)[0].kind = class.into();
+        });
+    }
+    let mut files = fixture.files.clone();
+    let mut map: Map = serde_json::from_str(&files[ROOM_A]).expect("a room");
+    objects(&mut map, 1)[0].kind = "room_exit".into();
+    files.insert(ROOM_A.into(), to_text(&map));
+    assert!(import(&files, &fixture.catalog, Source::User).is_ok());
+}
+
+#[test]
+fn a_next_stage_object_in_the_last_stage_is_refused() {
+    let fixture = Fixture::new(&hand_made());
+    for class in ["next_area_gate", "next_area_cue", "stage_end_trigger"] {
+        let needle =
+            format!("rooms/9-9-1.tmj: layer `spawns` object 6: a `{class}` in the last stage");
+        fixture.refuses_map(&needle, ROOM_A, |map| {
+            objects(map, 1)[0].kind = class.into();
+        });
+    }
+}
+
+#[test]
+fn a_gate_introducing_a_boss_the_game_lacks_is_refused() {
+    let mut levels = hand_made();
+    let mut copy = levels.stages[0].clone();
+    copy.stage.name = "9-8".into();
+    copy.stage.descriptor.password = None;
+    levels.stages.push(copy);
+    let gate = levels.stages[0].rooms[0].spawns.records[5]
+        .as_mut()
+        .expect("a record");
+    gate.kind = 0x32;
+    let catalog = Catalog::from_levels(&levels);
+    assert_eq!(catalog.bosses, BTreeSet::from([2]));
+    let fixture = Fixture {
+        files: write(&levels, &catalog).expect("the original game"),
+        catalog,
+    };
+    import(&fixture.files, &fixture.catalog, Source::User).expect("the unedited pack");
+    fixture.refuses_map(
+        "rooms/9-9-1.tmj: layer `spawns` object 6: boss 3 is not one the game's gates introduce",
+        ROOM_A,
+        |map| set_property(&mut objects(map, 1)[0], "health", 0x0103.into()),
+    );
+    let mut files = fixture.files.clone();
+    let mut map: Map = serde_json::from_str(&files[ROOM_A]).expect("a room");
+    let object = &mut objects(&mut map, 1)[0];
+    set_property(object, "health", 0x0103.into());
+    set_property(object, "state", 0x60.into());
+    files.insert(ROOM_A.into(), to_text(&map));
+    assert!(
+        import(&files, &fixture.catalog, Source::User).is_ok(),
+        "a gate that passes no stage args introduces no boss"
+    );
+}
+
+#[test]
+fn more_than_128_stages_or_rooms_are_refused() {
+    let levels = hand_made();
+    let mut many = levels.clone();
+    for number in 1..=128 {
+        let mut copy = levels.stages[0].clone();
+        copy.stage.name = format!("8-{number}");
+        copy.stage.descriptor.password = None;
+        many.stages.push(copy);
+        if number == 127 {
+            let fixture = Fixture::new(&many);
+            import(&fixture.files, &fixture.catalog, Source::User).expect("128 stages");
+        }
+    }
+    Fixture::new(&many).refuses("pack.json: 129 stages, past the game's 128", |_| {});
+    let mut long = levels.clone();
+    let last = long.stages[0].rooms[3].clone();
+    long.stages[0].rooms.resize(128, last.clone());
+    let fixture = Fixture::new(&long);
+    import(&fixture.files, &fixture.catalog, Source::User).expect("128 rooms");
+    long.stages[0].rooms.push(last);
+    Fixture::new(&long).refuses(
+        "pack.json: stage `9-9`: 129 rooms, past the game's 128",
+        |_| {},
+    );
+}
+
+#[test]
+fn a_rooms_mirroring_property_overrides_the_derived_one() {
+    let mut levels = hand_made();
+    levels.stages[0].rooms[0].room.start.mirroring = Mirroring::SingleHigh;
+    let catalog = Catalog::from_levels(&levels);
+    let files = write(&levels, &catalog).expect("the original game");
+    let with_property: Vec<&String> = files
+        .iter()
+        .filter(|(_, text)| text.contains("\"mirroring\""))
+        .map(|(path, _)| path)
+        .collect();
+    assert_eq!(with_property, ["rooms/9-9-1.tmj", "rotj.tiled-project"]);
+    let imported = import(&files, &catalog, Source::User).expect("imports");
+    let rooms = &imported.stages[0].rooms;
+    assert_eq!(rooms[0].room.start.mirroring, Mirroring::SingleHigh);
+    assert_eq!(
+        rooms[2].room.start.mirroring,
+        Mirroring::SideBySide,
+        "derived"
+    );
+    assert_eq!(rooms[3].room.start.mirroring, Mirroring::Stacked, "derived");
+    let fixture = Fixture { files, catalog };
+    fixture.refuses_map(
+        "property `mirroring`: unknown value `sideways`",
+        ROOM_A,
+        |map| {
+            map.properties
+                .retain(|property| property.name != "mirroring");
+            map.properties
+                .push(Property::enumerated("mirroring", "mirroring", "sideways"));
+        },
+    );
 }

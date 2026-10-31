@@ -10,6 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::*;
 use rotj_core::actor::oam::{Mark, OamEntry};
+use rotj_core::actor::stage::level_area;
 use rotj_core::actor::world::{Ppu, SoundId};
 use rotj_core::actor::{Game, Script, raster};
 use rotj_core::levels::Levels;
@@ -21,20 +22,20 @@ use crate::mirror::Snapshot;
 use crate::pacing::Step;
 use crate::screen::{Screen, screen_frame, screen_image};
 use crate::settings::Settings;
-use crate::{GameState, RomData};
+use crate::{GameLevels, GameState, RomData};
 
-/// A level to start on instead of the title's, from `ROTJ_LEVEL` (0-12), forced where
-/// the game reads it (`$D3D8`), as a developer's poke would: the app has no CLI parsing,
-/// so the env var follows `ROTJ_RENDER_BACKEND`. 0 is the title's own start and an
-/// unparsable or out-of-range value forces nothing, so a recording's `level0` always
-/// means "as the title chose".
-fn forced_level() -> Option<u8> {
+/// A level to start on instead of the title's, from `ROTJ_LEVEL` (a checkpoint of
+/// `levels`, 0-12 in the original game), forced where the game reads it (`$D3D8`), as a
+/// developer's poke would; the env var follows `ROTJ_RENDER_BACKEND`. 0 is the title's own
+/// start and an unparsable or out-of-range value forces nothing, so a recording's `level0`
+/// always means "as the title chose".
+fn forced_level(levels: &Levels) -> Option<u8> {
     let value = std::env::var("ROTJ_LEVEL").ok()?;
     match value.parse::<u8>() {
         Ok(0) => None,
-        Ok(level) if level < 13 => Some(level),
+        Ok(level) if level_area(levels, usize::from(level)).is_some() => Some(level),
         _ => {
-            warn!("ROTJ_LEVEL {value:?} is not a level 0-12; the title chooses");
+            warn!("ROTJ_LEVEL {value:?} is not one of the levels' checkpoints; the title chooses");
             None
         }
     }
@@ -108,7 +109,8 @@ impl Play {
         self.ppu.apply(&direct, self.game.scroll.mirroring);
         self.lines = raster::lines(&registers, &self.game);
         if let Some(game) = split_at_nmi {
-            self.shown.modern = crate::modern::ModernFrame::of(&game, &self.lines);
+            self.shown.modern =
+                crate::modern::ModernFrame::of(&game, &self.prg.levels, &self.lines);
         }
     }
 
@@ -147,7 +149,11 @@ impl Play {
     fn copy_page(&mut self, registers: &raster::Registers) {
         self.oam = self.game.oam.page;
         self.marks = self.game.oam.marks;
-        self.shown = Snapshot::of(&self.game, &raster::lines(registers, &self.game));
+        self.shown = Snapshot::of(
+            &self.game,
+            &self.prg.levels,
+            &raster::lines(registers, &self.game),
+        );
     }
 
     /// True until the boot reaches the first loop frame.
@@ -167,6 +173,13 @@ impl Play {
     #[must_use]
     pub fn game(&self) -> &Game {
         &self.game
+    }
+
+    /// The levels the game plays.
+    #[cfg(test)]
+    #[must_use]
+    pub fn levels(&self) -> &rotj_core::levels::Levels {
+        &self.prg.levels
     }
 
     /// The game, to set a scene up.
@@ -298,15 +311,19 @@ pub(crate) fn menu_closed(menu: Res<'_, crate::menu::Menu>) -> bool {
     clippy::needless_pass_by_value,
     reason = "Bevy system params, rust-clippy#8940"
 )]
-fn power_on(mut commands: Commands<'_, '_>, screen: Res<'_, Screen>, rom: Res<'_, RomData>) {
-    let forced = forced_level();
+fn power_on(
+    mut commands: Commands<'_, '_>,
+    screen: Res<'_, Screen>,
+    rom: Res<'_, RomData>,
+    levels: Res<'_, GameLevels>,
+) {
+    let forced = forced_level(&levels.0);
     let dir = std::env::var_os("ROTJ_RECORD_INPUT").filter(|dir| !dir.is_empty());
     let level = usize::from(forced.unwrap_or(0));
     if let Some(recorder) = dir.and_then(|dir| Recorder::open(Path::new(&dir), level)) {
         commands.insert_resource(recorder);
     }
-    let levels = Levels::original(&rom.0.prg, &rom.0.chr).expect("the ROM's levels import");
-    let prg = Prg::new(rom.0.prg.clone(), levels);
+    let prg = Prg::new(rom.0.prg.clone(), levels.0.clone());
     commands.insert_resource(Play::power_on(prg, rom.0.chr.clone(), forced));
     crate::screen::spawn_screen_quad(&mut commands, &screen_image(&screen));
 }
@@ -385,14 +402,19 @@ pub(crate) mod tests {
     }
 
     /// Steps `play` with `pad` until `until` holds, at most `frames` times; whether it did.
-    fn step_until(play: &mut Play, frames: usize, pad: u8, until: impl Fn(&Play) -> bool) -> bool {
+    pub(crate) fn step_until(
+        play: &mut Play,
+        frames: usize,
+        pad: u8,
+        until: impl Fn(&Play) -> bool,
+    ) -> bool {
         (0..frames).any(|_| {
             play.step(pad);
             until(play)
         })
     }
 
-    fn on_title(play: &Play) -> bool {
+    pub(crate) fn on_title(play: &Play) -> bool {
         matches!(&play.game().script, Some(Script::Boot(boot)) if boot.on_title())
     }
 

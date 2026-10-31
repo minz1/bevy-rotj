@@ -879,7 +879,8 @@ impl Lockstep {
     /// the split frames in play it leaves Classic.
     fn check_modern(&mut self, before: &State, port: &[Line], frame: u64) {
         let split = before.scroll.split.armed;
-        let Some(view) = super::modern::view(before, port) else {
+        let levels = &crate::prg::for_test().expect("the lockstep's PRG").levels;
+        let Some(view) = super::modern::view(before, levels, port) else {
             if split && super::modern::in_play(before) {
                 self.pictures.classic_splits += 1;
                 self.pictures.crowded += usize::from(super::modern::runs(port, 0).is_none());

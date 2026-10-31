@@ -9,16 +9,16 @@ use thiserror::Error;
 use super::custom::{CUSTOM, CUSTOM_FILE};
 use super::model::{Layer, Map, Object, PackFile, PackStage, Property};
 use super::{
-    Catalog, CatalogArea, ExtraPassword, Levels, NO_HANDLER, PAGE_CELLS, PAGES, PackFiles,
-    RoomAssets, Source, Split, Stage, StageAssets, TABLE_ENTRIES, TILESET_TILES, along_across,
-    derived_first_spawn_column, kind_of, region_place, schedule_cell, tile_index,
+    Catalog, CatalogArea, ExtraPassword, Levels, MIRRORINGS, NO_HANDLER, PAGE_CELLS, PAGES,
+    PackFiles, RoomAssets, Source, Split, Stage, StageAssets, TABLE_ENTRIES, TILESET_TILES,
+    along_across, boss, class_of, derived_first_spawn_column, derived_mirroring, kind_of,
+    region_place, schedule_cell, tile_index,
 };
 use crate::actor::spawn::SpawnTable;
 use crate::actor::stage::{Music, OnClear, Stage as Descriptor};
 use crate::actor::world::orientation;
 use crate::actors::{CELL_LOCK, CELL_PENDING, CELL_RECORD, SpawnRecord};
 use crate::collision::CLASS_COUNT;
-use crate::render::Mirroring;
 use crate::rooms::{Arrival, Room, Start};
 use crate::terrain::Terrain;
 
@@ -96,6 +96,9 @@ pub fn import(pack: &PackFiles, catalog: &Catalog, source: Source) -> Result<Lev
             ),
         ));
     }
+    if source == Source::User {
+        refuse_overruns(&file, &stages, catalog)?;
+    }
     let extra_passwords = file
         .extra_passwords
         .iter()
@@ -119,6 +122,65 @@ pub fn import(pack: &PackFiles, catalog: &Catalog, source: Source) -> Result<Lev
         stages,
         extra_passwords,
     })
+}
+
+/// The most stages, and rooms in a stage: `world.area` and `world.room` are bytes stepped by 2.
+const MOST_STAGES_OR_ROOMS: usize = 128;
+
+/// Refuses a user pack whose objects ask for a room or stage past its last, or a boss the
+/// ROM has no tables for, and one with more stages or rooms than a byte steps through.
+fn refuse_overruns(
+    file: &PackFile,
+    stages: &[StageAssets],
+    catalog: &Catalog,
+) -> Result<(), ImportError> {
+    if stages.len() > MOST_STAGES_OR_ROOMS {
+        return Err(invalid(
+            "pack.json",
+            format!(
+                "{} stages, past the game's {MOST_STAGES_OR_ROOMS}",
+                stages.len()
+            ),
+        ));
+    }
+    for (index, (stage, assets)) in file.stages.iter().zip(stages).enumerate() {
+        if assets.rooms.len() > MOST_STAGES_OR_ROOMS {
+            let reason = format!(
+                "{} rooms, past the game's {MOST_STAGES_OR_ROOMS}",
+                assets.rooms.len()
+            );
+            return Err(at_stage(stage, &reason));
+        }
+        let last_stage = index + 1 == stages.len();
+        for (room, (name, assets)) in stage.rooms.iter().zip(&assets.rooms).enumerate() {
+            let last_room = room + 1 == stage.rooms.len();
+            for (id, record) in (1..).zip(&assets.spawns.records) {
+                let Some(record) = record else { continue };
+                let Some((class, _)) = class_of(record.second_class, record.kind) else {
+                    continue;
+                };
+                let reason = match class {
+                    "room_exit" | "top_screen_room_exit" if last_room => {
+                        format!("a `{class}` in the stage's last room")
+                    }
+                    "next_area_gate" | "next_area_cue" | "stage_end_trigger" if last_stage => {
+                        format!("a `{class}` in the last stage")
+                    }
+                    _ => match boss(record) {
+                        Some(boss) if !catalog.bosses.contains(&boss) => {
+                            format!("boss {boss} is not one the game's gates introduce")
+                        }
+                        _ => continue,
+                    },
+                };
+                return Err(invalid(
+                    name,
+                    format!("layer `spawns` object {id}: {reason}"),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn extra_password(
@@ -1056,10 +1118,16 @@ fn import_room(
             ring_y: camera_y,
             scroll_lock: player_int("scroll_lock")?,
             scroll_mode: player_int("scroll_mode")?,
-            mirroring: match (shape.vertical, camera_y >= 0x1000) {
-                (true, _) => Mirroring::SideBySide,
-                (false, true) => Mirroring::Stacked,
-                (false, false) => Mirroring::SingleLow,
+            mirroring: match property(&map.properties, "mirroring") {
+                Some(_) => {
+                    let value = string(&map.properties, "mirroring")?;
+                    MIRRORINGS
+                        .iter()
+                        .find(|&&(name, _)| name == value)
+                        .map(|&(_, mirroring)| mirroring)
+                        .ok_or_else(|| format!("property `mirroring`: unknown value `{value}`"))?
+                }
+                None => derived_mirroring(shape.vertical, camera_y),
             },
             first_spawn_column,
             facing: player_int("facing")?,

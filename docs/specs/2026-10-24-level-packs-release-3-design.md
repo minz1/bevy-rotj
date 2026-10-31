@@ -168,7 +168,9 @@ Its real job comes in release 6: `--pack <dir>` loads `pack.json`, the `.tmj` ro
 `custom.tsj` as JSON assets (`bevy_common_assets` 0.18.0) in a `LoadingState` that ends in
 `import(.., Source::User)` and a `Prg` with that pack's levels. rotj-core stays Bevy-free.
 Headless paths (oracle, tests, `rotj-tools`) call `Levels::original` directly, and the app's
-`Startup` does too until release 6. MODERNIZE #14's row moves to "with release 6".
+`Startup` does too until release 6. MODERNIZE #14's row moves to "with release 6". Release 6
+then read packs with plain `std::fs` and moved #14 on to the "Load pack" menu entry
+(`docs/specs/2026-10-31-level-packs-release-6-design.md`).
 
 ## New public names
 
@@ -241,7 +243,7 @@ Each commit is green on the Classic suites. Commits 2-4 also replay the chain ta
 
 - Playing a user pack: `--pack <dir>`, `bevy_asset_loader` and `bevy_common_assets` (release 6).
 - The aliased-byte write-back that MODERNIZE ties to level packs. Only new content can reach it,
-  so it goes with user-pack play.
+  so it goes with user-pack play (its own step after release 6).
 - A user pack's `$7410` without residue, and its leftover map pages on `$100`-byte streams.
 - Which area-keyed ROM tables should follow `stage.area` (release 6).
 

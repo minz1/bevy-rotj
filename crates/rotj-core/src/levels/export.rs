@@ -11,10 +11,10 @@ use super::model::{
     World, WorldMap, to_text,
 };
 use super::{
-    Catalog, ExtraPassword, JSON_VERSION, Levels, NO_HANDLER, PAGE_CELLS, PAGES, PackFiles,
-    RoomAssets, Source, Stage, StageAssets, TABLE_ENTRIES, TILED_VERSION, along_across, class_of,
-    classes, derived_first_spawn_column, import, region_place, schedule_cell, tile_index,
-    variant_name,
+    Catalog, ExtraPassword, JSON_VERSION, Levels, MIRRORINGS, NO_HANDLER, PAGE_CELLS, PAGES,
+    PackFiles, RoomAssets, Source, Stage, StageAssets, TABLE_ENTRIES, TILED_VERSION, along_across,
+    class_of, classes, derived_first_spawn_column, derived_mirroring, import, region_place,
+    schedule_cell, tile_index, variant_name,
 };
 use crate::actor::boot::{PASSWORDS, payload_byte};
 use crate::actor::spawn::SpawnTable;
@@ -84,9 +84,8 @@ impl Levels {
         })
     }
 
-    /// The original game as it plays: its pack imported, with the ROM's schedule cells and
-    /// room start mirrorings the format drops put back; `None` where the ROM's levels do not
-    /// import.
+    /// The original game as it plays: its pack imported, with the ROM's schedule cells the
+    /// format drops put back; `None` where the ROM's levels do not import.
     #[must_use]
     pub fn original(prg: &[u8], chr: &[u8]) -> Option<Levels> {
         let rom = Levels::from_rom(prg, chr)?;
@@ -95,9 +94,6 @@ impl Levels {
         for (stage, rom_stage) in levels.stages.iter_mut().zip(&rom.stages) {
             for (cell, &rom_cell) in stage.schedule.iter_mut().zip(&rom_stage.schedule) {
                 *cell |= rom_cell;
-            }
-            for (room, rom_room) in stage.rooms.iter_mut().zip(&rom_stage.rooms) {
-                room.room.start.mirroring = rom_room.room.start.mirroring;
             }
         }
         Some(levels)
@@ -291,6 +287,7 @@ fn project(catalog: &Catalog, uses_no_handler: bool) -> Value {
     ));
     types.push(class("camera-start", Vec::new()));
     types.push(class("scroll-lock", vec![int_member("locks")]));
+    types.push(enumeration("mirroring", MIRRORINGS.map(|(name, _)| name)));
     for (id, entry) in (1..).zip(&mut types) {
         entry["id"] = Value::from(id);
     }
@@ -532,6 +529,13 @@ fn room_properties(room: &Room, vertical: bool) -> Vec<Property> {
         ),
     ];
     properties.extend(first_spawn_column);
+    if start.mirroring != derived_mirroring(vertical, start.camera_y) {
+        let (name, _) = MIRRORINGS
+            .into_iter()
+            .find(|&(_, mirroring)| mirroring == start.mirroring)
+            .expect("every mirroring has a name");
+        properties.push(Property::enumerated("mirroring", "mirroring", name));
+    }
     properties
 }
 

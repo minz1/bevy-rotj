@@ -19,6 +19,7 @@ use rotj_core::actor::Game;
 use rotj_core::actor::modern::{MAX_RUNS, Run, View, run_tile, tile_at, view};
 use rotj_core::actor::oam::attr;
 use rotj_core::chr;
+use rotj_core::levels::Levels;
 use rotj_core::palette::Rgb;
 use rotj_core::render::{Line, SCREEN_H, SCREEN_W, mask};
 
@@ -48,8 +49,8 @@ pub struct ModernFrame {
 impl ModernFrame {
     /// The frame `lines` draws from `game`, or `None` when it is drawn Classic.
     #[must_use]
-    pub fn of(game: &Game, lines: &[Line]) -> Option<ModernFrame> {
-        let view = view(game, lines)?;
+    pub fn of(game: &Game, levels: &Levels, lines: &[Line]) -> Option<ModernFrame> {
+        let view = view(game, levels, lines)?;
         let (left, top) = (
             view.left - view.left.rem_euclid(8),
             view.top - view.top.rem_euclid(8),

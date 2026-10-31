@@ -12,43 +12,113 @@ mod settings;
 mod tilesets;
 mod ui;
 
+use std::path::{Path, PathBuf};
+
 use bevy::camera::{OrthographicProjection, Projection, ScalingMode};
 use bevy::image::ImagePlugin;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
 use bevy::window::{PrimaryWindow, Window, WindowResolution};
+use rotj_core::levels::{self, Catalog, Levels, Source};
 
 /// The user's ROM: embedded at build time or, in a build without one, found at start-up.
 #[derive(Resource)]
 pub(crate) struct RomData(pub rotj_rom::Rom);
 
+/// The levels the game plays: a level pack's, else the original game's.
+#[derive(Resource)]
+pub(crate) struct GameLevels(pub Levels);
+
 const PRG: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/prg.bin"));
 const CHR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/chr.bin"));
 
-/// The embedded ROM, else the first argument (a file dropped on the exe), `ROTJ_ROM` or a
-/// `.nes` beside the exe; without one, where it looked, and exit 2.
-fn rom_or_exit() -> rotj_rom::Rom {
+/// What the command line names; a file dropped on the exe arrives as an argument.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Launch {
+    /// The ROM, read in a build without one embedded.
+    pub rom: Option<PathBuf>,
+    /// The level pack's folder.
+    pub pack: Option<PathBuf>,
+}
+
+/// The arguments read once: `--pack <dir>`, a folder or a `pack.json` name the pack, the
+/// first other argument the ROM.
+pub(crate) fn launch(args: impl IntoIterator<Item = PathBuf>) -> Result<Launch, String> {
+    let mut launch = Launch::default();
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        let named = arg.as_os_str() == "--pack";
+        let arg = if named {
+            args.next().ok_or("`--pack` needs a pack folder")?
+        } else {
+            arg
+        };
+        let pack = if arg
+            .file_name()
+            .is_some_and(|name| name.eq_ignore_ascii_case("pack.json"))
+        {
+            match arg.parent() {
+                Some(dir) if !dir.as_os_str().is_empty() => dir.to_path_buf(),
+                _ => PathBuf::from("."),
+            }
+        } else if named || arg.is_dir() {
+            arg
+        } else {
+            launch.rom.get_or_insert(arg);
+            continue;
+        };
+        if launch.pack.replace(pack).is_some() {
+            return Err("more than one level pack".into());
+        }
+    }
+    Ok(launch)
+}
+
+/// The levels of the pack in `dir`, imported as a user's against the ROM.
+pub(crate) fn pack_levels(rom: &rotj_rom::Rom, dir: &Path) -> Result<Levels, String> {
+    let files = levels::read(dir)?;
+    let catalog = Catalog::from_rom(&rom.prg, &rom.chr).ok_or("the ROM's levels do not import")?;
+    levels::import(&files, &catalog, Source::User).map_err(|error| error.to_string())
+}
+
+/// Prints `message` and exits 2; on Windows, where a dropped file's console closes at once,
+/// after Enter.
+fn exit_with(message: &str) -> ! {
+    eprintln!("batman-rotj: {message}");
+    if cfg!(windows) {
+        eprintln!("Press Enter to close.");
+        let _ = std::io::stdin().read_line(&mut String::new());
+    }
+    std::process::exit(2);
+}
+
+/// The embedded ROM, else `arg`, `ROTJ_ROM` or a `.nes` beside the exe; without one, where
+/// it looked, and exit 2.
+fn rom_or_exit(arg: Option<&Path>) -> rotj_rom::Rom {
     if !PRG.is_empty() {
         return rotj_rom::Rom {
             prg: PRG.to_vec(),
             chr: CHR.to_vec(),
         };
     }
-    let arg = std::env::args_os().nth(1).map(std::path::PathBuf::from);
-    rotj_rom::Rom::load(arg.as_deref()).unwrap_or_else(|error| {
-        eprintln!(
-            "batman-rotj: no usable ROM found.\n\
+    rotj_rom::Rom::load(arg).unwrap_or_else(|error| {
+        exit_with(&format!(
+            "no usable ROM found.\n\
              Put Batman - Return of the Joker (USA).nes next to batman-rotj{}, pass it as the \
              first argument (drop it onto the exe), or set ROTJ_ROM.\n{error}",
             std::env::consts::EXE_SUFFIX
-        );
-        if cfg!(windows) {
-            eprintln!("Press Enter to close.");
-            let _ = std::io::stdin().read_line(&mut String::new());
-        }
-        std::process::exit(2);
+        ))
     })
+}
+
+/// The pack's levels, else the original game's; a pack that does not import exits 2,
+/// naming its problem.
+fn levels_or_exit(rom: &rotj_rom::Rom, pack: Option<&Path>) -> Levels {
+    let Some(dir) = pack else {
+        return Levels::original(&rom.prg, &rom.chr).expect("the ROM's levels import");
+    };
+    pack_levels(rom, dir).unwrap_or_else(|error| exit_with(&format!("{}: {error}", dir.display())))
 }
 
 /// Which wgpu backends to use.
@@ -89,7 +159,10 @@ enum GameState {
 }
 
 fn main() {
-    let rom = rom_or_exit();
+    let launch = launch(std::env::args_os().skip(1).map(PathBuf::from))
+        .unwrap_or_else(|error| exit_with(&error));
+    let rom = rom_or_exit(launch.rom.as_deref());
+    let levels = levels_or_exit(&rom, launch.pack.as_deref());
     let dir = settings::exe_dir();
     let saved = dir.as_deref().map(settings::load).unwrap_or_default();
     let mut app = App::new();
@@ -115,6 +188,7 @@ fn main() {
             }),
     )
     .insert_resource(RomData(rom))
+    .insert_resource(GameLevels(levels))
     .insert_resource(saved)
     .init_resource::<screen::Colours>()
     .insert_resource(settings::SettingsDir(dir))
@@ -221,6 +295,245 @@ fn fit_camera(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::play::tests::{on_title, step_until};
+    use rotj_core::levels::model::{Map, Object, PackFile, Region, to_text};
+    use rotj_core::levels::{ImportError, PackFiles};
+    use std::collections::BTreeSet;
+
+    /// A fresh folder under the temp dir, named for `name` and this process.
+    fn temp_folder(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("rotj-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a temp folder");
+        dir
+    }
+
+    #[test]
+    fn the_arguments_name_a_rom_and_a_pack_once() {
+        let dir = temp_folder("launch");
+        let dir_text = dir.to_str().expect("a UTF-8 temp dir");
+        let pack_json = dir.join("pack.json");
+        let pack_json = pack_json.to_str().expect("UTF-8");
+        let pack = |rom: Option<&str>, pack: &Path| Launch {
+            rom: rom.map(PathBuf::from),
+            pack: Some(pack.to_path_buf()),
+        };
+        let cases: [(&[&str], Result<Launch, String>); 12] = [
+            (&["--pack", dir_text], Ok(pack(None, &dir))),
+            (&["--pack", pack_json], Ok(pack(None, &dir))),
+            (
+                &["rotj.nes", "--pack", dir_text],
+                Ok(pack(Some("rotj.nes"), &dir)),
+            ),
+            (&[dir_text], Ok(pack(None, &dir))),
+            (&[pack_json], Ok(pack(None, &dir))),
+            (&["PACK.JSON"], Ok(pack(None, Path::new(".")))),
+            (&["rotj.nes", dir_text], Ok(pack(Some("rotj.nes"), &dir))),
+            (&[pack_json, "rotj.nes"], Ok(pack(Some("rotj.nes"), &dir))),
+            (
+                &["rotj.nes"],
+                Ok(Launch {
+                    rom: Some("rotj.nes".into()),
+                    pack: None,
+                }),
+            ),
+            (&[], Ok(Launch::default())),
+            (
+                &[dir_text, pack_json],
+                Err("more than one level pack".into()),
+            ),
+            (&["--pack"], Err("`--pack` needs a pack folder".into())),
+        ];
+        for (args, expected) in cases {
+            assert_eq!(launch(args.iter().map(PathBuf::from)), expected, "{args:?}");
+        }
+        std::fs::remove_dir_all(&dir).expect("cleans up");
+    }
+
+    fn objects<'a>(map: &'a mut Map, name: &str) -> &'a mut Vec<Object> {
+        let layer = map.layers.iter_mut().find(|layer| layer.name == name);
+        layer
+            .and_then(|layer| layer.objects.as_mut())
+            .expect("an object layer")
+    }
+
+    /// Paints entry `to`'s 16x16 cells with entry `from`'s, both page-table entries (0-31).
+    fn copy_region(map: &mut Map, from: u32, to: u32) {
+        let vertical = map
+            .properties
+            .iter()
+            .any(|property| property.name == "scroll" && property.value == "vertical");
+        let width = usize::try_from(map.width).expect("a width");
+        let cell = |entry: u32, cell: usize| {
+            let (along, band) = (entry as usize & 15, entry as usize >> 4);
+            let (x, y) = if vertical {
+                (band, along)
+            } else {
+                (along, band)
+            };
+            (y * 16 + cell / 16) * width + x * 16 + cell % 16
+        };
+        let tiles = map.layers[0].data.as_mut().expect("terrain");
+        for index in 0..256 {
+            tiles[cell(to, index)] = tiles[cell(from, index)];
+        }
+    }
+
+    /// The exported original made a user pack, with each object it drops and why.
+    fn user_pack(rom: &rotj_rom::Rom, catalog: &Catalog) -> (PackFiles, Vec<(String, String)>) {
+        let mut files = levels::export(&rom.prg, &rom.chr).expect("the ROM exports");
+        let edit_map = |files: &mut PackFiles, path: &str, edit: &mut dyn FnMut(&mut Map)| {
+            let mut map: Map = serde_json::from_str(&files[path]).expect("a room");
+            edit(&mut map);
+            files.insert(path.into(), to_text(&map));
+        };
+        let rooms: Vec<String> = files
+            .keys()
+            .filter(|path| path.starts_with("rooms/"))
+            .cloned()
+            .collect();
+        for path in &rooms {
+            edit_map(&mut files, path, &mut |map| {
+                objects(map, "spawns").retain(|object| object.kind != "no_handler");
+            });
+        }
+        let mut dropped = Vec::new();
+        let mut remapped = BTreeSet::new();
+        loop {
+            let (file, reason) = match levels::import(&files, catalog, Source::User) {
+                Ok(_) => return (files, dropped),
+                Err(ImportError::Invalid { file, reason }) => (file, reason),
+                Err(error) => panic!("{error}"),
+            };
+            let words: Vec<&str> = reason.split(' ').collect();
+            if let [
+                "layer",
+                "`terrain`:",
+                "entry",
+                entry,
+                "is",
+                "page",
+                page,
+                ..,
+            ] = words[..]
+            {
+                let entry: u32 = entry.parse().expect("an entry");
+                let page: usize = page.trim_end_matches(',').parse().expect("a page");
+                let mut pack: PackFile =
+                    serde_json::from_str(&files["pack.json"]).expect("pack.json");
+                let stage = pack
+                    .stages
+                    .iter_mut()
+                    .find(|stage| stage.rooms.contains(&file))
+                    .expect("the room's stage");
+                let on = |page: &Vec<Region>, entry| {
+                    page.iter()
+                        .position(|region| region.room == file && region.entry == entry)
+                };
+                let at = on(&stage.pages[page], entry).expect("the region");
+                let region = stage.pages[page].remove(at);
+                let (written, from) = (0..page)
+                    .find_map(|written| {
+                        let held = stage.pages[written]
+                            .iter()
+                            .find(|region| region.room == file && region.entry < 32)?;
+                        Some((written, held.entry))
+                    })
+                    .expect("an entry of the room on a written page");
+                stage.pages[written].push(region);
+                remapped.extend(stage.rooms.iter().cloned());
+                edit_map(&mut files, &file, &mut |map| copy_region(map, from, entry));
+                files.insert("pack.json".into(), to_text(&pack));
+            } else if let [
+                "layer",
+                layer @ ("`spawns`" | "`markers`"),
+                "object",
+                id,
+                ..,
+            ] = words[..]
+            {
+                let id: u32 = id.trim_end_matches(':').parse().expect("an object id");
+                if words[4] == "schedule" {
+                    assert!(remapped.contains(&file), "{file}: {reason}");
+                }
+                let layer = layer.trim_matches('`');
+                edit_map(&mut files, &file, &mut |map| {
+                    objects(map, layer).retain(|object| object.id != id);
+                });
+                let stem = file.trim_start_matches("rooms/").trim_end_matches(".tmj");
+                let marker = if layer == "markers" { "marker " } else { "" };
+                dropped.push((format!("{stem} {marker}{id}"), words[4..].join(" ")));
+            } else {
+                panic!("{file}: {reason}");
+            }
+        }
+    }
+
+    /// The exported original, made a user pack, plays through `--pack` and a dropped
+    /// `pack.json`: from each checkpoint's start, and stage 1-1 for a while.
+    #[test]
+    fn a_pack_plays_from_its_folder() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let catalog = Catalog::from_rom(&rom.prg, &rom.chr).expect("the ROM's catalog");
+        let (files, dropped) = user_pack(rom, &catalog);
+        let refused: Vec<&str> = dropped
+            .iter()
+            .filter(|(_, why)| !why.starts_with("schedule cell"))
+            .map(|(object, _)| object.as_str())
+            .collect();
+        assert_eq!(
+            refused,
+            [
+                "3-1-4 3", "3-1-4 11", "3-2-2 12", "3-3-1 3", "3-3-1 11", "5-1-4 1", "5-1-4 28",
+                "6-3-1 3", "6-3-1 15"
+            ],
+            "the trailing exits"
+        );
+        assert!(
+            dropped.iter().any(|(object, _)| object == "4-3-1 9"),
+            "4-3-1's trailing exit collides on its remapped page"
+        );
+        let expected = levels::import(&files, &catalog, Source::User).expect("the user pack");
+        assert_ne!(
+            expected,
+            Levels::original(&rom.prg, &rom.chr).expect("the original levels")
+        );
+        let dir = temp_folder("pack");
+        levels::save(&dir, &files).expect("saves the pack");
+        for args in [
+            vec![PathBuf::from("--pack"), dir.clone()],
+            vec![dir.join("pack.json")],
+        ] {
+            let launch = launch(args).expect("the arguments");
+            let pack = launch.pack.expect("a pack");
+            assert_eq!(pack_levels(rom, &pack).expect("the pack imports"), expected);
+        }
+        std::fs::remove_dir_all(&dir).expect("cleans up");
+        let prg = || rotj_core::prg::Prg::new(rom.prg.clone(), expected.clone());
+        let checkpoints = (0..)
+            .take_while(|&level| rotj_core::actor::stage::level_area(&expected, level).is_some());
+        for level in checkpoints {
+            let forced = u8::try_from(level).ok().filter(|&level| level > 0);
+            let mut play = play::Play::power_on(prg(), rom.chr.clone(), forced);
+            assert!(step_until(&mut play, 400, 0, on_title), "{level}: no title");
+            play.step(0x10);
+            assert!(
+                step_until(&mut play, 400, 0, |play| !play.booting()),
+                "{level}"
+            );
+            assert_eq!(
+                Some(play.game().world.area),
+                rotj_core::actor::stage::level_area(&expected, level)
+            );
+        }
+        let mut play = play::Play::start(prg(), rom.chr.clone(), 0);
+        for _ in 0..300 {
+            play.step(0x01);
+        }
+        assert_eq!(play.game().world.area, 0);
+    }
 
     const FULL: Vec2 = Vec2::new(256.0, 240.0);
     const TV: Vec2 = Vec2::new(256.0, 224.0);

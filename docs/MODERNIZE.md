@@ -272,7 +272,8 @@ New candidates, each to be classified (state, flags, table index) before it chan
   in the TAS, the lib suite, the Classic suites, a 1-seed sweep or a 300-branch
   exploration wrote an aliased byte through `cx`. Unreached by the game as shipped; new
   content that places actors differently (kaizo levels) could reach it, so the fix (write
-  back only the fields the handler changed) belongs with that content's own tests.
+  back only the fields the handler changed) belongs with that content's own tests. Packs play
+  since level packs release 6, so it is the next step on its own: an oracle test first.
 
 ### The survey loop, 2026-10-18 (after HANDOFF's list)
 
@@ -339,8 +340,10 @@ To do, in the survey loop's order after #1-#3 above, level packs release 1 along
 - **#8 the remaining script step machines** (the next-area load, the continue screen, the
   room-change slide, the sound test) as data on the shared runner, proven by the script hashes
   (done in 1.1.40).
-- **#14 `bevy_asset_loader`**: with level packs release 6 (`--pack <dir>`); release 3 (1.1.44) moved the
-  game onto `Levels` but had nothing to load, since the ROM is embedded.
+- **#14 `bevy_asset_loader`**: with the "Load pack" menu entry and the editor (loading in game, hot
+  reload). Release 3 (1.1.44) moved the game onto `Levels` but had nothing to load, since the ROM is
+  embedded; release 6 reads `--pack <dir>` with plain `std::fs`, so its refusals come before the
+  window opens (`docs/specs/2026-10-31-level-packs-release-6-design.md`).
 - **#5 the Modern picture's reach**: the `$D3` 4 boss rooms next, then the band rooms, each proven
   by the background gate and the headless pixel comparison with Classic; Classic's own picture
   stays the software `Frame`, the exact NES picture and the reference. (`$D3` 4 done in 1.1.41 for
@@ -375,7 +378,7 @@ To do, in the survey loop's order after #1-#3 above, level packs release 1 along
   profiled). The scratch harness (counters in `draw`, a `ROTJ_CHURN` switch, the scenes of
   `stage_1_and_a_boss_bar_render_modern`) is not kept; rerun it if a real GPU shows otherwise.
 - **Leads to probe**: `path_platform`'s and the splitter orbit's table sizes; later, the odd-energy HUD and the
-  no-free-slot `$AC16` path. The aliased-byte write-back fix comes with level packs.
+  no-free-slot `$AC16` path. The aliased-byte write-back is its own step after level packs release 6 (the lead above).
 - **The music driver** (owner, 2026-10-18): its commands as an enum, the APU registers named.
 
 Kept as they are: #7 (`animate_chr` is game state the lockstep checks; Modern rebuilds its

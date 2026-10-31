@@ -470,6 +470,7 @@ dependencies = [
  "rotj-oracle",
  "rotj-rom",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

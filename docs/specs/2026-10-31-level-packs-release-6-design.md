@@ -143,7 +143,11 @@ screen record, spawns, room loads) goes through `Levels` since releases 2 and 3.
   without `pack.json` is refused by name.
 - **A pack through `--pack`** (app): the test pack is the exported original made a valid user
   pack: `no_handler` objects dropped, the 13 rooms' map-held entries on unwritten pages remapped
-  onto written ones (release 5), and the six trailing exits above dropped. It is saved to a temp
+  onto written ones (release 5), and the six trailing exits above dropped. The remap is lossy: a
+  remapped entry's objects share the target page's schedule cells, so the objects and locks that
+  collide are dropped too, each asserted to lie in a stage the remap touched (stand-in RULING
+  [review]). The refusals other than those collisions are exactly nine of the trailing exits;
+  `4-3-1`'s exit 9 collides on its remapped page first. It is saved to a temp
   folder; the argument parser, `read` and the import take it as `--pack <dir>` and as a dropped
   `pack.json`; the app's levels are asserted to be that import and to differ from
   `Levels::original` (a dropped object is absent); the game powers on with them and plays from
@@ -152,8 +156,9 @@ screen record, spawns, room loads) goes through `Levels` since releases 2 and 3.
 - **One test per refusal**: too few rooms, too few stages, too many stages and rooms, an unknown
   boss (new); the extra password's unknown stage and non-checkpoint (existing). Each error names
   the file and object.
-- The argument parser, table-driven: `--pack <dir>` first or last, a folder, a `pack.json`, a ROM
-  and a pack in either order, a ROM alone, nothing, two packs.
+- The argument parser, table-driven: `--pack <dir>` first or last, `--pack` naming a
+  `pack.json`, a folder, a `pack.json`, a ROM and a pack in either order, a ROM alone, nothing,
+  two packs.
 - Mirroring: the equivalence and round-trip tests cover the property without the overlay; one
   small test that a room without it derives.
 - Modern's `view`: the final boss room test passes the levels (the test at the end of modern.rs).

@@ -25,6 +25,7 @@ serde.workspace = true
 rotj-rom = { path = "../rotj-rom", version = "1.1.52" }
 
 [dev-dependencies]
+serde_json.workspace = true
 rotj-oracle = { version = "1.1.52", path = "../../tools/rotj-oracle" }
 
 [lints]
