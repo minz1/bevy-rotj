@@ -21,8 +21,6 @@ unknown-git = "deny"
 [advisories]
 version = 2
 ignore = [
-    # `paste` is unmaintained; cosmetic for us (build-time proc macro only).
-    { id = "RUSTSEC-2024-0436", reason = "transitive via winit/gilrs; no safe upgrade, low impact" },
     # `ttf-parser` unmaintained; bevy_text still renders with it. Moving to
     # `skrifa` is an upstream bevy change, we cannot fix it here.
     { id = "RUSTSEC-2026-0192", reason = "transitive via bevy_text; no safe upgrade" },
