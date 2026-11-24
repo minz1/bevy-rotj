@@ -34,7 +34,7 @@ use button::Buttons;
 use engine::{Work, anchor};
 use oam::OamBuilder;
 use slots::Slots;
-use world::{Cx, Effects, Schedule, SoundId, World, busy, stage_script};
+use world::{Cx, Effects, Schedule, SoundId, Transition, World, busy, stage_script};
 
 /// Everything the game loop reads and writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -197,16 +197,15 @@ impl Game {
     /// The script `$BA` asks for (`$D4D3`), if any.
     fn dispatch_transition(&mut self, prg: &Prg) -> Option<Script> {
         match self.effects.transition {
-            0 => None,
-            1 => Some(Script::RoomChange(room::RoomChange::new(
+            Transition::None => None,
+            Transition::RoomChange => Some(Script::RoomChange(room::RoomChange::new(
                 self.effects.transition_arg,
             ))),
-            2 => stage::stage_end(self, prg).then_some(Script::StageEnded),
-            3 => Some(Script::NextArea(stage::NextArea::default())),
-            4 => Some(Script::NextArea(stage::NextArea::life_lost())),
-            5 => Some(Script::PowerUp(stage::PowerUp::default())),
-            6 => Some(Script::Ending(ending::Ending::default())),
-            other => panic!("$BA = {other} ($D4D3) is not ported"),
+            Transition::StageEnd => stage::stage_end(self, prg).then_some(Script::StageEnded),
+            Transition::NextArea => Some(Script::NextArea(stage::NextArea::default())),
+            Transition::LifeLost => Some(Script::NextArea(stage::NextArea::life_lost())),
+            Transition::PowerUp => Some(Script::PowerUp(stage::PowerUp::default())),
+            Transition::Ending => Some(Script::Ending(ending::Ending::default())),
         }
     }
 
@@ -309,7 +308,7 @@ impl Game {
     /// game's bit order `$F6`), the VRAM queue drained after the frame's direct writes,
     /// last pushed first as `$C084` pulls it off the stack, and the sound requests the
     /// driver takes (`$40-$43`, cleared).
-    pub fn nmi(&mut self, pad: u8) -> Vblank {
+    pub fn nmi(&mut self, pad: Buttons) -> Vblank {
         let mut rng = world::Rng(self.world.rng);
         for _ in 0..RNG_SPINS {
             rng.next_frame();
@@ -319,14 +318,14 @@ impl Game {
         world.frame = world.frame.wrapping_add(1);
         world.frame_odd = !world.frame_odd;
         let mut held = pad;
-        if held & 3 == 3 {
-            held &= 0xFE;
+        if held.contains(Buttons::SIDEWAYS) {
+            held &= !Buttons::RIGHT;
         }
-        if held & 0x0C == 0x0C {
-            held &= 0xF7;
+        if held.contains(Buttons::UP_OR_DOWN) {
+            held &= !Buttons::UP;
         }
-        world.pressed = Buttons::from_bits((held ^ world.pad.bits()) & pad);
-        world.pad = Buttons::from_bits(held);
+        world.pressed = Buttons::from_bits((held.bits() ^ world.pad.bits()) & pad.bits());
+        world.pad = held;
         let effects = &mut self.effects;
         let sound = [
             std::mem::take(&mut effects.music),
@@ -1966,7 +1965,7 @@ mod tests {
         let mut game = super::room::start(prg, &rom.chr, 0);
         let mut labels = 0;
         for _ in 0..8 {
-            game.nmi(0);
+            game.nmi(super::Buttons::NONE);
             let mut alone = game.clone();
             alone.oam.clear();
             alone.oam.marking = super::oam::Mark::Hud;
@@ -1999,7 +1998,7 @@ mod tests {
         game.effects.vram.direct.clear();
         game.effects.vram.push_palette(&[0x0F, 0x26]);
         game.effects.vram.push_palette(&[0x0F, 0x06]);
-        let writes = game.nmi(0).writes;
+        let writes = game.nmi(super::Buttons::NONE).writes;
         let bytes: Vec<_> = writes.iter().map(|write| write.bytes[1]).collect();
         assert_eq!(bytes, [0x06, 0x26]);
     }
@@ -2013,8 +2012,8 @@ mod tests {
         };
         let mut game =
             super::room::start(crate::prg::for_test().expect("the test ROM"), &rom.chr, 0);
-        game.nmi(0xC1);
-        game.nmi(0xC3);
+        game.nmi(super::Buttons::from_bits(0xC1));
+        game.nmi(super::Buttons::from_bits(0xC3));
         assert_eq!(
             (game.world.pad.bits(), game.world.pressed.bits()),
             (0xC2, 0x03)

@@ -29,11 +29,20 @@ pub fn tick_due(last: Option<Instant>, now: Instant) -> bool {
     last.is_none_or(|last| now.duration_since(last) > PERIOD / 2)
 }
 
+/// Whether the clock has ticked yet and whether this frame runs a tick.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum TickState {
+    /// No tick has run yet; the first frame always runs one.
+    #[default]
+    Initial,
+    /// The last tick ran at `last`; `due` says whether this frame runs the next.
+    Active { last: Instant, due: bool },
+}
+
 /// When the last tick ran, and whether this frame runs one.
 #[derive(Resource, Default)]
 pub struct Clock {
-    last: Option<Instant>,
-    due: bool,
+    state: TickState,
     log: Option<FrameLog>,
 }
 
@@ -43,7 +52,7 @@ pub struct Clock {
     reason = "Bevy system params, rust-clippy#8940"
 )]
 pub fn due(clock: Res<'_, Clock>) -> bool {
-    clock.due
+    matches!(clock.state, TickState::Active { due: true, .. })
 }
 
 /// Tick intervals, summarised every [`FrameLog::EVERY`] ticks (`ROTJ_FRAME_LOG=1`).
@@ -79,14 +88,23 @@ impl FrameLog {
 
 fn start_frame(mut clock: ResMut<'_, Clock>) {
     let now = Instant::now();
-    clock.due = tick_due(clock.last, now);
-    if !clock.due {
+    let last = match clock.state {
+        TickState::Initial => None,
+        TickState::Active { last, .. } => Some(last),
+    };
+    if !tick_due(last, now) {
+        if let TickState::Active { due, .. } = &mut clock.state {
+            *due = false;
+        }
         return;
     }
-    if let (Some(last), Some(log)) = (clock.last, &mut clock.log) {
+    if let (Some(last), Some(log)) = (last, &mut clock.log) {
         log.record(now.duration_since(last).as_secs_f64() * 1000.0);
     }
-    clock.last = Some(now);
+    clock.state = TickState::Active {
+        last: now,
+        due: true,
+    };
 }
 
 /// Paces the app's frames to the tick.

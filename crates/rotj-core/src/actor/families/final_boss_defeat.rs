@@ -4,15 +4,13 @@
 
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::{Body, Counter};
-use crate::actor::world::Cx;
+use crate::actor::world::{Cx, Transition};
 
 /// The metasprite per `$7C30` frame (`$94B0`) and the CHR bank it puts in `$E7` (`$94B8`).
 const FRAMES: u16 = 0x94B0;
 const BANKS: u16 = 0x94B8;
 /// `$81C6` maps bank 9 at `$A000` for the draw.
 const DRAW_BANK: u8 = 9;
-/// The `$BA` value that starts the ending (`$D967`).
-const ENDING: u8 = 6;
 
 phases! {
     /// The fall's phase (`$7DD0`), which picks its handler (`$94AC`).
@@ -66,7 +64,7 @@ impl State {
                 }
                 body.anim.tick_up();
                 if body.anim >= 0x80 {
-                    cx.effects.transition = ENDING;
+                    cx.effects.transition = Transition::Ending;
                 }
             }
             Some(Phase::Flickering) => {

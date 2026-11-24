@@ -2366,7 +2366,7 @@ impl Port<'_, '_> {
         }
         self.set_overflow_from(self.cx.effects.hud);
         let effects = &mut *self.cx.effects;
-        effects.transition = 4;
+        effects.transition = super::world::Transition::LifeLost;
         self.player.energy = 0x0E;
         if effects.hud & 0x80 == 0 {
             effects.attack = 0;

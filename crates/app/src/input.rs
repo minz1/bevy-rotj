@@ -1,141 +1,101 @@
 //! NES controller input.
 //!
-//! The port reads a button bitfield in the hardware's shift order, so gameplay
-//! code written against the disassembly (`LDA $4016`-style logic) maps over
-//! directly. Keyboard and gamepad are both merged into that one bitset.
+//! Keyboard and gamepad devices map directly into the game's [`Buttons`] bitset
+//! (`$F6` order: Right in bit 0, A in bit 7).
 
 use bevy::prelude::*;
-
-/// The eight NES buttons as a bitset in the order the console shifts them out.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct NesButtons(pub u8);
-
-impl NesButtons {
-    /// `$4016` bit 0 / A.
-    pub const A: u8 = 1 << 0;
-    /// `$4016` bit 1 / B.
-    pub const B: u8 = 1 << 1;
-    /// Select.
-    pub const SELECT: u8 = 1 << 2;
-    /// Start.
-    pub const START: u8 = 1 << 3;
-    /// D-pad up.
-    pub const UP: u8 = 1 << 4;
-    /// D-pad down.
-    pub const DOWN: u8 = 1 << 5;
-    /// D-pad left.
-    pub const LEFT: u8 = 1 << 6;
-    /// D-pad right.
-    pub const RIGHT: u8 = 1 << 7;
-
-    /// Whether every button in the mask is held.
-    #[must_use]
-    #[cfg(test)]
-    pub const fn contains(self, mask: u8) -> bool {
-        self.0 & mask == mask
-    }
-
-    /// The byte the game's pad read (`$C1DB`) builds from them, which `Play::step`
-    /// takes: the shift order reversed, Right in bit 0 and A in bit 7 (`$F6`).
-    #[must_use]
-    pub const fn game_byte(self) -> u8 {
-        self.0.reverse_bits()
-    }
-}
+use rotj_core::actor::button::Buttons;
 
 /// Controller state for the current frame.
 #[derive(Resource, Debug, Default, Clone, Copy)]
 pub struct NesInput {
     /// Buttons held right now.
-    pub buttons: NesButtons,
+    pub buttons: Buttons,
     /// Buttons that went down since the previous frame.
-    pub pressed: NesButtons,
+    pub pressed: Buttons,
     /// Buttons that were released since the previous frame.
-    pub released: NesButtons,
+    pub released: Buttons,
     /// Held buttons the game does not see until they are released.
-    hidden: u8,
+    hidden: Buttons,
 }
 
 impl NesInput {
     /// Move to the next frame's state, deriving the edge bits.
-    pub fn update(&mut self, buttons: NesButtons) {
-        self.pressed = NesButtons(buttons.0 & !self.buttons.0);
-        self.released = NesButtons(!buttons.0 & self.buttons.0);
+    pub fn update(&mut self, buttons: Buttons) {
+        self.pressed = buttons & !self.buttons;
+        self.released = !buttons & self.buttons;
         self.buttons = buttons;
-        self.hidden &= buttons.0;
+        self.hidden &= buttons;
     }
 
     /// Hides every button held now from the game until it is released.
     pub fn hide_held(&mut self) {
-        self.hidden = self.buttons.0;
+        self.hidden = self.buttons;
     }
 
-    /// The pad the game reads: held buttons less the hidden ones, in its `$F6` order.
+    /// The pad the game reads: held buttons less the hidden ones.
     #[must_use]
-    pub const fn game_byte(self) -> u8 {
-        NesButtons(self.buttons.0 & !self.hidden).game_byte()
+    pub const fn game_buttons(self) -> Buttons {
+        Buttons::from_bits(self.buttons.bits() & !self.hidden.bits())
     }
 }
 
 /// Keyboard bindings, NES order: A and B on the right hand, as on the pad.
-const KEYMAP: [(u8, &[KeyCode]); 8] = [
-    (NesButtons::A, &[KeyCode::KeyX, KeyCode::KeyK]),
-    (NesButtons::B, &[KeyCode::KeyZ, KeyCode::KeyJ]),
-    (
-        NesButtons::SELECT,
-        &[KeyCode::ShiftLeft, KeyCode::ShiftRight],
-    ),
-    (NesButtons::START, &[KeyCode::Enter]),
-    (NesButtons::UP, &[KeyCode::ArrowUp, KeyCode::KeyW]),
-    (NesButtons::DOWN, &[KeyCode::ArrowDown, KeyCode::KeyS]),
-    (NesButtons::LEFT, &[KeyCode::ArrowLeft, KeyCode::KeyA]),
-    (NesButtons::RIGHT, &[KeyCode::ArrowRight, KeyCode::KeyD]),
+const KEYMAP: [(Buttons, &[KeyCode]); 8] = [
+    (Buttons::A, &[KeyCode::KeyX, KeyCode::KeyK]),
+    (Buttons::B, &[KeyCode::KeyZ, KeyCode::KeyJ]),
+    (Buttons::SELECT, &[KeyCode::ShiftLeft, KeyCode::ShiftRight]),
+    (Buttons::START, &[KeyCode::Enter]),
+    (Buttons::UP, &[KeyCode::ArrowUp, KeyCode::KeyW]),
+    (Buttons::DOWN, &[KeyCode::ArrowDown, KeyCode::KeyS]),
+    (Buttons::LEFT, &[KeyCode::ArrowLeft, KeyCode::KeyA]),
+    (Buttons::RIGHT, &[KeyCode::ArrowRight, KeyCode::KeyD]),
 ];
 
 /// Gamepad bindings in the usual "SNES-style" layout.
-const PADMAP: [(u8, &[GamepadButton]); 8] = [
-    (NesButtons::A, &[GamepadButton::South]),
-    (NesButtons::B, &[GamepadButton::West, GamepadButton::East]),
-    (NesButtons::SELECT, &[GamepadButton::Select]),
-    (NesButtons::START, &[GamepadButton::Start]),
-    (NesButtons::UP, &[GamepadButton::DPadUp]),
-    (NesButtons::DOWN, &[GamepadButton::DPadDown]),
-    (NesButtons::LEFT, &[GamepadButton::DPadLeft]),
-    (NesButtons::RIGHT, &[GamepadButton::DPadRight]),
+const PADMAP: [(Buttons, &[GamepadButton]); 8] = [
+    (Buttons::A, &[GamepadButton::South]),
+    (Buttons::B, &[GamepadButton::West, GamepadButton::East]),
+    (Buttons::SELECT, &[GamepadButton::Select]),
+    (Buttons::START, &[GamepadButton::Start]),
+    (Buttons::UP, &[GamepadButton::DPadUp]),
+    (Buttons::DOWN, &[GamepadButton::DPadDown]),
+    (Buttons::LEFT, &[GamepadButton::DPadLeft]),
+    (Buttons::RIGHT, &[GamepadButton::DPadRight]),
 ];
 
 /// Keyboard contribution to the bitset.
 #[must_use]
-pub fn keyboard_buttons(keys: &ButtonInput<KeyCode>) -> NesButtons {
-    let mut bits = 0u8;
-    for (bit, codes) in KEYMAP {
+pub fn keyboard_buttons(keys: &ButtonInput<KeyCode>) -> Buttons {
+    let mut buttons = Buttons::NONE;
+    for (button, codes) in KEYMAP {
         if codes.iter().any(|key| keys.pressed(*key)) {
-            bits |= bit;
+            buttons |= button;
         }
     }
-    NesButtons(bits)
+    buttons
 }
 
 /// Gamepad contribution to the bitset, for one pad's `pressed` predicate.
 #[must_use]
-pub fn gamepad_buttons(pressed: impl Fn(GamepadButton) -> bool) -> NesButtons {
-    let mut bits = 0u8;
-    for (bit, buttons) in PADMAP {
-        if buttons.iter().any(|button| pressed(*button)) {
-            bits |= bit;
+pub fn gamepad_buttons(pressed: impl Fn(GamepadButton) -> bool) -> Buttons {
+    let mut buttons = Buttons::NONE;
+    for (button, pads) in PADMAP {
+        if pads.iter().any(|pad| pressed(*pad)) {
+            buttons |= button;
         }
     }
-    NesButtons(bits)
+    buttons
 }
 
 /// Merge every connected gamepad and the keyboard into one NES bitset.
 #[must_use]
-pub fn read_buttons(keys: &ButtonInput<KeyCode>, gamepads: &Query<'_, '_, &Gamepad>) -> NesButtons {
-    let mut bits = keyboard_buttons(keys).0;
+pub fn read_buttons(keys: &ButtonInput<KeyCode>, gamepads: &Query<'_, '_, &Gamepad>) -> Buttons {
+    let mut buttons = keyboard_buttons(keys);
     for pad in gamepads.iter() {
-        bits |= gamepad_buttons(|button| pad.pressed(button)).0;
+        buttons |= gamepad_buttons(|button| pad.pressed(button));
     }
-    NesButtons(bits)
+    buttons
 }
 
 /// Input plugin: keeps [`NesInput`] current every frame.
@@ -171,52 +131,93 @@ mod tests {
         keys.press(KeyCode::ArrowRight);
         keys.press(KeyCode::KeyX);
         let buttons = keyboard_buttons(&keys);
-        assert!(buttons.contains(NesButtons::RIGHT));
-        assert!(buttons.contains(NesButtons::A));
-        assert!(!buttons.contains(NesButtons::B));
+        assert!(buttons.contains(Buttons::RIGHT));
+        assert!(buttons.contains(Buttons::A));
+        assert!(!buttons.contains(Buttons::B));
 
         let pad = gamepad_buttons(|b| b == GamepadButton::South);
-        assert!(pad.contains(NesButtons::A));
-        assert!(!pad.contains(NesButtons::B));
+        assert!(pad.contains(Buttons::A));
+        assert!(!pad.contains(Buttons::B));
     }
 
     #[test]
     fn update_derives_edges() {
         let mut input = NesInput::default();
-        input.update(NesButtons(NesButtons::A | NesButtons::START));
-        assert!(input.pressed.contains(NesButtons::A));
-        assert!(!input.pressed.contains(NesButtons::START | NesButtons::B));
+        input.update(Buttons::A | Buttons::START);
+        assert!(input.pressed.contains(Buttons::A));
+        assert!(!input.pressed.contains(Buttons::START | Buttons::B));
 
-        input.update(NesButtons(NesButtons::A));
-        assert!(input.released.contains(NesButtons::START));
-        assert!(!input.pressed.contains(NesButtons::A));
-        assert!(input.buttons.contains(NesButtons::A));
+        input.update(Buttons::A);
+        assert!(input.released.contains(Buttons::START));
+        assert!(!input.pressed.contains(Buttons::A));
+        assert!(input.buttons.contains(Buttons::A));
     }
 
     #[test]
     fn hidden_buttons_stay_hidden_until_released() {
         let mut input = NesInput::default();
-        input.update(NesButtons(NesButtons::A | NesButtons::RIGHT));
+        input.update(Buttons::A | Buttons::RIGHT);
         input.hide_held();
-        input.update(NesButtons(NesButtons::A | NesButtons::RIGHT));
-        assert_eq!(input.game_byte(), 0);
-        input.update(NesButtons(NesButtons::RIGHT));
-        assert_eq!(input.game_byte(), 0);
-        input.update(NesButtons(NesButtons::A | NesButtons::RIGHT));
-        assert_eq!(input.game_byte(), 0x80);
+        input.update(Buttons::A | Buttons::RIGHT);
+        assert_eq!(input.game_buttons(), Buttons::NONE);
+        input.update(Buttons::RIGHT);
+        assert_eq!(input.game_buttons(), Buttons::NONE);
+        input.update(Buttons::A | Buttons::RIGHT);
+        assert_eq!(input.game_buttons(), Buttons::A);
     }
 
     #[test]
-    fn the_game_byte_has_right_low_and_a_high() {
-        assert_eq!(NesButtons(NesButtons::RIGHT).game_byte(), 0x01);
-        assert_eq!(NesButtons(NesButtons::A).game_byte(), 0x80);
-        assert_eq!(NesButtons(NesButtons::START).game_byte(), 0x10);
+    fn every_key_and_pad_maps_to_its_shift_reversed_game_byte() {
+        let old_keys = [
+            (KeyCode::KeyX, 0u8),
+            (KeyCode::KeyK, 0),
+            (KeyCode::KeyZ, 1),
+            (KeyCode::KeyJ, 1),
+            (KeyCode::ShiftLeft, 2),
+            (KeyCode::ShiftRight, 2),
+            (KeyCode::Enter, 3),
+            (KeyCode::ArrowUp, 4),
+            (KeyCode::KeyW, 4),
+            (KeyCode::ArrowDown, 5),
+            (KeyCode::KeyS, 5),
+            (KeyCode::ArrowLeft, 6),
+            (KeyCode::KeyA, 6),
+            (KeyCode::ArrowRight, 7),
+            (KeyCode::KeyD, 7),
+        ];
+        for (key, shift_bit) in old_keys {
+            let mut keys = ButtonInput::<KeyCode>::default();
+            keys.press(key);
+            assert_eq!(
+                keyboard_buttons(&keys).bits(),
+                (1u8 << shift_bit).reverse_bits(),
+                "{key:?}"
+            );
+        }
+        let old_pads = [
+            (GamepadButton::South, 0u8),
+            (GamepadButton::West, 1),
+            (GamepadButton::East, 1),
+            (GamepadButton::Select, 2),
+            (GamepadButton::Start, 3),
+            (GamepadButton::DPadUp, 4),
+            (GamepadButton::DPadDown, 5),
+            (GamepadButton::DPadLeft, 6),
+            (GamepadButton::DPadRight, 7),
+        ];
+        for (pad, shift_bit) in old_pads {
+            assert_eq!(
+                gamepad_buttons(|b| b == pad).bits(),
+                (1u8 << shift_bit).reverse_bits(),
+                "{pad:?}"
+            );
+        }
     }
 
     #[test]
     fn contains_needs_every_bit() {
-        let buttons = NesButtons(NesButtons::A | NesButtons::B);
-        assert!(buttons.contains(NesButtons::A));
-        assert!(!buttons.contains(NesButtons::A | NesButtons::START));
+        let buttons = Buttons::A | Buttons::B;
+        assert!(buttons.contains(Buttons::A));
+        assert!(!buttons.contains(Buttons::A | Buttons::START));
     }
 }

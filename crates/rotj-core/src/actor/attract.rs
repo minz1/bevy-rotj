@@ -7,7 +7,7 @@ use super::button::Buttons;
 use super::cutscene::draw_sprite_with;
 use super::engine::{rom_byte, rom_word};
 use super::room::build_palette;
-use super::stage::{Fade, blackout, queue_palette};
+use super::stage::{Fade, FadeDirection, blackout, queue_palette};
 use super::world::{VramWrite, set_first_colours, sound};
 use crate::prg::Prg;
 use crate::render::{Mirroring, ctrl, mask, ppu};
@@ -33,6 +33,19 @@ const STAR_SPRITES: u16 = 0x9F3B;
 /// The stars' places as the third screen starts them (`$9EBF`, to WRAM `$6F00`).
 const STARS: u16 = 0x9EBF;
 
+/// The first screen's colour and page-copy progression (`$10`, `$1F`, `$1E`, `$1B:$1C`, `$13`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FirstPhase {
+    /// Stepping palette entry 7 every eight frames (`count` 0..56).
+    Warmup { count: u8 },
+    /// Waiting for the scroll to cross into the second nametable.
+    WaitCrossing,
+    /// Lighting colours every four frames and copying the next page over nametable 0 for 256 frames.
+    Lit { frames: u8, copied: u16 },
+    /// The 256 lit frames have run; ready to fade out.
+    Done,
+}
+
 /// The attract mode, one frame per [`Attract::step`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Attract {
@@ -40,22 +53,14 @@ pub(super) struct Attract {
     fade: Fade,
     /// The screen's x scroll, 1/256 px (`$11:$12`).
     scroll: u16,
-    /// The first screen's second phase has begun (`$10`).
-    lit: bool,
-    /// The first screen's frame count, then its lit flag (`$1F`).
-    count: u8,
-    /// The first screen's lit frames (`$1E`).
-    lit_frames: u8,
-    /// Bytes of a nametable page copied so far (`$1B:$1C`, `$20:$21`).
+    /// The first screen's colour/copy progression (`$9BDA`).
+    first: FirstPhase,
+    /// Bytes of a nametable page copied so far on screens 2 and 3 (`$20:$21`).
     copied: u16,
     /// Frames of the third screen, in fours (`$13`).
     quarters: u8,
-    /// The first screen has run its course (`$13 = $80`).
-    over: bool,
     /// The stars' x and y (WRAM `$6F00-$6F1F`).
     stars: [u8; 32],
-    /// The mode has ended: A, B or Start held to leave it, and the frame waited.
-    ended: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,28 +81,28 @@ enum Step {
     ThirdScreen { started: bool },
     End(bool),
     Leave(bool),
+    Done(bool),
 }
 
 impl Attract {
     pub(super) fn new() -> Attract {
         Attract {
             step: Step::Start,
-            fade: Fade::new(true, false),
+            fade: Fade::new(FadeDirection::In, false),
             scroll: 0,
-            lit: false,
-            count: 0,
-            lit_frames: 0,
+            first: FirstPhase::Warmup { count: 0 },
             copied: 0,
             quarters: 0,
-            over: false,
             stars: [0; 32],
-            ended: None,
         }
     }
 
     /// `Some(held)` once the mode has ended, `held` when A, B or Start ended it.
     pub(super) fn ended(&self) -> Option<bool> {
-        self.ended
+        match self.step {
+            Step::Done(held) => Some(held),
+            _ => None,
+        }
     }
 
     /// Runs one frame up to its NMI wait.
@@ -127,13 +132,12 @@ impl Attract {
                 true
             }
             Step::Leave(start) => {
-                if self.ended.is_none() {
-                    game.scroll.mask = 0;
-                    game.effects.music = sound::music::STOP;
-                    self.ended = Some(start);
-                }
+                game.scroll.mask = 0;
+                game.effects.music = sound::music::STOP;
+                self.step = Step::Done(start);
                 true
             }
+            Step::Done(_) => true,
         }
     }
 
@@ -161,7 +165,7 @@ impl Attract {
                 build_palette(prg, 0x28, 0x13, &mut game.effects.palette);
                 game.effects.palette[7] = 1;
                 game.effects.song = sound::song::ATTRACT;
-                self.fade = Fade::new(true, false);
+                self.fade = Fade::new(FadeDirection::In, false);
                 self.step = Step::FirstFadeIn;
                 return false;
             }
@@ -172,8 +176,8 @@ impl Attract {
                 }
             }
             Step::FirstScreen { started } => {
-                if started && self.over {
-                    self.fade = Fade::new(false, false);
+                if started && self.first == FirstPhase::Done {
+                    self.fade = Fade::new(FadeDirection::Out, false);
                     self.step = Step::FirstFadeOut;
                     return false;
                 }
@@ -323,11 +327,8 @@ impl Attract {
     /// `$9D79`: the counts `$10-$1F` cleared.
     fn reset_counts(&mut self) {
         self.scroll = 0;
-        self.lit = false;
-        self.count = 0;
-        self.lit_frames = 0;
+        self.first = FirstPhase::Warmup { count: 0 };
         self.quarters = 0;
-        self.over = false;
         self.copied = 0;
     }
 
@@ -352,7 +353,7 @@ impl Attract {
         game.scroll.scroll_y = 0;
         build_palette(prg, background, sprites, &mut game.effects.palette);
         set_first_colours(&mut game.effects.palette, 3);
-        self.fade = Fade::new(true, false);
+        self.fade = Fade::new(FadeDirection::In, false);
     }
 
     /// A frame of the first screen (`$9A45-$9A58`): its colours, its sprite while on
@@ -384,47 +385,49 @@ impl Attract {
     /// in turn every four frames while the next page is drawn over the first, 64 bytes a
     /// frame from WRAM `$6000`, and the screen over after 256 frames.
     fn first_colours(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) {
-        if !self.lit {
-            self.count += 1;
-            if self.count.is_multiple_of(8) {
-                let step = self.count >> 3;
-                if step == 7 {
-                    self.lit = true;
-                    self.count = 0;
-                    self.lit_frames = 0;
-                    self.copied = 0;
+        match &mut self.first {
+            FirstPhase::Warmup { count } => {
+                *count += 1;
+                if count.is_multiple_of(8) {
+                    let step = *count >> 3;
+                    if step == 7 {
+                        self.first = FirstPhase::WaitCrossing;
+                        return;
+                    }
+                    game.effects.palette[7] = rom_byte(prg, 2, FIRST_COLOURS + u16::from(step - 1));
+                }
+                queue_palette(game);
+            }
+            FirstPhase::WaitCrossing => {
+                if game.scroll.ppu_ctrl & ctrl::NAMETABLE != 0 {
+                    self.first = FirstPhase::Lit {
+                        frames: 0,
+                        copied: 0,
+                    };
+                }
+            }
+            FirstPhase::Lit { frames, copied } => {
+                *frames = frames.wrapping_add(1);
+                if *frames == 0 {
+                    self.first = FirstPhase::Done;
                     return;
                 }
-                game.effects.palette[7] = rom_byte(prg, 2, FIRST_COLOURS + u16::from(step - 1));
+                if frames.is_multiple_of(4) {
+                    let colour = rom_byte(prg, 2, LIT_COLOURS + u16::from((*frames >> 2) & 3));
+                    for at in [1, 5, 0x1D] {
+                        game.effects.palette[at] = colour;
+                    }
+                    queue_palette(game);
+                } else if *copied < 0x400 {
+                    let at = usize::from(*copied);
+                    let bytes = &chr[STORY + at..STORY + at + 0x40];
+                    game.effects
+                        .vram
+                        .push(ppu::nametable(0) + *copied, 0, bytes);
+                    *copied += 0x40;
+                }
             }
-            queue_palette(game);
-            return;
-        }
-        if self.count == 0 {
-            let table = game.scroll.ppu_ctrl & ctrl::NAMETABLE;
-            if table != 0 {
-                self.count = table;
-            }
-            return;
-        }
-        self.lit_frames = self.lit_frames.wrapping_add(1);
-        if self.lit_frames == 0 {
-            self.over = true;
-            return;
-        }
-        if self.lit_frames.is_multiple_of(4) {
-            let colour = rom_byte(prg, 2, LIT_COLOURS + u16::from((self.lit_frames >> 2) & 3));
-            for at in [1, 5, 0x1D] {
-                game.effects.palette[at] = colour;
-            }
-            queue_palette(game);
-        } else if self.copied < 0x400 {
-            let at = usize::from(self.copied);
-            let bytes = &chr[STORY + at..STORY + at + 0x40];
-            game.effects
-                .vram
-                .push(ppu::nametable(0) + self.copied, 0, bytes);
-            self.copied += 0x40;
+            FirstPhase::Done => {}
         }
     }
 

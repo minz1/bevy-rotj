@@ -1313,7 +1313,9 @@ impl Environment for Lockstep {
         let pad = pads.and_then(|pads| pads.get(self.waits - 1));
         let mut app = game.clone();
         let direct = !app.effects.vram.direct.is_empty();
-        let mut vblank = app.nmi(pad.map_or(0, |pad| pad.reverse_bits()));
+        let mut vblank = app.nmi(super::button::Buttons::from_bits(
+            pad.map_or(0, |pad| pad.reverse_bits()),
+        ));
         if direct {
             vblank.writes[0].bytes[0] ^= std::mem::take(&mut self.flip_direct);
         }

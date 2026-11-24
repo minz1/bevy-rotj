@@ -200,7 +200,7 @@ mod tests {
             return;
         };
         let fired = (0..120).any(|frame| {
-            play.step(pad(frame));
+            play.step(rotj_core::actor::button::Buttons::from_bits(pad(frame)));
             play.game()
                 .effects
                 .projectiles
@@ -259,7 +259,9 @@ mod tests {
         app.add_plugins(MirrorPlugin).insert_resource(play);
         let mut drew = 0;
         for frame in 0..300 {
-            app.world_mut().resource_mut::<Play>().step(pad(frame));
+            app.world_mut()
+                .resource_mut::<Play>()
+                .step(rotj_core::actor::button::Buttons::from_bits(pad(frame)));
             app.update();
             let entities: Vec<(Mark, Option<Kind>, LevelPosition, Draws)> = app
                 .world_mut()

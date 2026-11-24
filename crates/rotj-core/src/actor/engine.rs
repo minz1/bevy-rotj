@@ -1129,7 +1129,7 @@ pub fn collect(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
                 effects.meter = 0x0E;
                 if effects.player.power_up & power_up::ON == 0 {
                     effects.stored_weapon = effects.weapon;
-                    effects.transition = 5;
+                    effects.transition = super::world::Transition::PowerUp;
                     effects.busy = busy::SCRIPTED;
                 }
             }

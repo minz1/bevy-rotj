@@ -7,10 +7,10 @@ use super::engine::{rom_byte, rom_word};
 use super::script::{Flow, Runner, wait};
 use super::slots::Slots;
 use super::spawn::spawn_row;
-use super::stage::Fade;
+use super::stage::{Fade, FadeDirection};
 use super::world::{
-    Effects, Motion, Projectile, Schedule, View, VramWrite, World, attack, orientation, power_up,
-    set_first_colours, stage_script,
+    Effects, Motion, Projectile, Schedule, Transition, View, VramWrite, World, attack, orientation,
+    power_up, set_first_colours, stage_script,
 };
 use crate::levelmap::Cell;
 use crate::levels::RoomAssets;
@@ -54,8 +54,8 @@ enum Phase {
 enum RoomRow {
     /// The sprite colours kept.
     KeepColours,
-    /// A fade, rising or not and streaming the scroll or not, `Done` in its last frame.
-    Fade(bool, bool),
+    /// A fade in or out, streaming the scroll or not, `Done` in its last frame.
+    Fade(FadeDirection, bool),
     /// Frames the screen stays as it is.
     Wait(u16),
     /// Room + 2 loaded, its first row spawned, the colours back and its first page set up.
@@ -88,14 +88,14 @@ enum RoomRow {
 
 const FADE: &[RoomRow] = &[
     RoomRow::KeepColours,
-    RoomRow::Fade(false, true),
+    RoomRow::Fade(FadeDirection::Out, true),
     RoomRow::Wait(1),
     RoomRow::LoadRoom,
     RoomRow::Draw,
     RoomRow::SecondPage,
     RoomRow::Draw,
     RoomRow::Restore,
-    RoomRow::Fade(true, false),
+    RoomRow::Fade(FadeDirection::In, false),
     RoomRow::Wait(1),
     RoomRow::Close,
 ];
@@ -128,7 +128,7 @@ impl RoomChange {
                 Phase::Fade
             },
             runner: Runner::default(),
-            fade: Fade::new(false, true),
+            fade: Fade::new(FadeDirection::Out, true),
             draw: None,
             second: None,
         }
@@ -188,9 +188,9 @@ impl RoomChange {
                     self.kept.copy_from_slice(&game.effects.palette[17..20]);
                     Flow::Done
                 }
-                RoomRow::Fade(rising, streams) => {
+                RoomRow::Fade(direction, streams) => {
                     if frame == 0 {
-                        self.fade = Fade::new(rising, streams);
+                        self.fade = Fade::new(direction, streams);
                     }
                     if self.fade.step(game, prg) {
                         Flow::Done
@@ -226,7 +226,7 @@ impl RoomChange {
                     Flow::Done
                 }
                 RoomRow::Close => {
-                    game.effects.transition = 0;
+                    game.effects.transition = Transition::None;
                     game.effects.transition_arg = 0;
                     Flow::Done
                 }
@@ -457,7 +457,7 @@ fn place(game: &mut Game, prg: &Prg, replaced: Mirroring) {
     player.vy = 6;
     game.effects.busy = 0;
     parameters(game, prg);
-    game.effects.transition = 0;
+    game.effects.transition = Transition::None;
     game.effects.transition_arg = 0;
 }
 

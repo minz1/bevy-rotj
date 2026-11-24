@@ -9,6 +9,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::*;
+use rotj_core::actor::button::Buttons;
 use rotj_core::actor::oam::{Mark, OamEntry};
 use rotj_core::actor::stage::level_area;
 use rotj_core::actor::world::{Ppu, SoundId};
@@ -41,6 +42,33 @@ fn forced_level(levels: &Levels) -> Option<u8> {
     }
 }
 
+/// The HUD label's sprites from the previous step, carried across even frames when the
+/// game omits the odd-frame L/E label.
+#[derive(Default)]
+pub(crate) struct LabelHold(Vec<OamEntry>);
+
+impl LabelHold {
+    /// Captures the outgoing page's `Mark::Label` sprites before the next step overwrites it.
+    fn update(&mut self, oam: &[u8; 256], marks: &[Mark; 64]) {
+        self.0 = marked(oam, marks, Mark::Label);
+    }
+
+    /// The carried label sprites when this frame drew none, or empty otherwise.
+    #[must_use]
+    pub(crate) fn carried(&self, marks: &[Mark; 64]) -> &[OamEntry] {
+        if marks.contains(&Mark::Label) {
+            &[]
+        } else {
+            &self.0
+        }
+    }
+
+    #[cfg(test)]
+    fn entries(&self) -> &[OamEntry] {
+        &self.0
+    }
+}
+
 /// The game, its ROM data and the PPU memory the NMI writes.
 #[derive(Resource)]
 pub struct Play {
@@ -57,8 +85,8 @@ pub struct Play {
     pub(crate) marks: [Mark; 64],
     /// The game as the mirror shows it, taken with those sprites.
     pub(crate) shown: Snapshot,
-    /// The HUD label's sprites the step before showed, which the game draws every other frame.
-    pub(crate) label: Vec<OamEntry>,
+    /// The HUD label's sprites carried from the step before, which the game draws every other frame.
+    pub(crate) label: LabelHold,
     /// The level forced at `$D3D8`, kept for the boot after a reset.
     forced: Option<u8>,
 }
@@ -76,7 +104,7 @@ impl Play {
             oam: [0; 256],
             marks: [Mark::Scene; 64],
             shown: Snapshot::default(),
-            label: Vec::new(),
+            label: LabelHold::default(),
             game,
             prg,
             chr,
@@ -131,7 +159,7 @@ impl Play {
     /// the game after it, whose lines it keeps for [`Play::compose`]; the sound requests
     /// the NMI hands the driver (`$40-$43`). A reset (GAME OVER, `JMP ($FFFC)`) runs on
     /// into the boot's first frame.
-    pub fn step(&mut self, pad: u8) -> [Option<SoundId>; 4] {
+    pub fn step(&mut self, pad: Buttons) -> [Option<SoundId>; 4] {
         if self.raster {
             raster::run_irqs(&mut self.game);
         }
@@ -139,7 +167,7 @@ impl Play {
         self.raster = self.game.scroll.split.armed;
         self.ppu.apply(&vblank.writes, self.game.scroll.mirroring);
         let registers = raster::Registers::of(&self.game);
-        self.label = marked(&self.oam, &self.marks, Mark::Label);
+        self.label.update(&self.oam, &self.marks);
         self.copy_page(&registers);
         self.run_frame(registers);
         vblank.sound
@@ -230,7 +258,12 @@ fn marked(oam: &[u8; 256], marks: &[Mark; 64], mark: Mark) -> Vec<OamEntry> {
 /// A session's pads for a replay against the oracle: one byte per [`Play::step`], the
 /// pad it was given, to `<dir>/<unix millis>-level<N>.pads` (`ROTJ_RECORD_INPUT=<dir>`).
 #[derive(Resource)]
-pub struct Recorder(Option<File>);
+pub enum Recorder {
+    /// Actively appending one `$F6` byte per tick to the open file.
+    Recording(File),
+    /// Recording stopped after a write error.
+    Stopped,
+}
 
 impl Recorder {
     /// A recording of a session starting at `level`, named by the clock.
@@ -257,7 +290,7 @@ impl Recorder {
                 Err(error)
             }
         }) {
-            Ok(file) => Some(Recorder(Some(file))),
+            Ok(file) => Some(Recorder::Recording(file)),
             Err(error) => {
                 warn!("not recording input to {}: {error}", dir.display());
                 None
@@ -266,12 +299,12 @@ impl Recorder {
     }
 
     /// Appends `pad`; after a failed write, warns once and records nothing more.
-    pub fn record(&mut self, pad: u8) {
-        if let Some(file) = &mut self.0
-            && let Err(error) = file.write_all(&[pad])
+    pub fn record(&mut self, pad: Buttons) {
+        if let Recorder::Recording(file) = self
+            && let Err(error) = file.write_all(&[pad.bits()])
         {
             warn!("input recording stopped: {error}");
-            self.0 = None;
+            *self = Recorder::Stopped;
         }
     }
 }
@@ -307,7 +340,7 @@ impl Plugin for PlayPlugin {
     reason = "Bevy system params, rust-clippy#8940"
 )]
 pub(crate) fn menu_closed(menu: Res<'_, crate::menu::Menu>) -> bool {
-    !menu.open
+    !menu.is_open()
 }
 
 /// Powers the game on, records its pads if asked (`ROTJ_RECORD_INPUT`) and shows it.
@@ -346,7 +379,7 @@ pub(crate) fn tick(
     state: Res<'_, State<GameState>>,
     mut next: ResMut<'_, NextState<GameState>>,
 ) {
-    let pad = input.game_byte();
+    let pad = input.game_buttons();
     if let Some(mut recorder) = recorder {
         recorder.record(pad);
     }
@@ -370,7 +403,24 @@ pub(crate) fn tick(
     clippy::needless_pass_by_value,
     reason = "Bevy system params, rust-clippy#8940"
 )]
-fn draw(play: Res<'_, Play>, settings: Res<'_, Settings>, mut screen: ResMut<'_, Screen>) {
+fn draw(
+    play: Res<'_, Play>,
+    settings: Res<'_, Settings>,
+    mut screen: ResMut<'_, Screen>,
+    mut last_picture: Local<'_, Option<crate::modern::ActivePicture>>,
+) {
+    let active = crate::modern::ActivePicture::for_frame(&settings, &play);
+    if active == crate::modern::ActivePicture::Modern {
+        *last_picture = Some(active);
+        return;
+    }
+    let changed = play.is_changed()
+        || settings.is_changed()
+        || *last_picture != Some(crate::modern::ActivePicture::Classic);
+    *last_picture = Some(active);
+    if !changed {
+        return;
+    }
     let limit = if settings.sprite_limit {
         MAX_SPRITES_PER_LINE
     } else {
@@ -387,7 +437,7 @@ fn draw(play: Res<'_, Play>, settings: Res<'_, Settings>, mut screen: ResMut<'_,
 pub(crate) mod tests {
     use super::*;
     use rotj_core::actor::stage::StageEnd;
-    use rotj_core::actor::world::Motion;
+    use rotj_core::actor::world::{Motion, Transition};
     use rotj_core::digest::fnv1a;
     use rotj_core::render::{Mirroring, SCREEN_W, mask};
     use rotj_core::rooms::Chain;
@@ -409,7 +459,7 @@ pub(crate) mod tests {
     pub(crate) fn step_until(
         play: &mut Play,
         frames: usize,
-        pad: u8,
+        pad: Buttons,
         until: impl Fn(&Play) -> bool,
     ) -> bool {
         (0..frames).any(|_| {
@@ -438,9 +488,12 @@ pub(crate) mod tests {
         let Some(mut play) = powered_on(None) else {
             return;
         };
-        assert!(step_until(&mut play, 400, 0, on_title), "no title");
+        assert!(
+            step_until(&mut play, 400, Buttons::NONE, on_title),
+            "no title"
+        );
         for _ in 0..10 {
-            play.step(0);
+            play.step(Buttons::NONE);
         }
         let ours = picture(&play);
         let visible = &ours[OVERSCAN * SCREEN_W..(OVERSCAN + 224) * SCREEN_W];
@@ -460,7 +513,7 @@ pub(crate) mod tests {
         let mut pictures = std::collections::BTreeSet::new();
         let mut split = 0;
         for _ in 0..270 {
-            play.step(0);
+            play.step(Buttons::NONE);
             split += usize::from(play.raster && play.game().scroll.split.chain == Chain::Intro);
             pictures.insert(picture(&play));
         }
@@ -477,26 +530,26 @@ pub(crate) mod tests {
             return;
         };
         let mut songs = Vec::new();
-        let mut step = |play: &mut Play, pad: u8| {
+        let mut step = |play: &mut Play, pad: Buttons| {
             let sound = play.step(pad);
             if let Some(song) = sound[1] {
                 songs.push(song.byte());
             }
         };
         while !on_title(&play) {
-            step(&mut play, 0);
+            step(&mut play, Buttons::NONE);
         }
-        step(&mut play, 0x10);
+        step(&mut play, Buttons::START);
         for _ in 0..400 {
             if !play.booting() {
                 break;
             }
-            step(&mut play, 0x10);
+            step(&mut play, Buttons::START);
         }
         assert!(!play.booting(), "the stage never started");
         assert_eq!(play.game().world.area, 0);
         assert_eq!(songs, [0x01, 0x04]);
-        assert_plays(&mut play, 60, 0x01);
+        assert_plays(&mut play, 60, Buttons::RIGHT);
     }
 
     /// `ROTJ_LEVEL` forces the title's level where the game reads it (`$D3D8`).
@@ -505,9 +558,12 @@ pub(crate) mod tests {
         let Some(mut play) = powered_on(Some(5)) else {
             return;
         };
-        assert!(step_until(&mut play, 400, 0, on_title), "no title");
-        play.step(0x10);
-        assert!(step_until(&mut play, 400, 0, |play| !play.booting()));
+        assert!(
+            step_until(&mut play, 400, Buttons::NONE, on_title),
+            "no title"
+        );
+        play.step(Buttons::START);
+        assert!(step_until(&mut play, 400, Buttons::NONE, |play| !play.booting()));
         assert_eq!(play.game().world.area, 0x0C, "stage 3-2's area");
     }
 
@@ -527,17 +583,17 @@ pub(crate) mod tests {
             return;
         };
         for _ in 0..30 {
-            play.step(0);
+            play.step(Buttons::NONE);
         }
         assert!(!play.paused());
-        play.step(0x10);
+        play.step(Buttons::START);
         for _ in 0..5 {
-            play.step(0);
+            play.step(Buttons::NONE);
         }
         assert!(play.paused(), "Start pauses");
-        play.step(0x10);
+        play.step(Buttons::START);
         for _ in 0..5 {
-            play.step(0);
+            play.step(Buttons::NONE);
         }
         assert!(!play.paused(), "Start again resumes");
     }
@@ -566,7 +622,7 @@ pub(crate) mod tests {
     }
 
     /// One step with `pad`, checking the sprites it shows, which the state before it drew.
-    fn checked_step(play: &mut Play, pad: u8) {
+    fn checked_step(play: &mut Play, pad: Buttons) {
         play.step(pad);
         assert_drawable(play);
     }
@@ -577,7 +633,7 @@ pub(crate) mod tests {
             return;
         };
         for _ in 0..4 {
-            play.step(0);
+            play.step(Buttons::NONE);
         }
         assert_eq!(play.display_oam(false), play.oam);
         let parked = play.display_oam(true);
@@ -603,9 +659,9 @@ pub(crate) mod tests {
         let mut carried = 0;
         for _ in 0..8 {
             let before = marked(&play.oam, &play.marks, Mark::Label);
-            play.step(0);
-            assert_eq!(play.label, before);
-            carried += usize::from(!play.label.is_empty() && !play.marks.contains(&Mark::Label));
+            play.step(Buttons::NONE);
+            assert_eq!(play.label.entries(), before);
+            carried += usize::from(!play.label.carried(&play.marks).is_empty());
         }
         assert!(
             carried >= 3,
@@ -618,8 +674,23 @@ pub(crate) mod tests {
         let Some(mut play) = powered_on(None) else {
             return;
         };
-        assert!(step_until(&mut play, 400, 0, on_title), "no title");
-        for (i, pad) in [0x01, 0, 0x02, 0, 0x20, 0, 0, 0].into_iter().enumerate() {
+        assert!(
+            step_until(&mut play, 400, Buttons::NONE, on_title),
+            "no title"
+        );
+        for (i, pad) in [
+            Buttons::RIGHT,
+            Buttons::NONE,
+            Buttons::LEFT,
+            Buttons::NONE,
+            Buttons::SELECT,
+            Buttons::NONE,
+            Buttons::NONE,
+            Buttons::NONE,
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let title = on_title(&play);
             checked_step(&mut play, pad);
             let visible = visible_marks(&play).count();
@@ -635,8 +706,11 @@ pub(crate) mod tests {
         let Some(mut play) = powered_on(None) else {
             return;
         };
-        assert!(step_until(&mut play, 400, 0, on_title), "no title");
-        for pad in [0x01, 0, 0x80, 0] {
+        assert!(
+            step_until(&mut play, 400, Buttons::NONE, on_title),
+            "no title"
+        );
+        for pad in [Buttons::RIGHT, Buttons::NONE, Buttons::A, Buttons::NONE] {
             checked_step(&mut play, pad);
         }
         let mut counts = std::collections::BTreeSet::new();
@@ -646,9 +720,9 @@ pub(crate) mod tests {
             counts.insert(count);
             let pad = if count == 9 && !entered && step % 2 == 0 {
                 entered = step > 300;
-                if entered { 0x80 } else { 0x04 }
+                if entered { Buttons::A } else { Buttons::DOWN }
             } else {
-                0
+                Buttons::NONE
             };
             checked_step(&mut play, pad);
         }
@@ -662,14 +736,14 @@ pub(crate) mod tests {
             return;
         };
         for _ in 0..30 {
-            checked_step(&mut play, 0);
+            checked_step(&mut play, Buttons::NONE);
         }
         assert!(shown(&play, Mark::Hud) > 0);
-        checked_step(&mut play, 0x10);
+        checked_step(&mut play, Buttons::START);
         let mut paused = 0;
         for _ in 0..30 {
             let was = play.paused();
-            checked_step(&mut play, 0);
+            checked_step(&mut play, Buttons::NONE);
             if was {
                 let visible = visible_marks(&play).count();
                 assert_eq!(shown(&play, Mark::Pause), visible);
@@ -677,7 +751,7 @@ pub(crate) mod tests {
             }
         }
         assert!(paused > 20, "{paused} paused steps");
-        checked_step(&mut play, 0x10);
+        checked_step(&mut play, Buttons::START);
     }
 
     /// Area `$1C`'s IRQ reads the scroll the loop moves, so its runs come from the lines after it.
@@ -688,7 +762,12 @@ pub(crate) mod tests {
         };
         let mut play = Play::start(prg(rom), rom.chr.clone(), 11);
         for frame in 0..60 {
-            play.step(if frame % 4 < 2 { 0x41 } else { 0x01 });
+            let pad = if frame % 4 < 2 {
+                Buttons::B | Buttons::RIGHT
+            } else {
+                Buttons::RIGHT
+            };
+            play.step(pad);
             let modern = play.shown.modern.as_ref().expect("drawn Modern");
             assert_eq!(
                 Some(modern.view.runs),
@@ -699,29 +778,29 @@ pub(crate) mod tests {
     }
 
     /// Arms `$BA`/`$BB` and runs the script that follows to its end.
-    pub(crate) fn transition(play: &mut Play, kind: u8, arg: u8) {
+    pub(crate) fn transition(play: &mut Play, kind: Transition, arg: u8) {
         let effects = &mut play.game_mut().effects;
         (effects.transition, effects.transition_arg) = (kind, arg);
-        play.step(0);
+        play.step(Buttons::NONE);
         for _ in 0..1200 {
             if play.game().script.is_none() {
                 break;
             }
-            play.step(0);
+            play.step(Buttons::NONE);
         }
-        assert!(play.game().script.is_none(), "${kind:02X} never ended");
+        assert!(play.game().script.is_none(), "{kind:?} never ended");
     }
 
     /// The area's last room into its boss room (`$0404` bit 7, `$BB3D`) and Batman's entry.
     pub(crate) fn enter_the_boss_room(play: &mut Play, area: u8) {
         play.game_mut().effects.hud = 0x80;
-        transition(play, 3, 0);
+        transition(play, Transition::NextArea, 0);
         assert_eq!(play.game().world.area, area);
         for _ in 0..200 {
             if play.game().effects.player.motion != Motion::BossEntry {
                 break;
             }
-            play.step(0);
+            play.step(Buttons::NONE);
         }
         assert_ne!(
             play.game().effects.player.motion,
@@ -737,7 +816,7 @@ pub(crate) mod tests {
     }
 
     /// Plays `frames` frames holding `pad`: the picture must be neither blank nor frozen.
-    fn assert_plays(play: &mut Play, frames: usize, pad: u8) {
+    fn assert_plays(play: &mut Play, frames: usize, pad: Buttons) {
         let before = picture(play);
         for _ in 0..frames {
             play.step(pad);
@@ -766,21 +845,21 @@ pub(crate) mod tests {
         let Some(mut play) = start(6) else {
             return;
         };
-        assert_plays(&mut play, 90, 0x01);
-        transition(&mut play, 3, 0);
+        assert_plays(&mut play, 90, Buttons::RIGHT);
+        transition(&mut play, Transition::NextArea, 0);
         assert_eq!(room(&play), (0x12, 0, 0x00));
-        assert_plays(&mut play, 60, 0x01);
+        assert_plays(&mut play, 60, Buttons::RIGHT);
         for (arg, next) in [
             (0x61, (0x12, 2, 0x40)),
             (0xE0, (0x12, 4, 0x00)),
             (0x62, (0x12, 6, 0x40)),
         ] {
-            transition(&mut play, 1, arg);
+            transition(&mut play, Transition::RoomChange, arg);
             assert_eq!(room(&play), next);
-            assert_plays(&mut play, 60, 0x01);
+            assert_plays(&mut play, 60, Buttons::RIGHT);
         }
         enter_the_boss_room(&mut play, 0x14);
-        assert_plays(&mut play, 60, 0);
+        assert_plays(&mut play, 60, Buttons::NONE);
     }
 
     /// Stage 5, which has no rooms and no boss: 5-1, then the one-screen 5-2.
@@ -789,10 +868,10 @@ pub(crate) mod tests {
         let Some(mut play) = start(8) else {
             return;
         };
-        assert_plays(&mut play, 90, 0x01);
-        transition(&mut play, 3, 0);
+        assert_plays(&mut play, 90, Buttons::RIGHT);
+        transition(&mut play, Transition::NextArea, 0);
         assert_eq!(room(&play), (0x18, 0, 0x00));
-        assert_plays(&mut play, 90, 0x01);
+        assert_plays(&mut play, 90, Buttons::RIGHT);
     }
 
     /// Stage 6 as the TAS plays it: 6-1's two slides (`$BB = $61`), 6-2 and the boss room.
@@ -801,17 +880,17 @@ pub(crate) mod tests {
         let Some(mut play) = start(10) else {
             return;
         };
-        assert_plays(&mut play, 90, 0x01);
+        assert_plays(&mut play, 90, Buttons::RIGHT);
         for next in [(0x1A, 2, 0x00), (0x1A, 4, 0x00)] {
-            transition(&mut play, 1, 0x61);
+            transition(&mut play, Transition::RoomChange, 0x61);
             assert_eq!(room(&play), next);
-            assert_plays(&mut play, 60, 0x01);
+            assert_plays(&mut play, 60, Buttons::RIGHT);
         }
-        transition(&mut play, 3, 0);
+        transition(&mut play, Transition::NextArea, 0);
         assert_eq!(room(&play), (0x1C, 0, 0x00));
-        assert_plays(&mut play, 60, 0x01);
+        assert_plays(&mut play, 60, Buttons::RIGHT);
         enter_the_boss_room(&mut play, 0x1E);
-        assert_plays(&mut play, 60, 0);
+        assert_plays(&mut play, 60, Buttons::NONE);
     }
 
     /// Stage 7 as the TAS plays it: 7-1's fade (`$BB = $C1`) and slide (`$61`), then the
@@ -821,14 +900,14 @@ pub(crate) mod tests {
         let Some(mut play) = start(12) else {
             return;
         };
-        assert_plays(&mut play, 90, 0x01);
+        assert_plays(&mut play, 90, Buttons::RIGHT);
         for (arg, next) in [(0xC1, (0x20, 2, 0x00)), (0x61, (0x20, 4, 0x00))] {
-            transition(&mut play, 1, arg);
+            transition(&mut play, Transition::RoomChange, arg);
             assert_eq!(room(&play), next);
-            assert_plays(&mut play, 60, 0x01);
+            assert_plays(&mut play, 60, Buttons::RIGHT);
         }
         enter_the_boss_room(&mut play, 0x22);
-        assert_plays(&mut play, 60, 0);
+        assert_plays(&mut play, 60, Buttons::NONE);
     }
 
     /// The room start's page, drawn through the queue model, is the captured
@@ -854,9 +933,17 @@ pub(crate) mod tests {
             return;
         };
         for frame in 0..1800 {
-            let jump = if frame % 40 < 12 { 0x80 } else { 0 };
-            let fire = if frame % 8 < 2 { 0x40 } else { 0 };
-            play.step(0x01 | jump | fire);
+            let jump = if frame % 40 < 12 {
+                Buttons::A
+            } else {
+                Buttons::NONE
+            };
+            let fire = if frame % 8 < 2 {
+                Buttons::B
+            } else {
+                Buttons::NONE
+            };
+            play.step(Buttons::RIGHT | jump | fire);
         }
         assert_eq!(play.game().world.room, 2, "the room change never ran");
         let mut frame = Frame::new();
@@ -873,7 +960,7 @@ pub(crate) mod tests {
         };
         let mut died = false;
         for _ in 0..900 {
-            play.step(0);
+            play.step(Buttons::NONE);
             died |= play.game().effects.player.motion == Motion::Dying;
         }
         let game = play.game();
@@ -891,7 +978,7 @@ pub(crate) mod tests {
             return;
         };
         assert!(
-            step_until(&mut play, 4000, 0, Play::booting),
+            step_until(&mut play, 4000, Buttons::NONE, Play::booting),
             "the game never reset"
         );
     }
@@ -904,10 +991,10 @@ pub(crate) mod tests {
             return;
         };
         let effects = &mut play.game_mut().effects;
-        (effects.hud, effects.transition) = (0x80, 3);
+        (effects.hud, effects.transition) = (0x80, Transition::NextArea);
         let mut entered = false;
         for _ in 0..3600 {
-            play.step(0);
+            play.step(Buttons::NONE);
             entered |= play.game().effects.player.motion == Motion::BossEntry;
         }
         assert!(entered, "Batman never entered");
@@ -923,17 +1010,22 @@ pub(crate) mod tests {
             return;
         };
         let effects = &mut play.game_mut().effects;
-        (effects.hud, effects.transition) = (0x80, 3);
+        (effects.hud, effects.transition) = (0x80, Transition::NextArea);
         for _ in 0..600 {
-            play.step(0);
+            play.step(Buttons::NONE);
         }
         assert_eq!(play.game().world.area, 4, "the boss room never loaded");
         let effects = &mut play.game_mut().effects;
-        (effects.cutscene_id, effects.hud, effects.transition) = (0x0E, 0, 3);
+        (effects.cutscene_id, effects.hud, effects.transition) = (0x0E, 0, Transition::NextArea);
         let mut requests = Vec::new();
         let mut split = false;
         for _ in 0..1200 {
-            requests.extend(play.step(0).into_iter().flatten().map(SoundId::byte));
+            requests.extend(
+                play.step(Buttons::NONE)
+                    .into_iter()
+                    .flatten()
+                    .map(SoundId::byte),
+            );
             split |= play.raster;
             if play.game().world.area == 6 && play.game().script.is_none() {
                 break;
@@ -944,7 +1036,7 @@ pub(crate) mod tests {
         assert!(split, "the cutscene's split never ran");
         assert!(requests.contains(&0x0F), "{requests:x?}");
         for _ in 0..120 {
-            play.step(0);
+            play.step(Buttons::NONE);
         }
         assert_eq!(play.game().world.area, 6);
     }
@@ -959,13 +1051,13 @@ pub(crate) mod tests {
         };
         let change = |play: &mut Play, side: u8| {
             let effects = &mut play.game_mut().effects;
-            (effects.transition, effects.transition_arg) = (1, side);
-            play.step(0);
+            (effects.transition, effects.transition_arg) = (Transition::RoomChange, side);
+            play.step(Buttons::NONE);
             for _ in 0..200 {
                 if play.game().script.is_none() {
                     break;
                 }
-                play.step(0);
+                play.step(Buttons::NONE);
             }
             assert!(play.game().script.is_none(), "the room change never ended");
         };
@@ -978,7 +1070,7 @@ pub(crate) mod tests {
         play.game_mut().effects.player.y -= 0x0400;
         let mut lowest = camera;
         for _ in 0..30 {
-            play.step(0);
+            play.step(Buttons::NONE);
             lowest = lowest.min(play.game().world.camera_y);
         }
         assert!(lowest < camera, "the camera never scrolled up");
@@ -988,7 +1080,7 @@ pub(crate) mod tests {
             (4, 0)
         );
         for _ in 0..60 {
-            play.step(0x01);
+            play.step(Buttons::RIGHT);
         }
         let mut frame = Frame::new();
         play.compose(&mut frame, MAX_SPRITES_PER_LINE, false);
@@ -1008,12 +1100,17 @@ pub(crate) mod tests {
         let Some(mut play) = start(12) else {
             return;
         };
-        play.game_mut().effects.transition = 6;
+        play.game_mut().effects.transition = Transition::Ending;
         let mut requests = Vec::new();
         let mut samples = Vec::new();
         let mut frame = Frame::new();
         for tick in 0..7000 {
-            requests.extend(play.step(0).into_iter().flatten().map(SoundId::byte));
+            requests.extend(
+                play.step(Buttons::NONE)
+                    .into_iter()
+                    .flatten()
+                    .map(SoundId::byte),
+            );
             if tick % 100 == 50 {
                 play.compose(&mut frame, MAX_SPRITES_PER_LINE, false);
                 samples.push(frame.indices().to_vec());
@@ -1051,24 +1148,24 @@ pub(crate) mod tests {
             return;
         };
         for _ in 0..60 {
-            play.step(0x01);
+            play.step(Buttons::RIGHT);
         }
-        play.step(0x10);
+        play.step(Buttons::START);
         let paused = play.game().clone();
         for _ in 0..30 {
-            play.step(0x01);
+            play.step(Buttons::RIGHT);
         }
         assert!(matches!(
             play.game().script,
             Some(rotj_core::actor::Script::Pause(_))
         ));
         assert_eq!(play.game().effects.player.x, paused.effects.player.x);
-        play.step(0x10);
-        play.step(0x01);
-        play.step(0x01);
+        play.step(Buttons::START);
+        play.step(Buttons::RIGHT);
+        play.step(Buttons::RIGHT);
         assert!(play.game().script.is_none());
         for _ in 0..30 {
-            play.step(0x01);
+            play.step(Buttons::RIGHT);
         }
         assert_ne!(play.game().effects.player.x, paused.effects.player.x);
     }
@@ -1082,10 +1179,10 @@ pub(crate) mod tests {
             return;
         };
         for _ in 0..120 {
-            play.step(0);
+            play.step(Buttons::NONE);
         }
         let effects = &mut play.game_mut().effects;
-        effects.transition = 2;
+        effects.transition = Transition::StageEnd;
         effects.stage_end = StageEnd {
             phase: 2,
             x: 0xFF,
@@ -1094,7 +1191,12 @@ pub(crate) mod tests {
         };
         let mut requests = Vec::new();
         for _ in 0..800 {
-            requests.extend(play.step(0).into_iter().flatten().map(SoundId::byte));
+            requests.extend(
+                play.step(Buttons::NONE)
+                    .into_iter()
+                    .flatten()
+                    .map(SoundId::byte),
+            );
             if play.game().world.area == 2 && play.game().script.is_none() {
                 break;
             }
@@ -1104,7 +1206,7 @@ pub(crate) mod tests {
         let fresh = start(1).expect("the ROM");
         assert_eq!(play.ppu.nametables[0], fresh.ppu.nametables[0]);
         for _ in 0..120 {
-            play.step(0);
+            play.step(Buttons::NONE);
         }
         assert_eq!(play.game().world.area, 2);
     }
@@ -1119,7 +1221,13 @@ pub(crate) mod tests {
             return;
         };
         let request = (0..300)
-            .map(|frame| play.step(if frame % 40 < 12 { 0x80 } else { 0 }))
+            .map(|frame| {
+                play.step(if frame % 40 < 12 {
+                    Buttons::A
+                } else {
+                    Buttons::NONE
+                })
+            })
             .find(|sound| sound[2] == SoundId::from_byte(rotj_music::JUMP_SFX))
             .expect("the jump requested $42=$24");
         assert_eq!(request[2].map(SoundId::byte), Some(0x24));
@@ -1159,7 +1267,13 @@ pub(crate) mod tests {
             return;
         };
         let request = (0..600)
-            .map(|frame| play.step(if frame % 8 < 2 { 0x40 } else { 0 }))
+            .map(|frame| {
+                play.step(if frame % 8 < 2 {
+                    Buttons::B
+                } else {
+                    Buttons::NONE
+                })
+            })
             .find(|sound| sound[2] == SoundId::from_byte(0x2D))
             .expect("firing requested $42=$2D");
         assert_eq!(request[2].map(SoundId::byte), Some(0x2D));
@@ -1182,7 +1296,7 @@ pub(crate) mod tests {
         }
         let energy = play.game().effects.player.energy;
         let request = (0..120)
-            .map(|_| play.step(0))
+            .map(|_| play.step(Buttons::NONE))
             .find(|sound| sound[2] == SoundId::from_byte(0x25))
             .expect("the damage requested $42=$25");
         assert_eq!(request[2].map(SoundId::byte), Some(0x25));
@@ -1208,7 +1322,7 @@ pub(crate) mod tests {
         let dir = temp_dir("recorder-writes");
         let mut recorder = Recorder::open(&dir, 0).expect("recording");
         for pad in [0x81, 0x00, 0x42] {
-            recorder.record(pad);
+            recorder.record(Buttons::from_bits(pad));
         }
         drop(recorder);
         let files: Vec<_> = std::fs::read_dir(&dir).expect("dir").flatten().collect();
@@ -1231,8 +1345,8 @@ pub(crate) mod tests {
             Recorder::open_at(&dir, 1234, 5).is_none(),
             "a third gives up"
         );
-        first.record(1);
-        second.record(2);
+        first.record(Buttons::from_bits(1));
+        second.record(Buttons::from_bits(2));
         drop((first, second));
         assert_eq!(
             std::fs::read(dir.join("1234-level5.pads")).expect("first"),
@@ -1296,7 +1410,7 @@ pub(crate) mod tests {
         let (mut drawn, mut jittered, mut unmatched, mut skipped) = (0, 0, 0, 0);
         let (mut ours, mut theirs) = (Frame::new(), Frame::new());
         for tick in 0..3000 {
-            play.step(0);
+            play.step(Buttons::NONE);
             let mut log = m.run_frame(0);
             while lagged(&mut m) || log.nmis == 0 {
                 skipped += 1;

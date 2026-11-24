@@ -34,20 +34,30 @@ impl Screen {
     }
 }
 
+/// Whether a custom `palette.pal` loaded cleanly or fell back to the default palette.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PaletteStatus {
+    /// Built-in palette, or `palette.pal` loaded cleanly.
+    #[default]
+    Loaded,
+    /// `PaletteChoice::File` was chosen, but `palette.pal` is missing or invalid.
+    FileMissing,
+}
+
 /// The colour table the picture is shown in.
 #[derive(Resource, Clone, Debug, PartialEq, Eq)]
 pub struct Colours {
     /// RGB for each palette-RAM value.
     pub rgb: Rgb,
-    /// `File` was chosen but `palette.pal` is missing or the wrong size.
-    pub file_missing: bool,
+    /// Load status for file-backed palettes.
+    pub status: PaletteStatus,
 }
 
 impl Default for Colours {
     fn default() -> Self {
         Self {
             rgb: NES_PALETTE,
-            file_missing: false,
+            status: PaletteStatus::Loaded,
         }
     }
 }
@@ -55,12 +65,12 @@ impl Default for Colours {
 /// The table for `choice`; `File` reads `<dir>/palette.pal` each time it is asked for.
 #[must_use]
 pub fn colours_for(choice: PaletteChoice, dir: Option<&Path>) -> Colours {
-    let (rgb, file_missing) = match choice {
-        PaletteChoice::CompositeDirect => (NES_PALETTE, false),
-        PaletteChoice::RgbPpu => (RGB_PPU, false),
-        PaletteChoice::Ntsc => (ntsc(), false),
+    let (rgb, status) = match choice {
+        PaletteChoice::CompositeDirect => (NES_PALETTE, PaletteStatus::Loaded),
+        PaletteChoice::RgbPpu => (RGB_PPU, PaletteStatus::Loaded),
+        PaletteChoice::Ntsc => (ntsc(), PaletteStatus::Loaded),
         PaletteChoice::File => match dir {
-            None => (NES_PALETTE, true),
+            None => (NES_PALETTE, PaletteStatus::FileMissing),
             Some(dir) => {
                 let path = dir.join("palette.pal");
                 match std::fs::read(&path) {
@@ -71,22 +81,22 @@ pub fn colours_for(choice: PaletteChoice, dir: Option<&Path>) -> Colours {
                                 path.display(),
                                 bytes.len()
                             );
-                            (NES_PALETTE, true)
+                            (NES_PALETTE, PaletteStatus::FileMissing)
                         },
-                        |rgb| (rgb, false),
+                        |rgb| (rgb, PaletteStatus::Loaded),
                     ),
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                        (NES_PALETTE, true)
+                        (NES_PALETTE, PaletteStatus::FileMissing)
                     }
                     Err(error) => {
                         warn!("{}: {error}; falling back", path.display());
-                        (NES_PALETTE, true)
+                        (NES_PALETTE, PaletteStatus::FileMissing)
                     }
                 }
             }
         },
     };
-    Colours { rgb, file_missing }
+    Colours { rgb, status }
 }
 
 /// Opaque RGBA for each palette-RAM value in `indices`, through `rgb`; black at the 8
@@ -258,7 +268,7 @@ mod tests {
         let mut play =
             crate::play::Play::power_on(crate::play::tests::prg(rom), rom.chr.clone(), None);
         for _ in 0..400 {
-            play.step(0);
+            play.step(rotj_core::actor::button::Buttons::NONE);
         }
         let mut frame = Frame::new();
         play.compose(&mut frame, rotj_core::render::MAX_SPRITES_PER_LINE, false);
@@ -302,7 +312,7 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("temp dir");
         let missing = Colours {
             rgb: NES_PALETTE,
-            file_missing: true,
+            status: PaletteStatus::FileMissing,
         };
         assert_eq!(colours_for(PaletteChoice::File, Some(&dir)), missing);
         std::fs::write(dir.join("palette.pal"), [0x11; 192]).expect("write");
@@ -310,7 +320,7 @@ mod tests {
             colours_for(PaletteChoice::File, Some(&dir)),
             Colours {
                 rgb: [[0x11; 3]; 64],
-                file_missing: false
+                status: PaletteStatus::Loaded,
             }
         );
         std::fs::remove_file(dir.join("palette.pal")).expect("remove");

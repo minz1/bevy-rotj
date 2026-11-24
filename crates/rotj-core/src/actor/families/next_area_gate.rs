@@ -9,11 +9,11 @@
 
 use crate::actor::engine::{self, Proximity, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::{Cx, Motion, Weapon, attack, hurt, orientation, power_up, sound};
+use crate::actor::world::{
+    Cx, Motion, Transition, Weapon, attack, hurt, orientation, power_up, sound,
+};
 use crate::actors::{CELL_LOCK, CELL_PENDING};
 
-/// The transition selector it arms (`$89CF`).
-const TRANSITION: u8 = 3;
 /// The countdown's first value (`$898F`).
 const COUNTDOWN: u8 = 0xC0;
 /// The state bit that passes `subtype` and `health` on as `stage_args`.
@@ -88,7 +88,7 @@ fn transition(body: &Body, cx: &mut Cx<'_>) {
     } else {
         effects.hud = 0;
     }
-    effects.transition = TRANSITION;
+    effects.transition = Transition::NextArea;
     if effects.player.power_up & power_up::ON != 0 {
         effects.weapon = effects.stored_weapon;
         effects.attack = if effects.stored_weapon == Weapon::Bolt {

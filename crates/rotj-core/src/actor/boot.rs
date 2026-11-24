@@ -9,7 +9,7 @@ use super::oam::Mark;
 use super::raster::INTRO_SLID;
 use super::script::{Flow, Runner, wait};
 use super::sound_test::SoundTest;
-use super::stage::{Fade, NextArea, blackout, queue_palette};
+use super::stage::{Fade, FadeDirection, NextArea, blackout, queue_palette};
 use crate::actor::button::Buttons;
 use crate::actor::world::{Weapon, set_first_colours, sound};
 use crate::levelmap::BOOT_FIRST_BANK;
@@ -53,9 +53,28 @@ const TITLE_BLOCKS: u16 = 0x65F5;
 const FLICKER_PALETTES: u16 = 0x693C;
 /// The title's cursor metasprite (`$6988`).
 const CURSOR: u16 = 0x6988;
-/// The cursor's two places: game start and password (`$2F`).
-const GAME_START: u8 = 0x38;
-const PASSWORD: u8 = 0x98;
+/// The title's two menu choices (`$2F`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TitleChoice {
+    GameStart,
+    Password,
+}
+
+impl TitleChoice {
+    const fn cursor_x(self) -> u8 {
+        match self {
+            TitleChoice::GameStart => 0x38,
+            TitleChoice::Password => 0x98,
+        }
+    }
+
+    const fn toggle(self) -> TitleChoice {
+        match self {
+            TitleChoice::GameStart => TitleChoice::Password,
+            TitleChoice::Password => TitleChoice::GameStart,
+        }
+    }
+}
 /// The draw list the chosen line flashes from (`$66F3`).
 const FLASH_BLOCKS: u16 = 0x66F3;
 /// Frames the title waits for a choice before the attract mode (`$20:$21`).
@@ -123,8 +142,8 @@ pub struct Boot {
     fade: Fade,
     /// The draw list's read offset (`$20`).
     cursor: u8,
-    /// The title's cursor x (`$2F`): [`GAME_START`] or [`PASSWORD`].
-    choice: u8,
+    /// The title's chosen line (`$2F`).
+    choice: TitleChoice,
     /// Frames left on the title (`$20:$21`).
     timeout: u16,
     /// The level the stage start loads (`$20` at `$D3D8`).
@@ -390,9 +409,9 @@ impl Boot {
             check: false,
             clear: ScreenClear::new(0),
             buffer: [0; 64],
-            fade: Fade::new(false, false),
+            fade: Fade::new(FadeDirection::Out, false),
             cursor: 0,
-            choice: GAME_START,
+            choice: TitleChoice::GameStart,
             timeout: 0,
             level: 0,
             skip_intro: false,
@@ -713,7 +732,7 @@ impl Boot {
             Title::Start => {
                 game.effects.song = sound::song::TITLE;
                 self.timeout = TITLE_FRAMES;
-                self.choice = GAME_START;
+                self.choice = TitleChoice::GameStart;
                 self.draw_title(game, chr);
                 Title::Waiting
             }
@@ -730,15 +749,11 @@ impl Boot {
                     return false;
                 }
                 if world.pad.contains(Buttons::LEFT) {
-                    self.choice = GAME_START;
+                    self.choice = TitleChoice::GameStart;
                 } else if world.pad.contains(Buttons::RIGHT) {
-                    self.choice = PASSWORD;
+                    self.choice = TitleChoice::Password;
                 } else if world.pressed.contains(Buttons::SELECT) {
-                    self.choice = if self.choice == PASSWORD {
-                        GAME_START
-                    } else {
-                        PASSWORD
-                    };
+                    self.choice = self.choice.toggle();
                 }
                 self.draw_title(game, chr);
                 Title::Waiting
@@ -753,7 +768,7 @@ impl Boot {
             Title::Blank => {
                 game.scroll.mask = 0;
                 self.clear = ScreenClear::new(0);
-                if self.choice != GAME_START {
+                if self.choice == TitleChoice::Password {
                     self.step = Step::Password(Password::Clear);
                     return true;
                 }
@@ -776,7 +791,7 @@ impl Boot {
     /// blanked on the seventh, the palette queued on the others.
     fn chosen_frame(&mut self, game: &mut Game, chr: &[u8]) -> bool {
         let Some(&row) = self.runner.row(CHOSEN) else {
-            self.fade = Fade::new(false, false);
+            self.fade = Fade::new(FadeDirection::Out, false);
             self.step = Step::Title(Title::FadeOut);
             return false;
         };
@@ -798,8 +813,8 @@ impl Boot {
                         }
                         self.cursor = match (phase, self.choice) {
                             (6, _) => 0,
-                            (_, GAME_START) => 8,
-                            _ => 0x10,
+                            (_, TitleChoice::GameStart) => 8,
+                            (_, TitleChoice::Password) => 0x10,
                         };
                         draw_block(game, self.reader(chr), FLASH_BLOCKS, &mut self.cursor);
                     } else {
@@ -847,7 +862,7 @@ impl Boot {
                 self.draw_password(game, chr);
                 game.effects.palette = palette(chr, PASSWORD_PALETTE);
                 game.scroll.mask = mask::SHOWN;
-                self.fade = Fade::new(true, false);
+                self.fade = Fade::new(FadeDirection::In, false);
                 self.step = Step::Password(Password::FadeIn);
                 return false;
             }
@@ -872,7 +887,7 @@ impl Boot {
                     return false;
                 }
                 if game.world.pressed.contains(Buttons::SELECT) {
-                    self.fade = Fade::new(false, false);
+                    self.fade = Fade::new(FadeDirection::Out, false);
                     self.step = Step::Password(Password::FadeOut { accepted: false });
                     return false;
                 }
@@ -913,7 +928,7 @@ impl Boot {
             }
             Password::Judged { accepted } if self.entry.ticks == 0x80 => {
                 self.step = Step::Password(if accepted {
-                    self.fade = Fade::new(false, false);
+                    self.fade = Fade::new(FadeDirection::Out, false);
                     Password::FadeOut { accepted }
                 } else {
                     Password::Entry
@@ -1081,7 +1096,7 @@ impl Boot {
             game,
             |addr| payload_byte(chr, addr),
             CURSOR,
-            self.choice,
+            self.choice.cursor_x(),
             0x94,
         );
         game.oam.marking = Mark::Scene;
@@ -1426,7 +1441,7 @@ mod tests {
             if raster {
                 super::super::raster::run_irqs(&mut game);
             }
-            game.nmi(0);
+            game.nmi(super::Buttons::NONE);
             raster = game.scroll.split.armed;
         }
         assert!(waits.len() > 280, "{} waits", waits.len());

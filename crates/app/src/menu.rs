@@ -5,14 +5,15 @@ use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use rotj_core::actor::button::Buttons;
 use rotj_core::chr;
 use rotj_core::palette::Rgb;
 
 use crate::RomData;
-use crate::input::{NesButtons, NesInput};
+use crate::input::NesInput;
 use crate::pacing::Step;
 use crate::play::Play;
-use crate::screen::{Colours, pixels, visible};
+use crate::screen::{Colours, PaletteStatus, pixels, visible};
 use crate::settings::{Overscan, PaletteChoice, Picture, Settings, SettingsDir, UiStyle, save};
 
 /// One line of the settings menu, in order.
@@ -80,7 +81,7 @@ impl Row {
                 PaletteChoice::CompositeDirect => "COMPOSITE",
                 PaletteChoice::RgbPpu => "RGB PPU",
                 PaletteChoice::Ntsc => "NTSC",
-                PaletteChoice::File if colours.file_missing => "NO FILE",
+                PaletteChoice::File if colours.status == PaletteStatus::FileMissing => "NO FILE",
                 PaletteChoice::File => "FILE",
             }
             .into(),
@@ -182,13 +183,36 @@ const _: () = assert!(
 /// The atlas cell of a blank glyph, after the 64 pairs.
 const BLANK: usize = 64;
 
+/// Whether the settings menu is closed or open on a specific row.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum MenuState {
+    #[default]
+    Closed,
+    Open(Row),
+}
+
+/// Which overlay is currently shown on top of the game picture.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum OverlayView {
+    #[default]
+    None,
+    PauseHint,
+    Menu,
+}
+
 /// Whether the menu is open, and its cursor.
 #[derive(Resource, Default)]
 pub struct Menu {
-    /// The game is frozen under the menu.
-    pub open: bool,
-    row: Row,
+    state: MenuState,
     save_failed: bool,
+}
+
+impl Menu {
+    /// True while the settings menu is open and the game is frozen beneath it.
+    #[must_use]
+    pub const fn is_open(&self) -> bool {
+        matches!(self.state, MenuState::Open(_))
+    }
 }
 
 /// The font's atlas.
@@ -281,17 +305,19 @@ pub fn steer(
         || gamepads.iter().any(|pad| {
             pad.just_pressed(GamepadButton::Mode) || pad.just_pressed(GamepadButton::RightThumb)
         });
-    let pressed = |button: u8| input.pressed.0 & button != 0;
-    if !menu.open {
-        if toggle || play.paused() && pressed(NesButtons::SELECT) {
-            menu.open = true;
-            menu.row = Row::Volume;
+    let pressed = input.pressed;
+    let MenuState::Open(row) = &mut menu.state else {
+        if toggle || play.paused() && pressed.contains(Buttons::SELECT) {
+            menu.state = MenuState::Open(Row::Volume);
         }
         return;
-    }
-    let back = menu.row == Row::Back;
-    if toggle || pressed(NesButtons::B) || back && pressed(NesButtons::A | NesButtons::START) {
-        menu.open = false;
+    };
+    let back = *row == Row::Back;
+    if toggle
+        || pressed.contains(Buttons::B)
+        || back && pressed.intersects(Buttons::A | Buttons::START)
+    {
+        menu.state = MenuState::Closed;
         input.hide_held();
         if let Some(dir) = &dir.0
             && let Err(error) = save(dir, &settings)
@@ -302,17 +328,17 @@ pub fn steer(
         }
         return;
     }
-    if pressed(NesButtons::UP) {
-        menu.row = menu.row.previous();
+    if pressed.contains(Buttons::UP) {
+        *row = row.previous();
     }
-    if pressed(NesButtons::DOWN) {
-        menu.row = menu.row.next();
+    if pressed.contains(Buttons::DOWN) {
+        *row = row.next();
     }
-    if pressed(NesButtons::LEFT) {
-        menu.row.step(&mut settings, -1);
+    if pressed.contains(Buttons::LEFT) {
+        row.step(&mut settings, -1);
     }
-    if pressed(NesButtons::RIGHT) {
-        menu.row.step(&mut settings, 1);
+    if pressed.contains(Buttons::RIGHT) {
+        row.step(&mut settings, 1);
     }
 }
 
@@ -396,7 +422,7 @@ fn line(font: &Font, text: &str, tint: Color) -> impl Bundle {
 
 /// The menu's box: the title, then each row with its value, the cursor's row white, then
 /// the palette's credit.
-fn menu_box(picture: &mut ChildSpawnerCommands<'_>, font: &Font, shown: &Shown<'_>) {
+fn menu_box(picture: &mut ChildSpawnerCommands<'_>, font: &Font, shown: &Shown<'_>, selected: Row) {
     picture
         .spawn((
             Node {
@@ -417,7 +443,7 @@ fn menu_box(picture: &mut ChildSpawnerCommands<'_>, font: &Font, shown: &Shown<'
             menu_box.spawn(line(font, "", Color::WHITE));
             for row in Row::ALL {
                 let value = row.value(&shown.settings, &shown.colours);
-                let tint = if row == shown.menu.row {
+                let tint = if row == selected {
                     Color::WHITE
                 } else {
                     shown.colour(0x10)
@@ -455,24 +481,28 @@ fn draw(
     shown: Shown<'_>,
     font: Option<Res<'_, Font>>,
     overlays: Query<'_, '_, Entity, With<Overlay>>,
-    mut hinted: Local<'_, bool>,
+    mut last_view: Local<'_, OverlayView>,
 ) {
     let Some(font) = font else {
         return;
     };
-    let hint = !shown.menu.open && shown.play.paused();
+    let view = match shown.menu.state {
+        MenuState::Open(_) => OverlayView::Menu,
+        MenuState::Closed if shown.play.paused() => OverlayView::PauseHint,
+        MenuState::Closed => OverlayView::None,
+    };
     let changed = shown.menu.is_changed()
         || shown.settings.is_changed()
         || shown.colours.is_changed()
         || font.is_changed();
-    if !changed && hint == *hinted {
+    if !changed && view == *last_view {
         return;
     }
-    *hinted = hint;
+    *last_view = view;
     for overlay in &overlays {
         commands.entity(overlay).despawn();
     }
-    if !shown.menu.open && !hint {
+    if view == OverlayView::None {
         return;
     }
     let area = visible(shown.settings.overscan);
@@ -495,8 +525,8 @@ fn draw(
                 align_items: AlignItems::Center,
                 ..default()
             })
-            .with_children(|picture| {
-                if hint {
+            .with_children(|picture| match shown.menu.state {
+                MenuState::Closed => {
                     picture.spawn((
                         Node {
                             position_type: PositionType::Absolute,
@@ -505,8 +535,9 @@ fn draw(
                         },
                         children![line(&font, HINT, Color::WHITE)],
                     ));
-                } else {
-                    menu_box(picture, &font, &shown);
+                }
+                MenuState::Open(row) => {
+                    menu_box(picture, &font, &shown, row);
                 }
             });
         });
@@ -582,7 +613,7 @@ mod tests {
         texts.extend(["SETTINGS".into(), HINT.into(), SAVE_FAILED.into()]);
         texts.extend(PALETTES.map(|palette| credit(palette).into()));
         for palette in PALETTES {
-            for file_missing in [false, true] {
+            for status in [PaletteStatus::Loaded, PaletteStatus::FileMissing] {
                 let settings = Settings {
                     palette,
                     sprite_limit: false,
@@ -591,7 +622,7 @@ mod tests {
                     ..settings.clone()
                 };
                 let colours = Colours {
-                    file_missing,
+                    status,
                     ..Colours::default()
                 };
                 texts.extend(Row::ALL.iter().map(|row| row.value(&settings, &colours)));
@@ -733,7 +764,7 @@ mod tests {
     }
 
     fn open(app: &App) -> bool {
-        app.world().resource::<Menu>().open
+        app.world().resource::<Menu>().is_open()
     }
 
     fn frame(app: &App) -> u8 {
@@ -818,10 +849,16 @@ mod tests {
         press(&mut app, KeyCode::KeyZ);
         assert!(!open(&app), "B closes it");
         app.update();
-        assert_eq!(app.world().resource::<NesInput>().game_byte(), 0);
+        assert_eq!(
+            app.world().resource::<NesInput>().game_buttons(),
+            Buttons::NONE
+        );
         release(&mut app, KeyCode::KeyZ);
         press(&mut app, KeyCode::KeyZ);
-        assert_eq!(app.world().resource::<NesInput>().game_byte(), 0x40);
+        assert_eq!(
+            app.world().resource::<NesInput>().game_buttons(),
+            Buttons::B
+        );
     }
 
     #[test]

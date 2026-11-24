@@ -122,6 +122,28 @@ phases! {
     }
 }
 
+phases! {
+    /// The screen transition selector (`$BA`), which dispatches scripts at `$D4D3`.
+    #[derive(Default)]
+    pub Transition at "$BA", transition_bytes_round_trip {
+        /// No transition; the gameplay loop runs.
+        #[default]
+        None = 0,
+        /// Room change (`$B7EC`), parameterized by `transition_arg` (`$BB`).
+        RoomChange = 1,
+        /// Stage-end sequence (`$940C`).
+        StageEnd = 2,
+        /// Next area load (`$D513`).
+        NextArea = 3,
+        /// Life lost restart (`$D527`).
+        LifeLost = 4,
+        /// Full-meter power-up (`$D58F`).
+        PowerUp = 5,
+        /// The ending (`$D967`).
+        Ending = 6,
+    }
+}
+
 /// Sets every 4-colour set's first entry (the colour pixel 0 mirrors) of a palette shadow.
 pub fn set_first_colours(palette: &mut [u8; 32], colour: u8) {
     for first in palette.iter_mut().step_by(4) {
@@ -532,7 +554,7 @@ pub struct Effects {
     /// The weapon kept across the level end and the power-up (`$0483`).
     pub stored_weapon: Weapon,
     /// Screen transition selector (`$BA`).
-    pub transition: u8,
+    pub transition: Transition,
     /// The transition's parameter (`$BB`).
     pub transition_arg: u8,
     /// `$AF` bit 7: a scripted sequence (death, boss entry, level end, super attack)
@@ -1110,7 +1132,8 @@ mod layout {
                 lives: ram[0x482],
                 meter: ram[0x477],
                 stored_weapon: Weapon::from_byte(ram[0x483]).expect("a weapon 0-6 at $0483"),
-                transition: ram[0xBA],
+                transition: super::Transition::from_byte(ram[0xBA])
+                    .expect("a transition 0-6 at $BA"),
                 transition_arg: ram[0xBB],
                 busy: ram[0xAF],
                 attack: ram[0xB8],
@@ -1165,7 +1188,7 @@ mod layout {
             ram[0x482] = self.lives;
             ram[0x477] = self.meter;
             ram[0x483] = self.stored_weapon.byte();
-            ram[0xBA] = self.transition;
+            ram[0xBA] = self.transition.byte();
             ram[0xBB] = self.transition_arg;
             ram[0xAF] = self.busy;
             ram[0xB8] = self.attack;

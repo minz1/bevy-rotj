@@ -28,8 +28,31 @@ const EFFECTS: u16 = 0x9C92;
 const BANKS: u16 = 0x9CAC;
 
 /// The rows: the songs, the effects and the exit (`$10`).
-const SONG_ROW: u8 = 0;
-const EFFECT_ROW: u8 = 1;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MenuRow {
+    Song,
+    Effect,
+    Exit,
+}
+
+impl MenuRow {
+    const fn index(self) -> u8 {
+        match self {
+            MenuRow::Song => 0,
+            MenuRow::Effect => 1,
+            MenuRow::Exit => 2,
+        }
+    }
+
+    const fn step(self, down: bool) -> MenuRow {
+        match (self, down) {
+            (MenuRow::Song, true) | (MenuRow::Exit, false) => MenuRow::Effect,
+            (MenuRow::Effect, true) | (MenuRow::Song, false) => MenuRow::Exit,
+            (MenuRow::Exit, true) | (MenuRow::Effect, false) => MenuRow::Song,
+        }
+    }
+}
+
 /// How many songs (`$11`) and effects (`$12`) it offers.
 const SONG_COUNT: u8 = 0x0D;
 const EFFECT_COUNT: u8 = 0x1A;
@@ -50,7 +73,7 @@ pub(super) struct SoundTest {
     /// Where the sound test is in [`SETUP`] or [`SONG`].
     runner: Runner,
     /// The row (`$10`).
-    row: u8,
+    row: MenuRow,
     /// The song shown (`$11`).
     song: u8,
     /// The effect shown (`$12`).
@@ -90,7 +113,7 @@ impl SoundTest {
         SoundTest {
             step: Step::Setup,
             runner: Runner::default(),
-            row: SONG_ROW,
+            row: MenuRow::Song,
             song: 0,
             effect: 0,
         }
@@ -189,14 +212,14 @@ impl SoundTest {
         let pressed = game.world.pressed;
         if pressed.contains(Buttons::A) {
             match self.row {
-                SONG_ROW => {
+                MenuRow::Song => {
                     game.effects.music = sound::music::STOP;
                     self.begin(Step::Song);
                 }
-                EFFECT_ROW => {
+                MenuRow::Effect => {
                     game.effects.sound[0] = rom_byte(prg, 12, EFFECTS + u16::from(self.effect));
                 }
-                _ => {
+                MenuRow::Exit => {
                     game.scroll.mask = 0;
                     self.step = Step::Exit;
                 }
@@ -206,15 +229,15 @@ impl SoundTest {
         } else if pressed.intersects(Buttons::SIDEWAYS) {
             let right = pressed.contains(Buttons::RIGHT);
             match self.row {
-                SONG_ROW => {
+                MenuRow::Song => {
                     game.effects.music = sound::music::STOP;
                     self.song = step_wrapping(self.song, right, SONG_COUNT);
                 }
-                EFFECT_ROW => self.effect = step_wrapping(self.effect, right, EFFECT_COUNT),
-                _ => {}
+                MenuRow::Effect => self.effect = step_wrapping(self.effect, right, EFFECT_COUNT),
+                MenuRow::Exit => {}
             }
         } else {
-            self.row = step_wrapping(self.row, pressed.contains(Buttons::DOWN), 3);
+            self.row = self.row.step(pressed.contains(Buttons::DOWN));
         }
     }
 
@@ -223,7 +246,13 @@ impl SoundTest {
     fn draw(self, game: &mut Game, prg: &[u8]) {
         let rom = |addr: u16| rom_byte(prg, 12, addr);
         let cursor = u16::from_le_bytes([rom(CURSOR), rom(CURSOR + 1)]);
-        draw_sprite(game, rom, cursor, 0x68, rom(ROWS + u16::from(self.row)));
+        draw_sprite(
+            game,
+            rom,
+            cursor,
+            0x68,
+            rom(ROWS + u16::from(self.row.index())),
+        );
         for (number, x, y) in [(self.song, 0x9C, 0x70), (self.effect, 0xB4, 0x90)] {
             let mut sprite: [u8; 6] =
                 std::array::from_fn(|i| rom(NUMBER + u16::try_from(i).expect("< 6")));

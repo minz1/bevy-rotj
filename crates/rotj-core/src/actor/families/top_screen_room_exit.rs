@@ -3,7 +3,7 @@
 
 use crate::actor::engine::{self, Proximity, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::{Cx, hurt};
+use crate::actor::world::{Cx, Transition, hurt};
 use crate::actors::{CELL_LOCK, CELL_PENDING};
 
 /// Type `$1A` keeps no state of its own; its `$7D50` is the transition parameter.
@@ -23,7 +23,7 @@ impl State {
         engine::load(body, work);
         match engine::player_proximity(work, cx) {
             Proximity::Touching => {
-                cx.effects.transition = 1;
+                cx.effects.transition = Transition::RoomChange;
                 cx.effects.transition_arg = body.state;
             }
             Proximity::Far => engine::despawn(kind, body, CELL_PENDING | CELL_LOCK, cx.schedule),

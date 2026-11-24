@@ -614,10 +614,23 @@ mod tests {
         for level in checkpoints {
             let forced = u8::try_from(level).ok().filter(|&level| level > 0);
             let mut play = play::Play::power_on(prg(), rom.chr.clone(), forced);
-            assert!(step_until(&mut play, 400, 0, on_title), "{level}: no title");
-            play.step(0x10);
             assert!(
-                step_until(&mut play, 400, 0, |play| !play.booting()),
+                step_until(
+                    &mut play,
+                    400,
+                    rotj_core::actor::button::Buttons::NONE,
+                    on_title,
+                ),
+                "{level}: no title"
+            );
+            play.step(rotj_core::actor::button::Buttons::START);
+            assert!(
+                step_until(
+                    &mut play,
+                    400,
+                    rotj_core::actor::button::Buttons::NONE,
+                    |play| !play.booting(),
+                ),
                 "{level}"
             );
             assert_eq!(
@@ -627,7 +640,7 @@ mod tests {
         }
         let mut play = play::Play::start(prg(), rom.chr.clone(), 0);
         for _ in 0..300 {
-            play.step(0x01);
+            play.step(rotj_core::actor::button::Buttons::RIGHT);
         }
         assert_eq!(play.game().world.area, 0);
     }

@@ -104,6 +104,18 @@ impl SampleQueue {
     }
 }
 
+/// Whether the game clock is driving the sound driver or frozen under the menu.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AudioDrive {
+    /// Ticks the music driver and ramps gain toward `target_gain`.
+    Running {
+        /// Target output gain (0.0..=1.0).
+        target_gain: f32,
+    },
+    /// Holds the music driver still and ramps gain toward silence.
+    Frozen,
+}
+
 /// The synth on the game's clock: ticks the ported driver each frame, applies
 /// the register writes it returns, and fills the queue.
 #[derive(Resource)]
@@ -138,30 +150,42 @@ impl Music {
         self.driver.request(id.byte());
     }
 
-    /// Advances one game frame: tick the driver (unless the game is frozen) and apply its
-    /// writes, then render about a frame's worth of samples ([`samples_for`]), the gain
-    /// moving toward `gain` by at most [`FADE_STEP`] a sample.
-    pub fn advance_frame(&mut self, run_driver: bool, gain: f32) {
-        if run_driver {
-            for write in self.driver.tick() {
-                self.stream.apu_mut().write(write.addr, write.value);
+    /// Advances one game frame: ticks the driver when [`AudioDrive::Running`] and applies
+    /// its writes, then renders about a frame's worth of samples ([`samples_for`]), the
+    /// gain moving toward the target by at most [`FADE_STEP`] a sample.
+    pub fn advance_frame(&mut self, drive: AudioDrive) {
+        let target_gain = match drive {
+            AudioDrive::Running { target_gain } => {
+                for write in self.driver.tick() {
+                    self.stream.apu_mut().write(write.addr, write.value);
+                }
+                target_gain
             }
-        }
+            AudioDrive::Frozen => 0.0,
+        };
         let mut buffer = [0.0_f32; SAMPLES_PER_FRAME + NUDGE];
         let buffer = &mut buffer[..samples_for(self.queue.len())];
         self.stream.fill(buffer);
         for &sample in &*buffer {
-            self.gain += (gain - self.gain).clamp(-FADE_STEP, FADE_STEP);
+            self.gain += (target_gain - self.gain).clamp(-FADE_STEP, FADE_STEP);
             self.queue.push(sample * self.gain);
         }
     }
 }
 
+/// Whether [`QueueSource`] is waiting for [`QUEUE_TARGET`] samples or draining them.
+#[derive(Debug, Clone, Copy)]
+enum QueueState {
+    /// Waiting for the queue to fill while holding the last level (`0.0` at startup).
+    Buffering { hold: f32 },
+    /// Draining queued samples, remembering the last popped level on underrun.
+    Draining { last: f32 },
+}
+
 /// A Bevy audio source that drains [`SampleQueue`] once it holds [`QUEUE_TARGET`].
 pub struct QueueSource {
     queue: SampleQueue,
-    playing: bool,
-    last: f32,
+    state: QueueState,
 }
 
 impl Iterator for QueueSource {
@@ -170,14 +194,28 @@ impl Iterator for QueueSource {
     /// The last sample while the queue fills (from empty, or after running dry), so a
     /// gap is a held level and never a step; `None` would end the source for good.
     fn next(&mut self) -> Option<Self::Item> {
-        self.playing = self.playing || self.queue.len() >= QUEUE_TARGET;
-        if self.playing {
-            match self.queue.pop() {
-                Some(sample) => self.last = sample,
-                None => self.playing = false,
+        let sample = match self.state {
+            QueueState::Buffering { hold } => {
+                if self.queue.len() >= QUEUE_TARGET
+                    && let Some(sample) = self.queue.pop()
+                {
+                    self.state = QueueState::Draining { last: sample };
+                    sample
+                } else {
+                    hold
+                }
             }
-        }
-        Some(self.last)
+            QueueState::Draining { last } => {
+                if let Some(sample) = self.queue.pop() {
+                    self.state = QueueState::Draining { last: sample };
+                    sample
+                } else {
+                    self.state = QueueState::Buffering { hold: last };
+                    last
+                }
+            }
+        };
+        Some(sample)
     }
 }
 
@@ -211,8 +249,7 @@ impl Decodable for MusicSource {
     fn decoder(&self) -> Self::Decoder {
         QueueSource {
             queue: self.queue.clone(),
-            playing: false,
-            last: 0.0,
+            state: QueueState::Buffering { hold: 0.0 },
         }
     }
 }
@@ -266,12 +303,14 @@ fn advance_music(
     settings: Res<'_, crate::settings::Settings>,
     menu: Res<'_, crate::menu::Menu>,
 ) {
-    let gain = if menu.open {
-        0.0
+    let drive = if menu.is_open() {
+        AudioDrive::Frozen
     } else {
-        gain(settings.volume)
+        AudioDrive::Running {
+            target_gain: gain(settings.volume),
+        }
     };
-    music.advance_frame(!menu.open, gain);
+    music.advance_frame(drive);
 }
 
 #[cfg(test)]
@@ -402,7 +441,7 @@ mod tests {
         let mut music = Music::new(queue.clone(), &rom.prg);
         music.request(SoundId::from_byte(0x04).expect("a song"));
         for _ in 0..600 {
-            music.advance_frame(true, 1.0);
+            music.advance_frame(AudioDrive::Running { target_gain: 1.0 });
         }
         // 600 frames of 44.1 kHz audio, bounded by the queue's capacity.
         assert_eq!(queue.len(), QUEUE_CAPACITY);
@@ -412,8 +451,8 @@ mod tests {
     }
 
     /// One frame of `music`, its samples appended to `samples`.
-    fn frame(music: &mut Music, samples: &mut Vec<f32>, run: bool, gain: f32) {
-        music.advance_frame(run, gain);
+    fn frame(music: &mut Music, samples: &mut Vec<f32>, drive: AudioDrive) {
+        music.advance_frame(drive);
         while let Some(sample) = music.queue.pop() {
             samples.push(sample);
         }
@@ -428,15 +467,23 @@ mod tests {
         music.request(SoundId::from_byte(0x01).expect("a song"));
         let mut samples = Vec::new();
         for _ in 0..60 {
-            frame(&mut music, &mut samples, true, 1.0);
+            frame(
+                &mut music,
+                &mut samples,
+                AudioDrive::Running { target_gain: 1.0 },
+            );
         }
         let (opened, driver) = (samples.len(), music.driver.clone());
         for _ in 0..frames {
-            frame(&mut music, &mut samples, false, 0.0);
+            frame(&mut music, &mut samples, AudioDrive::Frozen);
         }
         let closed = samples.len();
         for _ in 0..frames {
-            frame(&mut music, &mut samples, true, 1.0);
+            frame(
+                &mut music,
+                &mut samples,
+                AudioDrive::Running { target_gain: 1.0 },
+            );
         }
         assert!(samples[opened + 441..closed].iter().all(|&s| s == 0.0));
         Some((samples, opened, driver, music))
@@ -483,7 +530,7 @@ mod tests {
         // Queuing a song immediately after construction (before any advance_frame) must stick.
         music.request(SoundId::from_byte(0x01).expect("title song"));
         for _ in 0..120 {
-            music.advance_frame(true, 1.0);
+            music.advance_frame(AudioDrive::Running { target_gain: 1.0 });
         }
         assert!(drain_peak(&queue) > 0.05, "frame-0 request played");
     }

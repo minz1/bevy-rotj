@@ -8,7 +8,7 @@
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::{Body, Counter, Field, Metatile};
 use crate::actor::stage::{self, OnClear};
-use crate::actor::world::{Cx, Motion, attack, hurt, sound, stage_script};
+use crate::actor::world::{Cx, Motion, Transition, attack, hurt, sound, stage_script};
 
 const CHILD: u8 = 0x52;
 const COUNTDOWN: u8 = 0xC0;
@@ -61,7 +61,7 @@ impl State {
             cx.effects.player.energy = 0x0E;
             cx.effects.cutscene_id = 0x0E;
             cx.effects.hud = 0;
-            cx.effects.transition = 3;
+            cx.effects.transition = Transition::NextArea;
         }
     }
 }

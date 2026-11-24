@@ -148,10 +148,10 @@ fn position(piece: &Shown, area: Visible) -> Vec2 {
 }
 
 /// The atlases the shown sprites use, and their shared layout.
-#[derive(Resource, Default)]
+#[derive(Resource)]
 struct Atlases {
     images: HashMap<Key, Handle<Image>>,
-    layout: Option<Handle<TextureAtlasLayout>>,
+    layout: Handle<TextureAtlasLayout>,
 }
 
 impl Atlases {
@@ -159,6 +159,23 @@ impl Atlases {
     fn keep(&mut self, keys: &[Key]) {
         self.images.retain(|key, _| keys.contains(key));
     }
+}
+
+fn init_atlases(
+    mut commands: Commands<'_, '_>,
+    mut layouts: ResMut<'_, Assets<TextureAtlasLayout>>,
+) {
+    let layout = layouts.add(TextureAtlasLayout::from_grid(
+        UVec2::new(8, 16),
+        16,
+        8,
+        None,
+        None,
+    ));
+    commands.insert_resource(Atlases {
+        images: HashMap::new(),
+        layout,
+    });
 }
 
 /// The overlay's root, replaced whenever what it shows changes.
@@ -169,7 +186,6 @@ struct Overlay;
 struct Art<'w> {
     atlases: ResMut<'w, Atlases>,
     images: ResMut<'w, Assets<Image>>,
-    layouts: ResMut<'w, Assets<TextureAtlasLayout>>,
 }
 
 #[expect(
@@ -189,7 +205,7 @@ fn show(
         shown(
             &play.oam,
             &play.marks,
-            &play.label,
+            play.label.carried(&play.marks),
             &play.lines,
             &play.ppu.palette,
             &colours.rgb,
@@ -209,19 +225,7 @@ fn show(
     if pieces.is_empty() {
         return;
     }
-    let layout = art
-        .atlases
-        .layout
-        .get_or_insert_with(|| {
-            art.layouts.add(TextureAtlasLayout::from_grid(
-                UVec2::new(8, 16),
-                16,
-                8,
-                None,
-                None,
-            ))
-        })
-        .clone();
+    let layout = art.atlases.layout.clone();
     for key in keys {
         if !art.atlases.images.contains_key(&key) {
             let image = art.images.add(tiles(&play.chr, &key));
@@ -283,7 +287,7 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Atlases>()
+        app.add_systems(Startup, init_atlases)
             .add_systems(Update, show.in_set(Step::Picture));
     }
 }
@@ -418,7 +422,10 @@ mod tests {
             banks: [bank; 4],
             colours: [[0; 3]; 4],
         };
-        let mut atlases = Atlases::default();
+        let mut atlases = Atlases {
+            images: HashMap::new(),
+            layout: Handle::default(),
+        };
         for bank in 0..3 {
             atlases.images.insert(key(bank), Handle::default());
         }

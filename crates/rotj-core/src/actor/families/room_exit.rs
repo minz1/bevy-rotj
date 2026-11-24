@@ -3,7 +3,7 @@
 
 use crate::actor::engine::{self, Proximity, Work};
 use crate::actor::slots::Body;
-use crate::actor::world::{Cx, hurt};
+use crate::actor::world::{Cx, Transition, hurt};
 
 /// Type `$02` keeps no state of its own; it reuses its spawn record's state byte
 /// as the transition parameter.
@@ -19,7 +19,7 @@ impl State {
         work.hitbox = 0;
         engine::load(body, work);
         if engine::player_proximity(work, cx) == Proximity::Touching {
-            cx.effects.transition = 1;
+            cx.effects.transition = Transition::RoomChange;
             cx.effects.transition_arg = body.state;
         }
     }

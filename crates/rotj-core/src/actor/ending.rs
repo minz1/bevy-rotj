@@ -7,7 +7,7 @@ use super::cutscene::{
     ScreenClear, copy_payload, draw_block, draw_sprite, payload_byte, read_bytes,
 };
 use super::script::{Flow, Runner, wait};
-use super::stage::Fade;
+use super::stage::{Fade, FadeDirection};
 use crate::actor::world::sound;
 use crate::levelmap::PAYLOAD_FIRST_BANK;
 use crate::prg::Prg;
@@ -257,7 +257,12 @@ impl Ending {
         match action {
             Row::FadeOut | Row::FadeIn => {
                 if self.runner.frame == 0 {
-                    self.fade = Some(Fade::new(action == Row::FadeIn, false));
+                    let direction = if action == Row::FadeIn {
+                        FadeDirection::In
+                    } else {
+                        FadeDirection::Out
+                    };
+                    self.fade = Some(Fade::new(direction, false));
                 }
                 let Some(fade) = &mut self.fade else {
                     return Flow::Done;
@@ -322,7 +327,7 @@ impl Ending {
             Row::Credits => self.credits(game, chr),
             Row::WalkOff => {
                 if self.runner.frame == 0 {
-                    self.walker.mode = 0xFF;
+                    self.walker.mode = WalkerMode::WalkingOff;
                 } else if self.walker.x == 0xFE {
                     return Flow::Done;
                 }
@@ -404,7 +409,7 @@ impl Ending {
                 pose: 0,
             };
             self.bursts[0] = Burst::at(0x68, 0x60);
-        } else if self.bursts[0].stage == 4 {
+        } else if self.bursts[0].is_done() {
             return Flow::Done;
         } else {
             let figure = &mut self.figure;
@@ -465,7 +470,7 @@ impl Ending {
         }
         let read = |addr| payload_byte(chr, addr);
         for (burst, start) in self.bursts.iter_mut().zip(STARTS) {
-            if self.runner.frame >= start && burst.stage != 4 {
+            if self.runner.frame >= start && !burst.is_done() {
                 burst.step(game, read);
             }
         }
@@ -532,16 +537,26 @@ struct Figure {
     pose: u8,
 }
 
+/// Whether a burst is still playing through its four shapes or finished (`$2E`, `$2F`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BurstState {
+    Active { ticks: u8, stage: u8 },
+    Done,
+}
+
+impl Default for BurstState {
+    fn default() -> Self {
+        BurstState::Active { ticks: 0, stage: 0 }
+    }
+}
+
 /// A burst at a fixed place (`$665C`): its four shapes from `$686E`, each held the
 /// frames `$686A` gives, every other frame drawing the shape before.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Burst {
     x: u8,
     y: u8,
-    /// Frames into the shape (`$2E`).
-    ticks: u8,
-    /// The shape (`$2F`), 4 once run.
-    stage: u8,
+    state: BurstState,
 }
 
 impl Burst {
@@ -549,32 +564,57 @@ impl Burst {
         Burst {
             x,
             y,
-            ..Burst::default()
+            state: BurstState::Active { ticks: 0, stage: 0 },
         }
+    }
+
+    fn is_done(self) -> bool {
+        self.state == BurstState::Done
     }
 
     /// One frame: the next shape once this one's frames have run (the effect `$22`
     /// with the first), then the draw.
     fn step(&mut self, game: &mut Game, read: impl Fn(u16) -> u8) {
-        if read(BURST_HOLDS + u16::from(self.stage)) < self.ticks {
-            if self.stage == 0 {
+        let BurstState::Active {
+            mut ticks,
+            mut stage,
+        } = self.state
+        else {
+            return;
+        };
+        if read(BURST_HOLDS + u16::from(stage)) < ticks {
+            if stage == 0 {
                 game.effects.sound[0] = sound::IMPACT;
             }
-            self.stage += 1;
-            self.ticks = 0;
+            stage += 1;
+            ticks = 0;
         }
-        let shape = if self.ticks & 1 == 0 {
-            Some(self.stage)
+        let shape = if ticks & 1 == 0 {
+            Some(stage)
         } else {
-            self.stage.checked_sub(1)
+            stage.checked_sub(1)
         };
         if let Some(shape) = shape {
             let at = BURST_SHAPES + 2 * u16::from(shape);
             let pointer = u16::from_le_bytes([read(at), read(at + 1)]);
             draw_sprite(game, read, pointer, self.x, self.y);
         }
-        self.ticks = self.ticks.wrapping_add(1);
+        ticks = ticks.wrapping_add(1);
+        self.state = if stage == 4 {
+            BurstState::Done
+        } else {
+            BurstState::Active { ticks, stage }
+        };
     }
+}
+
+/// The credits' walker mode (`$2F`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum WalkerMode {
+    #[default]
+    WalkingIn,
+    Standing,
+    WalkingOff,
 }
 
 /// The credits' walker (`$6526`): in from the left to x `$80`, standing through the
@@ -587,24 +627,28 @@ struct Walker {
     x: u8,
     /// The body's pose, 0-5 (`$2E`).
     pose: u8,
-    /// 0 walking in, `$7F` standing, `$FF` walking off (`$2F`).
-    mode: u8,
+    /// Walking in, standing, or walking off (`$2F`).
+    mode: WalkerMode,
 }
 
 impl Walker {
     fn step(&mut self, game: &mut Game, read: impl Fn(u16) -> u8) {
-        if self.mode & 0x80 != 0 {
-            if self.pose == 0 {
-                self.x = self.x.wrapping_add(2);
+        match self.mode {
+            WalkerMode::WalkingOff => {
+                if self.pose == 0 {
+                    self.x = self.x.wrapping_add(2);
+                    self.tick &= 7;
+                }
+            }
+            WalkerMode::WalkingIn => {
                 self.tick &= 7;
+                self.x = self.x.wrapping_add(1);
+                if self.x == 0x80 {
+                    self.mode = WalkerMode::Standing;
+                    self.tick = 0;
+                }
             }
-        } else if self.mode == 0 {
-            self.tick &= 7;
-            self.x = self.x.wrapping_add(1);
-            if self.x == 0x80 {
-                self.mode = 0x7F;
-                self.tick = 0;
-            }
+            WalkerMode::Standing => {}
         }
         self.tick = self.tick.wrapping_add(1);
         if read(WALKER_POSE_FRAMES + u16::from(self.pose)) < self.tick {

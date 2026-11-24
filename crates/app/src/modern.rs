@@ -96,6 +96,35 @@ struct Modern {
     layout: Handle<TextureAtlasLayout>,
 }
 
+/// Which renderer supplies the screen quad's image for the current frame.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ActivePicture {
+    /// The PPU's software-composed image.
+    #[default]
+    Classic,
+    /// Bevy tilemaps and sprites rendered to an off-screen target.
+    Modern,
+}
+
+impl ActivePicture {
+    /// Whether this frame renders Modern or falls back to Classic.
+    #[must_use]
+    pub const fn for_frame(settings: &Settings, play: &Play) -> ActivePicture {
+        if matches!(settings.picture, Picture::Modern) && play.shown.modern.is_some() {
+            ActivePicture::Modern
+        } else {
+            ActivePicture::Classic
+        }
+    }
+}
+
+/// The banks and palette colours a layer's tilesets were built from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct BuiltTileset {
+    banks: [u8; 4],
+    sets: [Set; 4],
+}
+
 /// Four tilemaps, one per background palette, [`COLUMNS`] by [`ROWS`], their tilesets, and the
 /// camera drawing them and the sprites over the piece's lines.
 struct Layer {
@@ -103,7 +132,7 @@ struct Layer {
     chunks: [Entity; 4],
     tilesets: [Handle<Image>; 4],
     /// The banks and colours the tilesets were last built from.
-    built: Option<([u8; 4], [Set; 4])>,
+    built: Option<BuiltTileset>,
 }
 
 /// One sprite of the Modern picture, respawned every frame.
@@ -304,15 +333,13 @@ fn draw(
     for sprite in &sprites {
         commands.entity(sprite).despawn();
     }
-    let frame = play
-        .shown
-        .modern
-        .as_ref()
-        .filter(|_| settings.picture == Picture::Modern);
-    let shown_image = if frame.is_some() {
-        modern.image.clone()
-    } else {
-        screen_image(&screen)
+    let active = ActivePicture::for_frame(&settings, &play);
+    let frame = (active == ActivePicture::Modern)
+        .then(|| play.shown.modern.as_ref())
+        .flatten();
+    let shown_image = match active {
+        ActivePicture::Modern => modern.image.clone(),
+        ActivePicture::Classic => screen_image(&screen),
     };
     for mut quad in &mut quads {
         if quad.image != shown_image {
@@ -469,13 +496,17 @@ fn show_layer(
         }
         return;
     };
-    if layer.built != Some((shown.banks, sets)) {
+    let wanted = BuiltTileset {
+        banks: shown.banks,
+        sets,
+    };
+    if layer.built != Some(wanted) {
         for (set, handle) in layer.tilesets.iter().enumerate() {
             if let Some(mut image) = out.images.get_mut(handle) {
                 *image = tileset(&play.chr, shown.banks, sets[set]);
             }
         }
-        layer.built = Some((shown.banks, sets));
+        layer.built = Some(wanted);
     }
     let centre = Vec3::new(
         shown.corner.x + pixels(COLUMNS * 4),
@@ -591,9 +622,16 @@ mod tests {
 
     use super::*;
 
+    use rotj_core::actor::button::Buttons;
+    use rotj_core::actor::world::Transition;
+
     /// Batman walking right and firing every other pair of frames.
-    fn pad(frame: usize) -> u8 {
-        if frame % 4 < 2 { 0x41 } else { 0x01 }
+    fn pad(frame: usize) -> Buttons {
+        if frame % 4 < 2 {
+            Buttons::B | Buttons::RIGHT
+        } else {
+            Buttons::RIGHT
+        }
     }
 
     /// The chunk upload runs after `draw`, so a tile lands in the frame its scroll offset does.
@@ -642,7 +680,7 @@ mod tests {
         );
         let mut play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 5);
         crate::play::tests::enter_the_boss_room(&mut play, 0x0E);
-        let (drawn, view) = renders_as_classic(play, 60, |_| 0, "boss-bar");
+        let (drawn, view) = renders_as_classic(play, 60, |_| Buttons::NONE, "boss-bar");
         assert_eq!(drawn, 60, "boss room frames drawn Modern");
         assert_eq!(
             view.map(|view| (view.map_end, view.runs.map(|run| run.map(|run| run.line)))),
@@ -671,7 +709,7 @@ mod tests {
         );
         let mut play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 12);
         for arg in [0xC1, 0x61] {
-            crate::play::tests::transition(&mut play, 1, arg);
+            crate::play::tests::transition(&mut play, Transition::RoomChange, arg);
         }
         crate::play::tests::enter_the_boss_room(&mut play, 0x22);
         let intact = play.ppu.nametables;
@@ -686,7 +724,7 @@ mod tests {
         let tables = crate::play::tests::prg(rom).families;
         let dest = tables.final_boss_part.death_dests[usize::from(part.body.subtype)];
         for _ in 0..10 {
-            play.step(0);
+            play.step(Buttons::NONE);
         }
         let table = play
             .game()
@@ -702,7 +740,7 @@ mod tests {
             "the death tiles at ${dest:04X} reach the nametables"
         );
         // An odd frame: the allocator's rotation then puts the portrait's overlapping sprites in draw order.
-        let (drawn, view) = renders_as_classic(play, 61, |_| 0, "final-boss");
+        let (drawn, view) = renders_as_classic(play, 61, |_| Buttons::NONE, "final-boss");
         assert!(drawn > 0, "final boss frames drawn Modern");
         assert_eq!(
             view.map(|view| view.map_end),
@@ -715,7 +753,7 @@ mod tests {
     fn renders_as_classic(
         play: Play,
         frames: usize,
-        pad: fn(usize) -> u8,
+        pad: fn(usize) -> Buttons,
         name: &str,
     ) -> (usize, Option<View>) {
         let mut app = App::new();

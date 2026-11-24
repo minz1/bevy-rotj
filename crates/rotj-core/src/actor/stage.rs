@@ -8,7 +8,8 @@ use super::families::phases;
 use super::room;
 use super::script::{Flow, Runner, wait};
 use super::world::{
-    EntryStep, Motion, VramWrite, Weapon, attack, set_first_colours, sound, stage_script,
+    EntryStep, Motion, Transition, VramWrite, Weapon, attack, set_first_colours, sound,
+    stage_script,
 };
 use crate::actor::button::Buttons;
 use crate::actors::bank_slice;
@@ -234,7 +235,7 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
                     end.fade = end.fade.wrapping_sub(0x10);
                     if end.fade & 0x80 != 0 {
                         game.effects.hud = 0;
-                        game.effects.transition = 3;
+                        game.effects.transition = Transition::NextArea;
                         blackout(game, prg);
                         return true;
                     }
@@ -347,7 +348,7 @@ impl PowerUp {
         effects.stage_end.phase = effects.stage_end.phase.wrapping_add(1);
         let player = &mut effects.player;
         player.stage_script = stage_script::FROZEN;
-        effects.transition = 0;
+        effects.transition = Transition::None;
         effects.stage_args[1] = player.motion.byte();
         player.motion = Motion::PoweringUp;
         game.world.frame_odd = true;
@@ -373,6 +374,15 @@ impl PowerUp {
     }
 }
 
+/// Whether a palette fade brightens from black or darkens to black.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FadeDirection {
+    /// Brightening from black (`$C2B8`, `$B237`).
+    In,
+    /// Darkening to black (`$C2E1`, `$D61B`).
+    Out,
+}
+
 /// A fade in or out, one frame per [`Fade::step`] (`$C2B8`, `$C2E1`, `$B237`, `$D61B`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Fade {
@@ -380,18 +390,21 @@ pub(super) struct Fade {
     cap: u8,
     /// Frames left at this cap (`$11`).
     ticks: u8,
-    /// Brightening from black (`$C2B8`, `$B237`) rather than darkening.
-    rising: bool,
+    /// Brightening from black or darkening to black.
+    direction: FadeDirection,
     /// Whether each frame also streams the scroll (`$D29B`).
     streams: bool,
 }
 
 impl Fade {
-    pub(super) fn new(rising: bool, streams: bool) -> Fade {
+    pub(super) fn new(direction: FadeDirection, streams: bool) -> Fade {
         Fade {
-            cap: if rising { 0 } else { 0x30 },
+            cap: match direction {
+                FadeDirection::In => 0,
+                FadeDirection::Out => 0x30,
+            },
             ticks: 3,
-            rising,
+            direction,
             streams,
         }
     }
@@ -401,7 +414,7 @@ impl Fade {
         self.ticks = self.ticks.wrapping_sub(1);
         let mut last = false;
         if self.ticks & 0x80 != 0 {
-            if !self.rising {
+            if self.direction == FadeDirection::Out {
                 self.cap = self.cap.wrapping_sub(0x10);
                 if self.cap & 0x80 != 0 {
                     blackout(game, prg);
@@ -410,7 +423,7 @@ impl Fade {
             }
             queue_faded(game, self.cap);
             self.ticks = 3;
-            if self.rising {
+            if self.direction == FadeDirection::In {
                 self.cap = self.cap.wrapping_add(0x10);
                 last = self.cap & 0x80 != 0;
             }
@@ -422,6 +435,17 @@ impl Fade {
     }
 }
 
+/// How [`NextArea`] was entered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AreaEntry {
+    /// Advancing to the next stage (`$BA = 3`, `$D513`).
+    NextStage,
+    /// Restarting after losing a life (`$BA = 4`, `$D527`); `continued` once Start continued.
+    LifeLost { continued: bool },
+    /// A new game's first area (`$D3D8`), loaded over the boot's payload.
+    NewGame,
+}
+
 /// The next area's load `$BA = 3` starts (`$D513`), one frame per [`NextArea::step`]:
 /// the fade out, the stage banner (bank 2 `$92AD`) and the area's start (bank 13 `$B200`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -429,30 +453,27 @@ pub struct NextArea {
     step: Step,
     /// Where the load is in [`FADE_OUT`], [`BANNER`] or [`AREA`].
     runner: Runner,
-    /// The area restarts after a life lost (`$D527`) instead of advancing.
-    life_lost: bool,
-    /// A new game's first area (`$D3D8`), loaded over the boot's payload.
-    new_game: bool,
-    /// The continue screen, once the last life is gone.
-    screen: Option<Continue>,
-    /// The boss room's start, when `$0404` bit 7 selects it (`$BB3D`).
-    intro: BossIntro,
-    /// The banner's cutscene, when the area has one and `$0406` is set (`$98BD`).
-    cutscene: Option<Cutscene>,
+    /// How this load was entered.
+    entry: AreaEntry,
+    /// What WRAM holds when the area loads.
+    leftover: room::Leftover,
     fade: Fade,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Step {
     /// The fade out, the rows of [`FADE_OUT`].
     FadeOut,
     Banner,
-    Cutscene,
-    Continue,
+    /// The banner's cutscene (`$98BD`).
+    Cutscene(Box<Cutscene>),
+    /// The continue screen, once the last life is gone.
+    Continue(Continue),
     /// The banner shown and held, the rows of [`BANNER`].
     ShowBanner,
     Clear,
-    BossIntro,
+    /// The boss room's start, when `$0404` bit 7 selects it (`$BB3D`).
+    BossIntro(Box<BossIntro>),
     /// The area loaded and faded in, the rows of [`AREA`].
     Area,
     Reset,
@@ -464,8 +485,8 @@ enum Step {
 enum LoadRow {
     /// The frame's sprites finished.
     FinishSprites,
-    /// A fade, rising or not and streaming the scroll or not, `Done` in its last frame.
-    Fade(bool, bool),
+    /// A fade in or out, streaming the scroll or not, `Done` in its last frame.
+    Fade(FadeDirection, bool),
     /// Frames the screen stays as it is.
     Wait(u16),
     /// The banner drawn and shown.
@@ -488,17 +509,17 @@ enum LoadRow {
 
 const FADE_OUT: &[LoadRow] = &[
     LoadRow::FinishSprites,
-    LoadRow::Fade(false, true),
+    LoadRow::Fade(FadeDirection::Out, true),
     LoadRow::Wait(1),
 ];
 const BANNER: &[LoadRow] = &[
     LoadRow::Draw,
     LoadRow::Palette,
-    LoadRow::Fade(true, false),
+    LoadRow::Fade(FadeDirection::In, false),
     LoadRow::Wait(2),
     // the original's $40, set in the second frame of Wait(2)
     LoadRow::Hold(0x3F),
-    LoadRow::Fade(false, false),
+    LoadRow::Fade(FadeDirection::Out, false),
     LoadRow::Wait(1),
 ];
 const AREA: &[LoadRow] = &[
@@ -506,7 +527,7 @@ const AREA: &[LoadRow] = &[
     LoadRow::Load,
     LoadRow::Show,
     LoadRow::Enter,
-    LoadRow::Fade(true, true),
+    LoadRow::Fade(FadeDirection::In, true),
     LoadRow::Finish,
 ];
 
@@ -515,12 +536,9 @@ impl Default for NextArea {
         NextArea {
             step: Step::FadeOut,
             runner: Runner::default(),
-            life_lost: false,
-            new_game: false,
-            screen: None,
-            intro: BossIntro::default(),
-            cutscene: None,
-            fade: Fade::new(false, true),
+            entry: AreaEntry::NextStage,
+            leftover: room::Leftover::LastArea,
+            fade: Fade::new(FadeDirection::Out, true),
         }
     }
 }
@@ -531,7 +549,7 @@ impl NextArea {
     #[must_use]
     pub fn life_lost() -> NextArea {
         NextArea {
-            life_lost: true,
+            entry: AreaEntry::LifeLost { continued: false },
             ..NextArea::default()
         }
     }
@@ -542,39 +560,28 @@ impl NextArea {
     pub fn new_game() -> NextArea {
         NextArea {
             step: Step::Banner,
-            new_game: true,
+            entry: AreaEntry::NewGame,
+            leftover: room::Leftover::Boot,
             ..NextArea::default()
-        }
-    }
-
-    /// What WRAM holds when the area loads: the boot's payload, a cutscene's, or the
-    /// last area.
-    fn leftover(&self) -> room::Leftover {
-        if self.new_game {
-            room::Leftover::Boot
-        } else if self.cutscene.is_some() {
-            room::Leftover::Cutscene
-        } else {
-            room::Leftover::LastArea
         }
     }
 
     /// True once the last frame has run and the loop resumes (`$D46C`).
     #[must_use]
     pub fn done(&self) -> bool {
-        self.step == Step::Done
+        matches!(self.step, Step::Done)
     }
 
     /// True once GAME OVER has run its course and the game resets (`JMP ($FFFC)`).
     #[must_use]
     pub fn reset(&self) -> bool {
-        self.step == Step::Reset
+        matches!(self.step, Step::Reset)
     }
 
     /// True while the banner's cutscene runs.
     #[cfg(test)]
     pub(crate) fn in_cutscene(&self) -> bool {
-        self.step == Step::Cutscene
+        matches!(self.step, Step::Cutscene(_))
     }
 
     /// Runs one frame of the load, up to its NMI wait.
@@ -583,7 +590,7 @@ impl NextArea {
     /// On a level that does not decode.
     pub fn step(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) {
         loop {
-            match self.step {
+            match &mut self.step {
                 Step::FadeOut => {
                     if self.table_frame(FADE_OUT, game, prg, chr) {
                         return;
@@ -595,24 +602,39 @@ impl NextArea {
                         return;
                     }
                 }
-                Step::Cutscene => return self.cutscene_frame(game, prg, chr),
+                Step::Cutscene(cutscene) => {
+                    if cutscene.step(game, prg, chr) {
+                        hide_for_banner(game, prg);
+                        self.begin(Step::ShowBanner);
+                    }
+                    return;
+                }
                 Step::ShowBanner => {
                     if self.table_frame(BANNER, game, prg, chr) {
                         return;
                     }
                     self.step = Step::Clear;
                 }
-                Step::Continue => {
-                    if self.continue_screen(game, prg) {
+                Step::Continue(screen) => match screen.step(game, prg) {
+                    Outcome::Running => return,
+                    Outcome::Continued => {
+                        game.world.area = checkpoint(&prg.levels, game.world.area);
+                        game.effects.lives = 2;
+                        game.effects.hud = 0;
+                        self.entry = AreaEntry::LifeLost { continued: true };
+                        self.step = Step::Banner;
+                    }
+                    Outcome::Reset => {
+                        self.step = Step::Reset;
                         return;
                     }
-                }
+                },
                 Step::Clear if game.effects.hud & 0x80 != 0 => {
-                    self.step = Step::BossIntro;
+                    self.step = Step::BossIntro(Box::default());
                 }
                 Step::Clear => self.begin(Step::Area),
-                Step::BossIntro => {
-                    if self.intro.step(game, prg, chr) {
+                Step::BossIntro(intro) => {
+                    if intro.step(game, prg, chr) {
                         self.step = Step::Done;
                     }
                     return;
@@ -643,9 +665,9 @@ impl NextArea {
                     game.oam.finish();
                     Flow::Done
                 }
-                LoadRow::Fade(rising, streams) => {
+                LoadRow::Fade(direction, streams) => {
                     if frame == 0 {
-                        self.fade = Fade::new(rising, streams);
+                        self.fade = Fade::new(direction, streams);
                     }
                     if self.fade.step(game, prg) {
                         Flow::Done
@@ -679,7 +701,7 @@ impl NextArea {
                 }
                 LoadRow::Load => {
                     if frame == 0 {
-                        start_area(game, prg, chr, self.leftover());
+                        start_area(game, prg, chr, self.leftover);
                     }
                     wait(frame, 1)
                 }
@@ -696,7 +718,7 @@ impl NextArea {
                 }
                 LoadRow::Finish => {
                     game.effects.busy = 0;
-                    game.effects.transition = 0;
+                    game.effects.transition = Transition::None;
                     Flow::Done
                 }
             };
@@ -711,17 +733,18 @@ impl NextArea {
     /// true when the frame ended, false when the last life went and the continue
     /// screen takes over.
     fn banner(&mut self, game: &mut Game, prg: &Prg) -> bool {
-        if !self.life_lost {
-            if !self.new_game {
+        match self.entry {
+            AreaEntry::NextStage => {
                 game.world.area = game.world.area.wrapping_add(2);
             }
-        } else if self.screen.is_none() {
-            let lives = &mut game.effects.lives;
-            *lives = lives.wrapping_sub(1);
-            if *lives & 0x80 != 0 {
-                self.screen = Some(Continue::default());
-                self.step = Step::Continue;
-                return false;
+            AreaEntry::NewGame | AreaEntry::LifeLost { continued: true } => {}
+            AreaEntry::LifeLost { continued: false } => {
+                let lives = &mut game.effects.lives;
+                *lives = lives.wrapping_sub(1);
+                if *lives & 0x80 != 0 {
+                    self.step = Step::Continue(Continue::default());
+                    return false;
+                }
             }
         }
         game.world.room = 0;
@@ -729,42 +752,15 @@ impl NextArea {
             && game.effects.cutscene_id != 0
         {
             game.effects.cutscene_id = 0;
-            self.cutscene = Some(Cutscene::new(scene));
-            self.step = Step::Cutscene;
+            if self.leftover != room::Leftover::Boot {
+                self.leftover = room::Leftover::Cutscene;
+            }
+            self.step = Step::Cutscene(Box::new(Cutscene::new(scene)));
             return false;
         }
         hide_for_banner(game, prg);
         self.begin(Step::ShowBanner);
         true
-    }
-
-    /// A frame of the banner's cutscene, and the dark screen after its last.
-    fn cutscene_frame(&mut self, game: &mut Game, prg: &[u8], chr: &[u8]) {
-        let cutscene = self.cutscene.as_mut().expect("the cutscene");
-        if cutscene.step(game, prg, chr) {
-            hide_for_banner(game, prg);
-            self.begin(Step::ShowBanner);
-        }
-    }
-
-    /// A frame of the continue screen; false when Start continued and the stage's first
-    /// area loads in this frame (`$D53B`: two lives, `$0404` clear).
-    fn continue_screen(&mut self, game: &mut Game, prg: &Prg) -> bool {
-        let screen = self.screen.as_mut().expect("the continue screen");
-        match screen.step(game, prg) {
-            Outcome::Running => true,
-            Outcome::Continued => {
-                game.world.area = checkpoint(&prg.levels, game.world.area);
-                game.effects.lives = 2;
-                game.effects.hud = 0;
-                self.step = Step::Banner;
-                false
-            }
-            Outcome::Reset => {
-                self.step = Step::Reset;
-                true
-            }
-        }
     }
 }
 
@@ -818,8 +814,8 @@ fn clear_for_area(game: &mut Game) {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BossIntro {
     step: Intro,
-    /// The card's phase (`$12`), a [`Card`] byte.
-    phase: u8,
+    /// The card's phase (`$12`).
+    phase: Card,
     /// The slide's speed (`$10:$11`).
     speed: u16,
     /// How far the card has slid (`$14:$15`).
@@ -830,13 +826,11 @@ pub struct BossIntro {
     cap: u8,
     /// The arrangement the room loader set, restored at the end (`$1F`).
     mirroring: Mirroring,
-    /// The room's page draw (`$B351`).
-    page: Option<room::PageDraw>,
     /// The bottom rows' 64-byte runs queued so far.
     rows: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 enum Intro {
     #[default]
     Clear,
@@ -844,29 +838,30 @@ enum Intro {
     Show,
     Start,
     Slide,
-    Page,
+    /// The room's page draw (`$B351`).
+    Page(room::PageDraw),
     Rows,
     Attributes,
     Enter,
     Done,
 }
 
-phases! {
-    /// The boss card's phases (`$12`), the index into `$BC9A`.
-    Card at "$12", card_bytes_round_trip {
-        /// Sliding in from the right.
-        Sliding = 0,
-        /// Held still while the cap counts down.
-        Holding = 1,
-        /// Fading to white; the room loads once it has run.
-        FadingToWhite = 2,
-    }
+/// The boss card's phases (`$12`, `$BC9A`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Card {
+    /// Sliding in from the right.
+    #[default]
+    Sliding,
+    /// Held still while the cap counts down.
+    Holding,
+    /// Fading to white; the room loads once it has run.
+    FadingToWhite,
 }
 
 impl BossIntro {
     /// Runs one frame up to its NMI wait; true on the last.
     pub fn step(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) -> bool {
-        match self.step {
+        match &mut self.step {
             Intro::Clear => {
                 game.effects.music = sound::music::STOP;
                 for slot in &mut game.slots.main {
@@ -922,8 +917,7 @@ impl BossIntro {
                     self.enter_room(game, prg);
                 }
             }
-            Intro::Page => {
-                let page = self.page.as_mut().expect("the page draw");
+            Intro::Page(page) => {
                 if page.step(game) {
                     self.step = Intro::Rows;
                 }
@@ -958,8 +952,8 @@ impl BossIntro {
     /// One frame of the card (`$BB81`, through `$BC9A[$12]`, and the draw `$BC3E`);
     /// true when the fade has run and the room loads in this frame instead.
     fn slide(&mut self, game: &mut Game, prg: &Prg) -> bool {
-        match Card::from_byte(self.phase) {
-            Some(Card::Sliding) => {
+        match self.phase {
+            Card::Sliding => {
                 self.speed = self.speed.wrapping_add(0x20);
                 if self.speed >> 8 >= 0x0C {
                     self.speed = 0x0600;
@@ -968,7 +962,7 @@ impl BossIntro {
                 if self.offset >> 8 >= 0x50 {
                     self.offset = 0x5000;
                     self.cap = 0x60;
-                    self.phase = Card::Holding.byte();
+                    self.phase = Card::Holding;
                     let vram = &mut game.effects.vram;
                     vram.push(
                         ppu::tile_addr(0, 13, 5),
@@ -988,13 +982,13 @@ impl BossIntro {
                     self.fades += 1;
                 }
             }
-            Some(Card::Holding) => {
+            Card::Holding => {
                 self.cap = self.cap.wrapping_sub(1);
                 if self.cap == 0 {
-                    (self.phase, self.fades, self.cap) = (Card::FadingToWhite.byte(), 0, 0);
+                    (self.phase, self.fades, self.cap) = (Card::FadingToWhite, 0, 0);
                 }
             }
-            Some(Card::FadingToWhite) | None => {
+            Card::FadingToWhite => {
                 if self.fades < 0x0A {
                     if self.fades.is_multiple_of(2) {
                         queue_whitened(game, self.cap);
@@ -1040,8 +1034,7 @@ impl BossIntro {
         room::spawn_first_row(game, prg);
         let mut page = room::PageDraw::new(game.scroll.start, 0x60, 0x20, game.scroll.mirroring);
         page.step(game);
-        self.page = Some(page);
-        self.step = Intro::Page;
+        self.step = Intro::Page(page);
     }
 
     /// The room's start (`$BDE2-$BE47`): the arrangement back, the room's parameters,
@@ -1068,7 +1061,7 @@ impl BossIntro {
         player.stage_script = stage_script::FROZEN | stage_script::HIDDEN;
         queue_palette(game);
         request_song(game, prg);
-        game.effects.transition = 0;
+        game.effects.transition = Transition::None;
     }
 }
 
@@ -1167,8 +1160,8 @@ pub struct Continue {
     step: Countdown,
     /// Where the screen is in [`SETUP`], [`GAME_OVER`] or [`LEAVE`].
     runner: Runner,
-    /// The countdown's phase (`$10`), a [`DigitPhase`] byte.
-    phase: u8,
+    /// The countdown's phase (`$10`).
+    phase: DigitPhase,
     /// The digit shown (`$11`).
     digit: u8,
     /// Frames the digit holds (`$12`), and GAME OVER's hold (`$10`).
@@ -1195,16 +1188,16 @@ enum Countdown {
     Leave,
 }
 
-phases! {
-    /// The countdown digit's phases (`$10`), the index into `$9254`.
-    DigitPhase at "$10", digit_phase_bytes_round_trip {
-        /// The digit holds for its timer.
-        Holding = 0,
-        /// The digit splits away.
-        Splitting = 1,
-        /// The next digit closes in.
-        Closing = 2,
-    }
+/// The countdown digit's phases (`$10`, `$9254`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum DigitPhase {
+    /// The digit holds for its timer.
+    #[default]
+    Holding,
+    /// The digit splits away.
+    Splitting,
+    /// The next digit closes in.
+    Closing,
 }
 
 /// What the continue screen does before its countdown, before GAME OVER and after Start,
@@ -1256,7 +1249,7 @@ impl Default for Continue {
         Continue {
             step: Countdown::Setup,
             runner: Runner::default(),
-            phase: DigitPhase::Holding.byte(),
+            phase: DigitPhase::Holding,
             digit: 0,
             timer: 0,
             speed: 0,
@@ -1368,8 +1361,7 @@ impl Continue {
                 }
                 ContinueRow::FirstDigit => {
                     if frame == 0 {
-                        (self.phase, self.digit, self.timer) =
-                            (DigitPhase::Holding.byte(), 9, 0x30);
+                        (self.phase, self.digit, self.timer) = (DigitPhase::Holding, 9, 0x30);
                         (self.speed, self.offset) = (0, 0);
                         for (bank, shadow) in (0xCC..).zip(&mut game.oam.chr[..4]) {
                             *shadow = bank;
@@ -1434,8 +1426,8 @@ impl Continue {
     /// One frame of the countdown (`$8FC9`, through `$9254[$10]`); true when the last
     /// digit has gone and the screen blacked out (`$9031`).
     fn count(&mut self, game: &mut Game, prg: &[u8]) -> bool {
-        match DigitPhase::from_byte(self.phase) {
-            Some(DigitPhase::Holding) => {
+        match self.phase {
+            DigitPhase::Holding => {
                 self.timer = self.timer.wrapping_sub(1);
                 if self.timer & 0x80 != 0 {
                     game.effects.sound[0] = if self.digit == 0 {
@@ -1443,12 +1435,12 @@ impl Continue {
                     } else {
                         sound::COUNTDOWN_TICK
                     };
-                    self.phase = DigitPhase::Splitting.byte();
+                    self.phase = DigitPhase::Splitting;
                     (self.speed, self.offset) = (0, 0);
                 }
                 return false;
             }
-            Some(DigitPhase::Splitting) => {
+            DigitPhase::Splitting => {
                 self.speed = self.speed.wrapping_add(0x20);
                 if self.speed >> 8 >= 6 {
                     self.speed = 0x0400;
@@ -1456,7 +1448,7 @@ impl Continue {
                 self.offset = self.offset.wrapping_add(self.speed);
                 if self.offset >> 8 >= 0x20 {
                     self.offset = 0x2000;
-                    self.phase = DigitPhase::Closing.byte();
+                    self.phase = DigitPhase::Closing;
                     self.digit = self.digit.wrapping_sub(1);
                     if self.digit & 0x80 != 0 {
                         blackout(game, prg);
@@ -1464,11 +1456,11 @@ impl Continue {
                     }
                 }
             }
-            Some(DigitPhase::Closing) | None => {
+            DigitPhase::Closing => {
                 self.offset = if let Some(offset) = closed_offset(self.offset) {
                     offset
                 } else {
-                    (self.timer, self.phase, self.speed) = (0x30, DigitPhase::Holding.byte(), 0);
+                    (self.timer, self.phase, self.speed) = (0x30, DigitPhase::Holding, 0);
                     0
                 };
             }

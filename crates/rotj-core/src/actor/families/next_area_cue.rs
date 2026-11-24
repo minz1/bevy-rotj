@@ -7,7 +7,7 @@
 
 use crate::actor::engine::Work;
 use crate::actor::slots::{Body, Counter};
-use crate::actor::world::{Cx, sound};
+use crate::actor::world::{Cx, Transition, sound};
 
 /// The `$7E10` guard written with it (`$932A`).
 const GUARD: u8 = 0x80;
@@ -41,7 +41,7 @@ impl State {
         if body.anim >= ARMED {
             cx.effects.hud = 0;
             cx.effects.player.power_up = 0;
-            cx.effects.transition = 3;
+            cx.effects.transition = Transition::NextArea;
             return;
         }
         cx.oam.chr[CHR_BANK] = if body.anim & 0x04 != 0 {
