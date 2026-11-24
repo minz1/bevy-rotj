@@ -303,7 +303,7 @@ fn record(x: u16, second_class: bool, kind: u8) -> SpawnRecord {
         kind,
         state: 0x61,
         behaviour: 1,
-        subtype: 2,
+        subtype: 0x62,
         health: 0x0102,
         contact: 0x88,
     }
@@ -1716,5 +1716,82 @@ fn a_rooms_mirroring_property_overrides_the_derived_one() {
             map.properties
                 .push(Property::enumerated("mirroring", "mirroring", "sideways"));
         },
+    );
+}
+
+#[test]
+fn user_pack_crash_conditions_are_refused_by_name() {
+    let fixture = Fixture::new(&hand_made());
+    fixture.refuses_map("property `chr_slot` 8 is past 7", ROOM_A, |map| {
+        set_property(&mut objects(map, 1)[0], "chr_slot", 8.into());
+    });
+    fixture.refuses_map(
+        "`bobber_spawner` `subtype` 0xff is not a main actor kind",
+        ROOM_A,
+        |map| {
+            let object = &mut objects(map, 1)[0];
+            object.kind = "bobber_spawner".into();
+            set_property(object, "subtype", 0xFF.into());
+        },
+    );
+    fixture.refuses_map(
+        "a `bobber_spawner` spawning `room_exit` in the stage's last room",
+        ROOM_D,
+        |map| {
+            let object = &mut objects(map, 1)[0];
+            object.kind = "bobber_spawner".into();
+            set_property(object, "subtype", 0x02.into());
+        },
+    );
+    fixture.refuses_map(
+        "`breakable_block` `subtype` 0x00 must be a map row 0x60-0x6e",
+        ROOM_A,
+        |map| {
+            let object = &mut objects(map, 1)[0];
+            object.kind = "breakable_block".into();
+            set_property(object, "subtype", 0.into());
+        },
+    );
+    fixture.refuses_map("`waypoint_platform` `subtype` 4 is past 3", ROOM_A, |map| {
+        let object = &mut objects(map, 1)[0];
+        object.kind = "waypoint_platform".into();
+        set_property(object, "subtype", 4.into());
+    });
+    fixture.refuses_map(
+        "`waypoint_platform` `behaviour` 7 is past 6",
+        ROOM_A,
+        |map| {
+            let object = &mut objects(map, 1)[0];
+            object.kind = "waypoint_platform".into();
+            set_property(object, "subtype", 0.into());
+            set_property(object, "behaviour", 7.into());
+        },
+    );
+    fixture.refuses_map("pickup `state & 0x7f` 5 is past 4", ROOM_A, |map| {
+        let object = &mut objects(map, 1)[0];
+        object.kind = "pickup".into();
+        set_property(object, "state", 5.into());
+    });
+    fixture.refuses_map(
+        "`camera-start` x is past page 1 of a horizontal two-page room",
+        ROOM_D,
+        |map| {
+            let camera = objects(map, 2)
+                .iter_mut()
+                .find(|object| object.kind == "camera-start")
+                .expect("camera-start");
+            camera.x = Position(0x0200);
+        },
+    );
+    let mut two_page_first = two_areas();
+    two_page_first.stages[0].rooms[0].room.orientation = orientation::TWO_PAGES;
+    Fixture::new(&two_page_first)
+        .refuses("a stage's first room cannot be two pages across", |_| {});
+    let two = Fixture::new(&two_areas());
+    let (x, y) = tile(0);
+    two.refuses_map(
+        &format!("layer `terrain`: tile ({x}, {y}) is metatile 6, past area-01's 6"),
+        ROOM_1,
+        |map| paint(map, &[7]),
     );
 }

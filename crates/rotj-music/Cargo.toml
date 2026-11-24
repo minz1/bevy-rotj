@@ -6,14 +6,14 @@ authors = ["minz1"]
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
-rotj-apu = { path = "../rotj-apu", version = "1.1.55" }
-tracing.workspace = true
+rotj-apu = { path = "../rotj-apu", version = "1.1.56" }
 
 [dev-dependencies]
-rotj-core = { path = "../rotj-core", version = "1.1.55" }
-rotj-rom = { path = "../rotj-rom", version = "1.1.55" }
+rotj-core = { path = "../rotj-core", version = "1.1.56" }
+rotj-rom = { path = "../rotj-rom", version = "1.1.56" }
 
 [lints]
 workspace = true

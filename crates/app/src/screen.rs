@@ -59,10 +59,32 @@ pub fn colours_for(choice: PaletteChoice, dir: Option<&Path>) -> Colours {
         PaletteChoice::CompositeDirect => (NES_PALETTE, false),
         PaletteChoice::RgbPpu => (RGB_PPU, false),
         PaletteChoice::Ntsc => (ntsc(), false),
-        PaletteChoice::File => dir
-            .and_then(|dir| std::fs::read(dir.join("palette.pal")).ok())
-            .and_then(|bytes| from_pal(&bytes))
-            .map_or((NES_PALETTE, true), |rgb| (rgb, false)),
+        PaletteChoice::File => match dir {
+            None => (NES_PALETTE, true),
+            Some(dir) => {
+                let path = dir.join("palette.pal");
+                match std::fs::read(&path) {
+                    Ok(bytes) => from_pal(&bytes).map_or_else(
+                        || {
+                            warn!(
+                                "{}: expected 192 bytes (64 RGB entries), got {}; falling back",
+                                path.display(),
+                                bytes.len()
+                            );
+                            (NES_PALETTE, true)
+                        },
+                        |rgb| (rgb, false),
+                    ),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        (NES_PALETTE, true)
+                    }
+                    Err(error) => {
+                        warn!("{}: {error}; falling back", path.display());
+                        (NES_PALETTE, true)
+                    }
+                }
+            }
+        },
     };
     Colours { rgb, file_missing }
 }

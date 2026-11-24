@@ -42,42 +42,79 @@ pub(crate) struct Launch {
     pub pack: Option<PathBuf>,
 }
 
-/// The arguments read once: `--pack <dir>`, a folder or a `pack.json` name the pack, the
-/// first other argument the ROM.
-pub(crate) fn launch(args: impl IntoIterator<Item = PathBuf>) -> Result<Launch, String> {
+/// What the command line asks the binary to do.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum LaunchAction {
+    /// Run the game with these paths.
+    Run(Launch),
+    /// Print usage help and exit 0.
+    Help,
+    /// Print the version string and exit 0.
+    Version,
+}
+
+/// Warnings collected before Bevy's `LogPlugin` is initialized, flushed at `Startup`.
+#[derive(Resource, Default)]
+struct StartupWarnings(Vec<String>);
+
+/// The arguments read once: `--help`/`--version`, `--pack <dir>`, a folder or a `pack.json`
+/// name the pack, one other argument the ROM; unknown flags and extra arguments are refused.
+pub(crate) fn launch_action(
+    args: impl IntoIterator<Item = PathBuf>,
+) -> Result<LaunchAction, String> {
     let mut launch = Launch::default();
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
-        let named = arg.as_os_str() == "--pack";
-        let arg = if named {
-            args.next().ok_or("`--pack` needs a pack folder")?
-        } else {
-            arg
-        };
-        let pack = if arg
-            .file_name()
-            .is_some_and(|name| name.eq_ignore_ascii_case("pack.json"))
-        {
-            match arg.parent() {
-                Some(dir) if !dir.as_os_str().is_empty() => dir.to_path_buf(),
-                _ => PathBuf::from("."),
+        if let Some(flag) = arg.to_str() {
+            match flag {
+                "-h" | "--help" => return Ok(LaunchAction::Help),
+                "-V" | "--version" => return Ok(LaunchAction::Version),
+                "--pack" => {
+                    let next = args.next().ok_or("`--pack` needs a pack folder")?;
+                    let pack = pack_dir(next);
+                    if launch.pack.replace(pack).is_some() {
+                        return Err("more than one level pack".into());
+                    }
+                    continue;
+                }
+                other if other.starts_with('-') => {
+                    return Err(format!("unknown option `{other}` (try `--help`)"));
+                }
+                _ => {}
             }
-        } else if named || arg.is_dir() {
-            arg
-        } else {
-            launch.rom.get_or_insert(arg);
-            continue;
-        };
-        if launch.pack.replace(pack).is_some() {
-            return Err("more than one level pack".into());
+        }
+        let is_pack_json = arg
+            .file_name()
+            .is_some_and(|name| name.eq_ignore_ascii_case("pack.json"));
+        if is_pack_json || arg.is_dir() {
+            let pack = pack_dir(arg);
+            if launch.pack.replace(pack).is_some() {
+                return Err("more than one level pack".into());
+            }
+        } else if launch.rom.replace(arg).is_some() {
+            return Err("more than one ROM path".into());
         }
     }
-    Ok(launch)
+    Ok(LaunchAction::Run(launch))
+}
+
+fn pack_dir(arg: PathBuf) -> PathBuf {
+    if arg
+        .file_name()
+        .is_some_and(|name| name.eq_ignore_ascii_case("pack.json"))
+    {
+        match arg.parent() {
+            Some(dir) if !dir.as_os_str().is_empty() => dir.to_path_buf(),
+            _ => PathBuf::from("."),
+        }
+    } else {
+        arg
+    }
 }
 
 /// The levels of the pack in `dir`, imported as a user's against the ROM.
 pub(crate) fn pack_levels(rom: &rotj_rom::Rom, dir: &Path) -> Result<Levels, String> {
-    let files = levels::read(dir)?;
+    let files = levels::read(dir).map_err(|error| error.to_string())?;
     let catalog = Catalog::from_rom(&rom.prg, &rom.chr).ok_or("the ROM's levels do not import")?;
     levels::import(&files, &catalog, Source::User).map_err(|error| error.to_string())
 }
@@ -128,14 +165,16 @@ fn levels_or_exit(rom: &rotj_rom::Rom, pack: Option<&Path>) -> Levels {
 /// presentation — `winit event loop returned an error: Exit Failure: 1` after
 /// broken-pipe errors — and the GL backend is the workaround, when a GL driver
 /// is installed. Override with `ROTJ_RENDER_BACKEND=gl|vulkan|auto`.
-fn render_plugin() -> RenderPlugin {
+fn render_plugin(warnings: &mut Vec<String>) -> RenderPlugin {
     let requested = std::env::var("ROTJ_RENDER_BACKEND").unwrap_or_default();
     let backends = match requested.to_ascii_lowercase().as_str() {
         "vulkan" => Backends::VULKAN,
         "gl" => Backends::GL,
         "auto" | "" => Backends::all(),
         other => {
-            warn!("unknown ROTJ_RENDER_BACKEND {other:?}; using every backend");
+            warnings.push(format!(
+                "unknown ROTJ_RENDER_BACKEND {other:?}; using every backend"
+            ));
             Backends::all()
         }
     };
@@ -159,18 +198,50 @@ enum GameState {
 }
 
 fn main() {
-    let launch = launch(std::env::args_os().skip(1).map(PathBuf::from))
-        .unwrap_or_else(|error| exit_with(&error));
+    let launch = match launch_action(std::env::args_os().skip(1).map(PathBuf::from)) {
+        Ok(LaunchAction::Run(launch)) => launch,
+        Ok(LaunchAction::Help) => {
+            println!(
+                "Usage: batman-rotj [ROM] [--pack <DIR>]\n\n\
+                 Options:\n  \
+                   --pack <DIR>   Play a Tiled level pack (or drop its folder / pack.json)\n  \
+                   -h, --help     Show this help\n  \
+                   -V, --version  Show version\n\n\
+                 Environment:\n  \
+                   ROTJ_ROM=<path>                 Path to Batman - Return of the Joker (USA).nes\n  \
+                   ROTJ_RENDER_BACKEND=gl|vulkan   Override the wgpu backend\n  \
+                   ROTJ_LEVEL=1..12                Start on a later checkpoint\n  \
+                   ROTJ_RECORD_INPUT=<dir>         Record pad bytes for oracle replay"
+            );
+            return;
+        }
+        Ok(LaunchAction::Version) => {
+            println!("batman-rotj {}", env!("CARGO_PKG_VERSION"));
+            return;
+        }
+        Err(error) => exit_with(&error),
+    };
     let rom = rom_or_exit(launch.rom.as_deref());
     let levels = levels_or_exit(&rom, launch.pack.as_deref());
     let dir = settings::exe_dir();
-    let saved = dir.as_deref().map(settings::load).unwrap_or_default();
+    let mut warnings = Vec::new();
+    let saved = if let Some(dir) = dir.as_deref() {
+        let (saved, load_warnings) = settings::load_with_warnings(dir);
+        warnings.extend(load_warnings);
+        saved
+    } else {
+        warnings.push(
+            "executable directory is unknown; settings and tilesets will not be saved".into(),
+        );
+        settings::Settings::default()
+    };
+    let render = render_plugin(&mut warnings);
     let mut app = App::new();
     app.add_plugins(
         // Nearest-neighbor for everything — pixel-art game, global default.
         DefaultPlugins
             .set(ImagePlugin::default_nearest())
-            .set(render_plugin())
+            .set(render)
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Batman: Return of the Joker — Rust port".into(),
@@ -190,10 +261,14 @@ fn main() {
     .insert_resource(RomData(rom))
     .insert_resource(GameLevels(levels))
     .insert_resource(saved)
+    .insert_resource(StartupWarnings(warnings))
     .init_resource::<screen::Colours>()
     .insert_resource(settings::SettingsDir(dir))
     .init_state::<GameState>()
-    .add_systems(Startup, (spawn_camera, write_tilesets))
+    .add_systems(
+        Startup,
+        (log_startup_warnings, spawn_camera, write_tilesets),
+    )
     .add_systems(Update, fit_camera)
     .add_plugins((
         pacing::PacingPlugin,
@@ -217,6 +292,13 @@ fn main() {
 /// The camera that shows the screen quad in the window, the only one [`fit_camera`] fits.
 #[derive(Component)]
 struct ScreenCamera;
+
+/// Logs any warnings collected before Bevy's `LogPlugin` initialized.
+fn log_startup_warnings(mut warnings: ResMut<'_, StartupWarnings>) {
+    for message in warnings.0.drain(..) {
+        warn!("{message}");
+    }
+}
 
 /// Writes the tilesets beside the settings file for level packs; a failure is logged and
 /// the game goes on.
@@ -314,11 +396,13 @@ mod tests {
         let dir_text = dir.to_str().expect("a UTF-8 temp dir");
         let pack_json = dir.join("pack.json");
         let pack_json = pack_json.to_str().expect("UTF-8");
-        let pack = |rom: Option<&str>, pack: &Path| Launch {
-            rom: rom.map(PathBuf::from),
-            pack: Some(pack.to_path_buf()),
+        let pack = |rom: Option<&str>, pack: &Path| {
+            LaunchAction::Run(Launch {
+                rom: rom.map(PathBuf::from),
+                pack: Some(pack.to_path_buf()),
+            })
         };
-        let cases: [(&[&str], Result<Launch, String>); 12] = [
+        let cases: [(&[&str], Result<LaunchAction, String>); 16] = [
             (&["--pack", dir_text], Ok(pack(None, &dir))),
             (&["--pack", pack_json], Ok(pack(None, &dir))),
             (
@@ -332,20 +416,31 @@ mod tests {
             (&[pack_json, "rotj.nes"], Ok(pack(Some("rotj.nes"), &dir))),
             (
                 &["rotj.nes"],
-                Ok(Launch {
+                Ok(LaunchAction::Run(Launch {
                     rom: Some("rotj.nes".into()),
                     pack: None,
-                }),
+                })),
             ),
-            (&[], Ok(Launch::default())),
+            (&[], Ok(LaunchAction::Run(Launch::default()))),
+            (&["--help"], Ok(LaunchAction::Help)),
+            (&["--version"], Ok(LaunchAction::Version)),
             (
                 &[dir_text, pack_json],
                 Err("more than one level pack".into()),
             ),
             (&["--pack"], Err("`--pack` needs a pack folder".into())),
+            (
+                &["--bogus"],
+                Err("unknown option `--bogus` (try `--help`)".into()),
+            ),
+            (&["a.nes", "b.nes"], Err("more than one ROM path".into())),
         ];
         for (args, expected) in cases {
-            assert_eq!(launch(args.iter().map(PathBuf::from)), expected, "{args:?}");
+            assert_eq!(
+                launch_action(args.iter().map(PathBuf::from)),
+                expected,
+                "{args:?}"
+            );
         }
         std::fs::remove_dir_all(&dir).expect("cleans up");
     }
@@ -506,7 +601,9 @@ mod tests {
             vec![PathBuf::from("--pack"), dir.clone()],
             vec![dir.join("pack.json")],
         ] {
-            let launch = launch(args).expect("the arguments");
+            let LaunchAction::Run(launch) = launch_action(args).expect("the arguments") else {
+                panic!("expected Run");
+            };
             let pack = launch.pack.expect("a pack");
             assert_eq!(pack_levels(rom, &pack).expect("the pack imports"), expected);
         }

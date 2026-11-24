@@ -466,16 +466,11 @@ impl Routine<'_> {
     ) -> T {
         let index = self.slot();
         let state = &mut self.state;
-        let mut slot = state
-            .slots
-            .main
-            .get_mut(index)
-            .map(|slot| {
-                let taken = std::mem::take(slot);
-                slot.kind = taken.kind;
-                taken
-            })
-            .unwrap_or_default();
+        let mut slot = state.slots.main.get_mut(index).map_or_default(|slot| {
+            let taken = std::mem::take(slot);
+            slot.kind = taken.kind;
+            taken
+        });
         let loaded = (index < 24).then(|| {
             super::slots::load_aliases(
                 &mut slot.body,

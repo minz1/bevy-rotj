@@ -250,9 +250,13 @@ impl Recorder {
             let path = dir.join(name);
             OpenOptions::new().write(true).create_new(true).open(&path)
         };
-        match create(format!("{millis}-level{level}.pads"))
-            .or_else(|_| create(format!("{millis}-2-level{level}.pads")))
-        {
+        match create(format!("{millis}-level{level}.pads")).or_else(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                create(format!("{millis}-2-level{level}.pads"))
+            } else {
+                Err(error)
+            }
+        }) {
             Ok(file) => Some(Recorder(Some(file))),
             Err(error) => {
                 warn!("not recording input to {}: {error}", dir.display());

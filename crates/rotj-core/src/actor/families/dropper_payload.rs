@@ -40,7 +40,9 @@ impl State {
             return;
         }
         engine::load(body, work);
-        cx.oam.chr[usize::from(body.chr_slot)] = CHR;
+        if let Some(slot) = cx.oam.chr.get_mut(usize::from(body.chr_slot)) {
+            *slot = CHR;
+        }
         work.attr = body.flags;
         engine::integrate(body, work);
         let landing_y = u16::from_be_bytes([body.counter, body.timer]);

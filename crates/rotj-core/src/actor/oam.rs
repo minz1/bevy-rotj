@@ -302,9 +302,10 @@ impl OamBuilder {
             return true;
         }
         let mut cpu_overflow = false;
-        if sprite.chr != 0 {
-            debug_assert!(call.chr_slot < 8, "chr_slot {} past $E7", call.chr_slot);
-            self.chr[usize::from(call.chr_slot)] = sprite.chr;
+        if sprite.chr != 0
+            && let Some(slot) = self.chr.get_mut(usize::from(call.chr_slot))
+        {
+            *slot = sprite.chr;
         }
         let mut next = self.next;
         let mut lap_placed = false;
@@ -835,5 +836,22 @@ mod tests {
         // The bottom-anchor skip: without it the byte sum never sets overflow.
         assert!(!y_overflow(call(0x80, false), -128));
         assert!(!y_overflow(call(0x1000, false), -1));
+    }
+
+    #[test]
+    fn out_of_range_chr_slot_does_not_panic() {
+        let mut oam = OamBuilder::new();
+        let before = oam.chr;
+        let with_chr = Metasprite {
+            chr: 0x15,
+            pieces: vec![one_piece_at(0)],
+            endless: false,
+        };
+        let call = DrawCall {
+            chr_slot: 0x0C,
+            ..at(16)
+        };
+        oam.draw(&with_chr, call, false);
+        assert_eq!(oam.chr, before);
     }
 }

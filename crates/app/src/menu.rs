@@ -173,6 +173,8 @@ const BORDER: f32 = 2.0;
 /// The hint's line on the game's pause, below the area name it draws at `$BF`.
 const HINT_ROW: usize = 200;
 const HINT: &str = "SELECT  SETTINGS";
+/// Footer notice shown when saving `settings.ron` failed.
+const SAVE_FAILED: &str = "SAVE FAILED";
 const _: () = assert!(
     HINT_ROW + 16 <= 8 + 224,
     "the hint shows with overscan hidden"
@@ -432,6 +434,13 @@ fn menu_box(picture: &mut ChildSpawnerCommands<'_>, font: &Font, shown: &Shown<'
                 &format!("{:^COLUMNS$}", credit(shown.settings.palette)),
                 shown.colour(0x10),
             ));
+            if shown.menu.save_failed {
+                menu_box.spawn(line(
+                    font,
+                    &format!("{SAVE_FAILED:^COLUMNS$}"),
+                    shown.colour(0x10),
+                ));
+            }
         });
 }
 
@@ -570,7 +579,7 @@ mod tests {
     fn every_menu_character_has_a_glyph() {
         let settings = Settings::default();
         let mut texts: Vec<String> = Row::ALL.iter().map(|row| row.label().to_string()).collect();
-        texts.extend(["SETTINGS".into(), HINT.into()]);
+        texts.extend(["SETTINGS".into(), HINT.into(), SAVE_FAILED.into()]);
         texts.extend(PALETTES.map(|palette| credit(palette).into()));
         for palette in PALETTES {
             for file_missing in [false, true] {
@@ -775,7 +784,10 @@ mod tests {
         assert_eq!(app.world().resource::<Settings>().overscan, Overscan::Shown);
         assert!(!dir.join("settings.ron").exists(), "saved on close only");
         tap(&mut app, KeyCode::Escape);
-        assert_eq!(crate::settings::load(&dir).overscan, Overscan::Shown);
+        assert_eq!(
+            crate::settings::load_with_warnings(&dir).0.overscan,
+            Overscan::Shown
+        );
     }
 
     #[test]

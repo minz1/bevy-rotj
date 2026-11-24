@@ -14,10 +14,12 @@ use super::{
     along_across, boss, class_of, derived_first_spawn_column, derived_mirroring, kind_of,
     region_place, schedule_cell, tile_index,
 };
+use crate::actor::families::MAIN;
+use crate::actor::slots::contact;
 use crate::actor::spawn::SpawnTable;
 use crate::actor::stage::{Music, OnClear, Stage as Descriptor};
 use crate::actor::world::orientation;
-use crate::actors::{CELL_LOCK, CELL_PENDING, CELL_RECORD, SpawnRecord};
+use crate::actors::{CELL_LOCK, CELL_PENDING, CELL_RECORD, STATE_DROPS_PICKUP, SpawnRecord};
 use crate::collision::CLASS_COUNT;
 use crate::rooms::{Arrival, Room, Start};
 use crate::terrain::Terrain;
@@ -166,12 +168,36 @@ fn refuse_overruns(
                     "next_area_gate" | "next_area_cue" | "stage_end_trigger" if last_stage => {
                         format!("a `{class}` in the last stage")
                     }
-                    _ => match boss(record) {
-                        Some(boss) if !catalog.bosses.contains(&boss) => {
-                            format!("boss {boss} is not one the game's gates introduce")
+                    _ => {
+                        if !record.second_class && record.kind == 0x68 {
+                            if let Some((spawned, _)) = class_of(false, record.subtype) {
+                                match spawned {
+                                    "room_exit" | "top_screen_room_exit" if last_room => {
+                                        format!(
+                                            "a `bobber_spawner` spawning `{spawned}` in the stage's last room"
+                                        )
+                                    }
+                                    "next_area_gate" | "next_area_cue" | "stage_end_trigger"
+                                        if last_stage =>
+                                    {
+                                        format!(
+                                            "a `bobber_spawner` spawning `{spawned}` in the last stage"
+                                        )
+                                    }
+                                    _ => continue,
+                                }
+                            } else {
+                                continue;
+                            }
+                        } else {
+                            match boss(record) {
+                                Some(boss) if !catalog.bosses.contains(&boss) => {
+                                    format!("boss {boss} is not one the game's gates introduce")
+                                }
+                                _ => continue,
+                            }
                         }
-                        _ => continue,
-                    },
+                    }
                 };
                 return Err(invalid(
                     name,
@@ -391,11 +417,14 @@ fn import_stage(
         .area(area)
         .expect("a tileset's area is in the catalog");
     let (terrain, chrs) = stage_terrain(
-        stage,
-        catalog,
-        custom,
-        catalog_area,
-        &shapes,
+        &StageInput {
+            stage,
+            catalog,
+            custom,
+            area: catalog_area,
+            shapes: &shapes,
+            source,
+        },
         &regions,
         &written_pages,
     )?;
@@ -409,6 +438,11 @@ fn import_stage(
         }
         let (map, shape) = (&maps[index], &shapes[index]);
         let in_file = |reason| invalid(file, reason);
+        if source == Source::User && index == 0 && shape.across == 2 {
+            return Err(in_file(
+                "a stage's first room cannot be two pages across".into(),
+            ));
+        }
         let written = written_pages.len();
         if source == Source::User
             && let Some(entry) =
@@ -421,8 +455,11 @@ fn import_stage(
         }
         let room = import_room(map, shape, pages, chrs[index], catalog_area.split, user)
             .map_err(in_file)?;
-        let spawns = import_spawns(map, &pages, &mut schedule, source).map_err(in_file)?;
+        let spawns = import_spawns(map, &pages, &mut schedule, source, user).map_err(in_file)?;
         import_locks(map, shape.vertical, &pages, &mut schedule).map_err(in_file)?;
+        if source == Source::User {
+            validate_opening_row(&room, &spawns, &schedule).map_err(in_file)?;
+        }
         rooms.push(RoomAssets { room, spawns });
     }
     Ok(StageAssets {
@@ -606,16 +643,26 @@ fn at_cell(
     )
 }
 
+struct StageInput<'a> {
+    stage: &'a PackStage,
+    catalog: &'a Catalog,
+    custom: Custom<'a>,
+    area: &'a CatalogArea,
+    shapes: &'a [Shape],
+    source: Source,
+}
+
 /// The keys a stage appends after its area's metatiles, in the order the stream first writes
 /// them.
-fn appended_keys(
-    stage: &PackStage,
-    catalog: &Catalog,
-    custom: Custom<'_>,
-    area: &CatalogArea,
-    shapes: &[Shape],
-    pages: &[Page],
-) -> Result<Vec<Key>, ImportError> {
+fn appended_keys(input: &StageInput<'_>, pages: &[Page]) -> Result<Vec<Key>, ImportError> {
+    let StageInput {
+        stage,
+        catalog,
+        custom,
+        area,
+        shapes,
+        source,
+    } = *input;
     let mut keys = Vec::new();
     for page in pages {
         for (cell, &key) in page.cells.iter().enumerate() {
@@ -651,7 +698,7 @@ fn appended_keys(
             }
         }
     }
-    if keys.is_empty() {
+    if keys.is_empty() && source != Source::User {
         return Ok(keys);
     }
     let count = area.terrain.corners.len();
@@ -666,6 +713,9 @@ fn appended_keys(
             }
         }
     }
+    if keys.is_empty() {
+        return Ok(keys);
+    }
     let total = count + keys.len();
     if total > CLASS_COUNT {
         return Err(at_stage(
@@ -678,15 +728,19 @@ fn appended_keys(
 
 /// The stage's terrain, its area's metatiles then the ones it appends, and each room's `chr`.
 fn stage_terrain(
-    stage: &PackStage,
-    catalog: &Catalog,
-    custom: Custom<'_>,
-    area: &CatalogArea,
-    shapes: &[Shape],
+    input: &StageInput<'_>,
     regions: &[Vec<(usize, usize)>],
     pages: &[Page],
 ) -> Result<(Terrain, Vec<[u8; 4]>), ImportError> {
-    let keys = appended_keys(stage, catalog, custom, area, shapes, pages)?;
+    let StageInput {
+        stage,
+        catalog,
+        custom,
+        area,
+        shapes,
+        ..
+    } = *input;
+    let keys = appended_keys(input, pages)?;
     let metatiles: Vec<Metatile> = keys
         .iter()
         .map(|&key| appended(key, catalog, custom))
@@ -1061,6 +1115,16 @@ fn import_room(
     let at =
         |object: &Object, reason: String| format!("layer `markers` object {}: {reason}", object.id);
     let (camera_x, camera_y) = (camera.x.0, camera.y.0);
+    if user.is_some()
+        && !shape.vertical
+        && shape.across == 2
+        && (camera_x.to_be_bytes()[0] & 0x0F) >= 2
+    {
+        return Err(at(
+            camera,
+            "`camera-start` x is past page 1 of a horizontal two-page room".into(),
+        ));
+    }
     let first_spawn_column = match property(&map.properties, "first_spawn_column") {
         Some(property) => {
             let column = column(&property.value).ok_or_else(|| {
@@ -1164,6 +1228,7 @@ fn import_spawns(
     pages: &[u8; TABLE_ENTRIES],
     schedule: &mut [Option<u8>; PAGE_CELLS],
     source: Source,
+    user: Option<&Catalog>,
 ) -> Result<SpawnTable, String> {
     let mut records = vec![None; RECORD_IDS];
     for object in objects(map, "spawns")? {
@@ -1186,7 +1251,7 @@ fn import_spawns(
             return Err(at("the game has no handler for it".into()));
         }
         let field = |name| int(properties, name).map_err(at);
-        records[id] = Some(SpawnRecord {
+        let record = SpawnRecord {
             x: object.x.0,
             y: object.y.0,
             flags: field("flags")?,
@@ -1198,7 +1263,11 @@ fn import_spawns(
             subtype: field("subtype")?,
             health: int(properties, "health").map_err(at)?,
             contact: field("contact")?,
-        });
+        };
+        if let Some(catalog) = user {
+            validate_user_spawn(&record, catalog).map_err(at)?;
+        }
+        records[id] = Some(record);
         let triggers = match property(properties, "triggers") {
             Some(triggers) => triggers
                 .value
@@ -1243,6 +1312,132 @@ fn import_locks(
             return Err(at(format!("locks {locks:#04x} is more than six bits")));
         }
         set_cell(schedule, schedule_cell(pages, column), CELL_LOCK | locks).map_err(at)?;
+    }
+    Ok(())
+}
+
+/// Validates spawn fields that actor handlers index into fixed tables or WRAM addresses.
+fn validate_user_spawn(record: &SpawnRecord, catalog: &Catalog) -> Result<(), String> {
+    if record.chr_slot >= 8 {
+        return Err(format!("property `chr_slot` {} is past 7", record.chr_slot));
+    }
+    let non_contact = matches!(record.kind, 0x02 | 0x1A | 0x1C | 0x32 | 0x68 | 0x82);
+    let collects = !non_contact
+        && record.contact & (contact::PASSIVE | contact::COLLECTS)
+            == (contact::PASSIVE | contact::COLLECTS);
+    let item_state = record.state & !STATE_DROPS_PICKUP;
+    if record.second_class {
+        if record.kind == 0x0A && item_state >= 8 {
+            return Err(format!(
+                "`path_platform` path {item_state} (`state & 0x7f`) is past 7"
+            ));
+        }
+        return Ok(());
+    }
+    if (record.kind == 0x10 || record.kind == 0x70 || collects) && item_state > 4 {
+        return Err(format!(
+            "pickup `state & 0x7f` {item_state} is past 4 (valid items are 0-4)"
+        ));
+    }
+    // Actors that can turn into a pickup on death (skip non-dying families whose state bit 7
+    // has another meaning, such as `next_area_gate`, `cell_painter` and `bobber_spawner`).
+    if !non_contact && record.state & STATE_DROPS_PICKUP != 0 && item_state > 4 {
+        return Err(format!(
+            "pickup drop `state & 0x7f` {item_state} is past 4 (valid items are 0-4)"
+        ));
+    }
+    match record.kind {
+        0x04 | 0x06 if !(0x60..=0x6E).contains(&record.subtype) => {
+            return Err(format!(
+                "`breakable_block` `subtype` {:#04x} must be a map row 0x60-0x6e",
+                record.subtype
+            ));
+        }
+        0x0C if !(0x60..=0x6D).contains(&record.subtype) => {
+            return Err(format!(
+                "`stomper` `subtype` {:#04x} must be a map row 0x60-0x6d",
+                record.subtype
+            ));
+        }
+        0x28 => {
+            if record.subtype >= 4 {
+                return Err(format!(
+                    "`waypoint_platform` `subtype` {} is past 3",
+                    record.subtype
+                ));
+            }
+            if record.behaviour >= 7 {
+                return Err(format!(
+                    "`waypoint_platform` `behaviour` {} is past 6",
+                    record.behaviour
+                ));
+            }
+        }
+        0x34 if !catalog.boss_status_portraits.contains(&record.behaviour) => {
+            return Err(format!(
+                "`boss_status` `behaviour` {} is not a portrait in the ROM",
+                record.behaviour
+            ));
+        }
+        0x68 if !MAIN
+            .iter()
+            .any(|(_, kinds)| kinds.contains(&record.subtype)) =>
+        {
+            return Err(format!(
+                "`bobber_spawner` `subtype` {:#04x} is not a main actor kind",
+                record.subtype
+            ));
+        }
+        0xB6 | 0xC2 | 0xC4 if record.subtype >= 4 => {
+            return Err(format!(
+                "property `subtype` {} is past 3 for kind {:#04x}",
+                record.subtype, record.kind
+            ));
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Refuses a user room whose opening 16 schedule cells spawn more actors than its slot pool.
+fn validate_opening_row(
+    room: &Room,
+    spawns: &SpawnTable,
+    schedule: &[Option<u8>; PAGE_CELLS],
+) -> Result<(), String> {
+    let mut main_count = 0usize;
+    let mut second_count = 0usize;
+    let start = room.start.first_spawn_column;
+    for offset in 0..16u8 {
+        let cell = start.wrapping_add(offset);
+        let Some(value) = schedule[usize::from(cell)] else {
+            continue;
+        };
+        if value & CELL_PENDING == 0 {
+            continue;
+        }
+        let Some(record) = spawns
+            .records
+            .get(usize::from(value & CELL_RECORD))
+            .and_then(Option::as_ref)
+        else {
+            continue;
+        };
+        if record.second_class {
+            second_count += 1;
+        } else if record.kind != 0 {
+            main_count += 1;
+        }
+    }
+    if main_count > 16 {
+        return Err(format!(
+            "opening spawn row at cell {start:#04x} spawns {main_count} main actors (max 16)"
+        ));
+    }
+    if second_count > 8 {
+        return Err(format!(
+            "opening spawn row at cell {start:#04x} spawns {second_count} second-class actors (max 8)"
+        ));
     }
     Ok(())
 }

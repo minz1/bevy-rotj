@@ -98,10 +98,9 @@ pub fn spawn_at(slots: &mut Slots, schedule: &mut Schedule, table: &SpawnTable, 
     }
     let record = table.record(value);
     let Some(free) = free_slot(slots, &record) else {
-        assert!(
-            cell < 0x80,
-            "cell {cell:02X} with no free slot takes the unported $89AF path"
-        );
+        // On cells >= $80 with no free slot the ROM calls `$89AF`, which jumps to
+        // zero-page `$0000`; the original game never reaches it, and skipping the
+        // spawn matches `cell < $80` safely for user packs.
         return;
     };
     place(slots, free, &record, cell, Spawner::Column);
@@ -364,5 +363,10 @@ mod tests {
         spawn_column(&mut slots, &mut schedule, &table, &world, false);
         assert_eq!(slots, before);
         assert_eq!(schedule.cells[0x03], CELL_PENDING);
+
+        schedule.cells[0x83] = CELL_PENDING;
+        spawn_at(&mut slots, &mut schedule, &table, 0x83);
+        assert_eq!(slots, before);
+        assert_eq!(schedule.cells[0x83], CELL_PENDING);
     }
 }

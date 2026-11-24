@@ -457,11 +457,15 @@ fn ppulist(path: &Path, bank: u8, offset: u16, verify: bool) -> Result<()> {
             entry.data.len()
         );
     }
-    match list.end_offset() {
-        Some(end) => println!(
-            "bank {bank:02X} ${offset:04X}: {entries} entries, terminator at ${:04X}",
-            offset + u16::try_from(end).unwrap_or(0) - 1
-        ),
+    match list
+        .end_offset()
+        .and_then(|end| u16::try_from(end).ok())
+        .and_then(|end| end.checked_sub(1))
+        .and_then(|end| offset.checked_add(end))
+    {
+        Some(at) => {
+            println!("bank {bank:02X} ${offset:04X}: {entries} entries, terminator at ${at:04X}");
+        }
         None => println!("bank {bank:02X} ${offset:04X}: {entries} entries, no terminator"),
     }
 
@@ -539,11 +543,10 @@ fn dmc_extract(path: &Path, out: &Path) -> Result<()> {
     }
 
     let bank_start = usize::from(dmc::SAMPLE_BANK) * dmc::BANK_SIZE;
-    std::fs::write(
-        out.join("sample-bank.bin"),
-        &prg[bank_start..bank_start + dmc::BANK_SIZE],
-    )
-    .wrap_err("writing sample-bank.bin")?;
+    let sample_bank = prg
+        .get(bank_start..bank_start + dmc::BANK_SIZE)
+        .ok_or_else(|| eyre!("PRG is shorter than fixed sample bank {}", dmc::SAMPLE_BANK))?;
+    std::fs::write(out.join("sample-bank.bin"), sample_bank).wrap_err("writing sample-bank.bin")?;
 
     let mut manifest = String::from(
         "# Batman: Return of the Joker — DMC sample instruments\n\

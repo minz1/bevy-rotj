@@ -26,10 +26,20 @@ pub fn write(dir: &Path, prg: &[u8], chr: &[u8]) -> io::Result<()> {
             &png(tileset.picture)?,
         )?;
     }
-    let Ok(packs) = fs::read_dir(dir.join("packs")) else {
-        return Ok(());
+    let packs_dir = dir.join("packs");
+    let packs = match fs::read_dir(&packs_dir) {
+        Ok(packs) => packs,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
     };
-    for pack in packs.flatten() {
+    for pack in packs {
+        let pack = match pack {
+            Ok(pack) => pack,
+            Err(error) => {
+                warn!("{}: {error}", packs_dir.display());
+                continue;
+            }
+        };
         let custom = pack.path().join("custom.tsj");
         let text = match fs::read_to_string(&custom) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,

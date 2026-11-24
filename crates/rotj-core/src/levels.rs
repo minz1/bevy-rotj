@@ -23,7 +23,7 @@ pub mod tilesets;
 
 pub use custom::custom_picture;
 pub use export::{export, write};
-pub use folder::{read, save};
+pub use folder::{FolderError, read, save};
 pub use import::{ImportError, import};
 pub use tilesets::{TILESET_PX, Tileset, tilesets};
 
@@ -117,6 +117,8 @@ pub struct Catalog {
     songs: BTreeSet<u8>,
     /// The bosses the `next_area_gate`s introduce.
     bosses: BTreeSet<u8>,
+    /// The boss-status (`$34`) portrait indices (`behaviour`) the ROM's table holds.
+    boss_status_portraits: BTreeSet<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,6 +201,11 @@ impl Catalog {
             bosses: rooms()
                 .flat_map(|assets| assets.spawns.records.iter().flatten())
                 .filter_map(boss)
+                .collect(),
+            boss_status_portraits: rooms()
+                .flat_map(|assets| assets.spawns.records.iter().flatten())
+                .filter(|record| !record.second_class && record.kind == 0x34)
+                .map(|record| record.behaviour)
                 .collect(),
         }
     }

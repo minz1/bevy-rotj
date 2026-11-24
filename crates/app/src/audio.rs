@@ -110,20 +110,24 @@ impl SampleQueue {
 pub struct Music {
     stream: ApuStream,
     driver: rotj_music::Music,
-    started: bool,
     queue: SampleQueue,
     /// The gain applied to the last sample, ramping toward the asked one.
     gain: f32,
 }
 
 impl Music {
-    /// Builds the synth and loads the driver.
+    /// Builds the synth, loads the driver and runs its power-on init (bank 10 `$8000`,
+    /// from `$D394`) so requests queued on frame 0 are never overwritten.
     #[must_use]
     pub fn new(queue: SampleQueue, prg: &[u8]) -> Self {
+        let mut stream = ApuStream::new(apu_with_samples(prg), SAMPLE_RATE);
+        let mut driver = rotj_music::Music::from_prg(prg);
+        for write in driver.init() {
+            stream.apu_mut().write(write.addr, write.value);
+        }
         Self {
-            stream: ApuStream::new(apu_with_samples(prg), SAMPLE_RATE),
-            driver: rotj_music::Music::from_prg(prg),
-            started: false,
+            stream,
+            driver,
             queue,
             gain: 0.0,
         }
@@ -132,16 +136,6 @@ impl Music {
     /// Queues a request the game made (`$40-$43`).
     pub fn request(&mut self, id: SoundId) {
         self.driver.request(id.byte());
-    }
-
-    /// The driver's power-on init (bank 10 `$8000`, from `$D394`), once.
-    pub fn start(&mut self) {
-        if !self.started {
-            for write in self.driver.init() {
-                self.stream.apu_mut().write(write.addr, write.value);
-            }
-            self.started = true;
-        }
     }
 
     /// Advances one game frame: tick the driver (unless the game is frozen) and apply its
@@ -262,7 +256,7 @@ fn start_music(
     commands.spawn(AudioPlayer::<MusicSource>(handle));
 }
 
-/// Inits the driver on the first tick, then advances the synth one frame.
+/// Advances the synth one frame.
 #[expect(
     clippy::needless_pass_by_value,
     reason = "Bevy system params, rust-clippy#8940"
@@ -272,7 +266,6 @@ fn advance_music(
     settings: Res<'_, crate::settings::Settings>,
     menu: Res<'_, crate::menu::Menu>,
 ) {
-    music.start();
     let gain = if menu.open {
         0.0
     } else {
@@ -407,12 +400,10 @@ mod tests {
         };
         let queue = SampleQueue::default();
         let mut music = Music::new(queue.clone(), &rom.prg);
-        music.start();
         music.request(SoundId::from_byte(0x04).expect("a song"));
         for _ in 0..600 {
             music.advance_frame(true, 1.0);
         }
-        assert!(music.started, "the driver was asked for a song");
         // 600 frames of 44.1 kHz audio, bounded by the queue's capacity.
         assert_eq!(queue.len(), QUEUE_CAPACITY);
         let peak = drain_peak(&queue);
@@ -434,7 +425,6 @@ mod tests {
     fn menu_round_trip(frames: usize) -> Option<(Vec<f32>, usize, rotj_music::Music, Music)> {
         let rom = rotj_rom::for_test()?;
         let mut music = Music::new(SampleQueue::default(), &rom.prg);
-        music.start();
         music.request(SoundId::from_byte(0x01).expect("a song"));
         let mut samples = Vec::new();
         for _ in 0..60 {
@@ -481,6 +471,21 @@ mod tests {
         for _ in 0..30 {
             assert_eq!(music.driver.tick(), at_open.tick());
         }
+    }
+
+    #[test]
+    fn frame_zero_request_is_not_wiped_by_init() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let queue = SampleQueue::default();
+        let mut music = Music::new(queue.clone(), &rom.prg);
+        // Queuing a song immediately after construction (before any advance_frame) must stick.
+        music.request(SoundId::from_byte(0x01).expect("title song"));
+        for _ in 0..120 {
+            music.advance_frame(true, 1.0);
+        }
+        assert!(drain_peak(&queue) > 0.05, "frame-0 request played");
     }
 
     #[test]

@@ -92,7 +92,8 @@ pub fn verify_known_lists(prg: &[u8]) -> Vec<String> {
             let terminator_at = list
                 .end_offset()
                 .and_then(|end| u16::try_from(end).ok())
-                .map(|end| offset + end - 1);
+                .and_then(|end| end.checked_sub(1))
+                .and_then(|end| offset.checked_add(end));
             let ok = decoded.len() == entries && terminator_at == Some(terminator);
             format!(
                 "bank {bank:02X} ${offset:04X}: {} entries (expected {entries}), \

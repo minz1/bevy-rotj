@@ -97,32 +97,40 @@ pub fn exe_dir() -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-/// `dir`'s settings: the defaults without a file; a file that does not parse is kept as
-/// `settings.ron.bak` and the defaults used.
+/// `dir`'s settings and any non-fatal warnings: the defaults without a file; a file that
+/// does not parse is kept as `settings.ron.bak` and the defaults used.
 #[must_use]
-pub fn load(dir: &Path) -> Settings {
+pub fn load_with_warnings(dir: &Path) -> (Settings, Vec<String>) {
     let path = dir.join(FILE);
     let text = match fs::read_to_string(&path) {
         Ok(text) => text,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Settings::default(),
+        Err(error) if error.kind() == ErrorKind::NotFound => return (Settings::default(), vec![]),
         Err(error) => {
-            warn!("{}: {error}; using the defaults", path.display());
-            return Settings::default();
+            return (
+                Settings::default(),
+                vec![format!("{}: {error}; using the defaults", path.display())],
+            );
         }
     };
     match parse(&text) {
-        Ok(settings) => settings,
+        Ok((settings, field_warnings)) => {
+            let warnings = field_warnings
+                .into_iter()
+                .map(|message| format!("{}: {message}", path.display()))
+                .collect();
+            (settings, warnings)
+        }
         Err(error) => {
             let backup = dir.join(format!("{FILE}.bak"));
-            warn!(
+            let mut warnings = vec![format!(
                 "{}: {error}; using the defaults, the file kept as {}",
                 path.display(),
                 backup.display()
-            );
+            )];
             if let Err(error) = fs::rename(&path, &backup) {
-                warn!("{}: {error}", backup.display());
+                warnings.push(format!("{}: {error}", backup.display()));
             }
-            Settings::default()
+            (Settings::default(), warnings)
         }
     }
 }
@@ -141,26 +149,54 @@ struct Fields {
 
 /// The settings `text` holds that this release reads, each on its own: a value it does
 /// not know (a newer release's) keeps that setting's default, not every setting's.
-fn parse(text: &str) -> ron::error::SpannedResult<Settings> {
-    fn read<T: serde::de::DeserializeOwned>(raw: Option<Box<RawValue>>, into: &mut T) {
-        if let Some(value) = raw.and_then(|raw| raw.into_rust().ok()) {
-            *into = value;
+fn parse(text: &str) -> ron::error::SpannedResult<(Settings, Vec<String>)> {
+    fn read<T: serde::de::DeserializeOwned>(
+        name: &str,
+        raw: Option<Box<RawValue>>,
+        into: &mut T,
+        warnings: &mut Vec<String>,
+    ) {
+        let Some(raw) = raw else { return };
+        match raw.into_rust() {
+            Ok(value) => *into = value,
+            Err(error) => warnings.push(format!("ignoring `{name}` ({error}); using the default")),
         }
     }
     let fields: Fields = ron::Options::default()
         .with_default_extension(ron::extensions::Extensions::IMPLICIT_SOME)
         .from_str(text)?;
+    let mut warnings = Vec::new();
     let mut settings = Settings::default();
     let mut volume = u16::from(settings.volume);
-    read(fields.volume, &mut volume);
+    read("volume", fields.volume, &mut volume, &mut warnings);
     settings.volume = u8::try_from(volume.min(100)).expect("at most 100");
-    read(fields.overscan, &mut settings.overscan);
-    read(fields.palette, &mut settings.palette);
-    read(fields.sprite_limit, &mut settings.sprite_limit);
-    read(fields.vsync, &mut settings.vsync);
-    read(fields.ui, &mut settings.ui);
-    read(fields.picture, &mut settings.picture);
-    Ok(settings)
+    read(
+        "overscan",
+        fields.overscan,
+        &mut settings.overscan,
+        &mut warnings,
+    );
+    read(
+        "palette",
+        fields.palette,
+        &mut settings.palette,
+        &mut warnings,
+    );
+    read(
+        "sprite_limit",
+        fields.sprite_limit,
+        &mut settings.sprite_limit,
+        &mut warnings,
+    );
+    read("vsync", fields.vsync, &mut settings.vsync, &mut warnings);
+    read("ui", fields.ui, &mut settings.ui, &mut warnings);
+    read(
+        "picture",
+        fields.picture,
+        &mut settings.picture,
+        &mut warnings,
+    );
+    Ok((settings, warnings))
 }
 
 /// Writes `settings` to `dir` through a temporary file, so a crash never leaves half a file.
@@ -184,6 +220,10 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("temp dir");
         dir
+    }
+
+    fn load(dir: &Path) -> Settings {
+        load_with_warnings(dir).0
     }
 
     fn load_text(name: &str, text: &str) -> (PathBuf, Settings) {
@@ -250,23 +290,29 @@ mod tests {
 
     #[test]
     fn a_value_this_release_does_not_know_keeps_the_rest() {
-        let (dir, settings) = load_text(
-            "newer",
+        let dir = dir("newer");
+        fs::write(
+            dir.join(FILE),
             "(volume: 40, palette: Hdr, overscan: Shown, vsync: maybe, ui: Modern)",
-        );
+        )
+        .expect("write");
+        let (settings, warnings) = load_with_warnings(&dir);
         let expected = Settings {
             volume: 40,
             overscan: Overscan::Shown,
             ..Settings::default()
         };
         assert_eq!(settings, expected);
+        assert_eq!(warnings.len(), 3, "each invalid field warned: {warnings:?}");
         assert!(!dir.join("settings.ron.bak").exists(), "the file is kept");
     }
 
     #[test]
     fn the_1_1_0_file_parses() {
-        let settings = parse(include_str!("../settings-1.1.0.ron")).expect("1.1.0's file");
+        let (settings, warnings) =
+            parse(include_str!("../settings-1.1.0.ron")).expect("1.1.0's file");
         assert_eq!(settings, Settings::default());
+        assert!(warnings.is_empty(), "{warnings:?}");
     }
 
     #[test]

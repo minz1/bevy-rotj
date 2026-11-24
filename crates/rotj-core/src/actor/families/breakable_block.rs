@@ -73,8 +73,13 @@ fn shatter(body: &Body, work: &Work, cx: &mut Cx<'_>) {
     let level = &mut cx.effects.level;
     let mut tiles = [0u8; 16];
     for (i, cell) in cells.into_iter().enumerate() {
-        let id = level.map[Cell::from_address(source.wrapping_add(cell))];
-        level.map[Cell::from_address(target.wrapping_add(cell))] = id;
+        let src_addr = source.wrapping_add(cell);
+        let dst_addr = target.wrapping_add(cell);
+        if !(0x6000..0x7000).contains(&src_addr) || !(0x6000..0x7000).contains(&dst_addr) {
+            continue;
+        }
+        let id = level.map[Cell::from_address(src_addr)];
+        level.map[Cell::from_address(dst_addr)] = id;
         let [top_left, top_right, bottom_left, bottom_right] = level.tiles(id);
         let at = (i / 2) * 8 + (i % 2) * 2;
         tiles[at..at + 2].copy_from_slice(&[top_left, top_right]);
@@ -130,10 +135,14 @@ fn copy_palettes(
         }
         for field in pair {
             let slot = field_of(from);
-            *field = (attributes[from_at] >> (2 * slot)) & 3;
+            let Some(&source_byte) = attributes.get(from_at) else {
+                continue;
+            };
+            *field = (source_byte >> (2 * slot)) & 3;
             let slot = field_of(to);
-            attributes[to_at] =
-                (attributes[to_at] & engine::FIELD_MASKS[slot]) | (*field << (2 * slot));
+            if let Some(target_byte) = attributes.get_mut(to_at) {
+                *target_byte = (*target_byte & engine::FIELD_MASKS[slot]) | (*field << (2 * slot));
+            }
             from = from.wrapping_add(1);
             if from & 1 == 0 {
                 from_at += 1;

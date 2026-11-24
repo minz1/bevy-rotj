@@ -161,9 +161,16 @@ pub fn find_tables(prg: &[u8]) -> Vec<Table> {
 /// Returns an error for the first record whose computed range escapes the ROM.
 pub fn validate(prg: &[u8], records: &[Record]) -> Result<()> {
     for (i, record) in records.iter().enumerate() {
+        if record.cpu_addr() < SAMPLE_ROM_BASE {
+            bail!(
+                "record {i}: sample ${:04X}+{} starts below fixed bank ${SAMPLE_ROM_BASE:04X}",
+                record.cpu_addr(),
+                record.bytes(),
+            );
+        }
         let offset = record.sample_rom_offset();
         let end = offset + usize::from(record.bytes());
-        if record.cpu_addr() < SAMPLE_ROM_BASE || end > prg.len() {
+        if end > prg.len() {
             bail!(
                 "record {i}: sample ${:04X}+{} escapes the ROM (offset {offset:#X}..{end:#X})",
                 record.cpu_addr(),

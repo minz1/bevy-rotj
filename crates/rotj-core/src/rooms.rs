@@ -220,17 +220,24 @@ const OVERLAPPED: [(u8, usize); 1] = [(0, 3)];
 /// Every room the per-area tables list, as `(area, room)`: each area's rooms run to the next
 /// table, the last to the first record, except where [`OVERLAPPED`] names the count.
 pub(crate) fn listed_rooms(prg: &[u8]) -> Vec<(u8, u8)> {
-    let word = |addr: u16| {
-        let bytes = bank_slice(prg, 14, addr & 0x1FFF).expect("bank 14");
-        u16::from_le_bytes([bytes[0], bytes[1]])
+    try_listed_rooms(prg).unwrap_or_default()
+}
+
+fn try_listed_rooms(prg: &[u8]) -> Option<Vec<(u8, u8)>> {
+    let word = |addr: u16| -> Option<u16> {
+        let bytes = bank_slice(prg, 14, addr & 0x1FFF).ok()?;
+        Some(u16::from_le_bytes([*bytes.first()?, *bytes.get(1)?]))
     };
-    let areas = (word(0xDA18) - 0xDA18) / 2;
-    let tables: Vec<u16> = (0..areas).map(|area| word(0xDA18 + 2 * area)).collect();
+    let areas = word(0xDA18)?.checked_sub(0xDA18)? / 2;
+    let tables: Vec<u16> = (0..areas)
+        .map(|area| word(0xDA18u16.checked_add(2 * area)?))
+        .collect::<Option<_>>()?;
     let first_record = tables
         .iter()
         .map(|&table| word(table))
-        .min()
-        .expect("a table");
+        .collect::<Option<Vec<_>>>()?
+        .into_iter()
+        .min()?;
     let mut rooms = Vec::new();
     for (area, &table) in (0u8..).step_by(2).zip(&tables) {
         let end = tables
@@ -239,13 +246,16 @@ pub(crate) fn listed_rooms(prg: &[u8]) -> Vec<(u8, u8)> {
             .filter(|&other| other > table)
             .min()
             .unwrap_or(first_record);
-        let count = OVERLAPPED
+        let count = match OVERLAPPED
             .iter()
             .find(|&&(overlapped, _)| overlapped == area)
-            .map_or(usize::from((end - table) / 2), |&(_, count)| count);
+        {
+            Some(&(_, count)) => count,
+            None => usize::from(end.checked_sub(table)? / 2),
+        };
         rooms.extend((0u8..).step_by(2).take(count).map(|room| (area, room)));
     }
-    rooms
+    Some(rooms)
 }
 
 #[cfg(test)]
