@@ -7,9 +7,14 @@
 
 use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, Counter, Metatile};
+use crate::actor::slots::{Body, Counter, EMPTY, Metatile};
 use crate::actor::world::Cx;
 use crate::actors::{CELL_PENDING, STATE_UNTARGETED};
+
+/// `timer` bit 7 while dwelling: apex reached, counting down before the blast.
+const APEX_REACHED: u8 = 0x80;
+/// `timer` bit 7 while falling: the second `$7A` marker has been dropped.
+const MARKER_DROPPED: u8 = 0x80;
 
 const BANK: u8 = 0;
 /// The 16-bit metasprite pointers, indexed by `$7C30` (`0`/`2`/`4`).
@@ -98,9 +103,9 @@ fn dwelling(body: &mut Body, work: &Work) {
     if work.vy < 0 {
         return;
     }
-    if body.timer & 0x80 == 0 {
+    if body.timer & APEX_REACHED == 0 {
         body.counter = 8;
-        body.timer = 0x80;
+        body.timer = APEX_REACHED;
         body.sprite = 2;
     } else {
         body.counter.tick_down();
@@ -130,13 +135,13 @@ fn blasting(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
 /// Falling (`$8EC5`): drop one more `$7A` once it is low enough, then free the
 /// slot below row `$0F`. Returns whether the slot was freed.
 fn falling(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) -> bool {
-    if body.timer & 0x80 == 0 && work.y.row() >= 0x0C {
+    if body.timer & MARKER_DROPPED == 0 && work.y.row() >= 0x0C {
         let x = work.x;
         spawn_marker(body, x, cx);
-        body.timer = 0x80;
+        body.timer = MARKER_DROPPED;
     }
     if work.y.row() >= 0x0F {
-        *kind = 0;
+        *kind = EMPTY;
         return true;
     }
     false

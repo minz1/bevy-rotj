@@ -6,6 +6,9 @@ use crate::actor::families::{Brain, SecondBrain};
 use crate::actor::world::{PROJECTILE_ARRAYS, Projectile};
 use crate::actors::SpawnRecord;
 
+/// The empty-slot kind byte (`$7CC0` = 0).
+pub const EMPTY: u8 = 0;
+
 /// The bits of [`Body::contact`] (`$7EE0`); no ROM reader tests bits 2 and 1.
 pub mod contact {
     /// The player's shots bounce off.
@@ -351,9 +354,26 @@ impl Slots {
         self.get(16 + second, Field::DyingTimer)
     }
 
+    /// Whether the player is standing on second-class slot `second` (`pressed(second) & $80 != 0`).
+    #[must_use]
+    pub fn is_pressed(&self, second: usize) -> bool {
+        self.pressed(second) & 0x80 != 0
+    }
+
     /// Sets the player's weight on second-class slot `second` ([`Slots::pressed`]).
     pub fn set_pressed(&mut self, second: usize, value: u8) {
         self.set(16 + second, Field::DyingTimer, value);
+    }
+
+    /// Whether slot `slot` (0-31) is empty (`kind == EMPTY`).
+    #[must_use]
+    pub fn is_free(&self, slot: usize) -> bool {
+        self.kind(slot) == EMPTY
+    }
+
+    /// Frees slot `slot` (0-31) (`kind = EMPTY`).
+    pub fn free(&mut self, slot: usize) {
+        self.set_kind(slot, EMPTY);
     }
 
     /// Slot `slot`'s occupant type (`$7CC0`, slots 0-31).
@@ -378,7 +398,7 @@ impl Slots {
     /// The highest free main slot in `range`, where the game looks for room for a child or a shot.
     #[must_use]
     pub fn free_main(&self, range: Range<usize>) -> Option<usize> {
-        range.rev().find(|&slot| self.main[slot].kind == 0)
+        range.rev().find(|&slot| self.main[slot].is_free())
     }
 }
 
@@ -659,6 +679,17 @@ pub struct Slot {
 }
 
 impl Slot {
+    /// Whether this slot is empty (`kind == EMPTY`).
+    #[must_use]
+    pub const fn is_free(&self) -> bool {
+        self.kind == EMPTY
+    }
+
+    /// Frees this slot (`kind = EMPTY`).
+    pub const fn free(&mut self) {
+        self.kind = EMPTY;
+    }
+
     /// Puts a new `kind` here at (`x`, `y`) and returns its body. Every other byte keeps what the
     /// slot held when it was freed: the game's children read some of those stale bytes.
     pub fn spawn(&mut self, kind: u8, x: u16, y: u16) -> &mut Body {
@@ -688,6 +719,19 @@ pub struct Second {
     pub body: Body,
     /// Its family's state.
     pub brain: SecondBrain,
+}
+
+impl Second {
+    /// Whether this second-class slot is empty (`kind == EMPTY`).
+    #[must_use]
+    pub const fn is_free(&self) -> bool {
+        self.kind == EMPTY
+    }
+
+    /// Frees this second-class slot (`kind = EMPTY`).
+    pub const fn free(&mut self) {
+        self.kind = EMPTY;
+    }
 }
 
 /// Every actor slot.

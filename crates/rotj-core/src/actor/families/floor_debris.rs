@@ -10,7 +10,7 @@
 //! load, no physics, no contact.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Field};
+use crate::actor::slots::{Body, EMPTY, Field};
 use crate::actor::world::Cx;
 
 /// The metasprite pointer word (`$95BC` -> `$95BE`).
@@ -48,7 +48,7 @@ impl State {
         let life = body.get(LIFE).wrapping_sub(1);
         body.set(LIFE, life);
         if life & 0x80 != 0 {
-            *kind = 0;
+            *kind = EMPTY;
         }
     }
 }

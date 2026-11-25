@@ -19,7 +19,6 @@ use super::{
 use crate::actor::boot::{PASSWORDS, payload_byte};
 use crate::actor::spawn::SpawnTable;
 use crate::actor::stage::{Music, OnClear, Stage as Descriptor};
-use crate::actor::world::orientation;
 use crate::actors::{CELL_FLAGS, CELL_LOCK, CELL_PENDING, CELL_RECORD, spawn_schedule};
 use crate::rooms::{Arrival, Room, listed_rooms};
 use crate::terrain::Terrain;
@@ -351,7 +350,7 @@ fn page_map(stage: &StageAssets) -> Vec<Vec<(usize, usize)>> {
         }
     }
     let has_tiles = |&(room, entry): &(usize, usize)| {
-        entry < PAGES || stage.rooms[room].room.orientation & orientation::TWO_PAGES != 0
+        entry < PAGES || stage.rooms[room].room.orientation.two_pages
     };
     let reach = stage.terrain.stream.len() / PAGE_CELLS;
     let extras: Vec<usize> = (0..reach.min(PAGES))
@@ -374,7 +373,7 @@ fn room_map(
     catalog: &Catalog,
 ) -> Map {
     let RoomAssets { room, spawns } = &stage.rooms[index];
-    let vertical = room.orientation & orientation::VERTICAL != 0;
+    let vertical = room.orientation.vertical;
     let terrain = terrain_layer(stage, pages, index);
     let (spawn_objects, lock_objects) = schedule_objects(room, spawns, &stage.schedule, vertical);
     let next_object = FIRST_LOCK_ID + u32::try_from(lock_objects.len()).expect("ids fit");
@@ -385,9 +384,9 @@ fn room_map(
             "player-start",
             (start.player_x, start.player_y),
             vec![
-                Property::int("facing", start.facing),
-                Property::int("scroll_lock", start.scroll_lock),
-                Property::int("scroll_mode", start.scroll_mode),
+                Property::int("facing", start.facing.raw()),
+                Property::int("scroll_lock", start.scroll_lock.raw()),
+                Property::int("scroll_mode", start.scroll_mode.raw()),
             ],
         ),
         point(
@@ -441,12 +440,8 @@ fn room_map(
 /// past the stream's reach.
 fn terrain_layer(stage: &StageAssets, pages: &[Vec<(usize, usize)>], index: usize) -> Layer {
     let room = &stage.rooms[index].room;
-    let vertical = room.orientation & orientation::VERTICAL != 0;
-    let across = if room.orientation & orientation::TWO_PAGES == 0 {
-        1
-    } else {
-        2
-    };
+    let vertical = room.orientation.vertical;
+    let across = room.orientation.across();
     let regions: Vec<(usize, usize)> = pages
         .iter()
         .enumerate()
@@ -456,7 +451,7 @@ fn terrain_layer(stage: &StageAssets, pages: &[Vec<(usize, usize)>], index: usiz
                 .filter(|&&(room, _)| room == index)
                 .map(move |&(_, entry)| (entry, page))
         })
-        .filter(|&(entry, _)| entry >= TABLE_ENTRIES || entry >> 4 < across)
+        .filter(|&(entry, _)| entry >= TABLE_ENTRIES || region_place(entry).1 < across)
         .collect();
     let along = PAGES + regions.iter().filter(|&&(e, _)| e >= TABLE_ENTRIES).count();
     let (width, height) = if vertical {

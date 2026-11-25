@@ -36,7 +36,7 @@ fn run_to(machine: &mut Machine, frame: u64) {
 fn rom_map(machine: &Machine, level: u8) -> Vec<u8> {
     let area = area_for_level(usize::from(level)).expect("level index");
     let map = map_from_rom(&machine.bus.cart.prg, &machine.bus.cart.chr, area).expect("area map");
-    map.iter().flatten().copied().collect()
+    map.as_bytes().to_vec()
 }
 
 /// The addresses in `$6000-$6FFF` whose column (`addr % 256`) is in `range`.

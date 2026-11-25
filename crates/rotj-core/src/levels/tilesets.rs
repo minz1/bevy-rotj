@@ -6,8 +6,8 @@ use super::{Catalog, JSON_VERSION, Levels, TILED_VERSION, TILESET_TILES, tileset
 use crate::actor::room::{build_palette, loaded_bank};
 use crate::actor::world::set_first_colours;
 use crate::chr;
-use crate::palette::rgba;
-use crate::rooms::Room;
+use crate::palette::{self, rgba};
+use crate::rooms::{ChrBanks, Room};
 use crate::terrain::Terrain;
 
 /// A tileset picture's width and height in px: 16 metatiles of 16 px.
@@ -51,7 +51,7 @@ pub fn tilesets(prg: &[u8], chr: &[u8]) -> Option<Vec<Tileset>> {
     Some(tilesets)
 }
 
-fn tsj(name: &str, banks: [u8; 4]) -> String {
+fn tsj(name: &str, banks: ChrBanks) -> String {
     to_text(&serde_json::json!({
         "columns": 16,
         "image": format!("{name}.png"),
@@ -79,7 +79,7 @@ fn picture(prg: &[u8], chr: &[u8], terrain: &Terrain, room: &Room) -> Vec<u8> {
         room.sprite_palette,
         &mut palette,
     );
-    set_first_colours(&mut palette, 0x0F);
+    set_first_colours(&mut palette, palette::BLACK);
     let banks = room.chr.map(|bank| loaded_bank(prg, bank));
     let side = TILESET_PX as usize;
     let mut picture = vec![0; side * side * 4];
@@ -103,12 +103,14 @@ pub(super) fn draw_corner(
     colours: &[u8],
 ) {
     let side = TILESET_PX as usize;
-    for y in 0..8 {
-        for x in 0..8 {
-            let colour = colours[usize::from(chr::pixel(pattern, x, y))];
-            let column = id % 16 * 16 + corner % 2 * 8 + x;
-            let row = id / 16 * 16 + corner / 2 * 8 + y;
-            picture[(row * side + column) * 4..][..4].copy_from_slice(&rgba(colour));
-        }
-    }
+    let stride = side * 4;
+    let column = id % 16 * 16 + corner % 2 * 8;
+    let row = id / 16 * 16 + corner / 2 * 8;
+    let rgba_colours: [[u8; 4]; 4] = std::array::from_fn(|i| rgba(colours[i]));
+    chr::blit_rgba(
+        pattern,
+        &mut picture[row * stride + column * 4..],
+        stride,
+        rgba_colours,
+    );
 }

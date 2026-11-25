@@ -10,7 +10,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
-use crate::actor::slots::{Body, Metatile, contact};
+use crate::actor::slots::{Body, EMPTY, Metatile, contact};
 use crate::actor::world::{Cx, sound};
 
 const METASPRITE_PTR: u16 = 0x857E;
@@ -48,7 +48,7 @@ impl State {
             }
         } else {
             if work.y.row() >= FALL_LIMIT_ROW {
-                *kind = 0;
+                *kind = EMPTY;
                 return;
             }
             let mut probe = Probe::default();

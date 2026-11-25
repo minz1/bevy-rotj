@@ -1,7 +1,7 @@
 //! Second-class type `$10`, a platform that falls away once stood on (bank 12 `$8952`).
 
 use crate::actor::families::crumbling_block;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 /// It keeps its fall speed in the pair `[behaviour, hit]`: `hit` the low byte in 1/16 px,
@@ -21,7 +21,7 @@ impl State {
         }
         crumbling_block::accelerate_fall(body);
         if body.y >= 0x1000 {
-            *kind = 0;
+            *kind = EMPTY;
         }
     }
 }

@@ -2,7 +2,7 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::{Body, Counter, Metatile};
+use crate::actor::slots::{Body, Counter, EMPTY, Metatile};
 use crate::actor::world::{Cx, Motion};
 
 const METASPRITES: u16 = 0x9A16;
@@ -55,7 +55,7 @@ impl State {
                     player.vy = 6;
                     player.motion = Motion::Standing;
                     player.stage_script = 0;
-                    *kind = 0;
+                    *kind = EMPTY;
                 }
             }
             None => panic!("type $C6 phase {} is past the $9A22 table", body.phase),

@@ -399,8 +399,8 @@ fn preview(pattern_path: &Path, out: &Path) -> Result<()> {
     for (i, tile) in nametables.iter_mut().take(32 * 30).enumerate() {
         *tile = u8::try_from(i % 256).expect("masked to a byte");
     }
-    let mut palette = [0x0f; 32];
-    palette[..4].copy_from_slice(&[0x0f, 0x00, 0x10, 0x30]);
+    let mut palette = [rotj_core::palette::BLACK; 32];
+    palette[..4].copy_from_slice(&rotj_core::palette::GREY_RAMP);
 
     let lines: Vec<rotj_core::render::Line> = (0..rotj_core::render::SCREEN_H)
         .map(|y| rotj_core::render::Line {

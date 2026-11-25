@@ -12,6 +12,8 @@ use super::tilesets::{TILESET_PX, draw_corner};
 use crate::actor::room::loaded_bank;
 use crate::chr;
 use crate::collision::CLASS_COUNT;
+use crate::palette::GREY_RAMP;
+use crate::rooms::ChrBanks;
 
 /// The tileset name a room's map gives it.
 pub(crate) const CUSTOM: &str = "custom";
@@ -35,9 +37,6 @@ pub(crate) const SURFACES: [(&str, u8); 13] = [
     ("one-way-behind", 15),
     ("spikes", 16),
 ];
-
-/// The colours a picture draws pattern values 0-3 in.
-const GREYS: [u8; 4] = [0x0F, 0x00, 0x10, 0x30];
 
 #[derive(Deserialize)]
 struct CustomFile {
@@ -138,7 +137,7 @@ fn corner_of(text: &str, handles: &BTreeSet<u8>) -> Result<(u8, u8), String> {
     if tile > 0x3f {
         return Err(format!("tile ${tile:02x} is past $3f"));
     }
-    if bank & 0x80 != 0 && !handles.contains(&bank) {
+    if ChrBanks::is_animated(bank) && !handles.contains(&bank) {
         return Err(format!(
             "bank ${bank:02x} is not an animation handle the game's rooms load"
         ));
@@ -165,7 +164,7 @@ pub fn custom_picture(prg: &[u8], chr: &[u8], text: &str) -> Result<Vec<u8>, Str
         for (corner, &(bank, tile)) in metatile.corners.iter().enumerate() {
             let banks = [loaded_bank(prg, bank); 4];
             let pattern = chr::tile(chr, &banks, usize::from(tile) * chr::TILE_BYTES);
-            draw_corner(&mut picture, id, corner, pattern, &GREYS);
+            draw_corner(&mut picture, id, corner, pattern, &GREY_RAMP);
         }
     }
     Ok(picture)
@@ -301,7 +300,7 @@ pub(super) mod tests {
             for y in 0..8 {
                 for x in 0..8 {
                     let at = ((corner / 2 * 8 + y) * side + corner % 2 * 8 + x) * 4;
-                    let colour = GREYS[usize::from(chr::pixel(pattern, x, y))];
+                    let colour = GREY_RAMP[usize::from(chr::pixel(pattern, x, y))];
                     assert_eq!(
                         picture[at..][..4],
                         rgba(colour),

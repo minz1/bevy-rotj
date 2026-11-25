@@ -79,8 +79,9 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$9032`; the phase table is at `$9243`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
+        const PALETTE_1: u8 = 0x01;
         engine::load(body, work);
-        work.attr = (body.flags & attr::PALETTE) | 0x01;
+        work.attr = (body.flags & attr::PALETTE) | PALETTE_1;
         engine::integrate(body, work);
         match Phase::from_byte(body.phase) {
             Some(Phase::Idling) => idling(body, cx),
@@ -94,7 +95,7 @@ impl State {
                 if spawn_child(body, cx) {
                     body.state = STATE_UNTARGETED;
                 }
-                *kind = 0;
+                *kind = crate::actor::slots::EMPTY;
                 return;
             }
             None => panic!("type $7E phase {} is past the $9243 table", body.phase),
@@ -119,6 +120,11 @@ fn idling(body: &mut Body, cx: &Cx<'_>) {
     body.sprite = 0;
 }
 
+/// `body.anim` bit 7 during [`Phase::Rising`]: already swung once, skip the feet probe.
+const SKIP_FEET_PROBE: u8 = 0x80;
+/// Leftward drift velocity when grounded in [`Phase::Falling`].
+const DRIFT_LEFT: i16 = i16::from_be_bytes([0xFF, 0xF0]);
+
 /// `$908D`: rise until the head row, then drop when the feet leave the ground.
 fn rising(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if work.y.row() >= 0x0D {
@@ -127,7 +133,7 @@ fn rising(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     }
     let low = body.vy.to_be_bytes()[1].wrapping_add(1);
     body.set(Field::VyLow, if low >= 0x40 { 0x3F } else { low });
-    if body.anim & 0x80 != 0 {
+    if body.anim & SKIP_FEET_PROBE != 0 {
         return;
     }
     let mut probe = Probe::default();
@@ -146,7 +152,7 @@ fn swinging(body: &mut Body, cx: &Cx<'_>) {
         if time >= 0x0C {
             body.vy = 0;
             body.phase = Phase::Rising.byte();
-            body.anim = 0x80;
+            body.anim = SKIP_FEET_PROBE;
             return;
         }
         &cx.prg.families.spinner.swinging_vy
@@ -170,7 +176,7 @@ fn falling(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if below {
         body.vy = cx.prg.families.spinner.falling_vy[usize::from(cx.world.frame & 0x07)];
         body.vx_drift = if body.behaviour & DRIFTS_RIGHT == 0 {
-            i16::from_be_bytes([0xFF, 0xF0])
+            DRIFT_LEFT
         } else {
             0x0010
         };
@@ -235,7 +241,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             engine::store(body, work);
         }
         Visibility::Near => engine::store(body, work),
-        Visibility::Far => *kind = 0,
+        Visibility::Far => *kind = crate::actor::slots::EMPTY,
     }
 }
 

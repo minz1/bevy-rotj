@@ -82,13 +82,12 @@ impl State {
     /// One frame of the handler (`$993A`, phases at `$9D91`).
     pub fn step(&mut self, _kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
-        let flash = engine::boss_flash(body, work, cx.world);
-        if flash & 0x80 != 0 {
+        if let engine::BossFlash::Dying { show } = engine::boss_flash(body, work, cx.world) {
             work.attr = body.flags & !attr::PALETTE;
             if body.dying_timer == 0x01 {
                 engine::boss_defeated(work.slot, cx);
             }
-            if flash & 0x40 != 0 {
+            if show {
                 tail(body, work, cx);
             }
             return;
@@ -145,13 +144,30 @@ fn face(body: &mut Body, work: &Work, cx: &Cx<'_>) {
     }
 }
 
+/// Counter-gravity hover velocity (`-6` subpixels/frame) while dashing or flipping.
+const HOVER_VY: i16 = i16::from_be_bytes([0xFF, 0xFA]);
+/// `body.anim` bit 7 during [`Phase::Opening`]: boss-entry finished, running the turn strip.
+const TURNING: u8 = 0x80;
+/// `body.anim` bit 7 during [`Phase::Dropping`]: rearing back while counting down from `$90`.
+const REARING: u8 = 0x80;
+/// `body.timer` bit 7 during [`Phase::Firing`]: wind-up finished, charging and firing shots.
+const CHARGING: u8 = 0x80;
+/// `body.anim` end count during [`Phase::Firing`]: post-shot cooldown finished.
+const FIRING_DONE: u8 = 0x80;
+/// `body.timer` bit 7 during [`Phase::Bracing`]: landed on the floor, bracing before firing.
+const LANDED: u8 = 0x80;
+/// `body.counter` bit 6: draw the second overlay sprite.
+const DRAWS_SECOND: u8 = 0x40;
+/// `body.counter` bit 7: draw the third overlay sprite (exhaust jet).
+const DRAWS_THIRD: u8 = 0x80;
+
 /// `$99BA`: hold for a beat, then turn for 12 frames.
 fn opening(body: &mut Body, cx: &Cx<'_>) {
-    if body.anim & 0x80 == 0 {
-        body.counter = 0x40;
+    if body.anim & TURNING == 0 {
+        body.counter = DRAWS_SECOND;
         body.sprite = 0;
         if cx.effects.player.motion != Motion::BossEntry {
-            body.anim = 0x80;
+            body.anim = TURNING;
         }
         return;
     }
@@ -159,7 +175,7 @@ fn opening(body: &mut Body, cx: &Cx<'_>) {
     let idx = (body.timer & 0x0C) >> 2;
     body.sprite = cx.prg.families.stage3_boss.turn_frames[usize::from(idx)];
     if body.sprite == 0 {
-        body.counter = 0x40;
+        body.counter = DRAWS_SECOND;
     }
     body.timer.tick_up();
     if body.timer >= 0x0C {
@@ -171,7 +187,7 @@ fn opening(body: &mut Body, cx: &Cx<'_>) {
 
 /// `$9A0E`: rear back and drop.
 fn dropping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
-    if body.anim & 0x80 != 0 {
+    if body.anim & REARING != 0 {
         body.sprite = 5;
         body.anim.tick_down();
         return;
@@ -187,13 +203,17 @@ fn dropping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
     let lo = work.vy.to_be_bytes()[1].wrapping_sub(step);
     work.vy = i16::from_be_bytes([0xFF, if lo >= 0xE0 { lo } else { 0xF0 }]);
     body.sprite = 3;
-    body.counter = if cx.world.frame & 0x04 != 0 { 0x80 } else { 0 };
+    body.counter = if cx.world.frame & 0x04 != 0 {
+        DRAWS_THIRD
+    } else {
+        0
+    };
 }
 
 /// `$9A59`: dash across the room, accelerating until it reaches the far wall.
 fn dashing(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
     body.sprite = 3;
-    work.vy = i16::from_be_bytes([0xFF, 0xFA]);
+    work.vy = HOVER_VY;
     work.ax = 0;
     if work.attr & attr::FLIP_X == 0 {
         if work.x.to_be_bytes()[0] >= 0x0C {
@@ -217,7 +237,11 @@ fn dashing(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
     if body.anim == 0 {
         return end_dash(body, work, cx);
     }
-    body.counter = if cx.world.frame & 0x04 != 0 { 0x80 } else { 0 };
+    body.counter = if cx.world.frame & 0x04 != 0 {
+        DRAWS_THIRD
+    } else {
+        0
+    };
 }
 
 /// `$9AE0`: stop, then brace or flip by facing against the player.
@@ -242,34 +266,34 @@ fn end_dash(body: &mut Body, work: &Work, cx: &Cx<'_>) {
 /// `$9B11`: wind up, fire the `$90` burst at `$7E90 == $50`, then reset.
 fn firing(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     body.counter = 0;
-    if body.timer & 0x80 == 0 {
+    if body.timer & CHARGING == 0 {
         let idx = (body.timer & 0x1C) >> 2;
         body.sprite = cx.prg.families.stage3_boss.counter_frames[usize::from(idx)];
         if body.sprite == 0 {
-            body.counter = 0x40;
+            body.counter = DRAWS_SECOND;
         }
         body.timer.tick_up();
         if body.timer >= 0x14 {
-            body.timer = 0x80;
+            body.timer = CHARGING;
             body.anim = 0;
         }
         return;
     }
-    body.counter = 0x40;
+    body.counter = DRAWS_SECOND;
     body.anim.tick_up();
     if body.anim < 0x20 {
         if body.anim.is_multiple_of(8) {
-            body.counter = 0x41;
+            body.counter = DRAWS_SECOND | 1;
         }
     } else if body.anim < 0x40 {
         if body.anim.is_multiple_of(4) {
-            body.counter = 0x41;
+            body.counter = DRAWS_SECOND | 1;
         }
     } else if body.anim < 0x50 {
-        body.counter = 0x41;
+        body.counter = DRAWS_SECOND | 1;
     } else if body.anim == 0x50 {
         spawn_shots(body, work, cx);
-    } else if body.anim >= 0x80 {
+    } else if body.anim >= FIRING_DONE {
         body.phase = Phase::Dropping.byte();
         body.timer = 0;
         body.anim = 0x90;
@@ -278,7 +302,7 @@ fn firing(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
 
 /// `$9B8B`: land, hold facing the wall, then fire.
 fn bracing(body: &mut Body, work: &mut Work, grounded: bool, cx: &Cx<'_>) {
-    if body.timer & 0x80 != 0 {
+    if body.timer & LANDED != 0 {
         body.counter = 0;
         body.sprite = 5;
         body.anim.tick_up();
@@ -290,9 +314,13 @@ fn bracing(body: &mut Body, work: &mut Work, grounded: bool, cx: &Cx<'_>) {
         return;
     }
     body.sprite = 3;
-    body.counter = if cx.world.frame & 0x04 != 0 { 0x80 } else { 0 };
+    body.counter = if cx.world.frame & 0x04 != 0 {
+        DRAWS_THIRD
+    } else {
+        0
+    };
     if grounded {
-        body.timer = 0x80;
+        body.timer = LANDED;
     } else {
         work.vy = 5;
     }
@@ -301,7 +329,7 @@ fn bracing(body: &mut Body, work: &mut Work, grounded: bool, cx: &Cx<'_>) {
 /// `$9BDB`: count `$7DB0` on, flipping the facing every fourth value.
 fn flipping(body: &mut Body, work: &mut Work) {
     body.counter = 0;
-    body.vy = i16::from_be_bytes([0xFF, 0xFA]);
+    body.vy = HOVER_VY;
     body.sprite = 4;
     body.subtype = body.subtype.wrapping_add(1);
     let low = body.subtype & FLIP_COUNT;
@@ -356,18 +384,18 @@ fn tail(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         work.pointer = engine::rom_word(cx.prg, 0, METASPRITES + 2 * u16::from(index));
         work.tile = 0;
         engine::draw(work, DRAW_BANK, cx);
-        if body.counter & 0x40 != 0 {
+        if body.counter & DRAWS_SECOND != 0 {
             let at = if body.counter & 0x01 != 0 { 0 } else { 2 };
             work.pointer = engine::rom_word(cx.prg, 0, SECOND_DRAW + at);
             engine::draw(work, DRAW_BANK, cx);
         }
-        if body.counter & 0x80 != 0 {
+        if body.counter & DRAWS_THIRD != 0 {
             work.attr |= attr::PALETTE;
             work.pointer = engine::rom_word(cx.prg, 0, THIRD_DRAW);
             engine::draw(work, DRAW_BANK, cx);
         }
         work.hitbox = 0;
-        engine::boss_contact(CONTACT, 0, body, work, cx);
+        engine::boss_contact(CONTACT, engine::ContactMode::Both, body, work, cx);
     }
     work.age = work.age.wrapping_add(1);
     engine::end_frame(body, work);

@@ -14,7 +14,7 @@
 //! moves and never touches the player.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 /// The `$96:$97` metasprite table (bank 0 `$8DF3`), indexed by `(phase & $FC) >> 1`.
@@ -34,12 +34,12 @@ impl State {
         engine::load(body, work);
         work.attr = 0;
         if engine::on_screen(work, cx.world) != Visibility::On {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         body.phase = body.phase.wrapping_add(1);
         if body.phase >= LAST_PHASE {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         let frame = (body.phase & 0xFC) >> 1;

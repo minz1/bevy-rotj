@@ -39,7 +39,7 @@ impl State {
         if player.motion == Motion::Dying {
             // `$9D50`: only the projectiles' types (`$7BD0`) are cleared.
             for projectile in &mut cx.effects.projectiles {
-                projectile.kind = 0;
+                projectile.free();
             }
             return;
         }

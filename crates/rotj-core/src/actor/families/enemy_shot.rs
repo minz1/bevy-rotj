@@ -2,7 +2,7 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 const METASPRITES: u16 = 0x98BC;
@@ -48,13 +48,13 @@ impl State {
             ..Probe::default()
         };
         if collision::solid(&mut probe, 0x80 | collision::probe::FLOORS_SOLID, cx) {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         let entry = METASPRITES + 2 * u16::from(body.sprite);
         work.pointer = engine::rom_word(cx.prg, 8, entry);
         if engine::on_screen(work, cx.world) != Visibility::On {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         engine::tile_bits(work, cx.prg);
@@ -68,7 +68,7 @@ impl State {
         engine::draw(work, bank, cx);
         work.hitbox = 3;
         if engine::touch(work, 2, cx) {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         engine::store(body, work);

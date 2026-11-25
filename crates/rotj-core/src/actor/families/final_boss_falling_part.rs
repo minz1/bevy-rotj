@@ -12,8 +12,11 @@
 //! draw is `engine::draw(work, 9, cx)`.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Metatile};
+use crate::actor::slots::{Body, EMPTY, Metatile};
 use crate::actor::world::Cx;
+
+/// Sign bit used to clamp the low byte of the 16-bit y velocity (`[counter, timer]`).
+const VY_SIGN: u8 = 0x80;
 
 /// The handler's bank, for its metasprite pointer table.
 const BANK: u8 = 12;
@@ -23,7 +26,7 @@ const METASPRITES: u16 = 0x96A9;
 const DRAW_BANK: u8 = 9;
 /// `$AFD6`'s amount (X:A = `$0258`) and mode (Y = `$80`) at the `$968E` call.
 const CONTACT: u16 = 0x0258;
-const CONTACT_MODE: u8 = 0x80;
+const CONTACT_MODE: engine::ContactMode = engine::ContactMode::TouchOnly;
 /// The y high byte that bounces the part.
 const FLOOR: u8 = 0x0B;
 
@@ -41,8 +44,8 @@ impl State {
         // `$960E`: the y velocity gains 3, its low byte clamped to `$80` whenever
         // its sign disagrees with the high byte's.
         [body.counter, body.timer] = gained_vy([body.counter, body.timer]);
-        if (body.counter & 0x80 != 0) != (body.timer & 0x80 != 0) {
-            body.timer = 0x80;
+        if (body.counter & VY_SIGN != 0) != (body.timer & VY_SIGN != 0) {
+            body.timer = VY_SIGN;
         }
         // `$9632`: step by `($7DD0:$7DB0)` and `($7E10:$7DF0)`.
         work.x = work
@@ -61,7 +64,7 @@ impl State {
         let index = cx.world.frame & 0x06;
         work.pointer = engine::rom_word(cx.prg, BANK, METASPRITES + u16::from(index));
         if engine::on_screen(work, cx.world) != Visibility::On {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         engine::draw(work, DRAW_BANK, cx);

@@ -9,8 +9,11 @@ use crate::actor::weapons;
 use crate::ines::FME7_PRG_BANK_SIZE;
 use crate::levels::Levels;
 
+/// Size of one FME-7 8 KiB PRG bank.
+pub const BANK_BYTES: usize = FME7_PRG_BANK_SIZE;
+
 /// The PRG image's size: 16 banks of 8 KiB.
-pub const PRG_SIZE: usize = 16 * FME7_PRG_BANK_SIZE;
+pub const PRG_SIZE: usize = 16 * BANK_BYTES;
 
 /// The PRG image with its behaviour tables; reads as the image's bytes.
 pub struct Prg {
@@ -46,6 +49,24 @@ impl Prg {
             bytes,
         }
     }
+
+    /// One 8 KiB FME-7 PRG bank slice, or `None` if out of range.
+    #[must_use]
+    pub fn bank(&self, index: usize) -> Option<&[u8]> {
+        bank(&self.bytes, index)
+    }
+
+    /// One PRG ROM byte, addressed inside an 8 KiB window mapped from `index`.
+    #[must_use]
+    pub fn byte(&self, index: usize, addr: usize) -> Option<u8> {
+        byte(&self.bytes, index, addr)
+    }
+
+    /// A little-endian 16-bit word, addressed as in [`Self::byte`].
+    #[must_use]
+    pub fn word(&self, index: usize, addr: usize) -> Option<u16> {
+        word(&self.bytes, index, addr)
+    }
 }
 
 impl Deref for Prg {
@@ -56,17 +77,35 @@ impl Deref for Prg {
     }
 }
 
+/// One 8 KiB FME-7 PRG bank slice, or `None` if `bank` escapes `prg`.
+#[must_use]
+pub fn bank(prg: &[u8], bank: usize) -> Option<&[u8]> {
+    let start = bank.checked_mul(BANK_BYTES)?;
+    let end = start.checked_add(BANK_BYTES)?;
+    prg.get(start..end)
+}
+
+/// The slice of `prg` starting at `offset` inside `bank` (extending to the end of `prg`),
+/// or `None` if that start escapes `prg`.
+#[must_use]
+pub fn from_bank(prg: &[u8], bank: usize, offset: usize) -> Option<&[u8]> {
+    let base = bank.checked_mul(BANK_BYTES)?.checked_add(offset)?;
+    prg.get(base..)
+}
+
 /// One PRG ROM byte, addressed inside an 8 KiB window mapped from `bank`.
-pub(crate) fn byte(prg: &[u8], bank: usize, addr: usize) -> Option<u8> {
-    prg.get(bank.checked_mul(0x2000)? + (addr & 0x1FFF))
+#[must_use]
+pub fn byte(prg: &[u8], bank: usize, addr: usize) -> Option<u8> {
+    prg.get(bank.checked_mul(BANK_BYTES)?.checked_add(addr & 0x1FFF)?)
         .copied()
 }
 
 /// A little-endian 16-bit word, addressed as in [`byte`].
-pub(crate) fn word(prg: &[u8], bank: usize, addr: usize) -> Option<u16> {
+#[must_use]
+pub fn word(prg: &[u8], bank: usize, addr: usize) -> Option<u16> {
     Some(u16::from_le_bytes([
         byte(prg, bank, addr)?,
-        byte(prg, bank, addr + 1)?,
+        byte(prg, bank, addr.checked_add(1)?)?,
     ]))
 }
 

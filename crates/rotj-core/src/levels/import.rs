@@ -9,7 +9,7 @@ use thiserror::Error;
 use super::custom::{CUSTOM, CUSTOM_FILE};
 use super::model::{Layer, Map, Object, PackFile, PackStage, Property};
 use super::{
-    Catalog, CatalogArea, ExtraPassword, Levels, MIRRORINGS, NO_HANDLER, PAGE_CELLS, PAGES,
+    Catalog, CatalogArea, Corner, ExtraPassword, Levels, MIRRORINGS, NO_HANDLER, PAGE_CELLS, PAGES,
     PackFiles, RoomAssets, Source, Split, Stage, StageAssets, TABLE_ENTRIES, TILESET_TILES,
     along_across, boss, class_of, derived_first_spawn_column, derived_mirroring, kind_of,
     region_place, schedule_cell, tile_index,
@@ -18,10 +18,9 @@ use crate::actor::families::MAIN;
 use crate::actor::slots::contact;
 use crate::actor::spawn::SpawnTable;
 use crate::actor::stage::{Music, OnClear, Stage as Descriptor};
-use crate::actor::world::orientation;
 use crate::actors::{CELL_LOCK, CELL_PENDING, CELL_RECORD, STATE_DROPS_PICKUP, SpawnRecord};
 use crate::collision::CLASS_COUNT;
-use crate::rooms::{Arrival, Room, Start};
+use crate::rooms::{Arrival, ChrBanks, Facing, Orientation, Room, ScrollLock, ScrollMode, Start};
 use crate::terrain::Terrain;
 
 /// A pack that does not import.
@@ -351,7 +350,7 @@ struct RoomTileset {
     /// Its tiles: 256 for an area tileset, `custom.tsj`'s `tilecount`.
     count: u32,
     /// The area and `Room::chr` of an area tileset; `None` for `custom.tsj`.
-    area: Option<(u8, [u8; 4])>,
+    area: Option<(u8, ChrBanks)>,
 }
 
 /// A cell's metatile: the stage area's id (any variant's), another area variant's or a
@@ -359,7 +358,7 @@ struct RoomTileset {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Key {
     Stage(u8),
-    Other { area: u8, chr: [u8; 4], id: u8 },
+    Other { area: u8, chr: ChrBanks, id: u8 },
     Custom(u8),
 }
 
@@ -618,8 +617,10 @@ fn appended(key: Key, catalog: &Catalog, custom: Custom<'_>) -> Metatile {
             let terrain = &catalog.area(area).expect("a tileset's area").terrain;
             let id = usize::from(id);
             Metatile {
-                corners: terrain.corners[id]
-                    .map(|corner| (chr[usize::from(corner >> 6)], corner & 63)),
+                corners: terrain.corners[id].map(|byte| {
+                    let corner = Corner::decode(byte);
+                    (chr.bank(usize::from(corner.slot)), corner.tile)
+                }),
                 palette: terrain.palette_classes[id],
                 class: terrain.classes[id],
             }
@@ -726,12 +727,57 @@ fn appended_keys(input: &StageInput<'_>, pages: &[Page]) -> Result<Vec<Key>, Imp
     Ok(keys)
 }
 
+/// Resolves each room's base CHR banks from its own-area tilesets, refusing disagreements
+/// on any slot the stage area's metatiles use.
+fn resolve_bases(
+    input: &StageInput<'_>,
+    stage_slots: &[usize],
+) -> Result<Vec<ChrBanks>, ImportError> {
+    let StageInput {
+        stage,
+        catalog,
+        area,
+        shapes,
+        ..
+    } = *input;
+    let name = |chr| {
+        catalog
+            .tileset_name(area.area, chr)
+            .expect("a catalog variant")
+    };
+    let mut bases = Vec::new();
+    for (file, shape) in stage.rooms.iter().zip(shapes) {
+        let mut own = shape.tilesets.iter().filter_map(|tileset| {
+            let (tileset_area, chr) = tileset.area?;
+            (tileset_area == area.area).then_some(chr)
+        });
+        let base = own.next().unwrap_or(area.variants[0]);
+        if let Some((other, slot)) = own.find_map(|chr| {
+            let slot = stage_slots
+                .iter()
+                .find(|&&slot| chr.bank(slot) != base.bank(slot))?;
+            Some((chr, slot))
+        }) {
+            return Err(invalid(
+                file,
+                format!(
+                    "tilesets `{}` and `{}` disagree on CHR slot {slot}, which the room needs",
+                    name(base),
+                    name(other)
+                ),
+            ));
+        }
+        bases.push(base);
+    }
+    Ok(bases)
+}
+
 /// The stage's terrain, its area's metatiles then the ones it appends, and each room's `chr`.
 fn stage_terrain(
     input: &StageInput<'_>,
     regions: &[Vec<(usize, usize)>],
     pages: &[Page],
-) -> Result<(Terrain, Vec<[u8; 4]>), ImportError> {
+) -> Result<(Terrain, Vec<ChrBanks>), ImportError> {
     let StageInput {
         stage,
         catalog,
@@ -748,36 +794,10 @@ fn stage_terrain(
     let stage_slots: Vec<usize> = (0..4)
         .filter(|&slot| {
             let mut corners = area.terrain.corners.iter().flatten();
-            corners.any(|&corner| usize::from(corner >> 6) == slot)
+            corners.any(|&byte| usize::from(Corner::decode(byte).slot) == slot)
         })
         .collect();
-    let name = |chr| {
-        catalog
-            .tileset_name(area.area, chr)
-            .expect("a catalog variant")
-    };
-    let mut bases = Vec::new();
-    for (file, shape) in stage.rooms.iter().zip(shapes) {
-        let mut own = shape.tilesets.iter().filter_map(|tileset| {
-            let (tileset_area, chr) = tileset.area?;
-            (tileset_area == area.area).then_some(chr)
-        });
-        let base = own.next().unwrap_or(area.variants[0]);
-        if let Some((other, slot)) = own.find_map(|chr| {
-            let slot = stage_slots.iter().find(|&&slot| chr[slot] != base[slot])?;
-            Some((chr, slot))
-        }) {
-            return Err(invalid(
-                file,
-                format!(
-                    "tilesets `{}` and `{}` disagree on CHR slot {slot}, which the room needs",
-                    name(base),
-                    name(other)
-                ),
-            ));
-        }
-        bases.push(base);
-    }
+    let bases = resolve_bases(input, &stage_slots)?;
     let index: BTreeMap<Key, usize> = keys.iter().enumerate().map(|(i, &key)| (key, i)).collect();
     let mut shown = vec![BTreeSet::new(); stage.rooms.len()];
     for (page, listed) in pages.iter().zip(regions) {
@@ -794,7 +814,9 @@ fn stage_terrain(
     }
     let mut taken: Vec<[Option<u8>; 4]> = bases
         .iter()
-        .map(|base| std::array::from_fn(|slot| stage_slots.contains(&slot).then_some(base[slot])))
+        .map(|base| {
+            std::array::from_fn(|slot| stage_slots.contains(&slot).then_some(base.bank(slot)))
+        })
         .collect();
     let slot_of = assign_slots(stage, &metatiles, &shown, &bases, &mut taken)?;
     let mut terrain = Terrain {
@@ -803,11 +825,13 @@ fn stage_terrain(
     };
     for metatile in &metatiles {
         let id = terrain.corners.len();
-        terrain.corners.push(
-            metatile
-                .corners
-                .map(|(bank, tile)| slot_of[&bank] * 64 + tile),
-        );
+        terrain.corners.push(metatile.corners.map(|(bank, tile)| {
+            Corner {
+                slot: slot_of[&bank],
+                tile,
+            }
+            .encode()
+        }));
         terrain.classes[id] = metatile.class;
         if terrain.palette_classes.len() <= id {
             terrain.palette_classes.resize((id / 4 + 1) * 4, 0);
@@ -828,7 +852,11 @@ fn stage_terrain(
     let chrs = taken
         .iter()
         .zip(&bases)
-        .map(|(taken, base)| std::array::from_fn(|slot| taken[slot].unwrap_or(base[slot])))
+        .map(|(taken, base)| {
+            ChrBanks(std::array::from_fn(|slot| {
+                taken[slot].unwrap_or_else(|| base.bank(slot))
+            }))
+        })
         .collect();
     Ok((terrain, chrs))
 }
@@ -839,7 +867,7 @@ fn assign_slots(
     stage: &PackStage,
     metatiles: &[Metatile],
     shown: &[BTreeSet<usize>],
-    bases: &[[u8; 4]],
+    bases: &[ChrBanks],
     taken: &mut [[Option<u8>; 4]],
 ) -> Result<BTreeMap<u8, u8>, ImportError> {
     let mut slot_of = BTreeMap::new();
@@ -857,7 +885,7 @@ fn assign_slots(
         let gives = |slot: usize| {
             users
                 .iter()
-                .any(|&room| taken[room][slot].unwrap_or(bases[room][slot]) == bank)
+                .any(|&room| taken[room][slot].unwrap_or_else(|| bases[room].bank(slot)) == bank)
         };
         let fits = |slot: usize| {
             users
@@ -1106,7 +1134,7 @@ fn import_room(
     map: &Map,
     shape: &Shape,
     pages: [u8; TABLE_ENTRIES],
-    chr: [u8; 4],
+    chr: ChrBanks,
     split: Option<Split>,
     user: Option<&Catalog>,
 ) -> Result<Room, String> {
@@ -1170,8 +1198,10 @@ fn import_room(
             user.map(|catalog| &catalog.sprite_palettes),
         )?,
         chr,
-        orientation: (u8::from(shape.vertical) * orientation::VERTICAL)
-            | (u8::from(shape.across == 2) * orientation::TWO_PAGES),
+        orientation: Orientation {
+            vertical: shape.vertical,
+            two_pages: shape.across == 2,
+        },
         raised_page_count: u8::try_from(PAGES - trailing).expect("a page count"),
         pages,
         start: Start {
@@ -1180,8 +1210,8 @@ fn import_room(
             camera_x,
             camera_y,
             ring_y: camera_y,
-            scroll_lock: player_int("scroll_lock")?,
-            scroll_mode: player_int("scroll_mode")?,
+            scroll_lock: ScrollLock(player_int("scroll_lock")?),
+            scroll_mode: ScrollMode(player_int("scroll_mode")?),
             mirroring: match property(&map.properties, "mirroring") {
                 Some(_) => {
                     let value = string(&map.properties, "mirroring")?;
@@ -1194,7 +1224,7 @@ fn import_room(
                 None => derived_mirroring(shape.vertical, camera_y),
             },
             first_spawn_column,
-            facing: player_int("facing")?,
+            facing: Facing(player_int("facing")?),
         },
         raster: split.map(|split| split.raster),
         fixed_rows: split.map_or([false; 16], |split| split.fixed_rows),

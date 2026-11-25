@@ -3,7 +3,7 @@
 
 use crate::actor::collision::{Probe, wall};
 use crate::actor::engine::{self, TileBlock, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 use crate::levelmap::Cell;
 
@@ -31,7 +31,7 @@ impl State {
         if let Some(mut probe) = fall(body)
             && wall(work, &mut probe, 0x80, cx)
         {
-            *kind = 0;
+            *kind = EMPTY;
         }
     }
 }

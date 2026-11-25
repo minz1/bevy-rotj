@@ -4,7 +4,7 @@
 //! never draws.
 
 use crate::actor::engine::Work;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 /// The value stamped into pages 16-31 of the page table (`$0450-$045F`).
@@ -20,7 +20,7 @@ impl State {
     /// One frame of the handler (`$82F7`).
     pub fn step(&mut self, kind: &mut u8, _body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
         cx.schedule.page_columns[FIRST_PAGE..].fill(COLUMN);
-        *kind = 0;
+        *kind = EMPTY;
     }
 }
 

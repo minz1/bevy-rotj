@@ -10,7 +10,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::hit;
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, EMPTY};
 use crate::actor::world::Cx;
 
 /// The `$7C30` -> metasprite pointer table (bank 12, indexed by `$7C30*2`).
@@ -81,7 +81,7 @@ impl State {
                 body.sprite = ((body.anim & 0x0C) >> 2) + 2;
                 body.anim.tick_up();
                 if body.anim == 0x0C {
-                    *kind = 0;
+                    *kind = EMPTY;
                     return;
                 }
             }
@@ -102,7 +102,7 @@ fn death(body: &mut Body) {
 /// The shared tail from `$8B11`: project, draw, contact and store.
 fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if engine::on_screen(work, cx.world) != Visibility::On {
-        *kind = 0;
+        *kind = EMPTY;
         return;
     }
     if !cx.world.frame_odd {

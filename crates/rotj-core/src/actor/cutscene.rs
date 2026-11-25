@@ -13,6 +13,34 @@ use crate::rooms::Chain;
 const PAYLOAD: usize = 0xF8 * 0x400;
 /// CHR offset of the payload's WRAM `$7E60-$7FFF` (bank `$F7` from `$260`).
 const PAYLOAD_TAIL: usize = 0xF7 * 0x400 + 0x260;
+/// Start of the 64-byte scratch metasprite buffer at the top of WRAM (`$7FC0-$7FFF`).
+pub(super) const WRAM_BUFFER: u16 = 0x7FC0;
+
+/// Cutscene payload WRAM tables (copied from CHR `$F7-$FF`).
+const DRAW_LIST: u16 = 0x71DD;
+const SPRITE_ENTRIES: u16 = 0x7653;
+const SCENE_MAP: u16 = 0x76D1;
+const SCENE_BANKS: u16 = 0x76D7;
+const DARK_PALETTE: u16 = 0x76EF;
+const LIT_BG_PALETTE: u16 = 0x770F;
+const LIT_SPRITE_PALETTES: u16 = 0x771F;
+const LIT_SPRITE_PALETTE_HI: u16 = 0x7720;
+const SLIDE_CYCLES: u16 = 0x7755;
+const BLOCK_START: u16 = 0x775B;
+const BLOCK_COUNT: u16 = 0x775C;
+
+/// WRAM read over a CHR payload overlaid with the 64-byte `$7FC0-$7FFF` scratch buffer.
+pub(super) fn wram_with_buffer(
+    chr: &[u8],
+    buffer: &[u8; 64],
+    addr: u16,
+    read_payload: impl Fn(&[u8], u16) -> u8,
+) -> u8 {
+    match addr.checked_sub(WRAM_BUFFER) {
+        Some(at) => buffer[usize::from(at)],
+        None => read_payload(chr, addr),
+    }
+}
 
 /// The WRAM byte at `addr` once `$99A9` has copied the payload.
 #[must_use]
@@ -147,26 +175,25 @@ impl Cutscene {
                 wait(frame, 1)
             }
             Row::PictureBlocks => {
-                let count = payload_byte(chr, 0x775C + 2 * u16::from(self.scene));
+                let count = payload_byte(chr, BLOCK_COUNT + 2 * u16::from(self.scene));
                 if frame == u16::from(count) {
                     return Flow::Done;
                 }
                 draw_block(
                     game,
                     |addr| payload_byte(chr, addr),
-                    0x71DD,
+                    DRAW_LIST,
                     &mut self.cursor,
                 );
                 Flow::Waited
             }
             Row::Slide => {
                 if frame == 0 {
-                    let at = 0x7755 + 2 * u16::from(self.scene);
+                    let at = SLIDE_CYCLES + 2 * u16::from(self.scene);
                     let split = &mut game.scroll.split;
                     split.chain = Chain::Cutscene;
                     split.next_irq = 0;
-                    split.first_irq_cycles =
-                        u16::from_le_bytes([payload_byte(chr, at), payload_byte(chr, at + 1)]);
+                    split.first_irq_cycles = payload_word(chr, at);
                     split.armed = true;
                     game.scroll.mask = mask::SHOWN;
                 }
@@ -187,7 +214,7 @@ impl Cutscene {
             }
             Row::Wait(count) => wait(frame, count),
             Row::GreyPalette => {
-                game.effects.vram.push_palette(&[0x10; 32]);
+                game.effects.vram.push_palette(&[crate::palette::GREY; 32]);
                 Flow::Done
             }
             Row::LightPicture => {
@@ -204,8 +231,8 @@ impl Cutscene {
     /// The picture's song, CHR banks and dark palette (`$600B-$6053`).
     fn picture(&mut self, game: &mut Game, chr: &[u8]) {
         game.effects.song = sound::song::BANNER;
-        self.scene = payload_byte(chr, 0x76D1 + u16::from(self.scene));
-        let banks = 0x76D7 + u16::from(self.scene) * 8;
+        self.scene = payload_byte(chr, SCENE_MAP + u16::from(self.scene));
+        let banks = SCENE_BANKS + u16::from(self.scene) * 8;
         for (i, shadow) in (0..).zip(&mut game.oam.chr) {
             *shadow = payload_byte(chr, banks + i);
         }
@@ -215,23 +242,23 @@ impl Cutscene {
         let [first, second, _, _, _, nametables, ..] = &mut game.scroll.bands;
         (*first, *second, *nametables) = (0, 0, 3);
         game.oam.clear();
-        let palette = payload_bytes(chr, 0x76EF, 32);
+        let palette = payload_bytes(chr, DARK_PALETTE, 32);
         game.effects.vram.push_palette(&palette);
-        self.cursor = payload_byte(chr, 0x775B + 2 * u16::from(self.scene));
+        self.cursor = payload_byte(chr, BLOCK_START + 2 * u16::from(self.scene));
     }
 
     /// The picture's sprite (`$C247`, `$C145`) and its lit palette (`$60C4-$6113`).
     fn light(&self, game: &mut Game, chr: &[u8]) {
-        let at = 0x7653 + 4 * u16::from(self.scene);
+        let at = SPRITE_ENTRIES + 4 * u16::from(self.scene);
         let pointer = payload_word(chr, at);
         let (x, y) = (payload_byte(chr, at + 2), payload_byte(chr, at + 3));
         draw_sprite(game, |addr| payload_byte(chr, addr), pointer, x, y);
         game.oam.finish();
         let lit = u16::from_le_bytes([
-            payload_byte(chr, 0x771F + 2 * u16::from(self.scene)),
-            payload_byte(chr, 0x7720),
+            payload_byte(chr, LIT_SPRITE_PALETTES + 2 * u16::from(self.scene)),
+            payload_byte(chr, LIT_SPRITE_PALETTE_HI),
         ]);
-        let mut palette = payload_bytes(chr, 0x770F, 16);
+        let mut palette = payload_bytes(chr, LIT_BG_PALETTE, 16);
         palette.extend(payload_bytes(chr, lit, 16));
         game.effects.vram.push_palette(&palette);
     }

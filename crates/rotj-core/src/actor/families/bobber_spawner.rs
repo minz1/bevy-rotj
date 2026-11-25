@@ -11,15 +11,17 @@
 
 use crate::actor::engine::Work;
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, EMPTY};
 use crate::actor::world::Cx;
 
 /// `$7DF0 & $0F`: the frame within the 16-frame spawn period.
 const SPAWN_MASK: u8 = 0x0F;
 /// `$8702`: the free-slot scan covers the 16 main slots (15 down to 0).
 const SLOTS: usize = 16;
-/// Child `$7C00`.
-const CHILD_FLAGS: u8 = attr::FLIP_X | 0x01;
+/// Child sprite palette (sprite palette 1).
+const CHILD_PALETTE: u8 = 0x01;
+/// Child `$7C00`: facing left with [`CHILD_PALETTE`].
+const CHILD_FLAGS: u8 = attr::FLIP_X | CHILD_PALETTE;
 /// Child velocity drift `$7E50:$7E60` = `$FFF0`.
 const CHILD_DRIFT: [u8; 2] = [0xFF, 0xF0];
 /// `$8771`: once the parent has dropped this many children it frees its slot.
@@ -51,7 +53,7 @@ impl State {
         child.chr_slot = body.chr_slot;
         body.phase = body.phase.wrapping_add(1);
         if body.phase >= SPAWN_LIMIT {
-            *kind = 0;
+            *kind = EMPTY;
         }
     }
 }

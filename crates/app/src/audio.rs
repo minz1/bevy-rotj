@@ -65,7 +65,9 @@ fn apu_with_samples(prg: &[u8]) -> rotj_apu::apu::Apu {
     let mut apu = rotj_apu::apu::Apu::new();
     apu.set_sample_rom(rotj_apu::dmc::SampleRom::new(
         0xE000,
-        prg[0x1E000..0x20000].to_vec(),
+        rotj_core::prg::bank(prg, 15)
+            .expect("PRG has fixed bank 15")
+            .to_vec(),
     ));
     apu
 }

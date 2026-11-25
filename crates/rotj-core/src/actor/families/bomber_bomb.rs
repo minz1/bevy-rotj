@@ -9,7 +9,7 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 const SOURCE_BANK: u8 = 11;
@@ -38,7 +38,7 @@ impl State {
             body.vy = 0;
         }
         if engine::on_screen(work, cx.world) != Visibility::On {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         let sprites = if body.phase & EXPLODING == 0 {
@@ -48,7 +48,7 @@ impl State {
             body.timer += 1;
             step
         } else {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         };
         work.pointer = engine::rom_word(cx.prg, SOURCE_BANK, sprites);
@@ -56,7 +56,7 @@ impl State {
         engine::draw(work, DRAW_BANK, cx);
         work.hitbox = HITBOX;
         if engine::touch(work, DAMAGE, cx) {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         body.x = work.x;

@@ -2,7 +2,7 @@
 //! and dives at the player. Its [`Phase`]s run through `$8C74`.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, EMPTY};
 use crate::actor::world::Cx;
 
 const SPRITES: u16 = 0x8C7C;
@@ -17,6 +17,12 @@ const PART_PHASE: [u8; 4] = [0x00, 0x00, 0x80, 0x80];
 const PART_DY: i16 = -24;
 /// `anim` bit 7 once the sprite has been drawn.
 const DRAWN: u8 = 0x80;
+/// `timer` bit 7 during [`Phase::Drifting`]: initial drift velocity has been set.
+const DRIFT_STARTED: u8 = 0x80;
+/// `timer` bit 7 during [`Phase::Diving`]: diving downward (clear = diving upward).
+const DIVING_DOWN: u8 = 0x80;
+/// `timer` bit 7 during [`Phase::Leaving`]: drift has reversed to full leftward speed.
+const REVERSED: u8 = 0x80;
 
 phases! {
     /// The sprite's phase (`$7DD0`), which picks its handler (`$8C74`).
@@ -55,7 +61,7 @@ impl State {
             None => panic!("type $72 phase {} is past the $8C74 table", body.phase),
         }
         if visibility != Visibility::On {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         body.anim = DRAWN;
@@ -72,7 +78,7 @@ impl State {
 /// Drifting (`$8AAD`).
 fn drifting(body: &mut Body, work: &Work) {
     body.vy = 0;
-    if body.timer & 0x80 == 0 {
+    if body.timer & DRIFT_STARTED == 0 {
         body.vx_drift = -0x40;
         body.timer = 0xFF;
     }
@@ -102,7 +108,7 @@ fn shedding(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
             body.timer = 0;
             body.vy = -0x20;
         } else {
-            body.timer = 0x80;
+            body.timer = DIVING_DOWN;
             body.vy = 0x20;
         }
     }
@@ -133,13 +139,13 @@ fn spawn_parts(parent: &Body, work: &Work, cx: &mut Cx<'_>) -> u8 {
 
 /// Diving (`$8B25`): turns at the screen's top and bottom edges, `$7E10` counts the dive.
 fn diving(body: &mut Body, work: &Work) {
-    let turn = if body.timer & 0x80 == 0 {
+    let turn = if body.timer & DIVING_DOWN == 0 {
         work.screen_y < 0x40
     } else {
         work.screen_y >= 0xC0
     };
     if turn {
-        body.timer ^= 0x80;
+        body.timer ^= DIVING_DOWN;
         body.vy = body.vy.wrapping_neg();
     }
     body.counter.tick_down();
@@ -158,11 +164,11 @@ fn diving(body: &mut Body, work: &Work) {
 
 /// Leaving (`$8B81`): slows the drift until it reverses.
 fn leaving(body: &mut Body) {
-    if body.timer & 0x80 == 0 {
+    if body.timer & REVERSED == 0 {
         body.vy = 0;
         body.vx_drift = body.vx_drift.wrapping_sub(3);
         if body.vx_drift < 0 && body.vx_drift.to_be_bytes()[1] < 0x80 {
-            body.timer = 0x80;
+            body.timer = REVERSED;
         }
     }
 }

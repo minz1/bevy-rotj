@@ -13,7 +13,7 @@
 //! which `$826F` maps bank 9 for) and `$A934` (`store`).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Counter, Field, hit};
+use crate::actor::slots::{Body, Counter, EMPTY, Field, hit};
 use crate::actor::world::{Cx, sound};
 
 const HOME_BANK: u8 = 11;
@@ -40,7 +40,7 @@ impl State {
     /// One frame of the handler (`$9B62`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         if cx.effects.boss_hp == 0 {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         engine::load(body, work);

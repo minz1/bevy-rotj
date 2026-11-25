@@ -5,7 +5,7 @@
 //! collision routine.
 
 use crate::actor::engine::Work;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::{Cx, sound};
 use crate::levelmap::Cell;
 
@@ -21,7 +21,7 @@ impl State {
         for row in 7..10 {
             cx.effects.level.map[Cell { row, column }] = 0x60;
         }
-        *kind = 0;
+        *kind = EMPTY;
     }
 }
 

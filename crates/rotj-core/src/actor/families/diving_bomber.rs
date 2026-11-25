@@ -15,6 +15,14 @@ const BLAST_DROP: u8 = 0x2B;
 /// `subtype` bit 7: the blast flash draws; the bomb's drop sets it, `counter` reaching `$86`
 /// clears it.
 const BLASTING: u8 = 0x80;
+/// Initial upward lift velocity (`-16` subpixels/frame).
+const LIFT_VY: i16 = i16::from_be_bytes([0xFF, 0xF0]);
+/// `timer` bit 7 during [`Phase::Sweeping`]: stopped sweeping sideways, flapping in place.
+const FLAPPING: u8 = 0x80;
+/// `timer` bit 7 during [`Phase::Bombing`]: finished hovering, rising back up.
+const RISING: u8 = 0x80;
+/// `counter` bit 7 during [`Phase::Bombing`]: bomb dropped, counting the flash up to `$86`.
+const FLASHING: u8 = 0x80;
 
 phases! {
     /// The bomber's phase (`$7DD0`): the game stores its doubled index into `$8514`.
@@ -61,7 +69,7 @@ fn starting(body: &mut Body, work: &mut Work) {
     body.anim = 0;
     body.phase = Phase::Sweeping.byte();
     work.step_x = 4;
-    work.vy = i16::from_be_bytes([0xFF, 0xF0]);
+    work.vy = LIFT_VY;
     body.counter = 0xFA;
 }
 
@@ -88,7 +96,7 @@ fn sweeping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
         };
     }
     work.vy = lifted_vy(work.vy, body.counter);
-    if body.timer & 0x80 == 0 {
+    if body.timer & FLAPPING == 0 {
         let column = work.x.to_be_bytes()[0];
         if work.step_x >= 0 {
             if column >= 0x0C {
@@ -102,7 +110,7 @@ fn sweeping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
             return;
         }
         work.step_x = 0;
-        body.timer = 0x80;
+        body.timer = FLAPPING;
         body.anim = 0;
     }
     if body.anim >= 0x40 {
@@ -110,7 +118,7 @@ fn sweeping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
         body.sprite = 0;
         body.anim = 0;
         body.timer = 0;
-        work.vy = i16::from_be_bytes([0xFF, 0xF0]);
+        work.vy = LIFT_VY;
         work.step_x = if work.x.to_be_bytes()[0] >= 8 { -8 } else { 8 };
     } else {
         body.sprite = u8::from(body.anim & 8 == 0);
@@ -120,28 +128,28 @@ fn sweeping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
 
 /// Bombing (`$8395`): drop a bomb, hover for 64 frames, then rise and return to sweeping.
 fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-    if body.timer & 0x80 == 0 {
-        if body.counter & 0x80 == 0 {
+    if body.timer & RISING == 0 {
+        if body.counter & FLASHING == 0 {
             cx.effects.sound[0] = sound::IMPACT;
             spawn_bomb(body, work, cx);
-            body.counter = 0x80;
+            body.counter = FLASHING;
             body.subtype = BLASTING;
         } else {
             advance_blast(body);
         }
         body.anim.tick_up();
         if body.anim >= 0x40 {
-            body.timer = 0x80;
+            body.timer = RISING;
         }
         return;
     }
     work.vy = work.vy.wrapping_sub(8);
-    if body.counter & 0x80 != 0 {
+    if body.counter & FLASHING != 0 {
         body.counter.tick_up();
         if body.counter < 0x86 {
             body.anim.tick_up();
             if body.anim >= 0x40 {
-                body.timer = 0x80;
+                body.timer = RISING;
             }
             return;
         }

@@ -6,7 +6,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, Field, own_field};
+use crate::actor::slots::{Body, Counter, Field, own_field};
 use crate::actor::world::Cx;
 
 /// The metasprite pointer (`$96/$97`), read from bank 12 `$8A50`/`$8A51`: bank 9's `$B14A`.
@@ -62,16 +62,17 @@ impl State {
             slot,
             body,
         };
-        let timer = indexed.byte(0x7E90, cx).wrapping_sub(1);
-        indexed.set_byte(0x7E90, timer, cx);
-        if timer & 0x80 == 0 {
+        let mut timer = indexed.get(Field::Anim, cx);
+        timer.tick_down();
+        indexed.set(Field::Anim, timer, cx);
+        if !timer.ran_out() {
             return;
         }
-        indexed.set_byte(0x7E90, RELOAD, cx);
+        indexed.set(Field::Anim, RELOAD, cx);
         let Some(index) = engine::free_child_slot(cx.slots) else {
             return;
         };
-        let chr_slot = indexed.byte(0x7C90, cx);
+        let chr_slot = indexed.get(Field::ChrSlot, cx);
         spawn_child(index, work, chr_slot, cx);
     }
 }
@@ -84,24 +85,24 @@ struct Indexed<'a> {
 }
 
 impl Indexed<'_> {
-    fn addr(&self, array: u16) -> u16 {
-        array + u16::from(self.x_register)
+    fn addr(&self, field: Field) -> u16 {
+        field.base() + u16::from(self.x_register)
     }
 
     fn field(array: u16) -> Field {
         Field::from_array(array).expect("own_field returns a Body array")
     }
 
-    fn byte(&self, array: u16, cx: &Cx<'_>) -> u8 {
-        let addr = self.addr(array);
+    fn get(&self, field: Field, cx: &Cx<'_>) -> u8 {
+        let addr = self.addr(field);
         match own_field(addr, self.slot) {
             Some(own) => self.body.get(Self::field(own)),
             None => cx.byte(addr),
         }
     }
 
-    fn set_byte(&mut self, array: u16, value: u8, cx: &mut Cx<'_>) {
-        let addr = self.addr(array);
+    fn set(&mut self, field: Field, value: u8, cx: &mut Cx<'_>) {
+        let addr = self.addr(field);
         match own_field(addr, self.slot) {
             Some(own) => self.body.set(Self::field(own), value),
             None => cx.set_byte(addr, value),

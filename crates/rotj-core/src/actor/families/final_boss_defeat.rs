@@ -11,6 +11,10 @@ const FRAMES: u16 = 0x94B0;
 const BANKS: u16 = 0x94B8;
 /// `$81C6` maps bank 9 at `$A000` for the draw.
 const DRAW_BANK: u8 = 9;
+/// Frames held still before flickering, and frames spent sinking before the ending starts.
+const PHASE_FRAMES: u8 = 0x80;
+/// `body.counter` bit 7 during [`Phase::Flickering`]: done flickering, now sinking.
+const SINKING: u8 = 0x80;
 
 phases! {
     /// The fall's phase (`$7DD0`), which picks its handler (`$94AC`).
@@ -51,19 +55,19 @@ impl State {
                 body.behaviour = 0x80;
                 body.subtype = 0x58;
                 body.anim.tick_up();
-                if body.anim >= 0x80 {
+                if body.anim >= PHASE_FRAMES {
                     body.phase = Phase::Flickering.byte();
                     body.counter = 0;
                     body.anim = 0;
                 }
             }
-            Some(Phase::Flickering) if body.counter & 0x80 != 0 => {
+            Some(Phase::Flickering) if body.counter & SINKING != 0 => {
                 body.sprite = 3;
                 if body.anim.is_multiple_of(4) {
                     body.subtype = body.subtype.wrapping_add(1);
                 }
                 body.anim.tick_up();
-                if body.anim >= 0x80 {
+                if body.anim >= PHASE_FRAMES {
                     cx.effects.transition = Transition::Ending;
                 }
             }
@@ -71,7 +75,7 @@ impl State {
                 body.sprite = ((body.anim & 8) >> 3) + 1;
                 body.anim.tick_up();
                 if body.anim >= 0x10 {
-                    body.counter = 0x80;
+                    body.counter = SINKING;
                     body.anim = 0;
                 }
             }

@@ -1,7 +1,7 @@
 //! Type `$C2`, the area-20:00 `$C4` wave spawner (bank 12 `$97B6`).
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::{Body, Counter, contact};
+use crate::actor::slots::{Body, Counter, EMPTY, contact};
 use crate::actor::world::Cx;
 use crate::actors::STATE_UNTARGETED;
 
@@ -91,7 +91,7 @@ impl State {
                 body.counter = SPAWN_DELAY;
                 body.timer.tick_up();
                 if body.timer >= SPAWN_LIMIT {
-                    *kind = 0;
+                    *kind = EMPTY;
                 }
             }
             None => panic!("type $C2 phase {} is past the $987F table", body.phase),

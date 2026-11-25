@@ -8,7 +8,7 @@
 
 use crate::actor::engine::{self, Visibility, Work, anchor};
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, EMPTY};
 use crate::actor::world::{Cx, sound};
 
 /// Metasprites indexed by `$7C30` (bank 11 `$8D0F`, 2-byte entries).
@@ -18,6 +18,10 @@ const ANIMATION: u16 = 0x8D19;
 /// The `$24` child it drops (`$8CAE`).
 const CHILD: u8 = 0x24;
 const DROPS_TWICE: u8 = 0x01;
+/// `timer` bit 7: done bombing, drifts away without arming again.
+const SPENT: u8 = 0x80;
+/// `anim` bit 7: playing the bomb-drop flash animation (`$80..$86`).
+const DROP_FLASH: u8 = 0x80;
 
 phases! {
     /// The bomber's phase (`$7DD0`), which picks its handler (`$8D0B`).
@@ -55,7 +59,7 @@ impl State {
 fn drifting(body: &mut Body, work: &mut Work) {
     drift(body, work);
     body.sprite = 0;
-    if body.behaviour == 0 || body.timer & 0x80 != 0 {
+    if body.behaviour == 0 || body.timer & SPENT != 0 {
         return;
     }
     body.counter.tick_up();
@@ -81,7 +85,7 @@ fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             spawn_child(body, work, slot, cx);
         }
         body.sprite = 4;
-        body.anim = 0x80;
+        body.anim = DROP_FLASH;
         body.timer = 1;
         body.subtype = body.subtype.wrapping_add(1);
         body.vx_drift = if work.attr & attr::FLIP_X != 0 {
@@ -101,7 +105,7 @@ fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         return;
     }
     if body.behaviour & DROPS_TWICE == 0 || body.subtype >= 0x02 {
-        body.timer = 0x80;
+        body.timer = SPENT;
         body.phase = Phase::Drifting.byte();
         body.sprite = 0;
     } else {
@@ -137,7 +141,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             return;
         }
         Visibility::Far => {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
     }
@@ -150,7 +154,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         work.pointer = engine::rom_word(cx.prg, 11, METASPRITES + y);
         engine::draw(work, 1, cx);
     }
-    if body.anim & 0x80 != 0 {
+    if body.anim & DROP_FLASH != 0 {
         let frame = u16::from(body.anim & 0x7E);
         work.pointer = engine::rom_word(cx.prg, 11, ANIMATION + frame);
         body.anim.tick_up();

@@ -32,6 +32,8 @@ const THROW_FRAMES: u8 = 0x3C;
 /// Offsets of the projectile from the thrower (`$93BF`, `$93D3`, `$93E2`).
 const THROW_OFFSET_X: u16 = 0x00E0;
 const THROW_OFFSET_Y: u16 = 0x01D0;
+/// `body.anim` bit 7: done throwing, folding back to [`Phase::Standing`].
+const RECOVERING: u8 = 0x80;
 
 phases! {
     /// The thrower's phase (`$7DD0`): the game stores its doubled index into `$940A`.
@@ -71,7 +73,7 @@ impl State {
 fn standing(body: &mut Body, work: &Work, cx: &Cx<'_>) {
     body.sprite = 0;
     body.contact = contact::SHIELDED;
-    if body.anim & 0x80 == 0
+    if body.anim & RECOVERING == 0
         && engine::player_dx(work, &cx.effects.player).unsigned_abs() < WAKE_DISTANCE
     {
         body.phase = Phase::Crouching.byte();
@@ -87,7 +89,7 @@ fn crouching(body: &mut Body) {
         body.sprite = 1;
         return;
     }
-    if body.anim & 0x80 != 0 {
+    if body.anim & RECOVERING != 0 {
         body.phase = Phase::Standing.byte();
         return;
     }
@@ -107,7 +109,7 @@ fn throwing(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     body.sprite = if body.timer & 0x08 == 0 { 2 } else { 3 };
     body.timer.tick_up();
     if body.timer >= THROW_FRAMES {
-        body.anim = 0x80;
+        body.anim = RECOVERING;
         body.phase = Phase::Crouching.byte();
     }
 }

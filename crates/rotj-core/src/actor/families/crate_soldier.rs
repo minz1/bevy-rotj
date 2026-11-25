@@ -13,6 +13,10 @@ const METASPRITES: u16 = 0x9813;
 const SHOT: u16 = 0x981D;
 /// The child spawned at `$97FF`.
 const CHILD: u8 = 0x24;
+/// Frames spent idling after firing a burst.
+const POST_FIRE_IDLE: u8 = 0x80;
+/// `body.anim` reset value after frame `$0C` (keeps the resting sprite until wrap).
+const IDLE_RESET: u8 = 0x80;
 
 phases! {
     /// The soldier's phase (`$7DD0`), which picks its handler (`$980B`).
@@ -134,7 +138,7 @@ fn firing(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
     if body.counter >= 4 {
         body.phase = Phase::Idling.byte();
         body.anim = 1;
-        body.timer = 0x80;
+        body.timer = POST_FIRE_IDLE;
         body.sprite = 2;
     } else {
         if let Some(slot) = engine::free_child_slot(cx.slots) {
@@ -147,23 +151,23 @@ fn firing(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
 
 /// Recoiling (`$969E`): the recoil jump; land and go back to the idle timer.
 fn recoiling(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
-    let mut flags = 0u8;
+    let mut grounded = false;
     work.ax = 0;
     if collision::feet(work, probe, cx) {
-        flags |= 0x40;
+        grounded = true;
     } else if work.vy >= 0 {
         // The game passes rise = Y:A; Y is residue the port cannot see, but
         // `corners` only uses it while rising and here vy >= 0.
         if collision::corners(work, probe, 0, 0x0070, cx) {
-            flags |= 0x40;
+            grounded = true;
         }
     }
-    if flags & 0x40 == 0 && collision::ride_here(work, probe, cx) {
-        flags |= 0x40;
+    if !grounded && collision::ride_here(work, probe, cx) {
+        grounded = true;
     }
     collision::head(work, probe, cx);
     collision::ahead(work, probe, 0xA0, cx);
-    if flags & 0x40 != 0 {
+    if grounded {
         body.vx_drift = drift(*probe);
         body.vx = 0;
         body.phase = Phase::Idling.byte();
@@ -222,7 +226,7 @@ fn drift(probe: Probe) -> i16 {
 fn anim(body: &mut Body) {
     let mut frame = 8u8;
     if body.anim >= 0x0C {
-        body.anim = 0x80;
+        body.anim = IDLE_RESET;
         frame = 2;
     }
     body.sprite = frame;

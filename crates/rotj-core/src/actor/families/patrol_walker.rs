@@ -48,6 +48,12 @@ impl Tables {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
 
+/// Frame probe flags accumulated across the feet, wall-ahead and corner checks.
+const HIT_WALL: u8 = 0x80;
+const ON_FLOOR: u8 = 0x40;
+const ON_LEDGE: u8 = 0x20;
+const GROUNDED: u8 = ON_FLOOR | ON_LEDGE;
+
 impl State {
     /// One frame of the handler (`$98D6`; phases through the table at `$9C27`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
@@ -60,22 +66,22 @@ impl State {
         let mut probe = Probe::default();
         let mut flags = 0u8;
         if collision::feet(work, &mut probe, cx) {
-            flags |= 0x40;
+            flags |= ON_FLOOR;
         }
         collision::head(work, &mut probe, cx);
         if collision::ahead(work, &mut probe, 0xC0, cx) {
-            flags |= 0x80;
+            flags |= HIT_WALL;
         }
-        if work.vy >= 0 && flags & 0x40 == 0 {
+        if work.vy >= 0 && flags & ON_FLOOR == 0 {
             // The game passes rise = Y:A; Y is residue the port cannot see, but
             // `corners` only uses it while rising and here vy >= 0.
             if collision::corners(work, &mut probe, 0, 0x00C0, cx)
                 || collision::ride_here(work, &mut probe, cx)
             {
-                flags |= 0x20;
+                flags |= ON_LEDGE;
             }
         }
-        if flags & 0x60 != 0 {
+        if flags & GROUNDED != 0 {
             body.vx_drift = drift(probe);
         }
         match Phase::from_byte(body.phase) {
@@ -106,7 +112,7 @@ fn face(work: &mut Work, dx: i16) {
 /// Walking (`$994E`): idle, walk, or hop a gap; charge when the player is within 6 px.
 fn walking(body: &mut Body, work: &mut Work, probe: &mut Probe, flags: u8, cx: &mut Cx<'_>) {
     if body.timer != 0 {
-        if flags & 0x60 != 0 {
+        if flags & GROUNDED != 0 {
             body.timer = 0;
             body.sprite = 0;
             body.vx = 0;
@@ -124,7 +130,7 @@ fn walking(body: &mut Body, work: &mut Work, probe: &mut Probe, flags: u8, cx: &
         return;
     }
     face(work, dx);
-    if flags & 0x80 == 0 && collision::below(work, probe, cx) {
+    if flags & HIT_WALL == 0 && collision::below(work, probe, cx) {
         body.ref_vx = walk(work.attr, &cx.prg.families.patrol_walker);
         if cx.world.frame.is_multiple_of(8) {
             body.sprite = body.sprite.wrapping_add(1);
@@ -143,7 +149,7 @@ fn walking(body: &mut Body, work: &mut Work, probe: &mut Probe, flags: u8, cx: &
 
 /// Charging (`$9A13`): a 32-frame charge, then attack if the player is close enough.
 fn charging(body: &mut Body, work: &mut Work, flags: u8, cx: &mut Cx<'_>) {
-    if flags & 0x40 == 0 {
+    if flags & ON_FLOOR == 0 {
         body.vx = 0;
         work.ax = 0;
     }
@@ -195,9 +201,12 @@ fn biting(body: &mut Body, cx: &mut Cx<'_>) {
     let quarter = body.timer >> 2;
     body.sprite = cx.prg.families.patrol_walker.bite_sprites[usize::from(quarter)];
     if quarter == 2 {
-        body.counter = 0x80;
+        body.counter = MUZZLE_FLASH;
     }
 }
+
+/// `body.counter` bit 7: draw the muzzle flash beside the walker this frame.
+const MUZZLE_FLASH: u8 = 0x80;
 
 /// The shared tail from `$9B11`: draw, muzzle flash, contact and store.
 fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
@@ -216,7 +225,7 @@ fn tail(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     work.pointer = engine::rom_word(cx.prg, 8, METASPRITES + 2 * u16::from(body.sprite));
     engine::tile_bits(work, cx.prg);
     engine::draw(work, 1, cx);
-    if body.counter & 0x80 != 0 {
+    if body.counter & MUZZLE_FLASH != 0 {
         flash(work, cx);
     }
     if work.anchor & anchor::BOTTOM == 0 {

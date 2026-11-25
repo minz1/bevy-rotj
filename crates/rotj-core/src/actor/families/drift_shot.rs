@@ -15,7 +15,7 @@
 //! It dispatches on no `$7DD0`/`$7D50`, so its phase is whatever the spawn left.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 /// The handler's own bank, mapped at `$8000` by the actor loop.
@@ -69,7 +69,7 @@ impl State {
         body.vx_drift = body.vx_drift.wrapping_add(vx);
         body.vy = body.vy.wrapping_add(vy);
         if engine::on_screen(work, cx.world) != Visibility::On {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         let frame = u16::from((cx.world.frame >> 1) & 0x02);

@@ -373,14 +373,14 @@ pub fn queue_block(block: &TileBlock<'_>, cx: &mut Cx<'_>) {
             store_fields(fields, attributes, addr, width, &mut vram.attributes);
         }
         addr = addr.wrapping_add(0x20);
-        let [hi, lo] = addr.to_be_bytes();
-        if hi & 0x23 == 0x23 && lo >= 0xC0 {
+        if ppu::in_attribute_table(addr) {
             if world.orientation & orientation::VERTICAL != 0 {
                 addr = ppu::wrap_to_top_rows(addr);
                 if let Some(attributes) = attributes.as_mut() {
                     attributes.rows = attributes.rows.wrapping_add(1);
                 }
             } else {
+                let [hi, lo] = addr.to_be_bytes();
                 let hi = if world.orientation & orientation::TWO_PAGES != 0 {
                     0x28
                 } else {
@@ -468,9 +468,10 @@ fn place(block: &TileBlock<'_>, world: &World, origin: u16) -> Option<(u16, u8, 
         let edge = u16::from_be_bytes([column, 0])
             .wrapping_add(u16::from(width) << 7)
             .wrapping_sub(camera_x);
-        let [edge_hi, edge_lo] = edge.to_be_bytes();
+        let edge_hi = edge.to_be_bytes()[0];
         let right = if edge_hi >= 0x10 {
-            width.wrapping_sub(((edge_hi & 0x0F) << 1) | (edge_lo >> 7))
+            let overhang = u8::try_from(super::scroll::tile_column(edge)).expect("< 32");
+            width.wrapping_sub(overhang)
         } else {
             width
         };
@@ -527,7 +528,7 @@ fn store_fields(
     width: u8,
     mirror: &mut [u8; 128],
 ) {
-    let [hi, lo] = addr.to_be_bytes();
+    let [_, lo] = addr.to_be_bytes();
     let bottom = lo & 0x40 != 0;
     let row_start = attributes.mirror;
     let mut at = usize::from(row_start - 0x7530);
@@ -571,7 +572,7 @@ fn store_fields(
     attributes.rows = attributes.rows.wrapping_add(1);
     attributes.mirror = if bottom {
         row_start + 8
-    } else if hi & 0x23 == 0x23 && lo >= 0x80 {
+    } else if ppu::in_bottom_band(addr) {
         row_start - 0x38
     } else {
         row_start
@@ -661,7 +662,7 @@ pub fn projectile_hits(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     let [seed, noise] = cx.world.rng;
     for index in (0..16).rev() {
         let projectile = cx.effects.projectiles[index];
-        if projectile.kind == 0 || projectile.flags & shot_flags::HARMLESS != 0 {
+        if projectile.is_free() || projectile.flags & shot_flags::HARMLESS != 0 {
             continue;
         }
         if work.screen_x.abs_diff(projectile.screen_x) >= half_width {
@@ -717,12 +718,12 @@ fn spend(projectile: &mut super::world::Projectile, rng_f9: u8) {
     }
     projectile.flags |= shot_flags::HARMLESS;
     let random = if rng_f9 & 0x80 == 0 { 0x20 } else { -0x20 };
-    if projectile.timer & 0x80 == 0 {
-        projectile.vx = if projectile.vx < 0 { 0x20 } else { -0x20 };
-        projectile.vy = random;
-    } else {
+    if projectile.is_aimed_up() {
         projectile.vy = 0x20;
         projectile.vx = random;
+    } else {
+        projectile.vx = if projectile.vx < 0 { 0x20 } else { -0x20 };
+        projectile.vy = random;
     }
     projectile.state = shot_state::SPENT;
     projectile.attr = 0;
@@ -760,42 +761,140 @@ pub fn copy_metatiles(cell: u16, width: u8, metatiles: &[u8], level: &mut Level)
     }
 }
 
-/// A boss's hit flash or dying count (`$AF97`): 0 alive, else bit 7 with bit 6 on odd frames.
-pub fn boss_flash(body: &mut Body, work: &mut Work, world: &World) -> u8 {
+/// Outcome of [`boss_flash`] (`$AF97`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BossFlash {
+    /// The boss is alive; `work.attr` carries its normal or hit-flash palette.
+    Alive,
+    /// The boss is dying; `show` is true on frames its body still draws (odd frames before `$40`).
+    Dying {
+        /// Whether the dying boss still draws this frame (`$C0` vs `$80`).
+        show: bool,
+    },
+}
+
+impl BossFlash {
+    /// Maps back to the 6502 accumulator `$AF97` returns, for oracle-A tests.
+    #[cfg(test)]
+    pub(crate) const fn to_accumulator(self) -> u8 {
+        match self {
+            Self::Alive => 0,
+            Self::Dying { show: true } => 0xC0,
+            Self::Dying { show: false } => 0x80,
+        }
+    }
+}
+
+/// Which collision arms [`boss_contact`] (`$AFD6`, `Y` register) runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContactMode {
+    /// Player touch and projectile scan (`Y = $00`).
+    Both,
+    /// Player touch only; no slide damage and no projectile scan (`Y = $80`).
+    TouchOnly,
+    /// Projectile scan only; skips player touch (`Y = $40`/`$C0`).
+    ShotsOnly,
+}
+
+impl ContactMode {
+    #[cfg(test)]
+    pub(crate) const fn from_byte(y: u8) -> Self {
+        if y & 0x40 != 0 {
+            Self::ShotsOnly
+        } else if y & 0x80 != 0 {
+            Self::TouchOnly
+        } else {
+            Self::Both
+        }
+    }
+}
+
+/// Outcome of [`boss_contact`] (`$AFD6`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BossContact {
+    /// No reported hit or damage (`A = $00`).
+    None,
+    /// Hurt the player in [`ContactMode::TouchOnly`] (`A = $80`).
+    HurtPlayer,
+    /// Took damage while already flashing or on the killing blow (`A = hit::FLASHING`).
+    Flashing,
+    /// Took a fresh hit and started flashing (`A = hit::STRUCK`).
+    Struck,
+}
+
+impl BossContact {
+    /// Whether the boss took damage this frame (either fresh or while flashing).
+    #[must_use]
+    pub const fn was_damaged(self) -> bool {
+        matches!(self, Self::Flashing | Self::Struck)
+    }
+
+    /// Maps back to the 6502 accumulator `$AFD6` returns, for oracle-A tests.
+    #[cfg(test)]
+    pub(crate) const fn to_accumulator(self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::HurtPlayer => 0x80,
+            Self::Flashing => hit::FLASHING,
+            Self::Struck => hit::STRUCK,
+        }
+    }
+}
+
+/// Counts down an actor's hit-flash timer (`body.hit`), clearing bit 7 first (`(hit & $7F) - 1`).
+fn tick_flash(hit: &mut u8) {
+    *hit = (*hit & 0x7F).wrapping_sub(1);
+}
+
+/// `body.dying_timer` once a boss's death flicker finishes (`$AF97`).
+const BOSS_DYING_DONE: u8 = 0x80;
+
+/// A boss's hit flash or dying count (`$AF97`).
+pub fn boss_flash(body: &mut Body, work: &mut Work, world: &World) -> BossFlash {
     if body.hit & hit::DYING != 0 {
         body.dying_timer.tick_up();
         if body.dying_timer >= 0x40 {
-            body.dying_timer = 0x80;
-            return 0x80;
+            body.dying_timer = BOSS_DYING_DONE;
+            return BossFlash::Dying { show: false };
         }
-        return if world.frame_odd { 0xC0 } else { 0x80 };
+        return BossFlash::Dying {
+            show: world.frame_odd,
+        };
     }
     if body.hit & hit::FLASHING == 0 {
         work.attr = body.flags & !attr::PALETTE;
     } else {
-        body.hit = (body.hit & 0x7F).wrapping_sub(1);
+        tick_flash(&mut body.hit);
         work.attr = body.flags | attr::PALETTE;
     }
-    0
+    BossFlash::Alive
 }
 
-/// A boss against the player and his projectiles (`$AFD6`): `$80` when it hurt him in
-/// `mode` `$80`, `$40`/`$42` when it was hit, else 0; touching him drains `amount` from `$B2`.
-pub fn boss_contact(amount: u16, mode: u8, body: &mut Body, work: &Work, cx: &mut Cx<'_>) -> u8 {
+/// A boss against the player and his projectiles (`$AFD6`); touching him drains `amount` from `$B2`.
+pub fn boss_contact(
+    amount: u16,
+    mode: ContactMode,
+    body: &mut Body,
+    work: &Work,
+    cx: &mut Cx<'_>,
+) -> BossContact {
     let id = usize::from(work.hitbox);
     let hitbox = cx.prg.hitboxes.bosses[id];
     let (half_width, height) = (
         cx.prg.hitboxes.boss_projectile_half_widths[id],
         hitbox.height,
     );
-    if mode & 0x40 == 0 {
+    if mode != ContactMode::ShotsOnly {
         let attacking = cx.effects.player.sliding & sliding::ON != 0;
         let guarded = cx.effects.player.hurt & hurt::INVULNERABLE != 0;
         if (attacking || !guarded) && overlaps(work, &cx.effects.player, hitbox) {
             if attacking && cx.effects.boss_hp == 0 {
-                return 0;
+                return BossContact::None;
             }
-            if attacking && mode != 0x80 && body.contact & contact::SLIDE_HURTS != 0 {
+            if attacking
+                && mode != ContactMode::TouchOnly
+                && body.contact & contact::SLIDE_HURTS != 0
+            {
                 cx.effects.sound[0] = sound::IMPACT;
                 return boss_damaged(8, body, cx);
             }
@@ -803,16 +902,20 @@ pub fn boss_contact(amount: u16, mode: u8, body: &mut Body, work: &Work, cx: &mu
                 hurt_player(cx.effects);
                 let pool = u16::from_le_bytes(cx.effects.boss_pool).wrapping_sub(amount);
                 cx.effects.boss_pool = pool.to_le_bytes();
-                return mode & 0x80;
+                return if mode == ContactMode::TouchOnly {
+                    BossContact::HurtPlayer
+                } else {
+                    BossContact::None
+                };
             }
         }
-        if mode & 0x80 != 0 {
-            return 0;
+        if mode == ContactMode::TouchOnly {
+            return BossContact::None;
         }
     }
     for index in (0..16).rev() {
         let projectile = &mut cx.effects.projectiles[index];
-        if projectile.kind == 0 || projectile.flags & shot_flags::HARMLESS != 0 {
+        if projectile.is_free() || projectile.flags & shot_flags::HARMLESS != 0 {
             continue;
         }
         if work.screen_x.abs_diff(projectile.screen_x) >= half_width {
@@ -830,10 +933,10 @@ pub fn boss_contact(amount: u16, mode: u8, body: &mut Body, work: &Work, cx: &mu
         let damage = projectile.damage << 4;
         return boss_damaged(damage, body, cx);
     }
-    0
+    BossContact::None
 }
 
-fn boss_damaged(damage: u8, body: &mut Body, cx: &mut Cx<'_>) -> u8 {
+fn boss_damaged(damage: u8, body: &mut Body, cx: &mut Cx<'_>) -> BossContact {
     let (hp, killed) = cx.effects.boss_hp.overflowing_sub(u16::from(damage));
     cx.effects.boss_hp = hp;
     if killed || hp == 0 {
@@ -841,12 +944,12 @@ fn boss_damaged(damage: u8, body: &mut Body, cx: &mut Cx<'_>) -> u8 {
         body.hit = hit::DYING;
         body.dying_timer = 0;
         cx.effects.boss_hp = 0;
-        hit::FLASHING
+        BossContact::Flashing
     } else if body.hit & hit::FLASHING != 0 {
-        hit::FLASHING
+        BossContact::Flashing
     } else {
         body.hit = hit::STRUCK;
-        hit::STRUCK
+        BossContact::Struck
     }
 }
 
@@ -927,23 +1030,32 @@ pub fn start_hurt(player: &mut Player) -> i16 {
     if player.faces_left() { 0x20 } else { -0x20 }
 }
 
+/// Bank 13 `$ADD8`: 16-bit pointer to the `$AC16` part-field table.
+const PART_GROUPS_PTR: u16 = 0xADD8;
+/// Bank 13 `$ACC6`: per-variant 16-bit pointers to four part records.
+const PART_VARIANTS: u16 = 0xACC6;
+/// Bank 13 `$ACBD`: per-variant sprite flags for the burst slot.
+const PART_FLAGS: u16 = 0xACBD;
+/// PRG bank holding the `$AC16` burst-part tables.
+const PARTS_BANK: u8 = 13;
+
 /// Spawns type `$08`'s four parts around the working position (`$AC16`); the slot used.
 pub fn spawn_parts(variant: u8, work: &Work, cx: &mut Cx<'_>) -> Option<usize> {
     let index = cx.slots.free_main(0..16)?;
-    let groups = rom_word(cx.prg, 13, 0xADD8);
-    let parts = rom_word(cx.prg, 13, 0xACC6 + 2 * u16::from(variant));
+    let groups = rom_word(cx.prg, PARTS_BANK, PART_GROUPS_PTR);
+    let parts = rom_word(cx.prg, PARTS_BANK, PART_VARIANTS + 2 * u16::from(variant));
     let slot = &mut cx.slots.main[index];
     for part in 0..4u16 {
-        let data = rom_word(cx.prg, 13, parts + 2 * part);
-        let byte = |i: u16| rom_byte(cx.prg, 13, data + i);
-        let array = |i: u16| rom_word(cx.prg, 13, groups + 12 * part + 2 * i);
+        let data = rom_word(cx.prg, PARTS_BANK, parts + 2 * part);
+        let byte = |i: u16| rom_byte(cx.prg, PARTS_BANK, data + i);
+        let array = |i: u16| rom_word(cx.prg, PARTS_BANK, groups + 12 * part + 2 * i);
         let [x_hi, x_lo] = work
             .x
-            .wrapping_add(rom_word(cx.prg, 13, data))
+            .wrapping_add(rom_word(cx.prg, PARTS_BANK, data))
             .to_be_bytes();
         let [y_hi, y_lo] = work
             .y
-            .wrapping_add(rom_word(cx.prg, 13, data + 2))
+            .wrapping_add(rom_word(cx.prg, PARTS_BANK, data + 2))
             .to_be_bytes();
         for (i, value) in [x_lo, x_hi, y_lo, y_hi, byte(4), byte(5)]
             .into_iter()
@@ -954,7 +1066,7 @@ pub fn spawn_parts(variant: u8, work: &Work, cx: &mut Cx<'_>) -> Option<usize> {
             slot.body.set(field, value);
         }
     }
-    slot.body.flags = rom_byte(cx.prg, 13, 0xACBD + u16::from(variant));
+    slot.body.flags = rom_byte(cx.prg, PARTS_BANK, PART_FLAGS + u16::from(variant));
     slot.kind = BURST;
     slot.brain = super::families::Brain::new(BURST);
     slot.body.set(Field::RefVxHigh, 0x20);
@@ -975,7 +1087,7 @@ pub fn level_end(effects: &mut Effects) {
     player.death_flags = 0;
     effects.attack = 0;
     for projectile in &mut effects.projectiles {
-        projectile.kind = 0;
+        projectile.free();
     }
 }
 
@@ -983,16 +1095,16 @@ pub fn level_end(effects: &mut Effects) {
 /// so a spawn later in the same handler may reuse it; the actor loop then keeps
 /// what the slot holds instead of the handler's copy.
 pub fn free_own_slot(kind: &mut u8, body: &Body, work: &Work, cx: &mut Cx<'_>) {
-    *kind = 0;
+    *kind = super::slots::EMPTY;
     let own = &mut cx.slots.main[usize::from(work.slot)];
-    own.kind = 0;
+    own.free();
     own.body = body.clone();
 }
 
 /// Frees the slot and ORs `rearm` into its schedule cell (`$CD50`).
 pub fn despawn(kind: &mut u8, body: &Body, rearm: u8, schedule: &mut Schedule) {
     schedule.cells[usize::from(body.cell)] |= rearm;
-    *kind = 0;
+    *kind = super::slots::EMPTY;
 }
 
 /// How close the player is (`$A025`'s result).
@@ -1054,7 +1166,7 @@ pub fn dying(
         if body.hit & hit::FLASHING == 0 {
             work.attr = body.flags & !attr::PALETTE;
         } else {
-            body.hit = (body.hit & 0x7F).wrapping_sub(1);
+            tick_flash(&mut body.hit);
             work.attr = body.flags | attr::PALETTE;
         }
         return false;
@@ -1077,7 +1189,7 @@ pub fn dying(
         return true;
     }
     if body.state & STATE_DROPS_PICKUP == 0 {
-        *kind = 0;
+        *kind = super::slots::EMPTY;
         return true;
     }
     *kind = PICKUP;
@@ -1107,7 +1219,7 @@ pub fn collect(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
     let effects = &mut *cx.effects;
     effects.sound[1] = sound::PICKUP;
     if effects.player.out_of_energy() {
-        *kind = 0;
+        *kind = super::slots::EMPTY;
         return;
     }
     match body.state & !STATE_DROPS_PICKUP {
@@ -1118,7 +1230,7 @@ pub fn collect(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
             }
             effects.attack = attack::CHARGEABLE;
             for projectile in &mut effects.projectiles {
-                projectile.kind = 0;
+                projectile.free();
             }
         }
         4 => {
@@ -1136,7 +1248,7 @@ pub fn collect(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
         }
         state => panic!("item state {state} jumps past the $ABA8 table"),
     }
-    *kind = 0;
+    *kind = super::slots::EMPTY;
 }
 
 /// Gravity and the x velocity at the end of a handler, then the store (`$A8E4`).
@@ -1553,7 +1665,9 @@ mod tests {
     #[test]
     fn boss_flash_matches_af97() {
         check(Scene::tas(6281), 490, (0xAF97, 13), &AF97_EXITS, 100, |r| {
-            let a = r.in_slot(|slot, work, cx| boss_flash(&mut slot.body, work, cx.world));
+            let a = r
+                .in_slot(|slot, work, cx| boss_flash(&mut slot.body, work, cx.world))
+                .to_accumulator();
             r.a = Some(a);
         });
     }
@@ -1563,7 +1677,10 @@ mod tests {
         check(Scene::tas(6281), 360, (0xAFD6, 13), &AFD6_EXITS, 100, |r| {
             let (a, x, y) = (r.begin.cpu.a, r.begin.cpu.x, r.begin.cpu.y);
             let amount = u16::from_be_bytes([x, a]);
-            let a = r.in_slot(|slot, work, cx| boss_contact(amount, y, &mut slot.body, work, cx));
+            let mode = ContactMode::from_byte(y);
+            let a = r
+                .in_slot(|slot, work, cx| boss_contact(amount, mode, &mut slot.body, work, cx))
+                .to_accumulator();
             r.a = Some(a);
         });
     }

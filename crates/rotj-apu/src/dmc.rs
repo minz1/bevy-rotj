@@ -37,8 +37,27 @@ pub const LENGTH: u16 = 0x4013;
 /// `$4015`-bit 7 (read): DMC IRQ flag, cleared by the access.
 pub const IRQ_FLAG_BIT: u8 = 0x80;
 
+/// `$4010`-bit 7: DMC IRQ enable.
+pub const CTRL_IRQ: u8 = 0x80;
+/// `$4010`-bit 6: sample loop enable.
+pub const CTRL_LOOP: u8 = 0x40;
+/// `$4010`-bits 3..0: rate table index mask.
+pub const CTRL_RATE: u8 = 0x0F;
+
 /// `$4012`-bits 7..0 bias: a written value `v` plays from `$C000 + v * 64`.
 pub const SAMPLE_BASE: u16 = 0xC000;
+
+/// Sample start CPU address for a `$4012` register value (`$C000 + reg * 64`).
+#[must_use]
+pub const fn sample_address(reg: u8) -> u16 {
+    SAMPLE_BASE + ((reg as u16) << 6)
+}
+
+/// Sample length in bytes for a `$4013` register value (`reg * 16 + 1`).
+#[must_use]
+pub const fn sample_length(reg: u8) -> u16 {
+    reg as u16 * 16 + 1
+}
 
 /// `$4010`-bits 3..0 rate table, NTSC: CPU cycles between output bits.
 ///
@@ -166,9 +185,9 @@ impl Dmc {
 
     /// `$4010`: IRQ enable, loop, and rate entry.
     pub fn write_ctrl(&mut self, val: u8) {
-        self.irq_enabled = (val & 0x80) != 0;
-        self.loop_enabled = (val & 0x40) != 0;
-        self.rate_index = val & 0x0F;
+        self.irq_enabled = (val & CTRL_IRQ) != 0;
+        self.loop_enabled = (val & CTRL_LOOP) != 0;
+        self.rate_index = val & CTRL_RATE;
         self.timer
             .set_period(RATE_TABLE_NTSC[usize::from(self.rate_index)] - 1);
         if !self.irq_enabled {
@@ -183,12 +202,12 @@ impl Dmc {
 
     /// `$4012`: sample address, `$C000 + value * 64`.
     pub fn write_address(&mut self, val: u8) {
-        self.sample_addr = SAMPLE_BASE + (u16::from(val) << 6);
+        self.sample_addr = sample_address(val);
     }
 
     /// `$4013`: sample length, `value * 16 + 1` bytes.
     pub fn write_length(&mut self, val: u8) {
-        self.sample_length = u16::from(val) * 16 + 1;
+        self.sample_length = sample_length(val);
     }
 
     /// `$4015`-bit 4: enable; a 0-to-1 transition restarts the sample and any

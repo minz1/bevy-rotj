@@ -10,8 +10,17 @@
 //! The driver reads its *data* tables from PRG bank 10 and its songs from PRG
 //! banks 6/7 of the user's ROM ([`Music::from_prg`]).
 
+use std::num::NonZeroU8;
+
 use rotj_apu::{STATUS, dmc, noise, pulse1, pulse2, status, triangle};
 
+/// SFX stream opcode `$F3`: sets the table of four-byte DMC records.
+pub const DMC_RECORDS_OPCODE: u8 = 0xF3;
+
+/// One 8 KiB FME-7 PRG bank.
+const BANK_BYTES: usize = 0x2000;
+/// PRG bank holding the sound driver and its data tables.
+const DRIVER_BANK: usize = 10;
 /// Music channels the driver ticks (`$0605`.., X = 7..0).
 const CHANNELS: usize = 8;
 /// SFX / DMC channels (`$06E5`.., X = 1..0).
@@ -22,6 +31,11 @@ const DRIVER_BASE: u16 = 0x8000;
 const SONG_BASE: u16 = 0xA000;
 /// First PRG bank of the song window (banks 6-7).
 const SONG_BANK_BASE: u8 = 6;
+
+/// One 8 KiB bank slice from a PRG ROM image.
+fn bank_slice(prg: &[u8], bank: usize) -> &[u8] {
+    &prg[bank * BANK_BYTES..(bank + 1) * BANK_BYTES]
+}
 
 /// `$885C`: note periods, low bytes.
 const PERIOD_LO_TABLE: u16 = 0x885C;
@@ -53,6 +67,29 @@ const IN_DRIVER_BANK: u8 = 0x80;
 const BANK_BITS: u8 = 0x0F;
 /// `$82C4`: the lowest opcode that acts when reached mid-note (`CMP #$F5`).
 const FIRST_MID_NOTE_OP: u8 = 0xF5;
+/// Sweep-macro entry bit 7: set = `$4001` value, clear = jump offset.
+const SWEEP_VALUE_BIT: u8 = 0x80;
+/// Period-offset macro sentinel: `$80` followed by a jump offset.
+const PERIOD_MACRO_JUMP: u8 = 0x80;
+/// Envelope-macro end marker bit 7: low 7 bits give the decay period.
+const ENVELOPE_END_BIT: u8 = 0x80;
+/// Song-header terminator bit 7.
+const HEADER_END_BIT: u8 = 0x80;
+
+/// Fade period in frames for steps 0..[`FADE_SLOW_UNTIL`].
+const FADE_SLOW_PERIOD: u8 = 0x20;
+/// Fade period in frames from step [`FADE_SLOW_UNTIL`] onward.
+const FADE_FAST_PERIOD: u8 = 0x18;
+/// Fade step where the timer switches from [`FADE_SLOW_PERIOD`] to [`FADE_FAST_PERIOD`].
+const FADE_SLOW_UNTIL: u8 = 7;
+/// Highest fade step (`0..=15`).
+const FADE_MAX_STEP: u8 = 0x0F;
+/// Fade step at which DMC SFX are muted.
+const FADE_SFX_CUT: u8 = 2;
+/// Fade step at which the triangle voice is cut.
+const FADE_TRIANGLE_CUT: u8 = 4;
+/// Fade step at which envelope-mode tone voices are cut.
+const FADE_ENVELOPE_CUT: u8 = 5;
 
 /// Stream steps one music channel may take in a frame before the port gives up
 /// on a malformed stream.
@@ -84,10 +121,48 @@ mod flag {
     pub(super) const SFX_FADES: u8 = 0x01;
 }
 
-/// `$004F-$0052` bit: a higher channel already drives this voice this frame.
-const VOICE_TAKEN: u8 = 0x80;
-/// `$004F-$0052` bit: the voice changed hands, so its next note rewrites `$4003`.
-const VOICE_RETRIGGER: u8 = flag::RETRIGGER;
+/// `$004F-$0052`: per-voice handoff state for the current frame.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct VoiceState {
+    /// Bit 7: a higher channel already drives this voice this frame.
+    taken: bool,
+    /// Bit 6: the voice changed hands, so its next note rewrites `$4003`.
+    retrigger: bool,
+}
+
+impl VoiceState {
+    const RETRIGGER: Self = Self {
+        taken: false,
+        retrigger: true,
+    };
+}
+
+/// Decoded `$0040-$0043` request byte (`$80B2`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Request {
+    /// `$F8`-`$FB` or `$FF`: stop every channel and reset voices.
+    StopAll,
+    /// `$FC`: start fading out all active channels.
+    StartFade,
+    /// `$FD`: reactivate channels parked by [`Self::ParkActive`].
+    ResumeParked,
+    /// `$FE`: park active channels (pause music).
+    ParkActive,
+    /// `< $F8`: load and start song or SFX `id`.
+    LoadSong(u8),
+}
+
+impl Request {
+    const fn from_byte(id: u8) -> Self {
+        match id {
+            0xF8..=0xFB | 0xFF => Self::StopAll,
+            0xFC => Self::StartFade,
+            0xFD => Self::ResumeParked,
+            0xFE => Self::ParkActive,
+            _ => Self::LoadSong(id),
+        }
+    }
+}
 
 /// One APU register write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,7 +323,8 @@ impl Banks {
         if bank < SONG_BANK_BASE {
             return 0;
         }
-        let offset = usize::from(bank - SONG_BANK_BASE) * 0x2000 + usize::from(addr - SONG_BASE);
+        let offset =
+            usize::from(bank - SONG_BANK_BASE) * BANK_BYTES + usize::from(addr - SONG_BASE);
         self.songs.get(offset).copied().unwrap_or(0)
     }
 
@@ -267,49 +343,51 @@ impl Banks {
     }
 }
 
-/// The fade-out request `$FC` starts.
-#[derive(Debug, Clone, Default)]
-struct Fade {
-    /// `$0602`: a fade is running.
-    active: bool,
-    /// `$0603`: how far it has gone, 0..=15.
+/// An active fade-out started by request `$FC` (`$0602-$0604`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ActiveFade {
+    /// `$0603`: how far it has gone, `0..=15`.
     step: u8,
     /// `$0604`: frames until the next step.
     timer: u8,
 }
 
-impl Fade {
+impl ActiveFade {
     /// `$81A2`: start from full volume.
-    fn start(&mut self) {
-        self.active = true;
-        self.timer = 1;
-        self.step = 0;
+    const fn start() -> Self {
+        Self { step: 0, timer: 1 }
     }
 
     /// `$81CC`: advance one frame.
     fn tick(&mut self) {
-        if !self.active {
-            return;
-        }
         self.timer = self.timer.wrapping_sub(1);
         if self.timer != 0 {
             return;
         }
-        self.timer = if self.step < 7 { 0x20 } else { 0x18 };
-        if self.step == 0x0F {
+        self.timer = if self.step < FADE_SLOW_UNTIL {
+            FADE_SLOW_PERIOD
+        } else {
+            FADE_FAST_PERIOD
+        };
+        if self.step == FADE_MAX_STEP {
             return;
         }
         self.step = self.step.wrapping_add(1);
     }
 
     /// `$84DF`: the faded volume register. Triangle voices are cut once the
-    /// step reaches 4; envelope-mode pulses/noise switch to constant-volume zero
-    /// at 5; constant-volume voices lose one volume step per fade step.
-    fn scale(&self, voice: Voice, volume: u8) -> u8 {
+    /// step reaches [`FADE_TRIANGLE_CUT`]; envelope-mode pulses/noise switch to
+    /// constant-volume zero at [`FADE_ENVELOPE_CUT`]; constant-volume voices
+    /// lose one volume step per fade step.
+    fn scale(self, voice: Voice, volume: u8) -> u8 {
         if voice == Voice::Triangle {
-            if self.step >= 4 { 0x00 } else { volume }
+            if self.step >= FADE_TRIANGLE_CUT {
+                0x00
+            } else {
+                volume
+            }
         } else if volume & CONSTANT_VOLUME == 0 {
-            if self.step >= 5 {
+            if self.step >= FADE_ENVELOPE_CUT {
                 CONSTANT_VOLUME
             } else {
                 volume
@@ -565,7 +643,7 @@ impl SfxCommand {
             0xF0 => Self::Stop,
             0xF1 => Self::Silence,
             0xF2 => Self::Hold,
-            0xF3 => Self::DmcRecords(u16::from_le_bytes([next(), next()])),
+            DMC_RECORDS_OPCODE => Self::DmcRecords(u16::from_le_bytes([next(), next()])),
             0xF4..=0xF6 => Self::FixedDuration(next()),
             0xF7 => Self::ClearFixedDuration,
             0xF8..=0xFA => Self::Return,
@@ -614,10 +692,10 @@ struct Channel {
     voice: Voice,
     /// `$0625`: frames left in the current note.
     duration: u8,
-    /// `$062D`: a fixed note length from `$F6` (0: each note carries its own).
-    fixed_duration: u8,
+    /// `$062D`: a fixed note length from `$F6` (`None`: each note carries its own).
+    fixed_duration: Option<NonZeroU8>,
     /// `$0635/$063D`: where `$FA` returns to after a `$FB` call.
-    loop_return: u16,
+    loop_return: Option<u16>,
     /// `$0645`: the `$FE` repeat counter.
     repeat_fe: u8,
     /// `$064D`: the `$FD` repeat counter.
@@ -675,10 +753,9 @@ impl Channel {
 
     /// The next note's length: the fixed one if set, else a stream byte.
     fn next_duration(&self, banks: &Banks, offset: &mut u16) -> u8 {
-        if self.fixed_duration != 0 {
-            self.fixed_duration
-        } else {
-            self.operand(banks, offset)
+        match self.fixed_duration {
+            Some(length) => length.get(),
+            None => self.operand(banks, offset),
         }
     }
 
@@ -867,20 +944,20 @@ impl Channel {
             }
             Command::Hold => return Step::LatchDuration,
             Command::ReleaseFrames(frames) => self.release_frames = frames,
-            Command::FixedDuration(length) => self.fixed_duration = length,
-            Command::ClearFixedDuration => self.fixed_duration = 0,
+            Command::FixedDuration(length) => self.fixed_duration = NonZeroU8::new(length),
+            Command::ClearFixedDuration => self.fixed_duration = None,
             Command::Tuning(tuning) => self.tuning = tuning,
             Command::Transpose(transpose) => self.transpose = transpose,
             Command::Return => {
-                if !is_set(self.loop_return) {
+                let Some(target) = self.loop_return.take() else {
                     return reached.after_data();
-                }
-                self.jump(self.loop_return, frame);
-                unset(&mut self.loop_return);
+                };
+                self.jump(target, frame);
                 return reached.after_jump();
             }
             Command::Call(target) => {
-                self.loop_return = self.stream.wrapping_add(frame.offset);
+                let ret = self.stream.wrapping_add(frame.offset);
+                self.loop_return = is_set(ret).then_some(ret);
                 self.jump(target, frame);
                 return reached.after_jump();
             }
@@ -947,7 +1024,7 @@ impl Channel {
         let mut sweep = 0;
         for _ in 0..MACRO_STEP_LIMIT {
             let entry = banks.byte(self.pitch_macro + u16::from(position));
-            if entry & 0x80 != 0 {
+            if entry & SWEEP_VALUE_BIT != 0 {
                 sweep = entry;
                 break;
             }
@@ -965,7 +1042,7 @@ impl Channel {
         for _ in 0..MACRO_STEP_LIMIT {
             let at = self.pitch_macro + u16::from(position);
             match banks.byte(at) {
-                0x80 => position = banks.byte(at + 1),
+                PERIOD_MACRO_JUMP => position = banks.byte(at + 1),
                 offset => {
                     moved = period_lo.saturating_add_signed(signed(offset));
                     break;
@@ -1014,8 +1091,8 @@ impl Channel {
                 return Some(value);
             }
             let next = banks.byte(at + 1);
-            if next & 0x80 != 0 {
-                self.decay_period = next & 0x7F;
+            if next & ENVELOPE_END_BIT != 0 {
+                self.decay_period = next & !ENVELOPE_END_BIT;
                 self.decay_timer = self.decay_period;
                 self.envelope_step = EnvelopeStep::Decay;
                 return None;
@@ -1066,11 +1143,11 @@ struct SfxChannel {
     stream: u16,
     /// `$06EB`: frames left in the current note.
     duration: u8,
-    /// `$06ED`: a fixed note length from `$F4`-`$F6` (0: each note carries its
+    /// `$06ED`: a fixed note length from `$F4`-`$F6` (`None`: each note carries its
     /// own).
-    fixed_duration: u8,
+    fixed_duration: Option<NonZeroU8>,
     /// `$06EF/$06F1`: where `$F8`-`$FA` return to after a `$FB` call.
-    loop_return: u16,
+    loop_return: Option<u16>,
     /// `$06F3`: the `$FE` repeat counter.
     repeat_fe: u8,
     /// `$06F5`: the `$FD` repeat counter.
@@ -1089,10 +1166,9 @@ impl SfxChannel {
 
     /// `$8904`: latch the note length (fixed, or a stream byte) and advance.
     fn latch_duration(&mut self, banks: &Banks, mut offset: u16) {
-        self.duration = if self.fixed_duration != 0 {
-            self.fixed_duration
-        } else {
-            self.operand(banks, &mut offset)
+        self.duration = match self.fixed_duration {
+            Some(length) => length.get(),
+            None => self.operand(banks, &mut offset),
         };
         self.stream = self.stream.wrapping_add(offset);
     }
@@ -1119,17 +1195,19 @@ impl SfxChannel {
                     return SfxEvent::Quiet;
                 }
                 SfxCommand::DmcRecords(table) => self.dmc_records = table,
-                SfxCommand::FixedDuration(length) => self.fixed_duration = length,
-                SfxCommand::ClearFixedDuration => self.fixed_duration = 0,
+                SfxCommand::FixedDuration(length) => {
+                    self.fixed_duration = NonZeroU8::new(length);
+                }
+                SfxCommand::ClearFixedDuration => self.fixed_duration = None,
                 SfxCommand::Return => {
-                    if is_set(self.loop_return) {
-                        self.stream = self.loop_return;
-                        unset(&mut self.loop_return);
+                    if let Some(target) = self.loop_return.take() {
+                        self.stream = target;
                         offset = 0;
                     }
                 }
                 SfxCommand::Call(target) => {
-                    self.loop_return = self.stream.wrapping_add(offset);
+                    let ret = self.stream.wrapping_add(offset);
+                    self.loop_return = is_set(ret).then_some(ret);
                     self.stream = target;
                     offset = 0;
                 }
@@ -1199,12 +1277,12 @@ fn write_voice(
 pub struct Music {
     banks: Banks,
     writes: Vec<Write>,
-    /// `$004F-$0052`: per voice, [`VOICE_TAKEN`] and [`VOICE_RETRIGGER`].
-    voices: [u8; 4],
+    /// `$004F-$0052`: per-voice handoff state for the current frame.
+    voices: [VoiceState; 4],
     /// `$0040-$0043`: sound requests waiting for the next frame.
     requests: [u8; 4],
-    /// `$0602-$0604`: the fade-out.
-    fade: Fade,
+    /// `$0602-$0604`: active fade-out, or `None` when idle.
+    fade: Option<ActiveFade>,
     channels: [Channel; CHANNELS],
     sfx: [SfxChannel; SFX_CHANNELS],
 }
@@ -1213,10 +1291,10 @@ impl Music {
     /// The driver over a PRG image: bank 10's tables and the song banks 6-7.
     #[must_use]
     pub fn from_prg(prg: &[u8]) -> Self {
-        Self::new(
-            prg[0x14000..0x16000].to_vec(),
-            prg[0xC000..0x10000].to_vec(),
-        )
+        let mut songs = Vec::with_capacity(2 * BANK_BYTES);
+        songs.extend_from_slice(bank_slice(prg, usize::from(SONG_BANK_BASE)));
+        songs.extend_from_slice(bank_slice(prg, usize::from(SONG_BANK_BASE) + 1));
+        Self::new(bank_slice(prg, DRIVER_BANK).to_vec(), songs)
     }
 
     /// Builds the driver from bank 10 (`driver`, 8 KiB) and banks 6-7 (`songs`, 16 KiB).
@@ -1229,9 +1307,9 @@ impl Music {
                 song_bank: 0,
             },
             writes: Vec::new(),
-            voices: [0; 4],
+            voices: [VoiceState::default(); 4],
             requests: [0; 4],
-            fade: Fade::default(),
+            fade: None,
             channels: [Channel::default(); CHANNELS],
             sfx: [SfxChannel::default(); SFX_CHANNELS],
         }
@@ -1271,7 +1349,7 @@ impl Music {
         for voice in [Voice::Pulse1, Voice::Pulse2, Voice::Noise, Voice::Triangle] {
             self.write(voice.registers().ctrl, voice.silent_volume());
         }
-        self.fade.active = false;
+        self.fade = None;
         for channel in &mut self.channels {
             channel.flags = 0;
             channel.fades = false;
@@ -1289,7 +1367,9 @@ impl Music {
                 self.handle_request(id);
             }
         }
-        self.fade.tick();
+        if let Some(fade) = &mut self.fade {
+            fade.tick();
+        }
         for index in (0..CHANNELS).rev() {
             self.music_channel(index);
         }
@@ -1306,18 +1386,18 @@ impl Music {
     /// `$80B2`: a song id (`< $F8`) or a special command (`>= $F8`), dispatched
     /// through the `$80C7`/`$80CF` far-call table.
     fn handle_request(&mut self, id: u8) {
-        match id {
-            0xF8..=0xFB | 0xFF => self.stop_all(),
-            0xFC => self.start_fade(),
-            0xFD => self.resume_parked(),
-            0xFE => self.park_active(),
-            _ => self.load_song(id),
+        match Request::from_byte(id) {
+            Request::StopAll => self.stop_all(),
+            Request::StartFade => self.start_fade(),
+            Request::ResumeParked => self.resume_parked(),
+            Request::ParkActive => self.park_active(),
+            Request::LoadSong(song) => self.load_song(song),
         }
     }
 
     /// `$81A2` (request `$FC`): fade every channel out.
     fn start_fade(&mut self) {
-        self.fade.start();
+        self.fade = Some(ActiveFade::start());
         for channel in &mut self.channels {
             channel.fades = true;
         }
@@ -1334,7 +1414,7 @@ impl Music {
 
     /// `$804E` (request `$FD`): make every parked channel active again.
     fn resume_parked(&mut self) {
-        self.voices = [VOICE_RETRIGGER; 4];
+        self.voices = [VoiceState::RETRIGGER; 4];
         for flags in self.all_flags() {
             if *flags & flag::PARKED != 0 {
                 *flags |= flag::ACTIVE;
@@ -1345,7 +1425,7 @@ impl Music {
     /// `$8080` (request `$FE`): park every active channel, then re-enable the
     /// APU's pulse/triangle/noise.
     fn park_active(&mut self) {
-        self.voices = [VOICE_RETRIGGER; 4];
+        self.voices = [VoiceState::RETRIGGER; 4];
         for flags in self.all_flags() {
             if *flags & flag::ACTIVE != 0 {
                 *flags = (*flags | flag::PARKED) & !flag::ACTIVE;
@@ -1384,7 +1464,7 @@ impl Music {
         };
         loop {
             let index = next();
-            if index & 0x80 != 0 {
+            if index & HEADER_END_BIT != 0 {
                 return;
             }
             if index >= 8 {
@@ -1393,16 +1473,16 @@ impl Music {
                 sfx.stream = u16::from_le_bytes([low, next()]);
                 sfx.flags = flag::ACTIVE;
                 sfx.duration = 1;
-                sfx.fixed_duration = 0;
+                sfx.fixed_duration = None;
                 sfx.repeat_fe = 0;
                 sfx.repeat_fd = 0;
-                unset(&mut sfx.loop_return);
+                sfx.loop_return = None;
                 continue;
             }
             let voice = Voice::try_from(next()).expect("a header's voice is 0-3");
             let channel = &mut self.channels[usize::from(index)];
             if voice != channel.voice {
-                self.voices[voice.index()] = VOICE_RETRIGGER;
+                self.voices[voice.index()] = VoiceState::RETRIGGER;
             }
             channel.voice = voice;
             let low = next();
@@ -1411,12 +1491,12 @@ impl Music {
             channel.tuning = IN_TUNE;
             channel.duration = 1;
             channel.release_at = 0;
-            channel.fixed_duration = 0;
+            channel.fixed_duration = None;
             channel.repeat_fe = 0;
             channel.repeat_fd = 0;
             channel.transpose = 0;
             channel.release_frames = 0;
-            unset(&mut channel.loop_return);
+            channel.loop_return = None;
             channel.fades = false;
             channel.pitch_macro = channel.idle_pitch();
         }
@@ -1426,7 +1506,7 @@ impl Music {
     fn silence_untaken_voices(&mut self) {
         for voice in [Voice::Pulse1, Voice::Pulse2, Voice::Triangle, Voice::Noise] {
             let state = std::mem::take(&mut self.voices[voice.index()]);
-            if state & VOICE_TAKEN == 0 {
+            if !state.taken {
                 self.write(voice.registers().ctrl, voice.silent_volume());
             }
         }
@@ -1441,9 +1521,14 @@ impl Music {
         }
         let voice = channel.voice;
         let voice_before = self.voices[voice.index()];
-        self.voices[voice.index()] = voice_before | VOICE_TAKEN;
+        self.voices[voice.index()].taken = true;
         let mut frame = Frame {
-            flags: (channel.flags & !flag::RETRIGGER) | (voice_before & VOICE_RETRIGGER),
+            flags: (channel.flags & !flag::RETRIGGER)
+                | if voice_before.retrigger {
+                    flag::RETRIGGER
+                } else {
+                    0
+                },
             offset: 0,
         };
         let banks = &self.banks;
@@ -1484,15 +1569,14 @@ impl Music {
                 break;
             }
         }
-        let taken = voice_before & VOICE_TAKEN != 0;
+        let taken = voice_before.taken;
         match step {
-            Step::Stop if !taken => self.voices[voice.index()] = VOICE_RETRIGGER,
+            Step::Stop if !taken => self.voices[voice.index()] = VoiceState::RETRIGGER,
             Step::Registers => {
                 if !taken {
-                    let volume = if self.fade.active && channel.fades {
-                        self.fade.scale(voice, channel.volume)
-                    } else {
-                        channel.volume
+                    let volume = match self.fade {
+                        Some(fade) if channel.fades => fade.scale(voice, channel.volume),
+                        _ => channel.volume,
                     };
                     write_voice(&mut self.writes, voice, volume, sweep, period, frame.flags);
                 }
@@ -1535,7 +1619,10 @@ impl Music {
     /// During a fade from step 2 on, a channel the fade applies to keeps only
     /// the tone channels enabled.
     fn play_sfx(&mut self, dmc_records: u16, sound: SfxSound, fades: bool) {
-        if self.fade.active && fades && self.fade.step >= 2 {
+        if let Some(fade) = self.fade
+            && fades
+            && fade.step >= FADE_SFX_CUT
+        {
             self.write(STATUS, status::TONE);
             self.write(STATUS, status::TONE);
             return;
@@ -1679,10 +1766,7 @@ mod tests {
             sfx.flags = 0x10;
         }
         music.handle_request(0xFC);
-        assert_eq!(
-            (music.fade.active, music.fade.step, music.fade.timer),
-            (true, 0, 1)
-        );
+        assert_eq!(music.fade, Some(ActiveFade { step: 0, timer: 1 }));
         assert!(music.channels.iter().all(|channel| channel.fades));
         assert!(music.sfx.iter().all(|sfx| sfx.flags & 0x01 != 0));
 
@@ -1694,7 +1778,8 @@ mod tests {
         assert_eq!(after[1], 0x80, "already-active channel is untouched");
         assert_eq!(after[3], 0x84);
         assert_eq!(
-            music.voices, [0x40; 4],
+            music.voices,
+            [VoiceState::RETRIGGER; 4],
             "the per-voice write flags are cleared"
         );
 
@@ -1715,10 +1800,10 @@ mod tests {
         );
 
         // `$F8`..`$FB`/`$FF` ($8020): the full voice reset, which stops music.
-        music.fade.active = true;
+        music.fade = Some(ActiveFade::start());
         music.channels[0].flags = 0x80;
         music.handle_request(0xFF);
-        assert!(!music.fade.active);
+        assert_eq!(music.fade, None);
         assert_eq!(music.channels[0].flags, 0);
         assert_eq!(
             music.writes.last().copied(),
@@ -1733,10 +1818,7 @@ mod tests {
     /// pulses lose a step each fade step; triangle/envelope mode are cut at 4/5).
     #[test]
     fn fade_volume_scaling() {
-        let mut fade = Fade {
-            step: 3,
-            ..Fade::default()
-        };
+        let mut fade = ActiveFade { step: 3, timer: 1 };
         assert_eq!(fade.scale(Voice::Pulse1, 0x1F), 0x1C);
         assert_eq!(
             fade.scale(Voice::Pulse1, 0x13),
@@ -2075,13 +2157,13 @@ mod tests {
     #[test]
     fn f7_clears_the_fixed_duration() {
         let mut channel = music_channel();
-        channel.fixed_duration = 9;
+        channel.fixed_duration = NonZeroU8::new(9);
         let mut frame = Frame {
             flags: 0,
             offset: 0,
         };
         assert!(channel.read_event(&synthetic(&[0xF7]), &mut frame) == Step::ReadEvent);
-        assert_eq!((channel.fixed_duration, frame.offset), (0, 1));
+        assert_eq!((channel.fixed_duration, frame.offset), (None, 1));
     }
 
     #[test]
@@ -2111,7 +2193,11 @@ mod tests {
                 ..SfxChannel::default()
             };
             assert!(matches!(channel.read_events(&banks), SfxEvent::Quiet));
-            assert_eq!(channel.fixed_duration, 9, "opcode {op:#04X}");
+            assert_eq!(
+                channel.fixed_duration,
+                NonZeroU8::new(9),
+                "opcode {op:#04X}"
+            );
         }
     }
 
@@ -2124,12 +2210,12 @@ mod tests {
             let banks = synthetic(&bytes);
             let mut channel = SfxChannel {
                 stream: DRIVER_BASE,
-                loop_return: DRIVER_BASE + 0x10,
+                loop_return: Some(DRIVER_BASE + 0x10),
                 ..SfxChannel::default()
             };
             assert!(matches!(channel.read_events(&banks), SfxEvent::Quiet));
             assert_eq!(channel.stream, DRIVER_BASE + 0x10, "opcode {op:#04X}");
-            assert!(!is_set(channel.loop_return), "opcode {op:#04X}");
+            assert_eq!(channel.loop_return, None, "opcode {op:#04X}");
         }
     }
 

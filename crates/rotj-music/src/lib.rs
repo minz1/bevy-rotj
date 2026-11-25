@@ -15,7 +15,7 @@
 
 mod driver;
 
-pub use driver::{Music, Write};
+pub use driver::{DMC_RECORDS_OPCODE, Music, Write};
 
 /// The song id the game requests for area 0 — stage 1-1 (bank 6, header
 /// index 3). Equal to [`AREA_SONGS`]`[0]`; kept as a name for the current

@@ -14,14 +14,19 @@ pub const TILE_SHEET_W: usize = TILE_SHEET_COLS * 8;
 /// Pixel height of the rendered bank sheet (32 tile rows * 8 px).
 pub const TILE_SHEET_H: usize = (TILES_PER_BANK / TILE_SHEET_COLS) * 8;
 
+/// 2-bit color index (`0..=3`) at bit position `bit` (`0..=7`, where 7 is the
+/// leftmost pixel) from a low and high bitplane byte.
+#[must_use]
+pub const fn plane_pixel(low: u8, high: u8, bit: usize) -> u8 {
+    (((high >> bit) & 1) << 1) | ((low >> bit) & 1)
+}
+
 /// 2-bit color index (`0..=3`) of pixel (`x`, `y`) within one 16-byte tile
 /// pattern. Pixel (0, 0) is top-left.
 #[must_use]
 pub fn pixel(tile: &[u8], x: usize, y: usize) -> u8 {
     debug_assert_eq!(tile.len(), TILE_BYTES);
-    let lo = (tile[y] >> (7 - x)) & 1; // first plane is LSB, second plane is MSB
-    let hi = (tile[8 + y] >> (7 - x)) & 1;
-    (hi << 1) | lo
+    plane_pixel(tile[y], tile[8 + y], 7 - x)
 }
 
 /// The offset of 1 KiB `bank` in `chr`, wrapped to the ROM's length.
@@ -42,17 +47,21 @@ pub fn tile<'a>(chr: &'a [u8], banks: &[u8], addr: usize) -> &'a [u8] {
     &chr[at..at + TILE_BYTES]
 }
 
-/// Decode one 8x8 2bpp tile into `out` (RGBA), `stride` bytes per row.
-fn blit_tile(tile: &[u8], out: &mut [u8], stride: usize, palette: [u8; 4]) {
+/// Decode one 8x8 2bpp tile into `out` (RGBA), `stride` bytes per row, mapping
+/// each 2-bit pixel value `0..=3` through `colours`.
+pub fn blit_rgba(tile: &[u8], out: &mut [u8], stride: usize, colours: [[u8; 4]; 4]) {
     debug_assert_eq!(tile.len(), TILE_BYTES);
     for row in 0..8usize {
         for col in 0..8usize {
             let idx = usize::from(pixel(tile, col, row));
-            let px = &mut out[row * stride + col * 4..][..4];
-            px[0..3].copy_from_slice(&[palette[idx], palette[idx], palette[idx]]);
-            px[3] = 0xff;
+            out[row * stride + col * 4..][..4].copy_from_slice(&colours[idx]);
         }
     }
+}
+
+/// Decode one 8x8 2bpp tile into `out` (RGBA) with a grayscale ramp.
+fn blit_tile(tile: &[u8], out: &mut [u8], stride: usize, palette: [u8; 4]) {
+    blit_rgba(tile, out, stride, palette.map(|g| [g, g, g, 0xFF]));
 }
 
 /// Render a whole 8 KiB CHR bank into an RGBA image of dimensions

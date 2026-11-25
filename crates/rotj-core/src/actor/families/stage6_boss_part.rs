@@ -10,8 +10,11 @@
 //! (`engine::boss_contact`, mode `$80`: touch only, no weapon scan).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Metatile};
+use crate::actor::slots::{Body, EMPTY, Metatile};
 use crate::actor::world::Cx;
+
+/// Sign bit of the 16-bit y velocity (`[anim, counter]`) used to clamp downward speed to `+$7F`.
+const VY_SIGN: u8 = 0x80;
 
 /// The bank-12 pointer table for the part's metasprite, indexed by `$F1 & 2`.
 const METASPRITES: u16 = 0x886C;
@@ -24,7 +27,7 @@ const STEP: u8 = 3;
 /// The amount `$AFD6` drains from the player on touch (`X:A` = `$01F4`).
 const CONTACT: u16 = 0x01F4;
 /// The `$AFD6` mode (`Y` = `$80`).
-const MODE: u8 = 0x80;
+const MODE: engine::ContactMode = engine::ContactMode::TouchOnly;
 
 /// Type `$A8` keeps its whole state in [`Body`] (`$7DD0`/`$7DF0` the x velocity,
 /// `$7E10`/`$7E90` the y velocity); it has none of its own.
@@ -43,17 +46,17 @@ impl State {
             .y
             .wrapping_add(u16::from_be_bytes([body.anim, body.counter]));
         if work.y.row() >= FLOOR_ROW {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         [body.anim, body.counter] = gained_vy([body.anim, body.counter]);
 
-        if body.anim & 0x80 == 0 && body.counter & 0x80 != 0 {
+        if body.anim & VY_SIGN == 0 && body.counter & VY_SIGN != 0 {
             body.counter = 0x7F;
         }
         work.pointer = engine::rom_word(cx.prg, 12, METASPRITES + u16::from(cx.world.frame & 2));
         if engine::on_screen(work, cx.world) != Visibility::On {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         work.tile = 0;

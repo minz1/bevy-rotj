@@ -9,7 +9,7 @@
 //! (`$0462`) and motion (`$046E`).
 
 use crate::actor::engine::Work;
-use crate::actor::slots::{Body, Metatile};
+use crate::actor::slots::{Body, EMPTY, Metatile};
 use crate::actor::world::{Cx, Motion};
 use crate::actors::STATE_UNTARGETED;
 
@@ -42,7 +42,7 @@ impl State {
         body.phase = SPAWNED;
         spawn_marker(body, player.x, cx);
         if player.motion == Motion::Dying {
-            *kind = 0;
+            *kind = EMPTY;
         }
     }
 }

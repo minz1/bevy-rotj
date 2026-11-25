@@ -17,6 +17,8 @@ const ROLL_PERIOD: u8 = 4;
 const HOVERING: u8 = 0;
 /// `$7DD0` while it rears a child.
 const REARING: u8 = 1;
+/// Cooldown frames before the shooter can rear another child (`body.timer`).
+const COOLDOWN_FRAMES: u8 = 0x80;
 
 /// Type `$1E` keeps its whole state in [`Body`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -85,7 +87,7 @@ fn rearing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if body.anim == 0x20 {
         body.phase = HOVERING;
         body.counter = 0;
-        body.timer = 0x80;
+        body.timer = COOLDOWN_FRAMES;
     } else {
         body.counter = body.anim >> 2;
     }

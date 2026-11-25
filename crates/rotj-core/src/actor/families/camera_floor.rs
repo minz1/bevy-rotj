@@ -6,6 +6,8 @@ use crate::actor::world::Cx;
 /// Riding it runs `$CE3E` (the `$CE79` table's second entry): the level's floor read
 /// screen-relative from map pages 16-31.
 const RIDE_ON_SCREEN: u8 = 2;
+/// `body.anim` bit 7: the second-class runner skips drawing this floor.
+const HIDDEN: u8 = 0x80;
 
 /// No state of its own: every field is rewritten each frame.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -14,7 +16,7 @@ pub struct State;
 impl State {
     /// One frame (`$9319`): hidden, 120 px wide (`$CE7E`), at camera y + `$C01`.
     pub fn step(&mut self, body: &mut Body, cx: &Cx<'_>) {
-        body.anim = 0x80;
+        body.anim = HIDDEN;
         body.scratch = 1;
         body.y = cx.world.camera_y.wrapping_add(0x0C01);
         body.counter = RIDE_ON_SCREEN;

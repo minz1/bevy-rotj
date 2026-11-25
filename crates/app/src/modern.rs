@@ -5,12 +5,11 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
-use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{RenderTarget, Viewport};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::render_resource::TextureFormat;
 use bevy::sprite::Anchor;
 use bevy::sprite_render::{
     TileData, TilemapChunk, TilemapChunkTileData, update_tilemap_chunk_indices,
@@ -251,32 +250,21 @@ fn spawn_layer(
 /// The 256 background tiles of `banks` as an 8x8 array texture, in `colours`, colour 0 clear.
 fn tileset(chr: &[u8], banks: [u8; 4], colours: Set) -> Image {
     let mut data = vec![0; 8 * 8 * 4 * 256];
+    let rgba_colours = std::array::from_fn(|v| {
+        if v == 0 {
+            [0, 0, 0, 0]
+        } else {
+            let [r, g, b] = colours[v];
+            [r, g, b, 0xFF]
+        }
+    });
     if !chr.is_empty() {
         for tile in 0..256 {
             let bytes = chr::tile(chr, &banks, tile * 16);
-            for row in 0..8 {
-                for column in 0..8 {
-                    let value = chr::pixel(bytes, column, row);
-                    if value != 0 {
-                        let [r, g, b] = colours[usize::from(value)];
-                        let at = ((tile * 8 + row) * 8 + column) * 4;
-                        data[at..at + 4].copy_from_slice(&[r, g, b, 0xFF]);
-                    }
-                }
-            }
+            chr::blit_rgba(bytes, &mut data[tile * 8 * 8 * 4..], 8 * 4, rgba_colours);
         }
     }
-    let mut image = Image::new(
-        Extent3d {
-            width: 8,
-            height: 8 * 256,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        data,
-        TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::default(),
-    );
+    let mut image = crate::screen::rgba_image(8, 8 * 256, data);
     image
         .reinterpret_stacked_2d_as_array(256)
         .expect("256 stacked tiles");
@@ -285,8 +273,12 @@ fn tileset(chr: &[u8], banks: [u8; 4], colours: Set) -> Image {
 
 /// A palette's four colours as `rgb` shows them.
 fn colours(palette: &[u8; 32], first: usize, greyscale: bool, rgb: &Rgb) -> Set {
-    let grey = mask::colour_bits(greyscale);
-    std::array::from_fn(|v| rgb[usize::from(palette[first + v] & grey)])
+    std::array::from_fn(|v| {
+        rotj_core::palette::rgb(
+            rgb,
+            rotj_core::palette::colour(palette, first + v, greyscale),
+        )
+    })
 }
 
 /// What the picture is drawn from.
@@ -567,7 +559,7 @@ fn spawn_sprites(
                 atlas,
                 TextureAtlas {
                     layout: modern.layout.clone(),
-                    index: usize::from(entry.tile >> 1),
+                    index: usize::from(entry.tall_index()),
                 },
             );
             sprite.flip_x = entry.attr & attr::FLIP_X != 0;

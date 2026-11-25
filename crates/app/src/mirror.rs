@@ -14,7 +14,7 @@ use crate::play::Play;
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Drawer(pub Mark);
 
-/// The slot's type byte, 0 when it is empty.
+/// The slot's type byte, [`rotj_core::actor::slots::EMPTY`] when it is empty.
 #[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Kind(pub u8);
 

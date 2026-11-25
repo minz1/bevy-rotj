@@ -10,7 +10,7 @@
 //! metasprite index.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::{Body, Counter, Metatile};
+use crate::actor::slots::{Body, Counter, EMPTY, Metatile};
 use crate::actor::world::Cx;
 
 const BANK: u8 = 11;
@@ -23,7 +23,7 @@ const METASPRITES: u16 = 0x9AD4;
 const DRAW_BANK: u8 = 9;
 /// `$AFD6`'s amount (X:A = `$012C`) and mode (Y = `$80`) at the `$9AC5` call.
 const CONTACT: u16 = 0x012C;
-const CONTACT_MODE: u8 = 0x80;
+const CONTACT_MODE: engine::ContactMode = engine::ContactMode::TouchOnly;
 /// The y high byte that ends the descent, and the timer that frees the slot.
 const FLOOR: u8 = 0x0B;
 const DEAD: u8 = 0x0A;
@@ -53,11 +53,11 @@ impl State {
     /// One frame of the handler (`$9A4D`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
-        if body.timer & 0x80 != 0 {
+        if body.timer & DYING != 0 {
             let frame = body.counter & 0xFE;
             body.timer.tick_up();
             if body.timer >= DEAD {
-                *kind = 0;
+                *kind = EMPTY;
                 return;
             }
             paint(body, work, cx, frame);

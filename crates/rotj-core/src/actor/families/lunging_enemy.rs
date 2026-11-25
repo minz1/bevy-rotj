@@ -9,7 +9,7 @@
 //! `$A8E4`, so it keeps its velocity instead of falling.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 /// The metasprite pointer the handler copies to `$96:$97` (bank 0 `$87F3`).
@@ -59,7 +59,7 @@ impl State {
         if engine::on_screen(work, cx.world) != Visibility::On {
             // `$87F0` -> `$8908`: free a slot that has been drawn, else store.
             if body.phase & engine::DRAWN != 0 {
-                *kind = 0;
+                *kind = EMPTY;
             } else {
                 engine::store(body, work);
             }
@@ -67,7 +67,7 @@ impl State {
         }
         // `$8799`: once, when the player is 32-47 px to its right, hand it the
         // `$87F5`/`$87F7` knock-back velocity and a `$7E50:$7E60` drift.
-        if body.timer & 0x80 == 0 {
+        if body.timer & TRIGGERED == 0 {
             let dx = engine::player_dx(work, &cx.effects.player);
             if dx < 0 && dx.unsigned_abs() >> 8 == u16::from(TRIGGER_HI) {
                 body.timer = TRIGGERED;

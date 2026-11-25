@@ -37,6 +37,8 @@ const SPAWN_TYPES: u16 = 0x938C;
 const SPAWN_STATES: u16 = 0x93C4;
 /// The queue room `$9249` needs before it runs (`$0181` >= `$70`).
 const VRAM_ROOM: u8 = 0x70;
+/// `body.counter` latch once [`Phase::Spawning`] has dropped its `$BA` child.
+const CHILD_SPAWNED: u8 = 0x80;
 
 phases! {
     /// The part's phase (`$7DD0`), which picks its handler (`$9324`).
@@ -133,7 +135,7 @@ impl State {
                     body.sprite = ((body.anim & 0x0C) >> 2) + 4;
                     body.anim.tick_up();
                     if body.anim >= 0x10 {
-                        body.counter = 0x80;
+                        body.counter = CHILD_SPAWNED;
                         spawn_child(body, work, cx);
                     }
                 }

@@ -506,14 +506,11 @@ impl Ending {
 }
 
 /// The metasprite the payload builds in its buffer (`$7FC0`).
-const BUILT: u16 = 0x7FC0;
+const BUILT: u16 = super::cutscene::WRAM_BUFFER;
 
 /// WRAM at `addr` in the ending: the payload, under the buffer it rewrites.
 fn wram(chr: &[u8], buffer: &[u8; 64], addr: u16) -> u8 {
-    match addr.checked_sub(BUILT) {
-        Some(at) => buffer[usize::from(at)],
-        None => payload_byte(chr, addr),
-    }
+    super::cutscene::wram_with_buffer(chr, buffer, addr, payload_byte)
 }
 
 /// Arms the raster split (`$D0-$D4`) `cycles` after the NMI.

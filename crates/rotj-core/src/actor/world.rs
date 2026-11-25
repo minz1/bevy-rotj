@@ -794,11 +794,39 @@ pub const PROJECTILE_ARRAYS: [u16; 19] = [
 ];
 
 impl Projectile {
+    /// Bit 7 of [`Projectile::kind`]: marks a charged attack's projectile.
+    pub const CHARGED: u8 = 0x80;
+    /// Bit 7 of [`Projectile::timer`] while in flight: fired upward.
+    pub const AIMED_UP: u8 = 0x80;
+
+    /// Whether this projectile slot is empty (`kind == EMPTY`).
+    #[must_use]
+    pub const fn is_free(&self) -> bool {
+        self.kind == super::slots::EMPTY
+    }
+
+    /// Frees this projectile slot (`kind = EMPTY`).
+    pub const fn free(&mut self) {
+        self.kind = super::slots::EMPTY;
+    }
+
+    /// Whether this projectile belongs to a charged attack (`kind & CHARGED != 0`).
+    #[must_use]
+    pub const fn is_charged(&self) -> bool {
+        self.kind & Self::CHARGED != 0
+    }
+
+    /// Whether this in-flight projectile was fired upward (`timer & AIMED_UP != 0`).
+    #[must_use]
+    pub const fn is_aimed_up(&self) -> bool {
+        self.timer & Self::AIMED_UP != 0
+    }
+
     /// The timer down by one; frees the slot (true) when that sets bit 7.
     pub fn count_down(&mut self) -> bool {
         self.timer.tick_down();
         if self.timer.ran_out() {
-            self.kind = 0;
+            self.free();
             true
         } else {
             false

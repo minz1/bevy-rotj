@@ -9,8 +9,11 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Metatile};
+use crate::actor::slots::{Body, EMPTY, Metatile};
 use crate::actor::world::{Cx, sound};
+
+/// `body.timer` bit 7 once the ground-impact burst has fired.
+const BURST_DONE: u8 = 0x80;
 
 /// The metasprite pointer (`$83CB`): bank 9's `$A946`.
 const METASPRITE: u16 = 0xA946;
@@ -68,13 +71,13 @@ impl State {
             }
             Some(Phase::Falling) => {
                 if work.y.row() >= FALL_LIMIT_ROW {
-                    *kind = 0;
+                    *kind = EMPTY;
                     return;
                 }
                 let mut probe = Probe::default();
-                if collision::feet(work, &mut probe, cx) && body.timer & 0x80 == 0 {
+                if collision::feet(work, &mut probe, cx) && body.timer & BURST_DONE == 0 {
                     cx.effects.sound[0] = sound::DIVER_LANDS;
-                    body.timer = 0x80;
+                    body.timer = BURST_DONE;
                     work.y = work.y.wrapping_add(BURST_OFFSET);
                     engine::spawn_parts(BURST_VARIANT, work, cx);
                     work.y = work.y.wrapping_sub(BURST_OFFSET);
@@ -96,7 +99,7 @@ impl State {
                 engine::end_frame(body, work);
             }
             Visibility::Near => engine::end_frame(body, work),
-            Visibility::Far => *kind = 0,
+            Visibility::Far => *kind = EMPTY,
         }
     }
 }

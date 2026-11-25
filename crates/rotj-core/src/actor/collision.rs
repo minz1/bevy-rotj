@@ -220,7 +220,7 @@ fn crumble(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
         return false;
     }
     bounce(work);
-    let free = cx.slots.second.iter_mut().find(|second| second.kind == 0);
+    let free = cx.slots.second.iter_mut().find(|second| second.is_free());
     if let Some(second) = free.filter(|_| cx.effects.player.moved & 0x80 == 0) {
         second.kind = CRUMBLING_BLOCK;
         second.brain = super::families::SecondBrain::new(CRUMBLING_BLOCK);
@@ -269,7 +269,7 @@ pub fn ride(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) -> bool {
     }
     for index in (0..8).rev() {
         let second = &cx.slots.second[index];
-        if second.kind == 0 {
+        if second.is_free() {
             continue;
         }
         let body = &second.body;

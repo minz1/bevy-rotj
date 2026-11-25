@@ -12,6 +12,16 @@
 use crate::actor::engine::{self, Work};
 use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, Motion, set_first_colours, sound};
+use crate::palette;
+
+/// Frames spent holding on the plain `$E2` bank after dropping (`body.anim`).
+const HOLD_FRAMES: u8 = 0x80;
+/// `body.counter` value starting the two-frame hit-flash palette pulse.
+const HIT_FLASH_START: u8 = 0x80;
+/// `body.counter` value on the second frame of the hit-flash pulse.
+const HIT_FLASH_RESTORE: u8 = 0x40;
+/// `body.timer` bit 7 (from `player.x_hi << 4`): player is in the right half of the screen.
+const PLAYER_RIGHT_HALF: u8 = 0x80;
 
 /// The `final_boss_defeat` kind (`$8F37`).
 const DEFEAT: u8 = 0xB8;
@@ -51,7 +61,7 @@ const SPOT_Y_HI: u16 = 0x90FA;
 const DRAW_BANK: u8 = 9;
 /// The `$AFD6` amount and mode the tail passes (`$8E66`).
 const CONTACT: u16 = 0x00E0;
-const CONTACT_MODE: u8 = 0xC0;
+const CONTACT_MODE: engine::ContactMode = engine::ContactMode::ShotsOnly;
 /// `$8DB8`'s hit-point gate: above it the boss stays in its phase.
 const PHASE_GATE: u16 = 0x4650;
 
@@ -125,8 +135,10 @@ impl State {
     pub fn step(&mut self, _kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         cx.oam.chr[6] = 0xD0;
         engine::load(body, work);
-        let flash = engine::boss_flash(body, work, cx.world);
-        if flash & 0x80 != 0 {
+        if matches!(
+            engine::boss_flash(body, work, cx.world),
+            engine::BossFlash::Dying { .. }
+        ) {
             if body.dying_timer == 0x01 {
                 spawn_b8(body, cx);
                 engine::boss_defeated(work.slot, cx);
@@ -199,7 +211,7 @@ fn dropping(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     }
     if body.anim >= 0x32 {
         body.phase = Phase::Holding.byte();
-        body.anim = 0x80;
+        body.anim = HOLD_FRAMES;
     }
     gate(body, work, cx);
 }
@@ -279,14 +291,14 @@ fn gate(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     body.counter = 0;
     body.anim = 0;
     for slot in 16..32 {
-        cx.slots.set_kind(slot, 0);
+        cx.slots.free(slot);
     }
     for slot in 0..16 {
         if cx.slots.kind(slot) == 0xB6 {
-            cx.slots.set_kind(slot, 0);
+            cx.slots.free(slot);
         }
     }
-    set_first_colours(&mut cx.effects.palette, 0x0F);
+    set_first_colours(&mut cx.effects.palette, palette::BLACK);
 }
 
 /// `$8E04`: the shared draw, boss contact and hit-flash tail.
@@ -316,17 +328,17 @@ fn tail(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     work.hitbox = 4;
     engine::boss_contact(CONTACT, CONTACT_MODE, body, work, cx);
     if cx.effects.boss_hp.wrapping_sub(before).to_be_bytes()[0] != 0 && body.counter == 0 {
-        body.counter = 0x80;
+        body.counter = HIT_FLASH_START;
     }
     match body.counter {
         0 => {}
-        0x80.. => {
+        HIT_FLASH_START.. => {
             set_first_colours(&mut cx.effects.palette, 0x32);
             queue_palette(cx);
-            body.counter = 0x40;
+            body.counter = HIT_FLASH_RESTORE;
         }
-        0x40..=0x7F => {
-            set_first_colours(&mut cx.effects.palette, 0x0F);
+        HIT_FLASH_RESTORE..=0x7F => {
+            set_first_colours(&mut cx.effects.palette, palette::BLACK);
             queue_palette(cx);
             body.counter = 0x07;
         }
@@ -353,7 +365,7 @@ fn queue_palette(cx: &mut Cx<'_>) {
 
 /// `$8F37`: palette `$0F`, then a type `$B8` into the highest free slot 0-15.
 fn spawn_b8(body: &mut Body, cx: &mut Cx<'_>) {
-    set_first_colours(&mut cx.effects.palette, 0x0F);
+    set_first_colours(&mut cx.effects.palette, palette::BLACK);
     let Some(slot) = cx.slots.free_main(0..16) else {
         return;
     };
@@ -381,7 +393,7 @@ fn spawn_be(body: &Body, cx: &mut Cx<'_>) {
         };
         let n = usize::from(count);
         let (x, y) = (tables.be_x[n], tables.be_y[n]);
-        let (subtype, phase) = if body.timer & 0x80 == 0 {
+        let (subtype, phase) = if body.timer & PLAYER_RIGHT_HALF == 0 {
             (if count < 2 { 0xF0 } else { 0xD8 }, 0xFF)
         } else {
             (if count < 2 { 0x28 } else { 0x10 }, 0)

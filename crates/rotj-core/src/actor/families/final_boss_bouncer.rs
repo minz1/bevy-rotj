@@ -10,7 +10,7 @@
 //! clears a bit of the behaviour of the slot named in `$7C30` (its parent).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Field, Metatile};
+use crate::actor::slots::{Body, EMPTY, Field, Metatile};
 use crate::actor::world::Cx;
 
 /// The bank-12 table of six bank-9 metasprite pointers (`$97AA`), indexed by
@@ -27,7 +27,7 @@ const RIGHT_WALL: u16 = 0x0E00;
 /// The amount `$AFD6` drains from the player on touch (`X:A` = `$0320`).
 const CONTACT: u16 = 0x0320;
 /// The `$AFD6` mode (`Y` = `$80`).
-const MODE: u8 = 0x80;
+const MODE: engine::ContactMode = engine::ContactMode::TouchOnly;
 
 /// Type `$C0` keeps its x velocity in the pair `[phase, subtype]`, its y velocity in
 /// `[counter, timer]`, the animation in `anim`/`cell`, the CHR shadow in `chr_slot` and
@@ -87,7 +87,7 @@ fn free(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
         Field::Behaviour,
         value & if body.behaviour == 0 { 0x7F } else { 0xBF },
     );
-    *kind = 0;
+    *kind = EMPTY;
 }
 
 /// The `[cell, chr_slot]` animation count after its gain of 4.

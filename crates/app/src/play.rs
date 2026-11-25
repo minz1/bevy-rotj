@@ -238,7 +238,7 @@ impl Play {
         if park {
             for (entry, mark) in self.marks.iter().enumerate() {
                 if mark.is_ui() {
-                    oam[entry * 4] = OamEntry::PARKED_Y;
+                    rotj_core::actor::oam::park(&mut oam, entry);
                 }
             }
         }
@@ -248,10 +248,10 @@ impl Play {
 
 /// The entries of `oam` that `mark` placed.
 fn marked(oam: &[u8; 256], marks: &[Mark; 64], mark: Mark) -> Vec<OamEntry> {
-    let entries = oam.as_chunks::<4>().0;
-    (0..64)
-        .filter(|&entry| marks[entry] == mark)
-        .map(|entry| OamEntry::from(entries[entry]))
+    rotj_core::actor::oam::entries(oam)
+        .enumerate()
+        .filter(|&(entry, _)| marks[entry] == mark)
+        .map(|(_, sprite)| sprite)
         .collect()
 }
 

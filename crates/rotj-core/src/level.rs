@@ -30,7 +30,6 @@
 
 use thiserror::Error;
 
-use crate::ines::FME7_PRG_BANK_SIZE;
 use crate::ppulist::WriteList;
 use crate::render::ppu;
 
@@ -135,12 +134,13 @@ pub enum LevelError {
 
 /// The `bank`/`offset` slice of `prg`, or [`LevelError::OutOfRange`].
 fn bank_slice(prg: &[u8], bank: u8, offset: u16) -> Result<&[u8], LevelError> {
-    let base = usize::from(bank) * FME7_PRG_BANK_SIZE + usize::from(offset);
-    prg.get(base..).ok_or(LevelError::OutOfRange {
-        bank,
-        offset,
-        len: prg.len(),
-    })
+    crate::prg::from_bank(prg, usize::from(bank), usize::from(offset)).ok_or(
+        LevelError::OutOfRange {
+            bank,
+            offset,
+            len: prg.len(),
+        },
+    )
 }
 
 /// Decode one `$FF`-terminated PPU write-list into its patches.
@@ -252,8 +252,8 @@ mod tests {
 
     /// A minimal PRG holding one write-list and the collision table.
     fn synthetic_prg() -> Vec<u8> {
-        let mut prg = vec![0u8; 16 * FME7_PRG_BANK_SIZE];
-        let base = usize::from(LEVEL_BANK) * FME7_PRG_BANK_SIZE;
+        let mut prg = vec![0u8; 16 * crate::prg::BANK_BYTES];
+        let base = usize::from(LEVEL_BANK) * crate::prg::BANK_BYTES;
         // Nametable list at $11B7: one entry, $2100 <- AA BB, then $FF.
         prg[base + usize::from(NAMETABLE_LIST)] = 0x21;
         prg[base + usize::from(NAMETABLE_LIST) + 1] = 0x00;

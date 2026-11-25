@@ -8,7 +8,7 @@
 //! draw.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, EMPTY};
 use crate::actor::world::Cx;
 
 /// The four metasprite pointers, indexed by `$7C30` (bank 0 `$8900`).
@@ -19,6 +19,12 @@ const DAMAGE: u8 = 4;
 const CHILD: u8 = 0x24;
 /// The `$24` shot's direction (its `phase`) on the spell's first round; each round adds one.
 const FIRST_DIRECTION: u8 = 4;
+/// `body.anim` bit 7: the spell's warmup (`$40..$7F`) is over and shots fire every 8 frames.
+const FIRING_WINDOW: u8 = 0x80;
+/// `body.timer` bit 7: the spell finished, holding the caster in its exit drift.
+const SPELL_DONE: u8 = 0x80;
+/// `body.counter` bit 7: a shooting spell is active.
+const CASTING: u8 = 0x80;
 
 /// Type `$6C` keeps its state in [`Body`]: `$7E10` arms the shooting spell,
 /// `$7E90` counts it, `$7DF0` is the rest timer and `$7DD0` only an "on screen"
@@ -37,7 +43,7 @@ impl State {
         engine::integrate(body, work);
         if engine::on_screen(work, cx.world) != Visibility::On {
             if body.phase & engine::DRAWN != 0 {
-                *kind = 0;
+                *kind = EMPTY;
             } else {
                 engine::store(body, work);
             }
@@ -62,7 +68,7 @@ impl State {
 /// on each of the first four.
 fn shoot(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     body.anim.tick_up();
-    if body.anim & 0x80 == 0 || body.anim & 0x07 != 0 {
+    if body.anim & FIRING_WINDOW == 0 || body.anim & 0x07 != 0 {
         return;
     }
     body.sprite += 2;
@@ -75,7 +81,7 @@ fn shoot(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
             spawn_child(body, work, round, slot, cx);
         }
     } else {
-        body.timer = 0x80;
+        body.timer = SPELL_DONE;
         body.counter = 0;
         body.vy = i16::from_be_bytes([0, body.vy.to_be_bytes()[1]]);
         body.vx_drift = 0x28;
@@ -85,13 +91,13 @@ fn shoot(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
 /// `$886F`: waiting for the player. A rest timer with bit 7 set holds it; else it
 /// stops dead and, once within `$A0` of the screen's left edge, starts a spell.
 fn rest(body: &mut Body, work: &Work) {
-    if body.timer & 0x80 != 0 {
+    if body.timer & SPELL_DONE != 0 {
         return;
     }
     body.vy = 0;
     if work.screen_x < 0xA0 {
         body.anim = 0x40;
-        body.counter = 0x80;
+        body.counter = CASTING;
         body.vx_drift = 0x0A;
     }
 }

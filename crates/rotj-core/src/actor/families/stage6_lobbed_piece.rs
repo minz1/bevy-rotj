@@ -9,8 +9,11 @@
 //! draw, so the port passes bank 9 to `engine::draw`.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Counter, Metatile};
+use crate::actor::slots::{Body, Counter, EMPTY, Metatile};
 use crate::actor::world::{Cx, sound};
+
+/// Sign bit of the 16-bit y offset (`[timer, phase]`): negative (rising).
+const OFFSET_NEGATIVE: u8 = 0x80;
 
 /// The `$96:$97` metasprite table the moving phase selects (bank 12 `$82E5`).
 const MOVING_METASPRITES: u16 = 0x82E5;
@@ -45,14 +48,14 @@ impl State {
             work.pointer = engine::rom_word(cx.prg, 12, DYING_METASPRITES + u16::from(frame));
             body.anim.tick_up();
             if body.anim >= DYING_FRAMES {
-                *kind = 0;
+                *kind = EMPTY;
                 return;
             }
         } else {
             work.attr = 1;
             work.x = moved(work.x, [body.anim, body.counter]);
             [body.timer, body.phase] = gained_offset([body.timer, body.phase]);
-            if body.timer & 0x80 == 0 && body.phase >= OFFSET_LIMIT {
+            if body.timer & OFFSET_NEGATIVE == 0 && body.phase >= OFFSET_LIMIT {
                 body.phase = OFFSET_LIMIT;
             }
             work.y = moved(work.y, [body.timer, body.phase]);

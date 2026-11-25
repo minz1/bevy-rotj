@@ -350,6 +350,13 @@ fn move_y(game: &mut Game) {
     game.scroll.scroll_y = scroll;
 }
 
+/// The 32-tile nametable column (`0..32`) for a 1/16 px level x (`((hi & $0F) << 1) | (lo >> 7)`).
+#[must_use]
+pub(crate) const fn tile_column(x: u16) -> u16 {
+    let [hi, lo] = x.to_be_bytes();
+    (((hi & 0x0F) << 1) | (lo >> 7)) as u16
+}
+
 fn stream_column(game: &mut Game, right: bool) {
     if game.world.orientation & orientation::TWO_PAGES != 0 {
         stream_column_across(game, right);
@@ -362,7 +369,7 @@ fn stream_column(game: &mut Game, right: bool) {
         camera
     };
     let base = cell(&game.schedule.page_columns, column, false);
-    let tile_column = u16::from(((camera & 0x0F) << 1) | (fraction >> 7));
+    let tile_column = tile_column(game.world.camera_x);
     let half = usize::from(fraction >> 7);
     let level = &game.effects.level;
     let tiles = |row: u8| {
@@ -446,7 +453,7 @@ fn stream_column_across(game: &mut Game, right: bool) {
             mirror: 64,
         },
     ];
-    let tile_column = u16::from(((camera & 0x0F) << 1) | (fraction >> 7));
+    let tile_column = tile_column(game.world.camera_x);
     let half = usize::from(fraction >> 7);
     let level = &game.effects.level;
     let vram = &mut game.effects.vram;

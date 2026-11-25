@@ -8,7 +8,7 @@
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::dropper;
 use crate::actor::oam::attr;
-use crate::actor::slots::{Body, Counter, Field, Metatile, contact};
+use crate::actor::slots::{Body, Counter, EMPTY, Field, Metatile, contact};
 use crate::actor::world::{Cx, sound};
 
 const BANK: u8 = 11;
@@ -63,7 +63,7 @@ impl State {
             work.pointer = engine::rom_word(cx.prg, BANK, REST_POINTER);
         } else {
             if body.anim >= END {
-                *kind = 0;
+                *kind = EMPTY;
                 let parent = usize::from(body.subtype);
                 if cx.slots.kind(parent) == PARENT {
                     cx.set(parent, Field::Phase, dropper::Phase::Waiting.byte());

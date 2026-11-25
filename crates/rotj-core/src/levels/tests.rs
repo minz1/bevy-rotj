@@ -7,14 +7,15 @@ use super::*;
 use crate::actor::slots::Slots;
 use crate::actor::spawn::{lock_at, spawn_at, spawn_row};
 use crate::actor::stage::{Music, OnClear};
-use crate::actor::world::{Schedule, orientation};
+use crate::actor::world::Schedule;
 use crate::actors::{
     CELL_FLAGS, CELL_LOCK, CELL_PENDING, CELL_RECORD, SpawnRecord, spawn_schedule,
 };
 use crate::collision::CLASS_COUNT;
 use crate::render::Mirroring;
-use crate::rooms::Chain;
-use crate::rooms::{Arrival, Start, listed_rooms};
+use crate::rooms::{
+    Arrival, Chain, ChrBanks, Facing, Orientation, ScrollLock, ScrollMode, Start, listed_rooms,
+};
 
 /// The ids a room's read cells name: the pending cells on the pages of its table.
 fn read_ids(room: &Room, schedule: &[u8; PAGE_CELLS]) -> BTreeSet<usize> {
@@ -93,7 +94,7 @@ fn the_original_game_imports_to_the_assets_the_game_reads() {
         for (index, (assets, back)) in stage.rooms.iter().zip(&back.rooms).enumerate() {
             let file = format!("rooms/{at}-{}.tmj", index + 1);
             let mut layout = back.room.clone();
-            if !orientation::horizontal_two_page(assets.room.orientation) {
+            if !assets.room.orientation.horizontal_two_page() {
                 layout.raised_page_count = assets.room.raised_page_count;
             }
             let map: Map = serde_json::from_str(&files[&file]).expect("a room");
@@ -275,7 +276,7 @@ fn the_original_levels_are_the_imported_export_with_the_roms_schedules() {
         for (room, assets) in (0u8..).step_by(2).zip(&stage.rooms) {
             assert!(listed.contains(&(area, room)), "{at}: room {room}");
             let mut layout = Room::import(&rom.prg, area, room).expect("the room's layout");
-            if !orientation::horizontal_two_page(layout.orientation) {
+            if !layout.orientation.horizontal_two_page() {
                 layout.raised_page_count = assets.room.raised_page_count;
             }
             assert!(assets.room == layout, "{at}: room {room}");
@@ -321,8 +322,8 @@ fn room(pages: [u8; TABLE_ENTRIES], chr: [u8; 4], records: &[(usize, SpawnRecord
         room: Room {
             background_palette: 0x0C,
             sprite_palette: 0x03,
-            chr,
-            orientation: 0,
+            chr: ChrBanks(chr),
+            orientation: Orientation::HORIZONTAL,
             raised_page_count: u8::try_from(16 - trailing).expect("a count"),
             pages,
             start: Start {
@@ -331,11 +332,11 @@ fn room(pages: [u8; TABLE_ENTRIES], chr: [u8; 4], records: &[(usize, SpawnRecord
                 camera_x: 0x0100,
                 camera_y: 0,
                 ring_y: 0,
-                scroll_lock: 1,
-                scroll_mode: 2,
+                scroll_lock: ScrollLock(1),
+                scroll_mode: ScrollMode(2),
                 mirroring: Mirroring::SingleLow,
                 first_spawn_column: pages[0] << 4,
-                facing: 1,
+                facing: Facing(1),
             },
             raster: None,
             fixed_rows: [false; 16],
@@ -389,12 +390,12 @@ fn hand_made() -> Levels {
             (9, record(0x0400, false, 0x0C)),
         ],
     );
-    c.room.orientation = orientation::VERTICAL;
+    c.room.orientation = Orientation::VERTICAL;
     let start = &mut c.room.start;
     (start.camera_x, start.camera_y, start.ring_y) = (0, 0x1800, 0x1800);
     (start.mirroring, start.first_spawn_column) = (Mirroring::SideBySide, 0x10);
     let mut d = room(d_pages, [1, 2, 3, 4], &[(5, record(0x0280, false, 0x0C))]);
-    d.room.orientation = orientation::TWO_PAGES;
+    d.room.orientation = Orientation::HORIZONTAL_TWO_PAGES;
     let start = &mut d.room.start;
     (start.camera_y, start.ring_y) = (0x1000, 0x1000);
     (start.mirroring, start.first_spawn_column) = (Mirroring::Stacked, 0x10);
@@ -591,7 +592,7 @@ fn the_original_stages_songs_are_in_the_sound_test() {
 /// slot its metatiles use.
 fn two_variants() -> Levels {
     let mut levels = hand_made();
-    levels.stages[0].rooms[1].room.chr = [1, 2, 3, 5];
+    levels.stages[0].rooms[1].room.chr = ChrBanks([1, 2, 3, 5]);
     levels
 }
 
@@ -769,7 +770,7 @@ fn refusal(imported: Result<Levels, ImportError>) -> String {
 }
 
 fn chr(levels: &Levels, room: usize) -> [u8; 4] {
-    levels.stages[0].rooms[room].room.chr
+    levels.stages[0].rooms[room].room.chr.raw()
 }
 
 #[test]
@@ -1784,7 +1785,7 @@ fn user_pack_crash_conditions_are_refused_by_name() {
         },
     );
     let mut two_page_first = two_areas();
-    two_page_first.stages[0].rooms[0].room.orientation = orientation::TWO_PAGES;
+    two_page_first.stages[0].rooms[0].room.orientation = Orientation::HORIZONTAL_TWO_PAGES;
     Fixture::new(&two_page_first)
         .refuses("a stage's first room cannot be two pages across", |_| {});
     let two = Fixture::new(&two_areas());

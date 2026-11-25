@@ -1,10 +1,8 @@
 //! The settings menu: Bevy UI over the frozen game, in the game's own font (the 8x16
 //! letters of CHR banks `$CC-$CF`, which the sound test and the pause load).
 
-use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use rotj_core::actor::button::Buttons;
 use rotj_core::chr;
 use rotj_core::palette::Rgb;
@@ -249,37 +247,23 @@ pub fn glyph(c: char) -> Option<usize> {
 pub fn font_atlas(chr: &[u8], rgb: &Rgb) -> Image {
     const WIDTH: usize = 64;
     const HEIGHT: usize = 9 * 16;
-    let colour = |value: u8| match value {
-        0 => [0, 0, 0, 0],
-        1 => with_alpha(rgb[0x0F]),
-        _ => with_alpha(rgb[0x30]),
-    };
+    let colours = [
+        [0, 0, 0, 0],
+        with_alpha(rgb[usize::from(rotj_core::palette::BLACK)]),
+        with_alpha(rgb[usize::from(rotj_core::palette::WHITE)]),
+        with_alpha(rgb[usize::from(rotj_core::palette::WHITE)]),
+    ];
     let font = &chr[0xCC * 1024..0xD0 * 1024];
     let mut data = vec![0; WIDTH * HEIGHT * 4];
+    let stride = WIDTH * 4;
     for pair in 0..64 {
         for (half, tile) in [2 * pair, 2 * pair + 1].into_iter().enumerate() {
             let bytes = &font[tile * 16..tile * 16 + 16];
-            for y in 0..8 {
-                for x in 0..8 {
-                    let value = chr::pixel(bytes, x, y);
-                    let (px, py) = ((pair % 8) * 8 + x, (pair / 8) * 16 + half * 8 + y);
-                    let at = (py * WIDTH + px) * 4;
-                    data[at..at + 4].copy_from_slice(&colour(value));
-                }
-            }
+            let (px, py) = ((pair % 8) * 8, (pair / 8) * 16 + half * 8);
+            chr::blit_rgba(bytes, &mut data[py * stride + px * 4..], stride, colours);
         }
     }
-    Image::new(
-        Extent3d {
-            width: u32::try_from(WIDTH).expect("tiny"),
-            height: u32::try_from(HEIGHT).expect("tiny"),
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        data,
-        TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::default(),
-    )
+    crate::screen::rgba_image(WIDTH, HEIGHT, data)
 }
 
 fn with_alpha([r, g, b]: [u8; 3]) -> [u8; 4] {
@@ -382,8 +366,8 @@ struct Shown<'w> {
 }
 
 impl Shown<'_> {
-    fn colour(&self, index: usize) -> Color {
-        let [r, g, b] = self.colours.rgb[index];
+    fn colour(&self, index: u8) -> Color {
+        let [r, g, b] = rotj_core::palette::rgb(&self.colours.rgb, index);
         Color::srgb_u8(r, g, b)
     }
 }
@@ -431,8 +415,8 @@ fn menu_box(picture: &mut ChildSpawnerCommands<'_>, font: &Font, shown: &Shown<'
                 border: UiRect::all(Val::Px(BORDER)),
                 ..default()
             },
-            BackgroundColor(shown.colour(0x0F)),
-            BorderColor::all(shown.colour(0x30)),
+            BackgroundColor(shown.colour(rotj_core::palette::BLACK)),
+            BorderColor::all(shown.colour(rotj_core::palette::WHITE)),
         ))
         .with_children(|menu_box| {
             menu_box.spawn(line(
@@ -446,7 +430,7 @@ fn menu_box(picture: &mut ChildSpawnerCommands<'_>, font: &Font, shown: &Shown<'
                 let tint = if row == selected {
                     Color::WHITE
                 } else {
-                    shown.colour(0x10)
+                    shown.colour(rotj_core::palette::GREY)
                 };
                 menu_box.spawn(line(
                     font,
@@ -458,13 +442,13 @@ fn menu_box(picture: &mut ChildSpawnerCommands<'_>, font: &Font, shown: &Shown<'
             menu_box.spawn(line(
                 font,
                 &format!("{:^COLUMNS$}", credit(shown.settings.palette)),
-                shown.colour(0x10),
+                shown.colour(rotj_core::palette::GREY),
             ));
             if shown.menu.save_failed {
                 menu_box.spawn(line(
                     font,
                     &format!("{SAVE_FAILED:^COLUMNS$}"),
-                    shown.colour(0x10),
+                    shown.colour(rotj_core::palette::GREY),
                 ));
             }
         });

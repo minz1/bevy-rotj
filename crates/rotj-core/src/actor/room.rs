@@ -517,11 +517,14 @@ impl PageDraw {
     /// One frame of the draw: a metatile row, or the attributes once the rows are
     /// done; true when the page is finished.
     pub fn step(&mut self, game: &mut Game) -> bool {
-        let [hi, lo] = self.addr.to_be_bytes();
-        if hi & 0x23 == 0x23 && lo == 0xC0 {
+        if ppu::at_attribute_table(self.addr) {
             let page = usize::from(self.column >> 4) * 64;
             let attributes = &game.effects.level.attributes[page..page + 64];
-            let mirror = if hi & 0xFC == 0x20 { 0 } else { 64 };
+            let mirror = if ppu::in_first_nametable(self.addr) {
+                0
+            } else {
+                64
+            };
             let vram = &mut game.effects.vram;
             vram.attributes[mirror..mirror + 64].copy_from_slice(attributes);
             vram.push(self.addr, 0, attributes);
@@ -567,9 +570,9 @@ pub fn load(game: &mut Game, prg: &Prg) {
         &mut game.effects.palette,
     );
     game.effects.palette[17..20].copy_from_slice(&kept);
-    set_first_colours(&mut game.effects.palette, 0x0F);
-    game.oam.chr[..4].copy_from_slice(&layout.chr);
-    game.world.orientation = layout.orientation;
+    set_first_colours(&mut game.effects.palette, crate::palette::BLACK);
+    game.oam.chr[..4].copy_from_slice(&layout.chr.raw());
+    game.world.orientation = layout.orientation.to_byte();
     animate_banks(game, prg);
     game.schedule.page_columns = layout.pages.map(|page| page << 4);
     if orientation::horizontal_two_page(game.world.orientation) {
@@ -586,11 +589,11 @@ pub fn load(game: &mut Game, prg: &Prg) {
     game.world.camera_x = start.camera_x;
     game.world.camera_y = start.camera_y;
     game.scroll.ring_y = start.ring_y;
-    game.effects.scroll_lock = start.scroll_lock;
-    game.scroll.mode = start.scroll_mode;
+    game.effects.scroll_lock = start.scroll_lock.raw();
+    game.scroll.mode = start.scroll_mode.raw();
     game.scroll.mirroring = start.mirroring;
     game.scroll.start = start.first_spawn_column;
-    player.facing = start.facing;
+    player.facing = start.facing.raw();
 
     game.scroll.gate = 0xFF;
     game.effects.vram.origin = ppu::nametable(0);
@@ -731,7 +734,11 @@ pub fn enter_area(game: &mut Game, prg: &Prg, chr: &[u8], leftover: Leftover) {
     load_level(game, prg, chr, leftover);
     load(game, prg);
     for (i, entry) in game.effects.palette[17..20].iter_mut().enumerate() {
-        *entry = rom_byte(prg, 13, 0xB26A + u16::try_from(i).expect("< 3"));
+        *entry = rom_byte(
+            prg,
+            BATMAN_PALETTE_BANK,
+            BATMAN_PALETTE + u16::try_from(i).expect("< 3"),
+        );
     }
     let page = first_page(game);
     game.effects.vram.direct.extend(page);
@@ -861,16 +868,30 @@ pub fn first_page(game: &mut Game) -> Vec<VramWrite> {
     writes
 }
 
+/// Bank 13 `$B26A`: Batman's 3-colour sprite palette restored on stage load.
+const BATMAN_PALETTE_BANK: u8 = 13;
+const BATMAN_PALETTE: u16 = 0xB26A;
+/// Bank 14 palette preset tables (`$C3A6`) and colour triplets (`$C4BA`/`$C522`/`$C58A`).
+const PALETTE_BANK: u8 = 14;
+const PALETTE_TABLES: u16 = 0xC3A6;
+const PALETTE_C1: u16 = 0xC4BA;
+const PALETTE_C2: u16 = 0xC522;
+const PALETTE_C3: u16 = 0xC58A;
+/// Bank 14 `$C06C`: CHR animation pointer table (records in bank 0).
+const ANIMATION_TABLE_BANK: u8 = 14;
+const ANIMATION_TABLE: u16 = 0xC06C;
+const ANIMATION_RECORD_BANK: u8 = 0;
+
 /// The palette from a background and a sprite set (`$C367`).
 pub(crate) fn build_palette(prg: &[u8], background: u8, sprites: u8, palette: &mut [u8; 32]) {
     for set in (0..8u16).rev() {
-        let table = rom_word(prg, 14, 0xC3A6 + 2 * set);
+        let table = rom_word(prg, PALETTE_BANK, PALETTE_TABLES + 2 * set);
         let pick = if set >= 4 { sprites } else { background };
-        let entry = u16::from(rom_byte(prg, 14, table + u16::from(pick)));
+        let entry = u16::from(rom_byte(prg, PALETTE_BANK, table + u16::from(pick)));
         let at = usize::from(set) * 4 + 1;
-        palette[at] = rom_byte(prg, 14, 0xC4BA + entry);
-        palette[at + 1] = rom_byte(prg, 14, 0xC522 + entry);
-        palette[at + 2] = rom_byte(prg, 14, 0xC58A + entry);
+        palette[at] = rom_byte(prg, PALETTE_BANK, PALETTE_C1 + entry);
+        palette[at + 1] = rom_byte(prg, PALETTE_BANK, PALETTE_C2 + entry);
+        palette[at + 2] = rom_byte(prg, PALETTE_BANK, PALETTE_C3 + entry);
     }
 }
 
@@ -882,7 +903,7 @@ fn animate_banks(game: &mut Game, prg: &[u8]) {
     for shadow in (0..4).rev() {
         let bank = game.oam.chr[shadow];
         *animated = (*animated << 1) | (bank >> 7);
-        if bank & 0x80 == 0 {
+        if !crate::rooms::ChrBanks::is_animated(bank) {
             continue;
         }
         let byte = animation_byte(prg, bank);
@@ -897,7 +918,7 @@ fn animate_banks(game: &mut Game, prg: &[u8]) {
 
 /// The bank a room loads for `bank`: an animation handle's (bit 7) last frame.
 pub(crate) fn loaded_bank(prg: &[u8], bank: u8) -> u8 {
-    if bank & 0x80 == 0 {
+    if !crate::rooms::ChrBanks::is_animated(bank) {
         return bank;
     }
     let byte = animation_byte(prg, bank);
@@ -909,8 +930,12 @@ pub(crate) fn loaded_bank(prg: &[u8], bank: u8) -> u8 {
 
 /// The bytes of animation handle `bank`'s record: its frame count, timer and frames.
 fn animation_byte(prg: &[u8], bank: u8) -> impl Fn(u16) -> u8 + '_ {
-    let record = rom_word(prg, 14, 0xC06C + u16::from((bank << 1) & 0x7F));
-    move |i| rom_byte(prg, 0, record + i)
+    let record = rom_word(
+        prg,
+        ANIMATION_TABLE_BANK,
+        ANIMATION_TABLE + u16::from((bank << 1) & 0x7F),
+    );
+    move |i| rom_byte(prg, ANIMATION_RECORD_BANK, record + i)
 }
 
 /// The room's parameters, the stream masks and the room's player setup (`$D992`).

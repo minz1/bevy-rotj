@@ -213,8 +213,7 @@ impl Level {
             "more corners than metatile ids"
         );
         image[..terrain.stream.len()].copy_from_slice(&terrain.stream);
-        let rows = crate::levelmap::transpose(&image);
-        let map = Map::from_rows(rows);
+        let map = crate::levelmap::transpose(&image);
         let classes = terrain.classes.map(|class| class << 1);
         let corners = std::array::from_fn(|id| {
             terrain.corners.get(id).copied().unwrap_or_else(|| {
@@ -222,7 +221,7 @@ impl Level {
             })
         });
         let pages =
-            crate::levelmap::attributes_from_classes(&terrain.palette_classes, &rows, &image);
+            crate::levelmap::attributes_from_classes(&terrain.palette_classes, &map, &image);
         let mut attributes = [0; 1024];
         for (bytes, page) in attributes.as_chunks_mut::<64>().0.iter_mut().zip(&pages) {
             *bytes = *page;
@@ -312,8 +311,7 @@ mod tests {
         area: usize,
         mut image: [u8; 0x1000],
     ) -> Option<Level> {
-        let rows = crate::levelmap::map_over(prg, chr, area, &mut image)?;
-        let map = Map::from_rows(rows);
+        let map = crate::levelmap::map_over(prg, chr, area, &mut image)?;
         let mut classes = class_table(prg, area)?;
         for class in &mut classes {
             *class <<= 1;
@@ -329,7 +327,7 @@ mod tests {
                 }
             })
         });
-        let pages = crate::levelmap::attributes_of(prg, chr, area, &rows, &image)?;
+        let pages = crate::levelmap::attributes_of(prg, chr, area, &map, &image)?;
         let mut attributes = [0; 1024];
         for (bytes, page) in attributes.as_chunks_mut::<64>().0.iter_mut().zip(&pages) {
             *bytes = *page;

@@ -20,18 +20,42 @@ pub enum FrameEvent {
     Half,
 }
 
+/// `$4017` bit 7: 4-step or 5-step sequence mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum SequenceMode {
+    /// 4-step sequence (sets IRQ flag unless inhibited).
+    #[default]
+    FourStep,
+    /// 5-step sequence (never sets IRQ flag).
+    FiveStep,
+}
+
+impl SequenceMode {
+    const fn steps(self) -> &'static [u32; 6] {
+        match self {
+            Self::FourStep => &FrameCounter::STEPS4_NTSC,
+            Self::FiveStep => &FrameCounter::STEPS5_NTSC,
+        }
+    }
+}
+
+/// A buffered `$4017` write waiting its 3–4 CPU-cycle settle delay.
+#[derive(Debug, Clone, Copy)]
+struct PendingWrite {
+    value: u8,
+    settle_delay: u8,
+}
+
 /// The frame sequencer: quarter/half-frame clocks and the mode-0 IRQ flag.
 #[derive(Debug, Clone)]
 pub struct FrameCounter {
-    /// `$4017`-bit 7: 4-step (false) or 5-step (true) sequence.
-    five_step: bool,
+    /// `$4017`-bit 7: 4-step or 5-step sequence.
+    mode: SequenceMode,
     /// `$4017`-bit 6: IRQ inhibit.
     inhibit_irq: bool,
     /// Buffered `$4017` write settling 3–4 CPU cycles later.
-    pending: Option<u8>,
-    settle_delay: u8,
+    pending: Option<PendingWrite>,
     step: usize,
-    steps: [u32; 6],
     /// CPU cycles elapsed inside the current sequence.
     cpu_cycles: u32,
     irq_pending: bool,
@@ -63,12 +87,10 @@ impl FrameCounter {
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            five_step: false,
+            mode: SequenceMode::FourStep,
             inhibit_irq: false,
             pending: None,
-            settle_delay: 0,
             step: 0,
-            steps: Self::STEPS4_NTSC,
             cpu_cycles: 0,
             irq_pending: false,
         }
@@ -81,8 +103,10 @@ impl FrameCounter {
     /// lands 3–4 CPU cycles after the write, buffered here as a settle
     /// delay of two APU ticks.
     pub fn write(&mut self, val: u8) {
-        self.pending = Some(val);
-        self.settle_delay = 2;
+        self.pending = Some(PendingWrite {
+            value: val,
+            settle_delay: 2,
+        });
         self.inhibit_irq = (val & 0x40) != 0;
         if self.inhibit_irq {
             self.irq_pending = false;
@@ -92,18 +116,19 @@ impl FrameCounter {
     /// One APU tick (two CPU cycles); returns the event due this tick.
     pub fn tick(&mut self) -> FrameEvent {
         let mut event = FrameEvent::None;
-        if self.settle_delay > 0 {
-            self.settle_delay -= 1;
-            if self.settle_delay == 0
-                && let Some(val) = self.pending.take()
-            {
+        if let Some(pending) = &mut self.pending {
+            pending.settle_delay -= 1;
+            if pending.settle_delay == 0 {
+                let val = pending.value;
+                self.pending = None;
                 self.apply_write(val, &mut event);
             }
         }
 
         self.cpu_cycles += 2;
-        while self.cpu_cycles >= self.steps[self.step] {
-            if !self.five_step && !self.inhibit_irq && self.step >= 3 {
+        let steps = self.mode.steps();
+        while self.cpu_cycles >= steps[self.step] {
+            if self.mode == SequenceMode::FourStep && !self.inhibit_irq && self.step >= 3 {
                 self.irq_pending = true;
             }
             let step_event = Self::EVENT_AT_STEP[self.step];
@@ -113,7 +138,7 @@ impl FrameCounter {
                 event = FrameEvent::Quarter;
             }
             self.step += 1;
-            if self.step == self.steps.len() {
+            if self.step == steps.len() {
                 self.step = 0;
                 self.cpu_cycles = 0;
             }
@@ -133,17 +158,16 @@ impl FrameCounter {
     }
 
     const fn apply_write(&mut self, val: u8, event: &mut FrameEvent) {
-        self.five_step = (val & 0x80) != 0;
-        self.steps = if self.five_step {
-            Self::STEPS5_NTSC
+        self.mode = if (val & 0x80) != 0 {
+            SequenceMode::FiveStep
         } else {
-            Self::STEPS4_NTSC
+            SequenceMode::FourStep
         };
         self.step = 0;
         self.cpu_cycles = 0;
         // `$4017` with bit 7 set immediately generates a quarter+half frame
         // (nesdev side-effects note).
-        if self.five_step {
+        if matches!(self.mode, SequenceMode::FiveStep) {
             *event = FrameEvent::Half;
         }
     }

@@ -3,7 +3,7 @@
 //! collision routine.
 
 use crate::actor::engine::Work;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 /// Type `$76` keeps no state of its own.
@@ -14,7 +14,7 @@ impl State {
     /// One frame of the handler (`$8D3F`).
     pub fn step(&mut self, kind: &mut u8, _body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
         cx.schedule.page_columns[17..19].copy_from_slice(&[0x70; 2]);
-        *kind = 0;
+        *kind = EMPTY;
     }
 }
 

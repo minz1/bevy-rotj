@@ -9,7 +9,7 @@
 //! `$93E1` is part of the handler.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::{Body, contact};
+use crate::actor::slots::{Body, EMPTY, contact};
 use crate::actor::world::{Cx, Motion};
 use crate::levelmap::Cell;
 use crate::render::ppu;
@@ -57,17 +57,17 @@ impl State {
     /// One frame of the handler (`$9361`; the `$7DD0` phase counts 0-2).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         if cx.effects.player.motion == Motion::Dying {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         if cx.world.camera_x.to_be_bytes()[0] == 0 {
             cx.effects.animated = 0;
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         if body.counter == 0 {
             body.timer = TIMER;
-            if helper(body, cx) & 0x80 == 0 {
+            if collapse_next_cell(body, cx) {
                 body.counter = ARMED;
                 body.phase = READY_PHASE;
             }
@@ -75,7 +75,7 @@ impl State {
         }
         [body.phase, body.subtype] = next_phase_count([body.phase, body.subtype]);
         if body.phase >= READY_PHASE {
-            helper(body, cx);
+            let _ = collapse_next_cell(body, cx);
         }
         if cx.world.frame.is_multiple_of(DROP_PERIOD) {
             work.x = cx.world.camera_x.wrapping_add(0x0380);
@@ -94,16 +94,17 @@ impl State {
 
 /// `$93E1`: if the queue is ready, places a second-class [`EFFECT_KIND`] slot at
 /// the camera's top-right, blanks two nametable runs and two map cells, and ages
-/// the parent. Returns the accumulator the caller branches on (`$80` when the
-/// queue is not ready).
-fn helper(body: &mut Body, cx: &mut Cx<'_>) -> u8 {
+/// the parent. Returns whether bit 7 of `$93E1`'s accumulator was clear (i.e. a
+/// cell collapsed, or slot 31's kind had bit 7 clear when all second-class slots
+/// were full).
+fn collapse_next_cell(body: &mut Body, cx: &mut Cx<'_>) -> bool {
     if cx.effects.vram.top < QUEUE_READY {
-        return 0x80;
+        return false;
     }
-    let found = (24..32).find(|&slot| cx.slots.kind(slot) == 0);
+    let found = (24..32).find(|&slot| cx.slots.is_free(slot));
     let Some(slot) = found else {
         // $93F8: nothing free returns the last byte the scan read ($7CC0,$1F).
-        return cx.slots.kind(31);
+        return cx.slots.kind(31) & 0x80 == 0;
     };
     let timer = body.timer;
     let row = ppu::tile_addr(0, 24, 0);
@@ -138,7 +139,7 @@ fn helper(body: &mut Body, cx: &mut Cx<'_>) -> u8 {
     body.timer = next_timer(timer);
     body.phase = body.phase.wrapping_sub(2);
 
-    sprite
+    true
 }
 
 /// The `[phase, subtype]` count after its gain of `$0B`.

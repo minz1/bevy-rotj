@@ -1,7 +1,7 @@
 //! Type `$AA`, a stage 6 boss part (bank 12 `$8870`).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, EMPTY};
 use crate::actor::world::Cx;
 
 /// The first draw's metasprite pointers, indexed by `$7C30` (`$8944`, bank 9).
@@ -67,7 +67,7 @@ impl State {
             None => panic!("type $AA phase {} is past the $893B table", body.phase),
         }
         if engine::on_screen(work, cx.world) != Visibility::On {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         work.tile = 0;

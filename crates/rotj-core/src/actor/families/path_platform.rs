@@ -1,8 +1,27 @@
 //! Second-class type `$0A`, the platform that follows a path once stood on (bank 8 `$90C7`).
 
 use crate::actor::engine::{self, rom_byte, rom_word};
-use crate::actor::slots::{Body, Field};
+use crate::actor::slots::{Body, EMPTY, Field};
 use crate::actor::world::Cx;
+
+/// PRG bank holding `$0A`'s path tables.
+const HOME_BANK: u8 = 8;
+/// Bank 8 `$9287`: 16-bit pointers to each path's corner coordinate table.
+const CORNER_TABLES: u16 = 0x9287;
+/// Bank 8 `$9297`: 16-bit pointers to each path's turn-action table.
+const TURN_TABLES: u16 = 0x9297;
+/// `state` bit 7: wait until the player stands on the platform before moving.
+const WAIT_FOR_PLAYER: u8 = 0x80;
+/// `state` bits 6..0: index into the path tables.
+const PATH_INDEX_MASK: u8 = 0x7F;
+/// `dying_timer` bit 7: latched once the player has stood on the platform.
+const STEPPED_ON: u8 = 0x80;
+/// Turn byte bit 7: special action (`TURN_DESPAWN` or jump index in bits 6..0).
+const TURN_SPECIAL: u8 = 0x80;
+/// Turn byte `$FF`: despawn the platform.
+const TURN_DESPAWN: u8 = 0xFF;
+/// Turn byte bits 6..0 when [`TURN_SPECIAL`] is set: jump-table index.
+const JUMP_INDEX_MASK: u8 = 0x7F;
 
 /// The path's corner index, which the game keeps in health's low byte.
 const CORNER: Field = Field::HealthLow;
@@ -57,17 +76,16 @@ impl State {
     pub fn step(&mut self, index: usize, kind: &mut u8, body: &mut Body, cx: &mut Cx<'_>) {
         body.scratch = 0;
         body.anim = 0;
-        if body.state & 0x80 != 0 && body.dying_timer & 0x80 == 0 {
-            let pressed = cx.slots.pressed(index);
-            if pressed & 0x80 == 0 {
+        if body.state & WAIT_FOR_PLAYER != 0 && body.dying_timer & STEPPED_ON == 0 {
+            if !cx.slots.is_pressed(index) {
                 (body.hit, body.behaviour, body.subtype, body.phase) = (0, 0, 0, 0);
                 return;
             }
-            body.dying_timer = pressed;
+            body.dying_timer = cx.slots.pressed(index);
         }
         let path = u16::from(body.state << 1);
-        let corners = rom_word(cx.prg, 8, 0x9287 + path);
-        let turns = rom_word(cx.prg, 8, 0x9297 + path);
+        let corners = rom_word(cx.prg, HOME_BANK, CORNER_TABLES + path);
+        let turns = rom_word(cx.prg, HOME_BANK, TURN_TABLES + path);
         // The direction: 0-3 right, left, down, up; 4 stopped.
         let direction = cx.slots.platform_parameter(index);
         if direction >= 4 {
@@ -99,7 +117,7 @@ impl State {
                 body.y
             }
         };
-        let corner = rom_word(cx.prg, 8, corners + 2 * u16::from(body.get(CORNER)));
+        let corner = rom_word(cx.prg, HOME_BANK, corners + 2 * u16::from(body.get(CORNER)));
         if corner == position {
             turn(index, kind, body, turns, cx);
         }
@@ -111,18 +129,18 @@ impl State {
 fn turn(index: usize, kind: &mut u8, body: &mut Body, turns: u16, cx: &mut Cx<'_>) {
     let tables = &cx.prg.families.path_platform;
     let mut step = body.get(CORNER).wrapping_add(1);
-    if step == tables.lengths[usize::from(body.state & 0x7F)] {
+    if step == tables.lengths[usize::from(body.state & PATH_INDEX_MASK)] {
         step = 0;
     }
     body.set(CORNER, step);
-    let next = rom_byte(cx.prg, 8, turns + u16::from(step));
-    let direction = if next & 0x80 == 0 {
+    let next = rom_byte(cx.prg, HOME_BANK, turns + u16::from(step));
+    let direction = if next & TURN_SPECIAL == 0 {
         next
-    } else if next == 0xFF {
-        *kind = 0;
+    } else if next == TURN_DESPAWN {
+        *kind = EMPTY;
         return;
     } else {
-        let jump = usize::from(next & 0x7F);
+        let jump = usize::from(next & JUMP_INDEX_MASK);
         (body.x, body.y) = tables.jump_positions[jump];
         tables.turn_directions[jump]
     };

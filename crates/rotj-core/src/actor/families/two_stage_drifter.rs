@@ -1,7 +1,7 @@
 //! Type `$6E`, a stage 3/9 enemy (bank 0 `$891D`).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 /// The even/odd metasprite pair the handler reads at `$89AD` (the `$F1` bit 3
@@ -12,6 +12,8 @@ const SPRITE_BANK: u8 = 9;
 const DRIFT: i16 = -32;
 /// The kind the dying path turns it into (`$8951`); its handler is bank 0 `$89B1`.
 const CONTINUATION: u8 = 0x70;
+/// Item drop kind (`$10`) written by `engine::dying` when a pickup drops.
+const PICKUP: u8 = 0x10;
 
 /// Type `$6E` keeps its whole state in [`Body`]. `$7DD0` is only an "it was on
 /// screen" flag (`$80`), read back by the shared off-screen tail at `$8908`.
@@ -26,7 +28,7 @@ impl State {
         body.vy = 0;
         // `$A56E` with A = 0 (the hit flash, or dying and becoming item `$10`).
         if engine::dying(kind, body, work, 0, cx) {
-            if *kind == 0x10 {
+            if *kind == PICKUP {
                 body.y = body.y.wrapping_sub(0x04C0);
                 *kind = CONTINUATION;
                 body.vy = 0;
@@ -40,7 +42,7 @@ impl State {
         if engine::on_screen(work, cx.world) != Visibility::On {
             // `$8908`: once it has been drawn, leaving the screen frees it.
             if body.phase & engine::DRAWN != 0 {
-                *kind = 0;
+                *kind = EMPTY;
             } else {
                 engine::store(body, work);
             }

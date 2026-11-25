@@ -4,7 +4,7 @@
 //! has (nametables, CHR, palette RAM, OAM) and each line's own scroll, `$2000`/`$2001`
 //! and CHR banks, so mid-frame changes show up exactly where the hardware shows them.
 
-use crate::actor::oam::attr;
+use crate::actor::oam::{self, attr};
 use crate::chr::{self, TILE_BYTES};
 use crate::palette;
 
@@ -162,6 +162,33 @@ pub mod ppu {
     pub const fn skip_attributes(addr: u16) -> u16 {
         addr.wrapping_add(0x40) & 0x23FF
     }
+
+    /// Whether `addr` falls inside a nametable's attribute table (`hi & $23 == $23 && lo >= $C0`).
+    #[must_use]
+    pub const fn in_attribute_table(addr: u16) -> bool {
+        let [hi, lo] = addr.to_be_bytes();
+        hi & 0x23 == 0x23 && lo >= 0xC0
+    }
+
+    /// Whether `addr` is the exact start of a nametable's attribute table (`hi & $23 == $23 && lo == $C0`).
+    #[must_use]
+    pub const fn at_attribute_table(addr: u16) -> bool {
+        let [hi, lo] = addr.to_be_bytes();
+        hi & 0x23 == 0x23 && lo == 0xC0
+    }
+
+    /// Whether `addr` lies in the bottom two tile rows or attribute table (`hi & $23 == $23 && lo >= $80`).
+    #[must_use]
+    pub const fn in_bottom_band(addr: u16) -> bool {
+        let [hi, lo] = addr.to_be_bytes();
+        hi & 0x23 == 0x23 && lo >= 0x80
+    }
+
+    /// Whether `addr` targets the first nametable page (`$2000-$23FF`: `hi & $FC == $20`).
+    #[must_use]
+    pub const fn in_first_nametable(addr: u16) -> bool {
+        addr.to_be_bytes()[0] & 0xFC == 0x20
+    }
 }
 
 /// Which physical nametable each logical one uses (`$EC`).
@@ -300,8 +327,7 @@ impl Picture<'_> {
     }
 
     fn colour(&self, line: &Line, entry: usize) -> u8 {
-        self.palette[if entry.is_multiple_of(4) { 0 } else { entry }]
-            & mask::colour_bits(line.mask & mask::GREYSCALE != 0)
+        palette::colour(self.palette, entry, line.mask & mask::GREYSCALE != 0)
     }
 }
 
@@ -340,11 +366,17 @@ impl Frame {
             let shift = cell.shift;
             let addr = base + usize::from(tile) * TILE_BYTES + fine_y;
             let bit = 7 - cell.column;
-            let low = (chr::byte(picture.chr, &line.chr, addr) >> bit) & 1;
-            let high = (chr::byte(picture.chr, &line.chr, addr + 8) >> bit) & 1;
             let shown = line.mask & mask::BACKGROUND != 0
                 && (x >= 8 || line.mask & mask::LEFT_BACKGROUND != 0);
-            let value = if shown { high << 1 | low } else { 0 };
+            let value = if shown {
+                chr::plane_pixel(
+                    chr::byte(picture.chr, &line.chr, addr),
+                    chr::byte(picture.chr, &line.chr, addr + 8),
+                    bit,
+                )
+            } else {
+                0
+            };
             *slot = value;
             let entry = usize::from((attr >> shift) & 3) * 4 + usize::from(value);
             self.put(y * SCREEN_W + x, picture.colour(line, entry));
@@ -365,28 +397,30 @@ impl Frame {
         let tall = line.ctrl & ctrl::TALL_SPRITES != 0;
         let height = if tall { 16 } else { 8 };
         let mut drawn = [false; SCREEN_W];
-        let found = (0..OAM_SPRITES)
-            .map(|i| &picture.oam[i * 4..i * 4 + 4])
-            .filter(|oam| (usize::from(oam[0]) + 1..usize::from(oam[0]) + 1 + height).contains(&y))
+        let found = oam::entries(picture.oam)
+            .filter(|oam| (usize::from(oam.y) + 1..usize::from(oam.y) + 1 + height).contains(&y))
             .take(sprites_per_line);
         for oam in found {
-            let (attr, x0) = (oam[2], usize::from(oam[3]));
-            let row = y - usize::from(oam[0]) - 1;
+            let (attr, x0) = (oam.attr, usize::from(oam.x));
+            let row = y - usize::from(oam.y) - 1;
             let row = if attr & attr::FLIP_Y != 0 {
                 height - 1 - row
             } else {
                 row
             };
             let addr = if tall {
-                let table = if oam[1] & 1 != 0 { 0x1000 } else { 0 };
-                table + usize::from(oam[1] & 0xFE) * TILE_BYTES + (row / 8) * TILE_BYTES + row % 8
+                let table = oam.tall_table() * 0x1000;
+                table
+                    + usize::from(oam.tall_index()) * 2 * TILE_BYTES
+                    + (row / 8) * TILE_BYTES
+                    + row % 8
             } else {
                 let table = if line.ctrl & ctrl::SPRITE_PATTERNS_HIGH != 0 {
                     0x1000
                 } else {
                     0
                 };
-                table + usize::from(oam[1]) * TILE_BYTES + row
+                table + usize::from(oam.tile) * TILE_BYTES + row
             };
             let (low, high) = (
                 chr::byte(picture.chr, &line.sprite_chr, addr),
@@ -402,7 +436,7 @@ impl Frame {
                 } else {
                     7 - col
                 };
-                let value = ((high >> bit) & 1) << 1 | ((low >> bit) & 1);
+                let value = chr::plane_pixel(low, high, bit);
                 if value == 0 {
                     continue;
                 }

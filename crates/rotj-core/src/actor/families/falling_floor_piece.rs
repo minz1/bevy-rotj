@@ -2,7 +2,7 @@
 
 use crate::actor::collision::wall;
 use crate::actor::engine::Work;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 use super::crumbling_block::fall;
@@ -17,7 +17,7 @@ impl State {
         if let Some(mut probe) = fall(body)
             && (body.y >= 0x1000 || wall(work, &mut probe, 0x80, cx))
         {
-            *kind = 0;
+            *kind = EMPTY;
         }
     }
 }

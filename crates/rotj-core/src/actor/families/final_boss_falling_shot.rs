@@ -9,15 +9,16 @@
 //! `$7DB0:$7DD0` x step and the `$7DF0:$7E10` y step.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Metatile};
+use crate::actor::slots::{Body, EMPTY, Metatile};
 use crate::actor::world::Cx;
+
+/// Sign bit used to clamp the low byte of the 16-bit y step (`[counter, timer]`).
+const VY_SIGN: u8 = 0x80;
 
 /// The handler and its tables live in bank 12.
 const HOME_BANK: u8 = 12;
-/// The metasprites' low bytes, indexed by `$F1 & $02` (`$95FF`).
-const POINTER_LO: u16 = 0x95FF;
-/// The metasprites' high bytes, the same index (`$9600`).
-const POINTER_HI: u16 = 0x9600;
+/// The metasprite pointer pair, indexed by `$F1 & $02` (`$95FF`).
+const POINTERS: u16 = 0x95FF;
 /// `$81C6` maps bank 9 at `$A000` for `$C247`.
 const DRAW_BANK: u8 = 9;
 /// Hit box the `$AFD6` contact uses (`$A5` = 1).
@@ -25,7 +26,7 @@ const HITBOX: u8 = 1;
 /// The boss pool the contact drains (`X:A` = `$0258`).
 const CONTACT_AMOUNT: u16 = 0x0258;
 /// `$AFD6` mode (`Y` = `$80`): only the player-touch arm runs.
-const CONTACT_MODE: u8 = 0x80;
+const CONTACT_MODE: engine::ContactMode = engine::ContactMode::TouchOnly;
 /// The row the fall parks at before counting down (`$92` >= `$0B`).
 const FREE_ROW: u8 = 0x0B;
 /// Frames of the parked fall before the slot frees (`$7D90` reaches `$20`).
@@ -49,14 +50,14 @@ impl State {
         // `$9537`: the 16-bit y step gains 3; its low byte clamps to `$80`
         // whenever its sign bit disagrees with the high byte's.
         [body.counter, body.timer] = gained_y_step([body.counter, body.timer]);
-        if (body.counter ^ body.timer) & 0x80 != 0 {
-            body.timer = 0x80;
+        if (body.counter ^ body.timer) & VY_SIGN != 0 {
+            body.timer = VY_SIGN;
         }
         // `$9560`: once it is falling the behaviour counts to `$20` and the slot frees.
         if body.anim != 0 {
             body.behaviour = body.behaviour.wrapping_add(1);
             if body.behaviour >= FALL_FRAMES {
-                *kind = 0;
+                *kind = EMPTY;
                 return;
             }
         }
@@ -85,10 +86,7 @@ impl State {
             }
         }
         let index = u16::from(cx.world.frame & 0x02);
-        work.pointer = u16::from_le_bytes([
-            engine::rom_byte(cx.prg, HOME_BANK, POINTER_LO + index),
-            engine::rom_byte(cx.prg, HOME_BANK, POINTER_HI + index),
-        ]);
+        work.pointer = engine::rom_word(cx.prg, HOME_BANK, POINTERS + index);
         if engine::on_screen(work, cx.world) == Visibility::On {
             engine::draw(work, DRAW_BANK, cx);
             work.hitbox = HITBOX;

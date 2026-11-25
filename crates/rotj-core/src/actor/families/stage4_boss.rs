@@ -10,7 +10,6 @@
 //! (`store`).
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::hit;
 use crate::actor::slots::{Body, Counter};
 use crate::actor::world::{Cx, Motion};
 
@@ -75,13 +74,12 @@ impl State {
     /// One frame of the handler (`$947A`).
     pub fn step(&mut self, _kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
-        let flash = engine::boss_flash(body, work, cx.world);
-        if flash & 0x80 != 0 {
+        if let engine::BossFlash::Dying { show } = engine::boss_flash(body, work, cx.world) {
             work.attr = 0;
             if body.dying_timer == 0x01 {
                 engine::boss_defeated(own_slot(cx), cx);
             }
-            if flash & 0x40 != 0 {
+            if show {
                 finish(body, work, cx);
             } else {
                 draw_bar(body, work, cx);
@@ -182,7 +180,7 @@ fn charge(body: &mut Body, cx: &mut Cx<'_>) {
     body.vx_drift = 0;
     let own = own_slot(cx);
     for slot in 16..=16 + usize::from(own) {
-        cx.slots.set_kind(slot, 0);
+        cx.slots.free(slot);
     }
     spawn_child(body, own, cx);
 }
@@ -223,8 +221,8 @@ fn finish(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     engine::draw(work, DRAW_BANK, cx);
     draw_bar(body, work, cx);
     work.hitbox = 0;
-    let contact = engine::boss_contact(CONTACT, 0, body, work, cx);
-    if contact & hit::FLASHING != 0 {
+    let contact = engine::boss_contact(CONTACT, engine::ContactMode::Both, body, work, cx);
+    if contact.was_damaged() {
         knock_back(body, work, cx);
     }
     engine::store(body, work);

@@ -65,24 +65,30 @@ impl State {
     }
 }
 
+/// `$D7` bit 7: negative offset (spawn ahead of camera rather than behind).
+const NEGATIVE_DISTANCE: u8 = 0x80;
+/// `$8D5E` bit 7: choose the closer 8-column offset instead of 10.
+const NEAR_COLUMN: u8 = 0x80;
+
 /// Writes the `$14` child at `camera - $D7` px into `slot` (`$8C94`-`$8D19`).
 fn spawn(slot: usize, phase: u8, cx: &mut Cx<'_>) {
     let tables = &cx.prg.families.scenery_spawner;
     let distance = cx.world.spawn_distance;
     let [cam_hi, _] = cx.world.camera_x.to_be_bytes();
-    let index = if distance & 0x80 == 0 {
-        distance
-    } else {
+    let ahead = distance & NEGATIVE_DISTANCE != 0;
+    let index = if ahead {
         distance.wrapping_neg()
-    };
-    let x = if distance & 0x80 == 0 {
-        cx.world.camera_x.wrapping_sub(u16::from(index) << 4)
     } else {
+        distance
+    };
+    let x = if ahead {
         cx.world.camera_x.wrapping_add(u16::from(index) << 4)
+    } else {
+        cx.world.camera_x.wrapping_sub(u16::from(index) << 4)
     };
     let offset = tables.x_offsets[usize::from(cam_hi == 0x90)];
     let table = tables.high_selectors[usize::from(phase)];
-    let columns = if table & 0x80 != 0 { 0x08 } else { 0x0A };
+    let columns = if table & NEAR_COLUMN != 0 { 0x08 } else { 0x0A };
     let x = child_x(x, columns, offset);
     let child = cx.slots.main[slot].spawn(CHILD, x, 0x0400);
     child.phase = 0;

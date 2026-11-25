@@ -6,7 +6,7 @@
 //! it), `$AEE3` (`touch`) and `$A934` (`store`).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 const METASPRITE_PTR: u16 = 0xA0FA;
@@ -53,7 +53,7 @@ impl State {
         work.x = work.x.wrapping_add(SHIFT_X);
         work.y = work.y.wrapping_add_signed(work.vy);
         if engine::on_screen(work, cx.world) != Visibility::On {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         work.pointer = METASPRITE_PTR;

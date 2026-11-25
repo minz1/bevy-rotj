@@ -9,14 +9,20 @@
 //!    next clock, but only if the counter hasn't counted down since the
 //!    write (Tetanes keeps `previous_counter` for this check).
 
+/// A buffered `$4003`-family length load waiting for the next frame-counter merge.
+#[derive(Debug, Clone, Copy)]
+struct PendingReload {
+    value: u8,
+    counter_at_write: u8,
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct LengthCounter {
     enabled: bool,
     halt: bool,
     new_halt: bool,
     counter: u8,
-    counter_at_write: u8,
-    reload: u8,
+    pending: Option<PendingReload>,
 }
 
 impl LengthCounter {
@@ -32,8 +38,7 @@ impl LengthCounter {
             halt: false,
             new_halt: false,
             counter: 0,
-            counter_at_write: 0,
-            reload: 0,
+            pending: None,
         }
     }
 
@@ -45,18 +50,21 @@ impl LengthCounter {
     /// `$4003`-family bits 7..3: load LENGTH_TABLE entry `index`.
     pub(super) fn write(&mut self, index: u8) {
         if self.enabled {
-            self.reload = Self::LENGTH_TABLE[usize::from(index & 0x1F)];
-            self.counter_at_write = self.counter;
+            self.pending = Some(PendingReload {
+                value: Self::LENGTH_TABLE[usize::from(index & 0x1F)],
+                counter_at_write: self.counter,
+            });
         }
     }
 
     /// Merges a pending length load and the buffered halt flag. Called after
     /// every frame-counter event, mirroring Tetanes `apu.rs:458-478`.
     pub(super) fn reload(&mut self) {
-        if self.reload > 0 && self.counter == self.counter_at_write {
-            self.counter = self.reload;
+        if let Some(pending) = self.pending.take()
+            && self.counter == pending.counter_at_write
+        {
+            self.counter = pending.value;
         }
-        self.reload = 0;
         self.halt = self.new_halt;
     }
 

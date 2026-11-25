@@ -1,7 +1,7 @@
 //! Type `$08`, the four-part burst `$AC16` spawns for type `$0A` (bank 8 `$8506`).
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Field};
+use crate::actor::slots::{Body, EMPTY, Field};
 use crate::actor::world::Cx;
 
 /// The four parts' six array pointers each (`$85CD`): x low/high, y low/high, x
@@ -64,7 +64,7 @@ impl State {
         let lifetime = body.get(LIFETIME).wrapping_sub(1);
         body.set(LIFETIME, lifetime);
         if lifetime & 0x80 != 0 {
-            *kind = 0;
+            *kind = EMPTY;
         }
     }
 }

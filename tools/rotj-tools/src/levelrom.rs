@@ -35,11 +35,8 @@ pub fn write(rom: &Path, area: usize, level: Option<usize>, out: &Path) -> Resul
 
     std::fs::create_dir_all(out).wrap_err_with(|| format!("creating {}", out.display()))?;
 
-    let mut raw = Vec::with_capacity(ROM_MAP_ROWS * MAP_COLUMNS);
-    for row in &map {
-        raw.extend_from_slice(row);
-    }
-    std::fs::write(out.join("map.bin"), &raw).wrap_err("writing map.bin")?;
+    let raw = map.as_bytes();
+    std::fs::write(out.join("map.bin"), raw).wrap_err("writing map.bin")?;
 
     let nonzero = raw.iter().filter(|&&b| b != 0).count();
     let mut text = String::new();
@@ -64,7 +61,7 @@ pub fn write(rom: &Path, area: usize, level: Option<usize>, out: &Path) -> Resul
          loader's unwritten window (payload code), reproduced for fidelity."
     )?;
     writeln!(text, "nonzero metatiles: {nonzero}")?;
-    for (r, row) in map.iter().enumerate() {
+    for (r, row) in map.rows().iter().enumerate() {
         write!(text, "{r:2}:")?;
         for &b in row {
             write!(text, " {b:02X}")?;

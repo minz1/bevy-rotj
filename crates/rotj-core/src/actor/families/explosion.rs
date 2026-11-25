@@ -6,7 +6,7 @@
 //! frees its slot after eight loops.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, EMPTY};
 use crate::actor::world::Cx;
 
 const METASPRITES: u16 = 0x9D41;
@@ -33,7 +33,7 @@ impl State {
         }
         body.anim.tick_up();
         if body.anim >= LIFETIME {
-            *kind = 0;
+            *kind = EMPTY;
         } else {
             engine::store(body, work);
         }

@@ -6,7 +6,7 @@
 //! frees itself when the `$7ED0` lifetime runs out.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Field};
+use crate::actor::slots::{Body, EMPTY, Field};
 use crate::actor::world::Cx;
 
 const HOME_BANK: u8 = 0;
@@ -23,7 +23,7 @@ const GRAVITY: u8 = 0x0C;
 const HITBOX: u8 = 1;
 /// `$AFD6`'s amount (X:A) and mode (Y).
 const CONTACT: u16 = 0x0100;
-const CONTACT_MODE: u8 = 0x80;
+const CONTACT_MODE: engine::ContactMode = engine::ContactMode::TouchOnly;
 
 /// Type `$92` has no handler phase: its `$7DD0` byte is part 0's x velocity.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -58,7 +58,7 @@ impl State {
         let lifetime = body.get(LIFETIME).wrapping_sub(1);
         body.set(LIFETIME, lifetime);
         if lifetime & 0x80 != 0 {
-            *kind = 0;
+            *kind = EMPTY;
         }
     }
 }

@@ -11,7 +11,7 @@ use crate::actor::spawn::SpawnTable;
 use crate::actor::stage::{Music, Stage as Descriptor};
 use crate::actors::SpawnRecord;
 use crate::render::Mirroring;
-use crate::rooms::{Raster, Room};
+use crate::rooms::{ChrBanks, Raster, Room};
 use crate::terrain::Terrain;
 
 pub mod custom;
@@ -125,7 +125,7 @@ pub struct Catalog {
 struct CatalogArea {
     area: u8,
     /// Each variant's `Room::chr`, in order of first appearance across the area's rooms.
-    variants: Vec<[u8; 4]>,
+    variants: Vec<ChrBanks>,
     /// The area's metatiles, with no stream.
     terrain: Terrain,
     /// The area's non-empty screen record.
@@ -219,18 +219,18 @@ impl Catalog {
         let banks = self
             .areas
             .iter()
-            .flat_map(|area| area.variants.iter().flatten());
-        banks.copied().filter(|bank| bank & 0x80 != 0).collect()
+            .flat_map(|area| area.variants.iter().flat_map(|chr| chr.0));
+        banks.filter(|&bank| ChrBanks::is_animated(bank)).collect()
     }
 
     /// The tileset name of `area`'s variant `chr`: `area-06`, then `area-06-b` and on.
-    fn tileset_name(&self, area: u8, chr: [u8; 4]) -> Option<String> {
+    fn tileset_name(&self, area: u8, chr: ChrBanks) -> Option<String> {
         let variant = self.area(area)?.variants.iter().position(|&v| v == chr)?;
         Some(tileset_name(area, variant))
     }
 
     /// The area and `Room::chr` a tileset name resolves to.
-    fn tileset(&self, name: &str) -> Option<(u8, [u8; 4])> {
+    fn tileset(&self, name: &str) -> Option<(u8, ChrBanks)> {
         self.areas.iter().find_map(|known| {
             let variant = (0..known.variants.len())
                 .find(|&variant| tileset_name(known.area, variant) == name)?;
@@ -303,14 +303,71 @@ fn boss(record: &SpawnRecord) -> Option<u8> {
         .then(|| record.health.to_be_bytes()[1])
 }
 
+/// A page-table / schedule position split into its page (or band) and column within it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Place {
+    page: usize,
+    column: usize,
+}
+
+impl Place {
+    /// Splits a 0..512 schedule column into its page-table entry (`0..32`) and column (`0..16`).
+    const fn from_schedule_column(column: usize) -> Self {
+        Self {
+            page: column >> 4,
+            column: column & 15,
+        }
+    }
+
+    /// Splits a page-table entry (`0..32`) into `(band, along)`; extra pages (`32+`) sit past
+    /// page 15 in band 0.
+    const fn from_region_entry(entry: usize) -> Self {
+        if entry < TABLE_ENTRIES {
+            Self {
+                page: entry >> 4,
+                column: entry & 15,
+            }
+        } else {
+            Self {
+                page: 0,
+                column: entry - PAGES,
+            }
+        }
+    }
+
+    /// Joins `page` and `column` into a schedule cell index (`pages[page] * 16 + column`).
+    const fn schedule_cell(self, pages: &[u8; TABLE_ENTRIES]) -> usize {
+        (pages[self.page] as usize) * 16 + self.column
+    }
+}
+
+/// One corner tile of a metatile: its 1 KiB CHR bank slot (`0..4`) and tile (`0..64`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Corner {
+    slot: u8,
+    tile: u8,
+}
+
+impl Corner {
+    /// Splits an auto-tiler corner byte into its CHR slot (bits 7-6) and tile (bits 5-0).
+    const fn decode(byte: u8) -> Self {
+        Self {
+            slot: byte >> 6,
+            tile: byte & 63,
+        }
+    }
+
+    /// Packs a CHR slot (`0..4`) and tile (`0..64`) into an auto-tiler corner byte.
+    const fn encode(self) -> u8 {
+        (self.slot << 6) | self.tile
+    }
+}
+
 /// Where page-table entry `entry` sits in a room's map, as (page along, band across); an
 /// extra page (32 and up) sits after page 15 in the first band.
 fn region_place(entry: usize) -> (usize, usize) {
-    if entry < TABLE_ENTRIES {
-        (entry & 15, entry >> 4)
-    } else {
-        (entry - PAGES, 0)
-    }
+    let place = Place::from_region_entry(entry);
+    (place.column, place.page)
 }
 
 /// The index in a map's tile data of cell `cell` of the page at `along`, `band`.
@@ -325,7 +382,7 @@ fn tile_index(vertical: bool, width: usize, (along, band): (usize, usize), cell:
 
 /// The schedule cell a room's schedule column (entry × 16 + column, 0-511) names.
 fn schedule_cell(pages: &[u8; TABLE_ENTRIES], column: usize) -> usize {
-    usize::from(pages[column >> 4]) * 16 + (column & 15)
+    Place::from_schedule_column(column).schedule_cell(pages)
 }
 
 /// The first spawn column the camera start implies: the first cell of the page under it.
@@ -336,8 +393,11 @@ fn derived_first_spawn_column(
     pages: &[u8; TABLE_ENTRIES],
 ) -> u8 {
     let (along, across) = along_across(vertical, camera_x, camera_y);
-    let entry_under_camera = usize::from(across >= 0x1000) * PAGES + usize::from(along >> 12);
-    pages[entry_under_camera] << 4
+    let place = Place {
+        page: usize::from(across >= 0x1000) * PAGES + usize::from(along >> 12),
+        column: 0,
+    };
+    u8::try_from(place.schedule_cell(pages)).expect("a page's first cell fits")
 }
 
 /// The `mirroring` property's values.

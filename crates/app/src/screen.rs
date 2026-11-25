@@ -6,7 +6,7 @@ use std::path::Path;
 
 use bevy::prelude::*;
 use bevy::window::{PresentMode, PrimaryWindow};
-use rotj_core::palette::{NES_PALETTE, RGB_PPU, Rgb, from_pal, ntsc};
+use rotj_core::palette::{self, NES_PALETTE, RGB_PPU, Rgb, from_pal, ntsc};
 use rotj_core::render::{Frame, SCREEN_H, SCREEN_W};
 
 use crate::settings::{Overscan, PaletteChoice, Settings, SettingsDir};
@@ -109,7 +109,7 @@ pub fn rgba_into(indices: &[u8], rgb: &Rgb, edges: &[bool], out: &mut [u8]) {
         let colour = if edge {
             [0, 0, 0]
         } else {
-            rgb[usize::from(index & 0x3F)]
+            palette::rgb(rgb, index)
         };
         pixel[..3].copy_from_slice(&colour);
         pixel[3] = 0xFF;
@@ -174,21 +174,27 @@ pub fn screen_frame(screen: &mut Screen) -> &mut Frame {
     &mut screen.frame
 }
 
-/// A black 256x240 RGBA image.
-fn blank_image() -> Image {
+/// Builds an `Rgba8UnormSrgb` 2D Bevy image from raw RGBA bytes.
+#[must_use]
+pub(crate) fn rgba_image(width: usize, height: usize, data: Vec<u8>) -> Image {
     use bevy::asset::RenderAssetUsages;
     use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
     Image::new(
         Extent3d {
-            width: u32::try_from(SCREEN_W).expect("tiny"),
-            height: u32::try_from(SCREEN_H).expect("tiny"),
+            width: u32::try_from(width).expect("image width fits u32"),
+            height: u32::try_from(height).expect("image height fits u32"),
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
-        vec![0; SCREEN_W * SCREEN_H * 4],
+        data,
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::default(),
     )
+}
+
+/// A black 256x240 RGBA image.
+fn blank_image() -> Image {
+    rgba_image(SCREEN_W, SCREEN_H, vec![0; SCREEN_W * SCREEN_H * 4])
 }
 
 /// Copies the rendered frame into the displayed image, in [`Colours`], when either changed.

@@ -47,7 +47,6 @@
 use thiserror::Error;
 
 use crate::actor::oam::attr;
-use crate::ines::FME7_PRG_BANK_SIZE;
 
 /// FME-7 PRG bank holding the actor spawn tables.
 pub const SPAWN_BANK: u8 = 0x03;
@@ -239,12 +238,13 @@ pub enum ActorError {
 
 /// The `bank`/`offset` slice of `prg`, or [`ActorError::OutOfRange`].
 pub(crate) fn bank_slice(prg: &[u8], bank: u8, offset: u16) -> Result<&[u8], ActorError> {
-    let base = usize::from(bank) * FME7_PRG_BANK_SIZE + usize::from(offset);
-    prg.get(base..).ok_or(ActorError::OutOfRange {
-        bank,
-        offset,
-        len: prg.len(),
-    })
+    crate::prg::from_bank(prg, usize::from(bank), usize::from(offset)).ok_or(
+        ActorError::OutOfRange {
+            bank,
+            offset,
+            len: prg.len(),
+        },
+    )
 }
 
 /// Read `len` bytes at a CPU address inside `bank`'s window.
@@ -367,6 +367,7 @@ pub fn state_handlers(prg: &[u8]) -> Result<Vec<u16>, ActorError> {
 mod tests {
     use super::*;
     use crate::actor::oracle::Scene;
+    use crate::prg::BANK_BYTES;
 
     /// WRAM offset of `$7CC0` in the oracle's `$6000`-based 8 KiB image.
     const SLOT_WRAM: usize = 0x1CC0;
@@ -378,7 +379,7 @@ mod tests {
 
     /// Byte offset of the start of `bank` in the flattened PRG.
     fn base(bank: u8) -> usize {
-        usize::from(bank) * FME7_PRG_BANK_SIZE
+        usize::from(bank) * BANK_BYTES
     }
 
     /// Bank-3 offset for a CPU `$A000`-window address.
@@ -388,7 +389,7 @@ mod tests {
 
     /// A 16-bank PRG holding the actor spawn tables and records.
     fn synthetic_prg() -> Vec<u8> {
-        let mut prg = vec![0u8; 16 * FME7_PRG_BANK_SIZE];
+        let mut prg = vec![0u8; 16 * BANK_BYTES];
         let spawn = base(SPAWN_BANK);
         let behaviour = base(BEHAVIOUR_BANK);
         let state = base(STATE_BANK);

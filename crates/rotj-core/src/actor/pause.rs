@@ -40,6 +40,25 @@ impl Default for Pause {
     }
 }
 
+/// PRG bank holding the pause screen's layout, palette and glyph tables.
+const PAUSE_BANK: u8 = 8;
+/// PRG bank holding the pause screen's metasprites.
+const DRAW_BANK: u8 = 1;
+/// Bank 8 `$9DC2`: the pause screen's 16 sprite palette entries.
+const SPRITE_PALETTE: u16 = 0x9DC2;
+/// Bank 8 `$9E1A`: 16-bit metasprite pointers for digits 0-9.
+const DIGIT_POINTERS: u16 = 0x9E1A;
+/// Bank 8 `$9E2E`: screen X of the five pause card metasprites.
+const ELEMENT_X: u16 = 0x9E2E;
+/// Bank 8 `$9E33`: screen Y of the five pause card metasprites.
+const ELEMENT_Y: u16 = 0x9E33;
+/// Bank 8 `$9E38`: 16-bit metasprite pointers of the five pause card elements.
+const ELEMENT_POINTERS: u16 = 0x9E38;
+/// Bank 8 `$9E42`: attribute bytes of the five pause card elements.
+const ELEMENT_ATTR: u16 = 0x9E42;
+/// Bank 8 `$9E47`: tile indices for password letters `A`-`Z`.
+const LETTER_TILES: u16 = 0x9E47;
+
 impl Pause {
     /// True once Start has ended the pause; the loop body runs next (`$9CA8`).
     #[must_use]
@@ -109,10 +128,10 @@ impl Pause {
             *colour = colour.checked_sub(0x10).unwrap_or(*colour);
         }
         for (i, colour) in (0..).zip(&mut palette[16..]) {
-            *colour = rom_byte(prg, 8, 0x9DC2 + i);
+            *colour = rom_byte(prg, PAUSE_BANK, SPRITE_PALETTE + i);
         }
         palette[22] = self.colour;
-        set_first_colours(&mut palette, 0x0F);
+        set_first_colours(&mut palette, crate::palette::BLACK);
         game.effects.vram.push_palette(&palette);
     }
 }
@@ -126,11 +145,11 @@ fn draw_screen(game: &mut Game, prg: &Prg) {
     work.anchor = 0;
     work.tile = 0;
     for i in (0..5).rev() {
-        work.screen_x = rom_byte(prg, 8, 0x9E2E + i);
-        work.screen_y = rom_byte(prg, 8, 0x9E33 + i);
-        work.attr = rom_byte(prg, 8, 0x9E42 + i);
-        work.pointer = rom_word(prg, 8, 0x9E38 + 2 * i);
-        draw(work, 1, &mut cx);
+        work.screen_x = rom_byte(prg, PAUSE_BANK, ELEMENT_X + i);
+        work.screen_y = rom_byte(prg, PAUSE_BANK, ELEMENT_Y + i);
+        work.attr = rom_byte(prg, PAUSE_BANK, ELEMENT_ATTR + i);
+        work.pointer = rom_word(prg, PAUSE_BANK, ELEMENT_POINTERS + 2 * i);
+        draw(work, DRAW_BANK, &mut cx);
     }
     work.screen_y = 0xBF;
     let password = stage::at(&prg.levels, stage::checkpoint(&prg.levels, area))
@@ -143,7 +162,11 @@ fn draw_screen(game: &mut Game, prg: &Prg) {
         .zip(password)
         .zip(name[1..17].as_chunks_mut::<4>().0)
     {
-        let tile = rom_byte(prg, 8, 0x9E47 + u16::from(letter.wrapping_sub(0x41)));
+        let tile = rom_byte(
+            prg,
+            PAUSE_BANK,
+            LETTER_TILES + u16::from(letter.wrapping_sub(0x41)),
+        );
         piece.copy_from_slice(&[tile, 0xF0u8.wrapping_add(9 * i), 0, 0xEF]);
     }
     work.pointer = NAME;
@@ -154,7 +177,7 @@ fn draw_screen(game: &mut Game, prg: &Prg) {
     for (x, y, digit) in digits {
         work.screen_x = x;
         work.screen_y = y;
-        work.pointer = rom_word(prg, 8, 0x9E1A + 2 * u16::from(digit));
-        draw(work, 1, &mut cx);
+        work.pointer = rom_word(prg, PAUSE_BANK, DIGIT_POINTERS + 2 * u16::from(digit));
+        draw(work, DRAW_BANK, &mut cx);
     }
 }

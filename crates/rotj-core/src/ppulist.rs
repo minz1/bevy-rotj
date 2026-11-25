@@ -83,8 +83,8 @@ pub fn verify_known_lists(prg: &[u8]) -> Vec<String> {
     KNOWN_LISTS
         .iter()
         .map(|&(bank, offset, entries, terminator)| {
-            let base = usize::from(bank) * crate::ines::FME7_PRG_BANK_SIZE + usize::from(offset);
-            let slice = prg.get(base..).unwrap_or(&[]);
+            let slice =
+                crate::prg::from_bank(prg, usize::from(bank), usize::from(offset)).unwrap_or(&[]);
             let mut list = WriteList::new(slice);
             let decoded: Vec<Entry<'_>> = list.by_ref().collect();
             // `end_offset` is one past the $FF, so the terminator sits at

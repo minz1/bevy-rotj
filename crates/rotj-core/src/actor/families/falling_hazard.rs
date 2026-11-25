@@ -8,7 +8,7 @@
 //! `$7DD0`/`$7D50`, so its phase is always the spawn value.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 const HOME_BANK: u8 = 12;
@@ -32,7 +32,7 @@ impl State {
         work.y = work.y.wrapping_add(FALL);
         work.pointer = engine::rom_word(cx.prg, HOME_BANK, POINTER);
         if engine::on_screen(work, cx.world) != Visibility::On {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         if work.screen_y >= BOTTOM {
@@ -43,7 +43,7 @@ impl State {
         work.hitbox = HITBOX;
         engine::touch(work, DAMAGE, cx);
         if work.screen_y >= BOTTOM {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         engine::store(body, work);

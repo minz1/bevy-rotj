@@ -4,7 +4,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::oam::attr;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 /// The word at `$9551`, the moving metasprite (bank 1).
@@ -27,7 +27,7 @@ impl State {
             work.attr = 0;
             body.hit = body.hit.wrapping_add(1);
             if body.hit & 0x08 != 0 {
-                *kind = 0;
+                *kind = EMPTY;
                 return;
             }
             work.pointer = FLASH;
@@ -51,14 +51,14 @@ impl State {
             work.pointer = MOVING;
         }
         if engine::on_screen(work, cx.world) != Visibility::On {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         engine::tile_bits(work, cx.prg);
         engine::draw(work, 1, cx);
         work.hitbox = 3;
         if engine::touch(work, 2, cx) {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         engine::store(body, work);

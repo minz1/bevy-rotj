@@ -8,8 +8,7 @@
 //! `$04`/`$06`.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
-use crate::actor::slots::hit;
+use crate::actor::slots::{Body, EMPTY, hit};
 use crate::actor::world::{Cx, sound};
 
 /// The `$3A` metasprite pointers (`$91D8`), indexed by `$7C30`.
@@ -20,7 +19,7 @@ const SHELL_SPRITE: u16 = 0x92B5;
 const SHELL_POOL: u16 = 0x0258;
 /// The `$AFD6` amount a `$3A` part drains on contact (`$919A`) and its mode.
 const PART_POOL: u16 = 0x01E0;
-const PART_MODE: u8 = 0x80;
+const PART_MODE: engine::ContactMode = engine::ContactMode::TouchOnly;
 /// The `$3C` detonation (`$9288`): sound and the y step down.
 const DETONATE_DROP: u16 = 0x04C0;
 /// `$826F` maps bank 9 into `$A000` for the draws (`$C247`).
@@ -69,7 +68,7 @@ fn part(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     drift(work, body.phase, cx);
     work.pointer = engine::rom_word(cx.prg, 11, PART_SPRITE + 2 * u16::from(body.sprite));
     if engine::on_screen(work, cx.world) != Visibility::On {
-        *kind = 0;
+        *kind = EMPTY;
         return;
     }
     work.tile = 0;
@@ -77,8 +76,9 @@ fn part(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::draw(work, DRAW_BANK, cx);
     }
     work.hitbox = 1;
-    if engine::boss_contact(PART_POOL, PART_MODE, body, work, cx) & 0x80 != 0 {
-        *kind = 0;
+    if engine::boss_contact(PART_POOL, PART_MODE, body, work, cx) == engine::BossContact::HurtPlayer
+    {
+        *kind = crate::actor::slots::EMPTY;
         return;
     }
     body.x = work.x;
@@ -98,7 +98,7 @@ fn drift(work: &mut Work, phase: u8, cx: &Cx<'_>) {
 /// contact.
 fn shell(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if cx.effects.boss_hp == 0 {
-        *kind = 0;
+        *kind = EMPTY;
         return;
     }
     engine::load(body, work);

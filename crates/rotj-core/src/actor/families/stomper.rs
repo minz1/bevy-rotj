@@ -5,6 +5,12 @@ use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::{Body, Counter, contact, hit};
 use crate::actor::world::{Cx, sound};
 
+/// The bank holding the stomper's tables and hit-flash metasprite.
+const HOME_BANK: u8 = 8;
+/// The bank holding the stomper's main metasprites.
+const SPRITE_BANK: u8 = 1;
+/// `body.anim` bit 7 while hovering: waiting out the cooldown between stomps.
+const COOLDOWN: u8 = 0x80;
 /// The overlay metasprites (bank 8 `$8A64`, by Y = 0 or 2).
 const OVERLAYS: u16 = 0x8A64;
 /// The impact metasprites (bank 8 `$8A76`, by `$F1 & 6`).
@@ -51,13 +57,13 @@ pub struct Tables {
 impl Tables {
     /// Reads the tables from the PRG.
     pub(crate) fn import(prg: &[u8]) -> Tables {
-        let shifts: [u8; 4] = engine::rom_bytes(prg, 8, 0x8AB4);
+        let shifts: [u8; 4] = engine::rom_bytes(prg, HOME_BANK, 0x8AB4);
         Tables {
-            landing_counters: engine::rom_bytes(prg, 8, 0x8A6E),
-            anims: engine::rom_bytes(prg, 8, 0x8A7E),
-            draw_offsets: engine::rom_bytes(prg, 8, 0x8A86),
-            step_counts: engine::rom_bytes(prg, 8, 0x8AAD),
-            stomp_steps: engine::rom_bytes(prg, 8, 0x8AB1),
+            landing_counters: engine::rom_bytes(prg, HOME_BANK, 0x8A6E),
+            anims: engine::rom_bytes(prg, HOME_BANK, 0x8A7E),
+            draw_offsets: engine::rom_bytes(prg, HOME_BANK, 0x8A86),
+            step_counts: engine::rom_bytes(prg, HOME_BANK, 0x8AAD),
+            stomp_steps: engine::rom_bytes(prg, HOME_BANK, 0x8AB1),
             stomp_shifts: std::array::from_fn(|i| u16::from_le_bytes([shifts[i], shifts[i + 1]])),
         }
     }
@@ -84,11 +90,11 @@ impl State {
                 return;
             }
             if body.hit & hit::FLASHING != 0 {
-                work.pointer = engine::rom_word(cx.prg, 8, FLASH);
+                work.pointer = engine::rom_word(cx.prg, HOME_BANK, FLASH);
                 work.chr_slot = 6;
                 work.attr = 0;
                 work.tile = 0;
-                engine::draw(work, 8, cx);
+                engine::draw(work, HOME_BANK, cx);
                 body.hit = 0;
             }
         }
@@ -108,15 +114,15 @@ fn explode(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     work.y = body.y;
     _ = engine::spawn_parts(0, work, cx);
     _ = engine::spawn_parts(1, work, cx);
-    let source = engine::rom_word(cx.prg, 8, RUBBLE);
+    let source = engine::rom_word(cx.prg, HOME_BANK, RUBBLE);
     let metatiles: Vec<u8> = (0..9)
-        .map(|i| engine::rom_byte(cx.prg, 8, source + i))
+        .map(|i| engine::rom_byte(cx.prg, HOME_BANK, source + i))
         .collect();
     let cell = u16::from_be_bytes([body.subtype, body.behaviour]);
     engine::copy_metatiles(cell, 3, &metatiles, &mut cx.effects.level);
-    let source = engine::rom_word(cx.prg, 8, RUBBLE_TILES);
+    let source = engine::rom_word(cx.prg, HOME_BANK, RUBBLE_TILES);
     let tiles: Vec<u8> = (0..36)
-        .map(|i| engine::rom_byte(cx.prg, 8, source + i))
+        .map(|i| engine::rom_byte(cx.prg, HOME_BANK, source + i))
         .collect();
     let block = engine::TileBlock {
         column: work.x.to_be_bytes()[0].wrapping_sub(1),
@@ -143,7 +149,7 @@ fn hovering(
         engine::contact(kind, body, work, 4, cx);
     }
     let mut wake = true;
-    if body.anim & 0x80 != 0 {
+    if body.anim & COOLDOWN != 0 {
         body.counter.tick_down();
         if body.counter != 0 {
             wake = false;
@@ -185,11 +191,12 @@ fn landing(
             let [seed, noise] = cx.world.rng;
             work.screen_x = work.screen_x.wrapping_add(seed & 3);
             work.screen_y = work.screen_y.wrapping_add(noise & 3);
-            work.pointer = engine::rom_word(cx.prg, 8, IMPACTS + u16::from(cx.world.frame & 6));
+            work.pointer =
+                engine::rom_word(cx.prg, HOME_BANK, IMPACTS + u16::from(cx.world.frame & 6));
             work.chr_slot = 7;
             work.tile = 0xC0;
             work.attr = 3;
-            engine::draw(work, 1, cx);
+            engine::draw(work, SPRITE_BANK, cx);
             overlay(work, 2, cx);
         }
     }
@@ -228,15 +235,15 @@ fn stomping(
         let frames = table_word(cx.prg, FRAMES, u16::from(body.anim));
         let touches = table_word(cx.prg, TOUCHES, u16::from(body.anim));
         let index = u16::from(body.counter & 0xFE);
-        work.pointer = engine::rom_word(cx.prg, 8, frames + index);
-        if engine::rom_byte(cx.prg, 8, touches + ((index + 1) >> 1)) != 0 {
+        work.pointer = engine::rom_word(cx.prg, HOME_BANK, frames + index);
+        if engine::rom_byte(cx.prg, HOME_BANK, touches + ((index + 1) >> 1)) != 0 {
             work.hitbox = 1;
             engine::touch(work, 4, cx);
         }
         work.chr_slot = 7;
         work.tile = 0xC0;
         work.attr = if cx.world.frame_odd { 3 } else { 0 };
-        engine::draw(work, 1, cx);
+        engine::draw(work, SPRITE_BANK, cx);
         overlay(work, 2, cx);
     }
     body.counter.tick_up();
@@ -254,7 +261,7 @@ fn stomping(
         body.counter = 8;
         return;
     }
-    body.anim = 0x80;
+    body.anim = COOLDOWN;
     body.phase = Phase::Hovering.byte();
     body.counter = 0x20;
     body.timer.tick_up();
@@ -271,12 +278,12 @@ fn overlay(work: &mut Work, y: u8, cx: &mut Cx<'_>) {
     } else {
         0x01
     };
-    work.pointer = engine::rom_word(cx.prg, 8, OVERLAYS + u16::from(y));
+    work.pointer = engine::rom_word(cx.prg, HOME_BANK, OVERLAYS + u16::from(y));
     work.x = work.x.wrapping_sub(0x100);
     if engine::on_screen(work, cx.world) == Visibility::On {
         work.tile = 0x80;
         work.chr_slot = 6;
-        engine::draw(work, 1, cx);
+        engine::draw(work, SPRITE_BANK, cx);
     }
     work.x = work.x.wrapping_add(0x100);
 }
@@ -285,8 +292,8 @@ fn overlay(work: &mut Work, y: u8, cx: &mut Cx<'_>) {
 /// `$8A89`/`$8AB8`).
 fn table_word(prg: &[u8], base: u16, index: u16) -> u16 {
     u16::from_le_bytes([
-        engine::rom_byte(prg, 8, base + index),
-        engine::rom_byte(prg, 8, base + index + 1),
+        engine::rom_byte(prg, HOME_BANK, base + index),
+        engine::rom_byte(prg, HOME_BANK, base + index + 1),
     ])
 }
 

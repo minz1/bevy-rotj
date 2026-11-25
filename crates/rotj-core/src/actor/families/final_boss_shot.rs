@@ -5,7 +5,7 @@
 //! (`boss_contact`); it never calls `$A79B` (`integrate`) or `$A9C4`.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, EMPTY};
 use crate::actor::world::Cx;
 
 /// The handler and its tables live in bank 12.
@@ -19,7 +19,7 @@ const HITBOX: u8 = 1;
 /// The boss pool the contact drains (`X:A` = `$0258`).
 const CONTACT_AMOUNT: u16 = 0x0258;
 /// `$AFD6` mode (`Y` = `$80`): only the player-touch arm runs.
-const CONTACT_MODE: u8 = 0x80;
+const CONTACT_MODE: engine::ContactMode = engine::ContactMode::TouchOnly;
 /// The row at or below which the part frees itself (`$92` >= `$0B`).
 const FREE_ROW: u8 = 0x0B;
 
@@ -41,13 +41,13 @@ impl State {
             .wrapping_add(u16::from_be_bytes([body.counter, body.timer]));
         let [row, below] = work.y.to_be_bytes();
         if below & 0x80 != 0 && row >= FREE_ROW {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         let index = u16::from((body.anim >> 1) & 0x06);
         work.pointer = engine::rom_word(cx.prg, HOME_BANK, METASPRITES + index);
         if engine::on_screen(work, cx.world) != Visibility::On {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         engine::draw(work, DRAW_BANK, cx);

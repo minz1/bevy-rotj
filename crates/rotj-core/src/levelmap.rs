@@ -144,6 +144,15 @@ pub const ATTRIBUTE_BYTES: usize = 64;
 /// 256 px pages in the map's width, i.e. attribute tables in WRAM `$7600-$79FF`.
 pub const ATTRIBUTE_PAGES: usize = MAP_COLUMNS / 16;
 
+/// End of the main payload copy in the `$7000-$7FFF` image (`$7E60`).
+const WRAM_HEAD_END: usize = 0xE60;
+/// Length of the payload tail copied into `$7E60-$7FBF`.
+const WRAM_TAIL_LEN: usize = 0x160;
+/// End of the payload / boot copy in `$7000-$7FFF` (`$7FC0`).
+const WRAM_TAIL_END: usize = 0xFC0;
+/// Offset in `$7000-$7FFF` of the palette-class buffer (`$7B00`).
+const WRAM_CLASSES_OFFSET: usize = 0xB00;
+
 /// Bank 02 `$8ECF` = CPU `$8ECF`: the CHR 1 KiB base bank the **auto-tiler**
 /// (`$8B9E`) reads its area definition from, one entry per area (`$0400 / 2`).
 /// This is a *different* table from [`AREA_BANK`], which the map stream uses;
@@ -155,9 +164,169 @@ const CLASS_BANK: usize = 0x8ECF;
 /// [`AREA_PPU`]).
 const CLASS_PPU: usize = 0x8EE1;
 
-/// `LDA $2007` count of each auto-tiler handler (jump table bank 02 `$8C1D`,
-/// 19 entries): shape `s` consumes this many definition bytes per metatile.
-const HANDLER_READS: [u8; 19] = [1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4];
+/// Auto-tiler corner-expansion handler (`$8C1D`, 19 entries).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Handler {
+    /// 0: `[a, a, a, a]` (1 byte).
+    RepeatAll,
+    /// 1: `[a, a+$10, a+1, a+$11]` (1 byte).
+    Block2x2,
+    /// 2: `[a, b, a, b]` (2 bytes).
+    Columns,
+    /// 3: `[a, a, b, b]` (2 bytes).
+    Rows,
+    /// 4: `[a, b, a+1, b+1]` (2 bytes).
+    VerticalPairs,
+    /// 5: `[a, a+$10, b, b+$10]` (2 bytes).
+    HorizontalPairs,
+    /// 6: `[a, a, b, b+$10]` (2 bytes).
+    TopSameBottomPair,
+    /// 7: `[a, a+$10, b, b]` (2 bytes).
+    TopPairBottomSame,
+    /// 8: `[a, b, a+1, b]` (2 bytes).
+    LeftPairRightSame,
+    /// 9: `[a, b, a, b+1]` (2 bytes).
+    LeftSameRightPair,
+    /// 10: `[a, b, a, c]` (3 bytes).
+    RepeatLeft,
+    /// 11: `[b, a, c, a]` (3 bytes).
+    RepeatRight,
+    /// 12: `[a, a, b, c]` (3 bytes).
+    RepeatTop,
+    /// 13: `[b, c, a, a]` (3 bytes).
+    RepeatBottom,
+    /// 14: `[a, b, a+1, c]` (3 bytes).
+    LeftPairFreeRight,
+    /// 15: `[b, a, c, a+1]` (3 bytes).
+    RightPairFreeLeft,
+    /// 16: `[a, a+$10, b, c]` (3 bytes).
+    TopPairFreeBottom,
+    /// 17: `[b, c, a, a+$10]` (3 bytes).
+    BottomPairFreeTop,
+    /// 18: `[a, b, c, d]` (4 bytes).
+    FourTiles,
+}
+
+impl Handler {
+    const fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            0 => Some(Self::RepeatAll),
+            1 => Some(Self::Block2x2),
+            2 => Some(Self::Columns),
+            3 => Some(Self::Rows),
+            4 => Some(Self::VerticalPairs),
+            5 => Some(Self::HorizontalPairs),
+            6 => Some(Self::TopSameBottomPair),
+            7 => Some(Self::TopPairBottomSame),
+            8 => Some(Self::LeftPairRightSame),
+            9 => Some(Self::LeftSameRightPair),
+            10 => Some(Self::RepeatLeft),
+            11 => Some(Self::RepeatRight),
+            12 => Some(Self::RepeatTop),
+            13 => Some(Self::RepeatBottom),
+            14 => Some(Self::LeftPairFreeRight),
+            15 => Some(Self::RightPairFreeLeft),
+            16 => Some(Self::TopPairFreeBottom),
+            17 => Some(Self::BottomPairFreeTop),
+            18 => Some(Self::FourTiles),
+            _ => None,
+        }
+    }
+
+    /// Number of definition bytes consumed by this handler.
+    const fn reads(self) -> usize {
+        match self {
+            Self::RepeatAll | Self::Block2x2 => 1,
+            Self::Columns
+            | Self::Rows
+            | Self::VerticalPairs
+            | Self::HorizontalPairs
+            | Self::TopSameBottomPair
+            | Self::TopPairBottomSame
+            | Self::LeftPairRightSame
+            | Self::LeftSameRightPair => 2,
+            Self::RepeatLeft
+            | Self::RepeatRight
+            | Self::RepeatTop
+            | Self::RepeatBottom
+            | Self::LeftPairFreeRight
+            | Self::RightPairFreeLeft
+            | Self::TopPairFreeBottom
+            | Self::BottomPairFreeTop => 3,
+            Self::FourTiles => 4,
+        }
+    }
+
+    /// Expands `bytes` into `[top-left, top-right, bottom-left, bottom-right]`.
+    fn corners(self, bytes: &[u8]) -> Option<[u8; 4]> {
+        let a = *bytes.first()?;
+        let b = bytes.get(1).copied().unwrap_or(0);
+        let c = bytes.get(2).copied().unwrap_or(0);
+        let d = bytes.get(3).copied().unwrap_or(0);
+        Some(match self {
+            Self::RepeatAll => [a, a, a, a],
+            Self::Block2x2 => [
+                a,
+                a.wrapping_add(0x10),
+                a.wrapping_add(1),
+                a.wrapping_add(0x11),
+            ],
+            Self::Columns => [a, b, a, b],
+            Self::Rows => [a, a, b, b],
+            Self::VerticalPairs => [a, b, a.wrapping_add(1), b.wrapping_add(1)],
+            Self::HorizontalPairs => [a, a.wrapping_add(0x10), b, b.wrapping_add(0x10)],
+            Self::TopSameBottomPair => [a, a, b, b.wrapping_add(0x10)],
+            Self::TopPairBottomSame => [a, a.wrapping_add(0x10), b, b],
+            Self::LeftPairRightSame => [a, b, a.wrapping_add(1), b],
+            Self::LeftSameRightPair => [a, b, a, b.wrapping_add(1)],
+            Self::RepeatLeft => [a, b, a, c],
+            Self::RepeatRight => [b, a, c, a],
+            Self::RepeatTop => [a, a, b, c],
+            Self::RepeatBottom => [b, c, a, a],
+            Self::LeftPairFreeRight => [a, b, a.wrapping_add(1), c],
+            Self::RightPairFreeLeft => [b, a, c, a.wrapping_add(1)],
+            Self::TopPairFreeBottom => [a, a.wrapping_add(0x10), b, c],
+            Self::BottomPairFreeTop => [b, c, a, a.wrapping_add(0x10)],
+            Self::FourTiles => [a, b, c, d],
+        })
+    }
+}
+
+/// Decoded metatile definitions for one area, yielding `(id, Handler, bytes)` and the
+/// packed 2-bit palette classes that immediately follow them.
+struct AreaDefinitions<'a> {
+    count: usize,
+    entries: Vec<(Handler, &'a [u8])>,
+    packed_classes: &'a [u8],
+}
+
+fn area_definitions<'a>(prg: &[u8], chr: &'a [u8], area: usize) -> Option<AreaDefinitions<'a>> {
+    let start = class_start(prg, area)?;
+    let definition = chr.get(start..)?;
+    let count = usize::from(*definition.get(2)?);
+
+    let mut shape = [0u8; 16];
+    shape[0] = 0x12;
+    shape[1..].copy_from_slice(definition.get(3..18)?);
+
+    let mut offset = 18usize.checked_add(count.div_ceil(2))?;
+    let mut entries = Vec::with_capacity(count);
+    for id in 0..count {
+        let pair = *definition.get(18 + id / 2)?;
+        let nibble = if id % 2 == 0 { pair >> 4 } else { pair & 0x0F };
+        let handler = Handler::from_byte(*shape.get(usize::from(nibble))?)?;
+        let reads = handler.reads();
+        let bytes = definition.get(offset..offset.checked_add(reads)?)?;
+        offset += reads;
+        entries.push((handler, bytes));
+    }
+    let packed_classes = definition.get(offset..offset.checked_add(count.div_ceil(4))?)?;
+    Some(AreaDefinitions {
+        count,
+        entries,
+        packed_classes,
+    })
+}
 
 /// Decode the metatile map (`$6000-$6FFF`, [`ROM_MAP_ROWS`] x [`MAP_COLUMNS`])
 /// for one area straight from the ROM's CHR, exactly as the game's loader does.
@@ -182,11 +351,7 @@ const HANDLER_READS: [u8; 19] = [1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
 ///
 /// Returns `None` when `prg`/`chr` are too short or `area` is out of range.
 #[must_use]
-pub fn map_from_rom(
-    prg: &[u8],
-    chr: &[u8],
-    area: usize,
-) -> Option<[[u8; MAP_COLUMNS]; ROM_MAP_ROWS]> {
+pub fn map_from_rom(prg: &[u8], chr: &[u8], area: usize) -> Option<Map> {
     let mut image = payload_image(chr)?;
     map_over(prg, chr, area, &mut image)
 }
@@ -197,9 +362,9 @@ pub fn map_from_rom(
 pub fn payload_image(chr: &[u8]) -> Option<[u8; 0x1000]> {
     let mut image = [0u8; 0x1000];
     let head = usize::from(PAYLOAD_FIRST_BANK) * 1024 + 0x1000;
-    image[..0xE60].copy_from_slice(chr.get(head..head + 0xE60)?);
+    image[..WRAM_HEAD_END].copy_from_slice(chr.get(head..head + WRAM_HEAD_END)?);
     let tail = usize::from(PAYLOAD_TAIL_BANK) * 1024 + usize::from(PAYLOAD_TAIL_OFFSET);
-    image[0xE60..0xFC0].copy_from_slice(chr.get(tail..tail + 0x160)?);
+    image[WRAM_HEAD_END..WRAM_TAIL_END].copy_from_slice(chr.get(tail..tail + WRAM_TAIL_LEN)?);
     Some(image)
 }
 
@@ -210,19 +375,14 @@ pub fn payload_image(chr: &[u8]) -> Option<[u8; 0x1000]> {
 pub fn boot_image(chr: &[u8]) -> Option<[u8; 0x1000]> {
     let head = usize::from(BOOT_FIRST_BANK) * 1024 + 0x1000;
     let mut image = [0u8; 0x1000];
-    image[..0xFC0].copy_from_slice(chr.get(head..head + 0xFC0)?);
+    image[..WRAM_TAIL_END].copy_from_slice(chr.get(head..head + WRAM_TAIL_END)?);
     Some(image)
 }
 
 /// [`map_from_rom`] over `image`, the `$7000-$7FFF` the loader finds: the stream
 /// decompressed into it, then the whole of it transposed into the map.
 #[must_use]
-pub fn map_over(
-    prg: &[u8],
-    chr: &[u8],
-    area: usize,
-    image: &mut [u8; 0x1000],
-) -> Option<[[u8; MAP_COLUMNS]; ROM_MAP_ROWS]> {
+pub fn map_over(prg: &[u8], chr: &[u8], area: usize, image: &mut [u8; 0x1000]) -> Option<Map> {
     let (stream, count) = map_stream(prg, chr, area)?;
     decompress(&stream[6..], count, image);
     Some(transpose(image))
@@ -248,7 +408,7 @@ fn map_stream<'a>(prg: &[u8], chr: &'a [u8], area: usize) -> Option<(&'a [u8], u
     if stream.len() < 6 {
         return None;
     }
-    let count = (usize::from(stream[0]) << 8 | usize::from(stream[1])).checked_sub(4)?;
+    let count = usize::from(u16::from_be_bytes([stream[0], stream[1]])).checked_sub(4)?;
     Some((stream, count))
 }
 
@@ -297,7 +457,7 @@ pub fn attributes_of(
     prg: &[u8],
     chr: &[u8],
     area: usize,
-    map: &[[u8; MAP_COLUMNS]; ROM_MAP_ROWS],
+    map: &Map,
     image: &[u8; 0x1000],
 ) -> Option<[[u8; ATTRIBUTE_BYTES]; ATTRIBUTE_PAGES]> {
     let (classes, known) = classes_from_chr(prg, chr, area)?;
@@ -310,15 +470,16 @@ pub fn attributes_of(
 #[must_use]
 pub fn attributes_from_classes(
     palette_classes: &[u8],
-    map: &[[u8; MAP_COLUMNS]; ROM_MAP_ROWS],
+    map: &Map,
     image: &[u8; 0x1000],
 ) -> [[u8; ATTRIBUTE_BYTES]; ATTRIBUTE_PAGES] {
+    let rows = map.rows();
     let class = |id: u8| {
         let id = usize::from(id);
         palette_classes
             .get(id)
             .copied()
-            .unwrap_or(image[0xB00 + id])
+            .unwrap_or(image[WRAM_CLASSES_OFFSET + id])
     };
     let mut pages = [[0u8; ATTRIBUTE_BYTES]; ATTRIBUTE_PAGES];
     for (page, table) in pages.iter_mut().enumerate() {
@@ -326,10 +487,10 @@ pub fn attributes_from_classes(
             for within in 0..8 {
                 let row = row_pair * 2;
                 let col = page * 16 + within * 2;
-                table[row_pair * 8 + within] = class(map[row][col])
-                    | class(map[row][col + 1]) << 2
-                    | (class(map[row + 1][col]) & 0x0F) << 4
-                    | (class(map[row + 1][col + 1]) & 0x03) << 6;
+                table[row_pair * 8 + within] = class(rows[row][col])
+                    | class(rows[row][col + 1]) << 2
+                    | (class(rows[row + 1][col]) & 0x0F) << 4
+                    | (class(rows[row + 1][col + 1]) & 0x03) << 6;
             }
         }
     }
@@ -386,23 +547,10 @@ pub fn auto_tile_tables(
     chr: &[u8],
     area: usize,
 ) -> Option<[[u8; TILE_TABLE_BYTES]; 4]> {
-    let start = class_start(prg, area)?;
-    let definition = chr.get(start..)?;
-    let count = usize::from(*definition.get(2)?);
-
-    let mut shape = [0u8; 16];
-    shape[0] = 0x12;
-    shape[1..].copy_from_slice(definition.get(3..18)?);
-
-    let mut offset = 18usize.checked_add(count.div_ceil(2))?;
+    let definitions = area_definitions(prg, chr, area)?;
     let mut tables = [[0u8; TILE_TABLE_BYTES]; 4];
-    for id in 0..count {
-        let pair = *definition.get(18 + id / 2)?;
-        let nibble = if id % 2 == 0 { pair >> 4 } else { pair & 0x0F };
-        let handler = usize::from(*shape.get(usize::from(nibble))?);
-        let reads = usize::from(*HANDLER_READS.get(handler)?);
-        let corners = auto_tile_corners(handler, definition.get(offset..offset + reads)?)?;
-        offset += reads;
+    for (id, (handler, bytes)) in definitions.entries.into_iter().enumerate() {
+        let corners = handler.corners(bytes)?;
         for (table, corner) in tables.iter_mut().zip(corners) {
             table[id] = corner;
         }
@@ -418,68 +566,16 @@ pub fn metatile_count(prg: &[u8], chr: &[u8], area: usize) -> Option<usize> {
     chr.get(start + 2).map(|&count| usize::from(count))
 }
 
-/// One metatile's 2x2 nametable block from its handler's definition bytes.
-///
-/// The handlers derive the four corners from the definition bytes by the small
-/// offsets the disassembly shows (`+1`, `+$10`, `+$11`); corners are returned in
-/// `[top-left, top-right, bottom-left, bottom-right]` order, the order of
-/// [`TILE_TABLE_ADDRS`].
-fn auto_tile_corners(handler: usize, bytes: &[u8]) -> Option<[u8; 4]> {
-    let a = i32::from(*bytes.first()?);
-    let b = i32::from(*bytes.get(1).unwrap_or(&0));
-    let c = i32::from(*bytes.get(2).unwrap_or(&0));
-    let d = i32::from(*bytes.get(3).unwrap_or(&0));
-    let corners = match handler {
-        0 => [a, a, a, a],
-        1 => [a, a + 0x10, a + 1, a + 0x11],
-        2 => [a, b, a, b],
-        3 => [a, a, b, b],
-        4 => [a, b, a + 1, b + 1],
-        5 => [a, a + 0x10, b, b + 0x10],
-        6 => [a, a, b, b + 0x10],
-        7 => [a, a + 0x10, b, b],
-        8 => [a, b, a + 1, b],
-        9 => [a, b, a, b + 1],
-        10 => [a, b, a, c],
-        11 => [b, a, c, a],
-        12 => [a, a, b, c],
-        13 => [b, c, a, a],
-        14 => [a, b, a + 1, c],
-        15 => [b, a, c, a + 1],
-        16 => [a, a + 0x10, b, c],
-        17 => [b, c, a, a + 0x10],
-        18 => [a, b, c, d],
-        _ => return None,
-    };
-    Some(corners.map(|corner| u8::try_from(corner & 0xFF).expect("masked to a byte")))
-}
-
 /// One area's 2-bit palette classes (`$7B00`) by id, decoded from the CHR area definition,
 /// and how many ids the packing covers (four a byte). See [`attributes_from_rom`] for the
 /// layout.
 #[must_use]
 pub fn classes_from_chr(prg: &[u8], chr: &[u8], area: usize) -> Option<([u8; 256], usize)> {
-    let start = class_start(prg, area)?;
-    let definition = chr.get(start..)?;
-    let count = usize::from(*definition.get(2)?);
-
-    let mut shape = [0u8; 16];
-    shape[0] = 0x12;
-    shape[1..].copy_from_slice(definition.get(3..18)?);
-
-    let mut offset = 18usize.checked_add(count.div_ceil(2))?;
-    for id in 0..count {
-        let pair = *definition.get(18 + id / 2)?;
-        let nibble = if id % 2 == 0 { pair >> 4 } else { pair & 0x0F };
-        let reads = usize::from(*HANDLER_READS.get(usize::from(shape[usize::from(nibble)]))?);
-        offset = offset.checked_add(reads)?;
-    }
-    let packed = definition.get(offset..offset.checked_add(count.div_ceil(4))?)?;
-
-    let known = count.div_ceil(4) * 4;
+    let definitions = area_definitions(prg, chr, area)?;
+    let known = definitions.count.div_ceil(4) * 4;
     let mut classes = [0u8; 256];
     for (id, class) in classes.iter_mut().enumerate().take(known) {
-        *class = (packed[id / 4] >> (6 - 2 * (id % 4))) & 3;
+        *class = (definitions.packed_classes[id / 4] >> (6 - 2 * (id % 4))) & 3;
     }
     Some((classes, known))
 }
@@ -498,11 +594,7 @@ pub fn area_for_level(level: usize) -> Option<usize> {
 ///
 /// Returns `None` for an unknown level or when [`map_from_rom`] fails.
 #[must_use]
-pub fn map_for_level(
-    prg: &[u8],
-    chr: &[u8],
-    level: usize,
-) -> Option<[[u8; MAP_COLUMNS]; ROM_MAP_ROWS]> {
+pub fn map_for_level(prg: &[u8], chr: &[u8], level: usize) -> Option<Map> {
     map_from_rom(prg, chr, area_for_level(level)?)
 }
 
@@ -569,7 +661,7 @@ fn write(m6: &mut [u8; 0x1000], dest: &mut usize, m7: &mut [u8; 0x1000], out: &m
 
 /// Step 4 of the loader: `out[k*256+p*16+j] = in[p*256+k*16+j]`.
 #[must_use]
-pub fn transpose(m7: &[u8; 0x1000]) -> [[u8; MAP_COLUMNS]; ROM_MAP_ROWS] {
+pub fn transpose(m7: &[u8; 0x1000]) -> Map {
     let mut out = [[0u8; MAP_COLUMNS]; ROM_MAP_ROWS];
     for (k, row) in out.iter_mut().enumerate() {
         for p in 0..16 {
@@ -578,7 +670,7 @@ pub fn transpose(m7: &[u8; 0x1000]) -> [[u8; MAP_COLUMNS]; ROM_MAP_ROWS] {
             }
         }
     }
-    out
+    Map::from_rows(out)
 }
 
 /// A cell of the live map: `row` 0-15, `column` 0-255 (a page's first column from the page
@@ -677,6 +769,12 @@ impl Map {
     pub fn from_bytes(bytes: &[u8; 0x1000]) -> Map {
         let (rows, _) = bytes.as_chunks::<MAP_COLUMNS>();
         Map::from_rows(rows.try_into().expect("16 rows"))
+    }
+
+    /// The 16 rows.
+    #[must_use]
+    pub fn rows(&self) -> &[[u8; MAP_COLUMNS]; ROM_MAP_ROWS] {
+        &self.rows
     }
 
     /// The 16 rows.
@@ -889,8 +987,8 @@ mod tests {
         );
         let map = map_from_rom(prg, chr, 0).expect("area 0 decodes");
         let diff = map
+            .as_bytes()
             .iter()
-            .flatten()
             .zip(captured)
             .filter(|(a, b)| a != b)
             .count();
@@ -913,7 +1011,7 @@ mod tests {
         let map = map_from_rom(prg, chr, 0).unwrap();
         // Columns 0-159 are level data (and match); 160-255 match because both
         // are the payload, not because they are level.
-        for (r, row) in map.iter().enumerate() {
+        for (r, row) in map.rows().iter().enumerate() {
             assert!(row[..160].iter().any(|&b| b != 0));
             assert_eq!(
                 row.as_slice(),
@@ -935,7 +1033,7 @@ mod tests {
         for area in 0..AREA_COUNT {
             let map = map_from_rom(&rom.prg, chr, area).unwrap_or_else(|| panic!("area {area}"));
             assert!(
-                map.iter().flatten().any(|&b| b != 0),
+                map.as_bytes().iter().any(|&b| b != 0),
                 "area {area} decoded empty"
             );
         }
@@ -1264,10 +1362,10 @@ mod tests {
             for (i, &value) in attribute.iter().enumerate() {
                 let (row, col) = (i / 8 * 2, page * 16 + i % 8 * 2);
                 let ids = [
-                    map[row][col],
-                    map[row][col + 1],
-                    map[row + 1][col],
-                    map[row + 1][col + 1],
+                    map.rows()[row][col],
+                    map.rows()[row][col + 1],
+                    map.rows()[row + 1][col],
+                    map.rows()[row + 1][col + 1],
                 ];
                 if ids.iter().all(|&id| id < count) {
                     checked += 1;

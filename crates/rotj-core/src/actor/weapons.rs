@@ -10,16 +10,20 @@ use super::collision::{self, Probe};
 use super::engine::{self, Work, anchor, rom_word};
 use super::oam::{Mark, attr};
 use super::scroll::Scroll;
-use super::slots::{Field, contact, hit};
+use super::slots::{Counter, Field, contact, hit};
 use super::world::{
     Cx, Motion, Orbit, Projectile, Weapon, attack, busy, power_up, set_first_colours, shot_flags,
     shot_state, sound, stage_script,
 };
 use crate::actor::button::Buttons;
 use crate::actors::STATE_UNTARGETED;
+use crate::palette;
 
 /// A charged attack's first stage, every weapon's: the `kind` the player's charge writes.
-pub const CHARGE_START: u8 = 0x80;
+pub const CHARGE_START: u8 = Projectile::CHARGED;
+
+/// A shot's `timer` bit 7 while in flight: fired upward (while spent/falling, `timer` counts down).
+const AIMED_UP: u8 = 0x80;
 
 /// The homing charge's `param` once its circling parts are out.
 const CIRCLED: u8 = 0x80;
@@ -43,57 +47,158 @@ const VERTICAL: u8 = 0x80;
 /// The steps a power-up piece's `part` counts before it lands.
 const PIECE_STEPS: u8 = 8;
 
+/// A plain shot's flight mode, decoded from [`Projectile::state`] (`$7C80`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShotMode {
+    /// Flying normally, probing walls (`SPENT` and `FALLING` clear).
+    Flying,
+    /// Falling under gravity and counting `timer` down (`FALLING` set, `SPENT` clear).
+    Falling,
+    /// Spent impact animation (`SPENT` set).
+    Spent,
+}
+
+impl ShotMode {
+    const fn of(state: u8) -> ShotMode {
+        if state & shot_state::SPENT != 0 {
+            ShotMode::Spent
+        } else if state & shot_state::FALLING != 0 {
+            ShotMode::Falling
+        } else {
+            ShotMode::Flying
+        }
+    }
+}
+
 /// The homing weapon's charged attack, by projectile `kind`.
-mod homing_stage {
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HomingStage {
     /// Gathering a ball while B is held.
-    pub const GATHER: u8 = super::CHARGE_START;
+    Gather = CHARGE_START,
     /// The ball thrown.
-    pub const THROWN: u8 = 0x81;
+    Thrown = 0x81,
     /// The three parts circling the ball (they do nothing on their own).
-    pub const CIRCLING: u8 = 0x82;
+    Circling = 0x82,
+}
+
+impl HomingStage {
+    const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    const fn from_byte(byte: u8) -> Option<HomingStage> {
+        match byte {
+            CHARGE_START => Some(HomingStage::Gather),
+            0x81 => Some(HomingStage::Thrown),
+            0x82 => Some(HomingStage::Circling),
+            _ => None,
+        }
+    }
 }
 
 /// The splitter's charged attack: `kind` `$81` and up fly the plain path, its high bit
 /// picking the thrown sprites.
-mod splitter_stage {
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SplitterStage {
     /// The four parts orbiting the player.
-    pub const ORBIT: u8 = super::CHARGE_START;
+    Orbit = CHARGE_START,
     /// A part let go.
-    pub const THROWN: u8 = 0x81;
+    Thrown = 0x81,
+}
+
+impl SplitterStage {
+    const fn byte(self) -> u8 {
+        self as u8
+    }
 }
 
 /// The wave's charged attack.
-mod wave_stage {
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WaveStage {
     /// Gathering for 8 frames.
-    pub const CHARGE: u8 = super::CHARGE_START;
+    Charge = CHARGE_START,
     /// The 64-frame fan.
-    pub const SPREAD: u8 = 0x81;
+    Spread = 0x81,
     /// The fan's shots: every `kind` from here up.
-    pub const SPREAD_SHOT: u8 = 0x82;
+    SpreadShot = 0x82,
+}
+
+impl WaveStage {
+    const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    const fn from_byte(byte: u8) -> Option<WaveStage> {
+        match byte {
+            CHARGE_START => Some(WaveStage::Charge),
+            0x81 => Some(WaveStage::Spread),
+            0x82.. => Some(WaveStage::SpreadShot),
+            _ => None,
+        }
+    }
 }
 
 /// The three-way weapon's charged attack.
-mod three_way_stage {
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ThreeWayStage {
     /// Bubbles every 8th frame.
-    pub const BREW: u8 = super::CHARGE_START;
+    Brew = CHARGE_START,
     /// A bubble.
-    pub const BUBBLE: u8 = 0x81;
+    Bubble = 0x81,
     /// The tether.
-    pub const TETHER: u8 = 0x82;
+    Tether = 0x82,
+}
+
+impl ThreeWayStage {
+    const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    const fn from_byte(byte: u8) -> Option<ThreeWayStage> {
+        match byte {
+            CHARGE_START => Some(ThreeWayStage::Brew),
+            0x81 => Some(ThreeWayStage::Bubble),
+            0x82 => Some(ThreeWayStage::Tether),
+            _ => None,
+        }
+    }
 }
 
 /// The super weapon's attack.
-mod super_stage {
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SuperStage {
     /// The charge that claims the other slots.
-    pub const UNLEASH: u8 = super::CHARGE_START;
+    Unleash = CHARGE_START,
     /// A part orbiting the centre.
-    pub const ORBITER: u8 = 0x81;
+    Orbiter = 0x81,
     /// The pair spawner.
-    pub const PAIRS: u8 = 0x82;
+    Pairs = 0x82,
     /// A slot the attack claimed.
-    pub const CLAIMED: u8 = 0x83;
+    Claimed = 0x83,
     /// The orbit's centre.
-    pub const CENTRE: u8 = 0x84;
+    Centre = 0x84,
+}
+
+impl SuperStage {
+    const fn byte(self) -> u8 {
+        self as u8
+    }
+
+    const fn from_byte(byte: u8) -> Option<SuperStage> {
+        match byte {
+            CHARGE_START => Some(SuperStage::Unleash),
+            0x81 => Some(SuperStage::Orbiter),
+            0x82 => Some(SuperStage::Pairs),
+            0x83 => Some(SuperStage::Claimed),
+            0x84 => Some(SuperStage::Centre),
+            _ => None,
+        }
+    }
 }
 
 /// The weapons' constant tables (bank 5).
@@ -238,7 +343,7 @@ fn power_up_pieces(work: &mut Work, cx: &mut Cx<'_>) {
     work.attr = 3;
     work.chr_slot = 5;
     for slot in (0..16).rev() {
-        if cx.effects.projectiles[slot].kind == 0 {
+        if cx.effects.projectiles[slot].is_free() {
             continue;
         }
         advance(slot, work, cx);
@@ -254,11 +359,11 @@ fn power_up_pieces(work: &mut Work, cx: &mut Cx<'_>) {
         let corner = usize::from(piece.param);
         piece.vx = piece.vx.wrapping_add(prg.weapons.piece_step_x[corner]);
         piece.vy = piece.vy.wrapping_add(prg.weapons.piece_step_y[corner]);
-        piece.part = piece.part.wrapping_add(1);
+        piece.part.tick_up();
         if piece.part < PIECE_STEPS {
             continue;
         }
-        piece.kind = 0;
+        piece.free();
         let lit = piece.part_timer & LIT != 0;
         let player = &mut effects.player;
         player.power_up = power_up::ON;
@@ -295,7 +400,7 @@ fn each_projectile(
         work.attr = 0;
     }
     for slot in (0..16).rev() {
-        if cx.effects.projectiles[slot].kind != 0 {
+        if !cx.effects.projectiles[slot].is_free() {
             cx.oam.marking = Mark::Projectile(u8::try_from(slot).expect("16 projectile slots"));
             match weapon {
                 Weapon::Bolt => bolt(slot, work, cx),
@@ -351,7 +456,7 @@ fn project_to_screen(slot: usize, work: &mut Work, cx: &mut Cx<'_>, keep: bool) 
     let dx = work.x.wrapping_sub(camera_x);
     if work.x < camera_x || dx.to_be_bytes()[0] >= 0x10 {
         if !keep {
-            cx.effects.projectiles[slot].kind = 0;
+            cx.effects.projectiles[slot].free();
         }
         return false;
     }
@@ -359,7 +464,7 @@ fn project_to_screen(slot: usize, work: &mut Work, cx: &mut Cx<'_>, keep: bool) 
     let dy = work.y.wrapping_sub(camera_y);
     if work.y < camera_y || dy.to_be_bytes()[0] >= 0x0F {
         if !keep {
-            cx.effects.projectiles[slot].kind = 0;
+            cx.effects.projectiles[slot].free();
         } else if dy.to_be_bytes()[0] < 0x15 {
             work.anchor = anchor::BOTTOM;
         }
@@ -422,19 +527,22 @@ fn bolt(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
 /// Handler `$8170` (`$0476` 1): the homing shot; types `$80` and up are its
 /// charged attack (`$847D`).
 fn homing(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
-    let kind = cx.effects.projectiles[slot].kind;
-    if kind < 0x80 {
+    let projectile = cx.effects.projectiles[slot];
+    if !projectile.is_charged() {
         flying_shot(slot, work, cx, |cx| homing_steer(slot, cx), 0x8477);
         return;
     }
     if cx.world.frame.is_multiple_of(0x20) {
         cx.effects.sound[0] = sound::CHARGE;
     }
-    match kind {
-        homing_stage::GATHER => homing_gather(slot, work, cx),
-        homing_stage::THROWN => homing_thrown(slot, work, cx),
-        homing_stage::CIRCLING => {}
-        other => panic!("handler 1's type ${other:02X} is past the $876E table"),
+    match HomingStage::from_byte(projectile.kind) {
+        Some(HomingStage::Gather) => homing_gather(slot, work, cx),
+        Some(HomingStage::Thrown) => homing_thrown(slot, work, cx),
+        Some(HomingStage::Circling) => {}
+        None => panic!(
+            "handler 1's type ${:02X} is past the $876E table",
+            projectile.kind
+        ),
     }
 }
 
@@ -471,7 +579,7 @@ fn homing_steer(slot: usize, cx: &mut Cx<'_>) -> u16 {
     cx.effects.projectiles[slot].attr = cx.prg.weapons.homing_attributes[usize::from(heading)];
     let pointer = rom_word(cx.prg, 5, 0x844B + heading * 2);
     let mut target = projectile.target();
-    if target.is_none_or(|target| cx.slots.kind(usize::from(target)) == 0) {
+    if target.is_none_or(|target| cx.slots.is_free(usize::from(target))) {
         target = homing_retarget(slot, cx);
     }
     if target
@@ -532,7 +640,7 @@ fn steer_axis(velocity: i16, down: bool) -> i16 {
 fn homing_retarget(slot: usize, cx: &mut Cx<'_>) -> Option<u8> {
     let hittable = |&target: &usize| {
         let actor = &cx.slots.main[target];
-        actor.kind != 0
+        !actor.is_free()
             && actor.body.contact & contact::UNTARGETED == 0
             && actor.body.state & STATE_UNTARGETED == 0
     };
@@ -606,8 +714,8 @@ fn homing_gather(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
 /// `$8712`: frees every slot of type `$80` and up.
 fn homing_clear_charge(cx: &mut Cx<'_>) {
     for projectile in &mut cx.effects.projectiles {
-        if projectile.kind & 0x80 != 0 {
-            projectile.kind = 0;
+        if projectile.is_charged() {
+            projectile.free();
         }
     }
 }
@@ -628,7 +736,7 @@ fn homing_spawn_circlers(source: usize, cx: &mut Cx<'_>) -> bool {
                 #[cfg(test)]
                 super::oracle::seen(0x8617);
                 for projectile in &mut cx.effects.projectiles {
-                    projectile.kind = 0;
+                    projectile.free();
                 }
                 return false;
             }
@@ -637,11 +745,11 @@ fn homing_spawn_circlers(source: usize, cx: &mut Cx<'_>) -> bool {
             continue;
         }
         let index = usize::try_from(at).expect("non-negative");
-        let kind = cx.effects.projectiles[index].kind;
-        if (over_shots && kind < 0x80) || kind == 0 {
+        let existing = cx.effects.projectiles[index];
+        if (over_shots && !existing.is_charged()) || existing.is_free() {
             let angle = cx.prg.weapons.circle_angles[count];
             let projectile = &mut cx.effects.projectiles[index];
-            projectile.kind = homing_stage::CIRCLING;
+            projectile.kind = HomingStage::Circling.byte();
             projectile.damage = 1;
             projectile.flags = shot_flags::INERT;
             projectile.state = 0;
@@ -712,7 +820,7 @@ fn homing_launch(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.vx = vx;
     projectile.vy = vy;
-    projectile.kind = homing_stage::THROWN;
+    projectile.kind = HomingStage::Thrown.byte();
     homing_in_front(slot, work, cx);
 }
 
@@ -764,11 +872,11 @@ fn above_player(cx: &Cx<'_>) -> (u16, u16) {
     )
 }
 
-/// The in-flight sprite of handlers 0 and 5: the pointer at `sprites[$7CB0 >> 7]`.
+/// The in-flight sprite of handlers 0 and 5: the pointer at `sprites[aimed_up]`.
 fn sprite_by_timer(slot: usize, sprites: [u16; 2]) -> impl FnOnce(&mut Cx<'_>) -> u16 {
     move |cx| {
-        let timer = cx.effects.projectiles[slot].timer;
-        rom_word(cx.prg, 5, sprites[usize::from(timer >> 7)])
+        let aimed_up = cx.effects.projectiles[slot].timer & AIMED_UP != 0;
+        rom_word(cx.prg, 5, sprites[usize::from(aimed_up)])
     }
 }
 
@@ -782,7 +890,7 @@ fn super_weapon(
     scroll: &mut Scroll,
     overflow: &mut bool,
 ) -> bool {
-    if cx.effects.projectiles[slot].kind >= 0x80 {
+    if cx.effects.projectiles[slot].is_charged() {
         return super_attack(slot, work, cx, scroll, overflow);
     }
     #[cfg(test)]
@@ -806,18 +914,19 @@ fn super_attack(
     scroll: &mut Scroll,
     overflow: &mut bool,
 ) -> bool {
-    match cx.effects.projectiles[slot].kind {
-        super_stage::UNLEASH => super_unleash(slot, cx, scroll, *overflow),
-        super_stage::ORBITER => {
+    let kind = cx.effects.projectiles[slot].kind;
+    match SuperStage::from_byte(kind) {
+        Some(SuperStage::Unleash) => super_unleash(slot, cx, scroll, *overflow),
+        Some(SuperStage::Orbiter) => {
             *overflow = false;
             super_orbiter(slot, work, cx, scroll)
         }
-        super_stage::PAIRS => {
+        Some(SuperStage::Pairs) => {
             super_pairs(slot, cx);
             true
         }
-        super_stage::CLAIMED | super_stage::CENTRE => true,
-        other => panic!("handler 5's type ${other:02X} is past the $9D24 table"),
+        Some(SuperStage::Claimed | SuperStage::Centre) => true,
+        None => panic!("handler 5's type ${kind:02X} is past the $9D24 table"),
     }
 }
 
@@ -842,7 +951,7 @@ fn super_unleash(slot: usize, cx: &mut Cx<'_>, scroll: &mut Scroll, overflow: bo
         #[cfg(test)]
         super::oracle::seen(0x979E);
         cx.effects.attack &= attack::CHARGEABLE;
-        cx.effects.projectiles[slot].kind = 0;
+        cx.effects.projectiles[slot].free();
         return false;
     }
     #[cfg(test)]
@@ -856,13 +965,13 @@ fn super_unleash(slot: usize, cx: &mut Cx<'_>, scroll: &mut Scroll, overflow: bo
     let kept = cx.effects.scroll_lock;
     cx.effects.scroll_lock = 0xFF;
     let projectile = &mut cx.effects.projectiles[slot];
-    projectile.kind = super_stage::PAIRS;
+    projectile.kind = SuperStage::Pairs.byte();
     projectile.part = 0;
     projectile.part_timer = 0;
     projectile.timer = kept;
     for projectile in &mut cx.effects.projectiles {
-        if projectile.kind & 0x80 == 0 {
-            projectile.kind = super_stage::CLAIMED;
+        if !projectile.is_charged() {
+            projectile.kind = SuperStage::Claimed.byte();
             projectile.flags = shot_flags::INERT;
         }
     }
@@ -888,20 +997,20 @@ fn super_pairs(slot: usize, cx: &mut Cx<'_>) {
     super::oracle::seen(0x9B4A);
     let projectile = &mut cx.effects.projectiles[slot];
     if projectile.part != 0x10 {
-        projectile.part += 1;
+        projectile.part.tick_up();
         return;
     }
     projectile.part = 0;
     let claimed = |cx: &Cx<'_>, below: usize| {
         (0..below)
             .rev()
-            .find(|&i| cx.effects.projectiles[i].kind == super_stage::CLAIMED)
+            .find(|&i| cx.effects.projectiles[i].kind == SuperStage::Claimed.byte())
             .expect("the charge claimed every other slot, enough for five pairs")
     };
     let orbiter = claimed(cx, 16);
-    cx.effects.projectiles[orbiter].kind = super_stage::ORBITER;
+    cx.effects.projectiles[orbiter].kind = SuperStage::Orbiter.byte();
     let centre = claimed(cx, orbiter);
-    cx.effects.projectiles[centre].kind = super_stage::CENTRE;
+    cx.effects.projectiles[centre].kind = SuperStage::Centre.byte();
     let source = cx.effects.projectiles[slot];
     let orbiter_weapon = &mut cx.effects.projectiles[orbiter];
     (orbiter_weapon.x, orbiter_weapon.y) = (0x0100, 0);
@@ -918,9 +1027,9 @@ fn super_pairs(slot: usize, cx: &mut Cx<'_>) {
     centre_weapon.y = source.y;
     centre_weapon.vy = 0x0080;
     let projectile = &mut cx.effects.projectiles[slot];
-    projectile.part_timer += 1;
+    projectile.part_timer.tick_up();
     if projectile.part_timer >= 5 {
-        projectile.kind = super_stage::CLAIMED;
+        projectile.kind = SuperStage::Claimed.byte();
     }
 }
 
@@ -963,7 +1072,7 @@ fn super_orbiter(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scr
         draw(work, cx);
     }
     let projectile = &mut cx.effects.projectiles[slot];
-    projectile.param = projectile.param.wrapping_add(1);
+    projectile.param.tick_up();
     if projectile.param.is_multiple_of(32) {
         cx.effects.sound[0] = sound::SUPER_ORBITER;
     }
@@ -1018,9 +1127,9 @@ fn super_flash(slot: usize, cx: &mut Cx<'_>) {
     };
     cx.effects.palette[16..20].copy_from_slice(&table);
     let first = if cx.effects.projectiles[slot].param.is_multiple_of(8) {
-        0x30
+        palette::WHITE
     } else {
-        0x0F
+        palette::BLACK
     };
     set_first_colours(&mut cx.effects.palette, first);
     cx.effects.palette_dirty = 0x80;
@@ -1040,15 +1149,15 @@ fn super_end_attack(slot: usize, cx: &mut Cx<'_>, scroll: &mut Scroll) {
     effects.attack = if effects.weapon == Weapon::Bolt {
         0
     } else {
-        0x80
+        attack::CHARGEABLE
     };
     effects.palette[17..20].copy_from_slice(&cx.prg.weapons.super_palette);
     effects.scroll_lock = effects.projectiles[slot].timer;
-    set_first_colours(&mut effects.palette, 0x0F);
+    set_first_colours(&mut effects.palette, palette::BLACK);
     effects.palette_dirty = 0x80;
     effects.busy = 0;
     for projectile in &mut effects.projectiles {
-        projectile.kind = 0;
+        projectile.free();
     }
     scroll.gate = 0xFF;
 }
@@ -1059,9 +1168,11 @@ fn super_smite(cx: &mut Cx<'_>) {
     let [camera_x, _] = cx.world.camera_x.to_be_bytes();
     let camera_y = cx.world.camera_y;
     for actor in cx.slots.main[..16].iter_mut().rev() {
+        if actor.is_free() {
+            continue;
+        }
         let body = &mut actor.body;
-        if actor.kind == 0 || body.contact & contact::SMITE_PROOF != 0 || body.hit & hit::DYING != 0
-        {
+        if body.contact & contact::SMITE_PROOF != 0 || body.hit & hit::DYING != 0 {
             continue;
         }
         let dx = body.x.to_be_bytes()[0].wrapping_sub(camera_x);
@@ -1095,17 +1206,18 @@ enum Flight {
 fn fly(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> Flight {
     advance(slot, work, cx);
     let phase = cx.effects.projectiles[slot].state;
-    if phase & shot_state::SPENT != 0 {
-        return Flight::On;
-    }
-    if phase & shot_state::FALLING != 0 {
-        let projectile = &mut cx.effects.projectiles[slot];
-        let overflow = gravity(projectile);
-        return if projectile.count_down() {
-            Flight::Freed { overflow }
-        } else {
-            Flight::On
-        };
+    match ShotMode::of(phase) {
+        ShotMode::Spent => return Flight::On,
+        ShotMode::Falling => {
+            let projectile = &mut cx.effects.projectiles[slot];
+            let overflow = gravity(projectile);
+            return if projectile.count_down() {
+                Flight::Freed { overflow }
+            } else {
+                Flight::On
+            };
+        }
+        ShotMode::Flying => {}
     }
     if !solid(work, phase << 1, cx) {
         return Flight::On;
@@ -1167,7 +1279,7 @@ fn flying_shot(
 /// Handler `$8891` (`$0476` 2): the splitter, which flies on, pushing its speed toward a
 /// cruise, and splits at a wall or when spent.
 fn splitter(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
-    if cx.effects.projectiles[slot].kind == splitter_stage::ORBIT {
+    if cx.effects.projectiles[slot].kind == SplitterStage::Orbit.byte() {
         splitter_orbit(slot, work, cx);
         return;
     }
@@ -1189,50 +1301,48 @@ fn splitter(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     if !project_or_free(slot, work, cx) {
         return;
     }
-    let (attr, phase, timer, bounce) = {
+    let (attr, mode, timer, bounce, charged) = {
         let projectile = &cx.effects.projectiles[slot];
         (
             projectile.attr,
-            projectile.state,
+            ShotMode::of(projectile.state),
             projectile.timer,
             projectile.param,
+            projectile.is_charged(),
         )
     };
     work.attr = attr;
-    if phase & shot_state::SPENT != 0 {
+    if mode == ShotMode::Spent {
         if bounce & NO_SPLIT == 0 {
             splitter_split(slot, cx);
             return;
         }
         work.pointer = rom_word(cx.prg, 5, 0x8A4B + u16::from(timer < 8) * 2);
         let projectile = &mut cx.effects.projectiles[slot];
-        projectile.timer = projectile.timer.wrapping_add(1);
+        projectile.timer.tick_up();
         if projectile.timer >= 0x20 {
-            projectile.kind = 0;
+            projectile.free();
             return;
         }
-    } else {
-        let kind = cx.effects.projectiles[slot].kind;
-        if timer & 0x80 != 0 {
-            if phase & shot_state::FALLING == 0 {
-                let projectile = &mut cx.effects.projectiles[slot];
-                let [hi, sub] = projectile.vy.wrapping_sub(2).to_be_bytes();
-                projectile.vy = i16::from_be_bytes([hi, if sub >= 0xD0 { sub } else { 0xC0 }]);
-            }
-            work.pointer = rom_word(cx.prg, 5, 0x8A43 + u16::from(kind & 0x80 != 0) * 2);
-        } else {
-            if phase & shot_state::FALLING == 0 {
-                let projectile = &mut cx.effects.projectiles[slot];
-                if attr & attr::FLIP_X != 0 {
-                    let [hi, sub] = projectile.vx.wrapping_sub(2).to_be_bytes();
-                    projectile.vx = i16::from_be_bytes([hi, if sub >= 0xD0 { sub } else { 0xC0 }]);
-                } else {
-                    let [hi, add] = projectile.vx.wrapping_add(2).to_be_bytes();
-                    projectile.vx = i16::from_be_bytes([hi, if add < 0x30 { add } else { 0x40 }]);
-                }
-            }
-            work.pointer = rom_word(cx.prg, 5, 0x8A47 + u16::from(kind & 0x80 != 0) * 2);
+    } else if timer & AIMED_UP != 0 {
+        if mode == ShotMode::Flying {
+            let projectile = &mut cx.effects.projectiles[slot];
+            let [hi, sub] = projectile.vy.wrapping_sub(2).to_be_bytes();
+            projectile.vy = i16::from_be_bytes([hi, if sub >= 0xD0 { sub } else { 0xC0 }]);
         }
+        work.pointer = rom_word(cx.prg, 5, 0x8A43 + u16::from(charged) * 2);
+    } else {
+        if mode == ShotMode::Flying {
+            let projectile = &mut cx.effects.projectiles[slot];
+            if attr & attr::FLIP_X != 0 {
+                let [hi, sub] = projectile.vx.wrapping_sub(2).to_be_bytes();
+                projectile.vx = i16::from_be_bytes([hi, if sub >= 0xD0 { sub } else { 0xC0 }]);
+            } else {
+                let [hi, add] = projectile.vx.wrapping_add(2).to_be_bytes();
+                projectile.vx = i16::from_be_bytes([hi, if add < 0x30 { add } else { 0x40 }]);
+            }
+        }
+        work.pointer = rom_word(cx.prg, 5, 0x8A47 + u16::from(charged) * 2);
     }
     draw_alternate_frames(slot, work, cx);
 }
@@ -1242,7 +1352,7 @@ fn splitter_split(source: usize, cx: &mut Cx<'_>) {
     let mut part = 0usize;
     let mut slot = 0usize;
     while slot < 16 {
-        if cx.effects.projectiles[slot].kind == 0 {
+        if cx.effects.projectiles[slot].is_free() {
             splitter_part(slot, part, source, cx);
             part += 1;
             if part >= 3 {
@@ -1279,14 +1389,14 @@ fn splitter_part(slot: usize, part: usize, source: usize, cx: &mut Cx<'_>) {
 /// Handler `$8D39` (`$0476` 3): the wave, two parts that weave. False when the handler
 /// returns before the other slots (`$8FD6`).
 fn wave(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
-    match cx.effects.projectiles[slot].kind {
-        wave_stage::CHARGE => return wave_charge(slot, work, cx),
-        wave_stage::SPREAD => return wave_spread(slot, cx),
-        wave_stage::SPREAD_SHOT.. => {
+    match WaveStage::from_byte(cx.effects.projectiles[slot].kind) {
+        Some(WaveStage::Charge) => return wave_charge(slot, work, cx),
+        Some(WaveStage::Spread) => return wave_spread(slot, cx),
+        Some(WaveStage::SpreadShot) => {
             wave_spread_shot(slot, work, cx);
             return true;
         }
-        _ => {}
+        None => {}
     }
     match fly(slot, work, cx) {
         Flight::Freed { .. } => return true,
@@ -1308,12 +1418,17 @@ fn wave(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
 /// Handler `$91B2` (`$0476` 4): the three-way shot, drawn with `$99 = 0`; types
 /// `$80` and up are its charged attack (`$92C4`).
 fn three_way(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
-    match cx.effects.projectiles[slot].kind {
-        three_way_stage::BREW => return three_way_brew(slot, cx),
-        three_way_stage::BUBBLE => return three_way_bubble(slot, work, cx),
-        three_way_stage::TETHER => return three_way_tether(slot, work, cx),
-        other @ 0x83.. => panic!("handler 4's type ${other:02X} is past the $95EF table"),
-        _ => {}
+    let projectile = cx.effects.projectiles[slot];
+    if projectile.is_charged() {
+        match ThreeWayStage::from_byte(projectile.kind) {
+            Some(ThreeWayStage::Brew) => return three_way_brew(slot, cx),
+            Some(ThreeWayStage::Bubble) => return three_way_bubble(slot, work, cx),
+            Some(ThreeWayStage::Tether) => return three_way_tether(slot, work, cx),
+            None => panic!(
+                "handler 4's type ${:02X} is past the $95EF table",
+                projectile.kind
+            ),
+        }
     }
     match fly(slot, work, cx) {
         Flight::Freed { .. } => return,
@@ -1323,7 +1438,7 @@ fn three_way(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
             return;
         }
         Flight::TouchedAgain => {
-            if cx.effects.projectiles[slot].timer & 0x80 != 0 {
+            if cx.effects.projectiles[slot].timer & AIMED_UP != 0 {
                 #[cfg(test)]
                 super::oracle::seen(0x9268);
                 let pick = usize::from(cx.world.rng[0] & 0x02 | 0x01);
@@ -1351,11 +1466,11 @@ fn three_way(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         return;
     }
     let projectile = &mut cx.effects.projectiles[slot];
-    if projectile.state & shot_state::SPENT == 0 {
-        work.pointer = rom_word(cx.prg, 5, 0x92BA + u16::from((cx.world.frame & 0x04) >> 1));
-    } else {
+    if ShotMode::of(projectile.state) == ShotMode::Spent {
         work.pointer = rom_word(cx.prg, 5, 0x92BE + u16::from(projectile.timer & 0xFE));
         projectile.count_down();
+    } else {
+        work.pointer = rom_word(cx.prg, 5, 0x92BA + u16::from((cx.world.frame & 0x04) >> 1));
     }
     draw_alternate_frames(slot, work, cx);
 }
@@ -1373,7 +1488,7 @@ fn three_way_brew(slot: usize, cx: &mut Cx<'_>) {
     }
     let projectile = &mut cx.effects.projectiles[slot];
     let count = projectile.part_timer;
-    projectile.part_timer = count.wrapping_add(1);
+    projectile.part_timer.tick_up();
     if count & 0x07 != 0 {
         return;
     }
@@ -1415,7 +1530,7 @@ fn three_way_blow(slot: usize, vx: i16, cx: &mut Cx<'_>) {
     let attr = cx.prg.weapons.bubble_palette[usize::from(cx.world.frame & 0x08 != 0)];
     let rise = cx.world.rng[0] | 0xE0;
     let projectile = &mut cx.effects.projectiles[slot];
-    projectile.kind = three_way_stage::BUBBLE;
+    projectile.kind = ThreeWayStage::Bubble.byte();
     projectile.state = 0;
     projectile.part_timer = 0;
     projectile.flags = shot_flags::PASSES_SHIELDS;
@@ -1442,7 +1557,7 @@ fn three_way_let_go(slot: usize, cx: &mut Cx<'_>) {
         cx.prg.weapons.three_way_vy[pick],
     );
     let projectile = &mut cx.effects.projectiles[slot];
-    projectile.kind = three_way_stage::TETHER;
+    projectile.kind = ThreeWayStage::Tether.byte();
     projectile.damage = 1;
     projectile.state = 0;
     projectile.param = 0;
@@ -1460,13 +1575,13 @@ fn three_way_bubble(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     #[cfg(test)]
     super::oracle::seen(0x930B);
     let projectile = &mut cx.effects.projectiles[slot];
-    if projectile.state & shot_state::SPENT != 0 {
-        projectile.kind = 0;
+    if ShotMode::of(projectile.state) == ShotMode::Spent {
+        projectile.free();
         return;
     }
-    projectile.part_timer = projectile.part_timer.wrapping_add(1);
+    projectile.part_timer.tick_up();
     if projectile.part_timer >= 0x30 {
-        projectile.kind = 0;
+        projectile.free();
         return;
     }
     work.anchor = 0;
@@ -1494,9 +1609,9 @@ fn three_way_tether(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     work.tile = 0;
     work.chr_slot = 4;
     let projectile = &mut cx.effects.projectiles[slot];
-    projectile.part = projectile.part.wrapping_add(1);
+    projectile.part.tick_up();
     if projectile.part >= 0xC0 {
-        projectile.kind = 0;
+        projectile.free();
         return;
     }
     if projectile.part_timer & VERTICAL != 0 {
@@ -1549,7 +1664,7 @@ fn three_way_pull(velocity: i16, behind: bool, toward: u8, away: u8) -> i16 {
 
 /// The highest free weapon slot.
 fn free_slot(cx: &Cx<'_>) -> Option<usize> {
-    (0..16).rev().find(|&i| cx.effects.projectiles[i].kind == 0)
+    (0..16).rev().find(|&i| cx.effects.projectiles[i].is_free())
 }
 
 /// The player's level position plus `(dx, dy)`.
@@ -1577,7 +1692,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.vx = vx.cast_signed();
     projectile.vy = vy.cast_signed();
-    projectile.part_timer = projectile.part_timer.wrapping_add(1);
+    projectile.part_timer.tick_up();
     if projectile.part_timer >= 0x40 {
         projectile.param ^= SECOND_HALF;
         projectile.part_timer = 0;
@@ -1624,7 +1739,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     let player = &cx.effects.player;
     let (aim_up, left) = (player.motion == Motion::AimingUp, player.faces_left());
     let projectile = &mut cx.effects.projectiles[slot];
-    projectile.kind = splitter_stage::THROWN;
+    projectile.kind = SplitterStage::Thrown.byte();
     projectile.x = work.x;
     projectile.y = work.y;
     projectile.flags = 0;
@@ -1634,7 +1749,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     let pose = if aim_up {
         #[cfg(test)]
         super::oracle::seen(0x8C18);
-        projectile.timer = 0x80;
+        projectile.timer = AIMED_UP;
         4
     } else {
         projectile.timer = 0;
@@ -1667,7 +1782,7 @@ fn wave_charge(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
     #[cfg(test)]
     super::oracle::seen(0x8F03);
     if cx.effects.attack & attack::CHARGING == 0 {
-        cx.effects.projectiles[slot].kind = 0;
+        cx.effects.projectiles[slot].free();
         return true;
     }
     let motion = usize::from(cx.effects.player.motion.byte());
@@ -1694,11 +1809,11 @@ fn wave_charge(slot: usize, work: &mut Work, cx: &mut Cx<'_>) -> bool {
         draw(work, cx);
     }
     let projectile = &mut cx.effects.projectiles[slot];
-    projectile.part_timer = projectile.part_timer.wrapping_add(1);
+    projectile.part_timer.tick_up();
     if projectile.part_timer != 8 {
         return true;
     }
-    projectile.kind = wave_stage::SPREAD;
+    projectile.kind = WaveStage::Spread.byte();
     projectile.part_timer = 0;
     projectile.part = 0;
     wave_spread(slot, cx)
@@ -1717,12 +1832,12 @@ fn wave_spread(slot: usize, cx: &mut Cx<'_>) -> bool {
     let count = cx.effects.projectiles[slot].part_timer;
     if cx.effects.attack & attack::CHARGING == 0 || count >= 0x40 {
         for projectile in &mut cx.effects.projectiles {
-            projectile.kind = 0;
+            projectile.free();
         }
         cx.effects.attack &= attack::CHARGEABLE;
         return false;
     }
-    cx.effects.projectiles[slot].part_timer = count.wrapping_add(1);
+    cx.effects.projectiles[slot].part_timer.tick_up();
     if count & 3 != 0 {
         return true;
     }
@@ -1750,7 +1865,7 @@ fn wave_spread(slot: usize, cx: &mut Cx<'_>) -> bool {
     };
     let projectile = &mut cx.effects.projectiles[free];
     projectile.part = (source.part_timer & 0x04) >> 1;
-    projectile.kind = wave_stage::SPREAD_SHOT;
+    projectile.kind = WaveStage::SpreadShot.byte();
     projectile.part_timer = 0;
     projectile.damage = 1;
     projectile.flags = shot_flags::INERT;
@@ -1759,7 +1874,7 @@ fn wave_spread(slot: usize, cx: &mut Cx<'_>) -> bool {
     if cx.effects.player.motion == Motion::AimingUp {
         projectile.vx = along;
         projectile.vy = -0x50;
-        projectile.timer = 0x80;
+        projectile.timer = AIMED_UP;
         projectile.attr = 0;
     } else {
         projectile.attr = cx.effects.player.facing & attr::FLIP_X;
@@ -1778,9 +1893,9 @@ fn wave_spread_shot(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     super::oracle::seen(0x90E1);
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.flags = shot_flags::UNSTOPPABLE;
-    projectile.part_timer = projectile.part_timer.wrapping_add(1);
+    projectile.part_timer.tick_up();
     if projectile.part_timer >= 0x18 {
-        projectile.kind = 0;
+        projectile.free();
         return;
     }
     work.attr = projectile.attr;
@@ -1792,7 +1907,7 @@ fn wave_spread_shot(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         return;
     }
     let projectile = &cx.effects.projectiles[slot];
-    let table = if projectile.timer & 0x80 != 0 {
+    let table = if projectile.timer & AIMED_UP != 0 {
         0x913A
     } else {
         0x913E
@@ -1807,7 +1922,7 @@ fn wave_spread_shot(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
 fn bounce_off_wall(slot: usize, cx: &mut Cx<'_>, positive: bool) {
     let random = if positive { 0x0020 } else { -0x0020 };
     let projectile = &mut cx.effects.projectiles[slot];
-    if projectile.timer & 0x80 != 0 {
+    if projectile.timer & AIMED_UP != 0 {
         projectile.vy = 0x0020;
         projectile.vx = random;
     } else {
@@ -1825,11 +1940,11 @@ fn wave_flight(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     if !project_or_free(slot, work, cx) {
         return;
     }
-    let (phase, timer) = {
+    let (mode, timer) = {
         let projectile = &cx.effects.projectiles[slot];
-        (projectile.state, projectile.timer)
+        (ShotMode::of(projectile.state), projectile.timer)
     };
-    if phase & shot_state::SPENT != 0 {
+    if mode == ShotMode::Spent {
         if cx.world.frame_odd {
             let projectile = &mut cx.effects.projectiles[slot];
             projectile.count_down();
@@ -1842,7 +1957,7 @@ fn wave_flight(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         draw(work, cx);
         return;
     }
-    if timer & 0x80 != 0 {
+    if timer & AIMED_UP != 0 {
         work.attr = 0;
         work.pointer = rom_word(cx.prg, 5, 0x8EEB + u16::from(cx.world.frame & 2));
         if weave(slot, cx, true) {
@@ -1926,7 +2041,7 @@ mod tests {
         let mut game = super::super::room::start(prg, &rom.chr, 0);
         game.effects.weapon = super::Weapon::Super;
         game.effects.meter = 2;
-        game.effects.projectiles[14].kind = super::super_stage::UNLEASH;
+        game.effects.projectiles[14].kind = super::SuperStage::Unleash.byte();
         if shot_above {
             let shot = &mut game.effects.projectiles[15];
             shot.kind = 1;
@@ -1948,9 +2063,15 @@ mod tests {
         let Some(waiting) = charge_after(true, false) else {
             return;
         };
-        assert_eq!(waiting, super::super_stage::UNLEASH);
-        assert_eq!(charge_after(false, false), Some(super::super_stage::PAIRS));
-        assert_eq!(charge_after(true, true), Some(super::super_stage::PAIRS));
+        assert_eq!(waiting, super::SuperStage::Unleash.byte());
+        assert_eq!(
+            charge_after(false, false),
+            Some(super::SuperStage::Pairs.byte())
+        );
+        assert_eq!(
+            charge_after(true, true),
+            Some(super::SuperStage::Pairs.byte())
+        );
     }
 
     /// A finished gather with no free slots frees them all and, with X = `$FF` after
@@ -1968,10 +2089,10 @@ mod tests {
         game.effects.attack = super::attack::CHARGING;
         game.world.frame_odd = false;
         for shot in &mut game.effects.projectiles {
-            shot.kind = super::homing_stage::CIRCLING;
+            shot.kind = super::HomingStage::Circling.byte();
         }
         let gather = &mut game.effects.projectiles[0];
-        gather.kind = super::homing_stage::GATHER;
+        gather.kind = super::HomingStage::Gather.byte();
         gather.param = 0;
         gather.vx = 6 << 8;
         game.slots.main[15].body.timer = 0x55;

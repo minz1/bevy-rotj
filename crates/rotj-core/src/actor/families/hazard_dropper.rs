@@ -22,6 +22,8 @@ const TURN: u8 = 3;
 const DROP_PERIOD: u8 = 0x18;
 /// The high byte of |dx| at or past which the slot is freed (`$8472`).
 const FAR_HIGH_BYTE: u8 = 0x18;
+/// `body.timer` bit 7: patrol stepping downward through `x_highs` (clear = stepping upward).
+const REVERSING: u8 = 0x80;
 
 /// Type `$A4`'s tables (bank 12), by the `$7E10` position index `counter` (`0`-`2`).
 pub struct Tables {
@@ -60,7 +62,7 @@ impl State {
             0,
         ]);
         spawn_child(body, cx);
-        if body.timer & 0x80 != 0 {
+        if body.timer & REVERSING != 0 {
             body.counter.tick_down();
             if body.counter.ran_out() {
                 flip(body);
@@ -86,7 +88,7 @@ fn spawn_child(body: &Body, cx: &mut Cx<'_>) {
 
 /// `$84AA`: turn the patrol around and re-index from the far position.
 fn flip(body: &mut Body) {
-    body.timer ^= 0x80;
+    body.timer ^= REVERSING;
     body.counter = FLIP_COUNTER;
 }
 

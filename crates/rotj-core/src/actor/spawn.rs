@@ -134,12 +134,12 @@ fn free_slot(slots: &Slots, record: &SpawnRecord) -> Option<Free> {
         slots
             .second
             .iter()
-            .position(|s| s.kind == 0)
+            .position(super::slots::Second::is_free)
             .map(Free::Second)
     } else {
         slots.main[..16]
             .iter()
-            .position(|s| s.kind == 0)
+            .position(super::slots::Slot::is_free)
             .map(Free::Main)
     }
 }

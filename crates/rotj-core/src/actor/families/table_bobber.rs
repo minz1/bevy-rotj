@@ -7,8 +7,11 @@
 //! (`store`). Its velocity is zero and it never uses gravity.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
+
+/// Wrap threshold for `body.timer` (matches the 128-byte bob offset table).
+const TABLE_LEN: u8 = 0x80;
 
 /// The metasprite pointer the handler copies to `$96:$97` (bank 0 `$8663`).
 const METASPRITE_PTR: u16 = 0x8663;
@@ -45,14 +48,14 @@ impl State {
         body.vy = 0;
         work.attr = 1;
         body.timer = body.timer.wrapping_add(4);
-        if body.timer & 0x80 != 0 {
+        if body.timer & TABLE_LEN != 0 {
             body.timer = 0;
         }
         engine::integrate(body, work);
         if engine::on_screen(work, cx.world) != Visibility::On {
             // `$8660` -> `$8908`: free a slot that has been drawn, else just store.
             if body.phase & engine::DRAWN != 0 {
-                *kind = 0;
+                *kind = EMPTY;
             } else {
                 engine::store(body, work);
             }

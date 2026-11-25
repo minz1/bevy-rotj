@@ -1,7 +1,7 @@
 //! Type `$94`, an area-1C stage controller (bank 12 `$8000`).
 
 use crate::actor::engine::Work;
-use crate::actor::slots::{Body, Counter, contact};
+use crate::actor::slots::{Body, Counter, EMPTY, contact};
 use crate::actor::world::Cx;
 
 /// The type the handler hands to the highest free main slot.
@@ -9,6 +9,8 @@ const CHILD: u8 = 0x96;
 
 /// `$7DD0` bit 7: a child is out, so the spawner idles until its death clears the bit.
 const SPAWNED: u8 = 0x80;
+/// Odd-frame countdown reloaded into `body.anim` after spawning a child.
+const RESPAWN_DELAY: u8 = 0x80;
 /// Type `$94` keeps its whole state in [`Body`] (`$7DD0` phase, `$7E90` counter).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State;
@@ -17,7 +19,7 @@ impl State {
     /// One frame of the handler (`$8000`).
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         if cx.world.camera_x.to_be_bytes()[0] == 0 {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         if body.phase & SPAWNED != 0 || !cx.world.frame_odd {
@@ -31,7 +33,7 @@ impl State {
             return;
         };
         body.phase = SPAWNED;
-        body.anim = 0x80;
+        body.anim = RESPAWN_DELAY;
         let parent = work.slot;
         let child = &mut cx.slots.main[index];
         child.kind = CHILD;

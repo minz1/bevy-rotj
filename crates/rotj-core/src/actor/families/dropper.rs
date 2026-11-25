@@ -21,6 +21,8 @@ const HITBOX: u8 = 0x0B;
 const DAMAGE: u8 = 2;
 /// The phase byte dying frees the child on, which `$7DD0` never holds (0, 2 and 4).
 const DYING_FREES_CHILD: u8 = 1;
+/// `counter` bit 7 while lowering: holding the landed child before throwing it (`$80..$AF`).
+const HOLDING_TO_THROW: u8 = 0x80;
 
 /// The dropper's tables (bank 11).
 pub struct Tables {
@@ -84,7 +86,7 @@ fn child_slot(body: &Body) -> usize {
 
 fn free_child(body: &Body, cx: &mut Cx<'_>) {
     if let Some(child) = cx.slots.main.get_mut(child_slot(body)) {
-        child.kind = 0;
+        child.free();
     }
 }
 
@@ -106,6 +108,9 @@ fn waiting(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     }
 }
 
+/// Child sprite palette (sprite palette 2).
+const CHILD_PALETTE: u8 = 0x02;
+
 /// `$86D1`: puts a `$30` in the highest free slot of 0-15; false when none is free.
 fn spawn_child(body: &mut Body, work: &Work, cx: &mut Cx<'_>) -> bool {
     let Some(index) = cx.slots.free_main(0..16) else {
@@ -118,7 +123,7 @@ fn spawn_child(body: &mut Body, work: &Work, cx: &mut Cx<'_>) -> bool {
     child.vy = 0x40;
     child.contact = contact::PASSIVE;
     child.state = STATE_UNTARGETED;
-    child.flags = (work.attr & attr::FLIP_X) | 0x02;
+    child.flags = (work.attr & attr::FLIP_X) | CHILD_PALETTE;
     child.phase = 0;
     true
 }
@@ -135,9 +140,9 @@ fn lowering(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         return;
     }
     body.counter.tick_up();
-    if body.counter & 0x80 == 0 {
+    if body.counter & HOLDING_TO_THROW == 0 {
         if body.counter >= 4 {
-            body.counter = 0x80;
+            body.counter = HOLDING_TO_THROW;
         }
         draw_child(body, work, 0, cx);
         body.sprite = 1;

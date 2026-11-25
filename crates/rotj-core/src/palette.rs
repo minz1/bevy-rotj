@@ -79,6 +79,18 @@ pub const NES_PALETTE: Rgb = [
 /// A 64-colour table, indexed by palette-RAM value `0..=63`.
 pub type Rgb = [[u8; 3]; 64];
 
+/// NES palette-RAM index for black (`$0F`).
+pub const BLACK: u8 = 0x0F;
+/// NES palette-RAM index for dark grey (`$00`).
+pub const DARK_GREY: u8 = 0x00;
+/// NES palette-RAM index for light grey (`$10`).
+pub const GREY: u8 = 0x10;
+/// NES palette-RAM index for white (`$30`).
+pub const WHITE: u8 = 0x30;
+/// Four-step neutral grey ramp (`[BLACK, DARK_GREY, GREY, WHITE]`), used for
+/// palette-less previews (custom tilesets, pattern previews).
+pub const GREY_RAMP: [u8; 4] = [BLACK, DARK_GREY, GREY, WHITE];
+
 /// The 2C03 RGB PPU (PlayChoice, Vs. System): each channel a 3-bit DAC level
 /// (<https://www.nesdev.org/wiki/PPU_palettes>), written as `255 * level / 7`.
 pub const RGB_PPU: Rgb = rgb_ppu([
@@ -158,10 +170,24 @@ pub fn from_pal(bytes: &[u8]) -> Option<Rgb> {
     }))
 }
 
+/// RGB from `table` for a palette-RAM value; indices above `$3F` wrap, as on the PPU.
+#[must_use]
+pub const fn rgb(table: &Rgb, index: u8) -> [u8; 3] {
+    table[(index & 0x3F) as usize]
+}
+
+/// Palette-RAM colour at `entry` (`0..32`), mirroring every 4th entry to `$3F00` and
+/// applying the PPU greyscale mask when `greyscale` is set.
+#[must_use]
+pub const fn colour(palette: &[u8; 32], entry: usize, greyscale: bool) -> u8 {
+    let index = if entry.is_multiple_of(4) { 0 } else { entry };
+    palette[index] & crate::render::mask::colour_bits(greyscale)
+}
+
 /// Opaque RGBA for a palette-RAM value; indices above `$3F` wrap, as on the PPU.
 #[must_use]
 pub fn rgba(index: u8) -> [u8; 4] {
-    let [r, g, b] = NES_PALETTE[usize::from(index & 0x3f)];
+    let [r, g, b] = rgb(&NES_PALETTE, index);
     [r, g, b, 0xff]
 }
 

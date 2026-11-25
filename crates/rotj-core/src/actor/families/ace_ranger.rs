@@ -31,6 +31,10 @@ const DRAWS_SECOND: u8 = 0x40;
 const DRAWS_THIRD: u8 = 0x80;
 /// `subtype` bit 7 once a jump has landed, until the phase advances.
 const LANDED: u8 = 0x80;
+/// `timer` bit 7 during [`Phase::Spawning`]: done firing, counting down to the phase exit.
+const DONE_SPAWNING: u8 = 0x80;
+/// `timer` bit 7 during [`Phase::Jumping`]: airborne, waiting to land.
+const AIRBORNE: u8 = 0x80;
 
 phases! {
     /// The boss's phase (`$7DD0`), which picks its handler (`$910D`).
@@ -81,14 +85,13 @@ impl State {
     /// One frame of the handler (`$8D1F`, phases at `$910D`).
     pub fn step(&mut self, _kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
-        let flash = engine::boss_flash(body, work, cx.world);
-        if flash & 0x80 != 0 {
+        if let engine::BossFlash::Dying { show } = engine::boss_flash(body, work, cx.world) {
             work.attr = body.flags;
             if body.dying_timer == 0x01 {
                 // `$B1C4` takes the dying slot's index in X as the part's timer.
                 engine::boss_defeated(work.slot, cx);
             }
-            if flash & 0x40 != 0 {
+            if show {
                 finish(body, work, cx);
             }
             return;
@@ -145,13 +148,13 @@ fn standing(body: &mut Body, cx: &mut Cx<'_>) {
 fn spawning(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     body.counter = 0;
     face(work, cx);
-    if body.timer & 0x80 == 0 {
+    if body.timer & DONE_SPAWNING == 0 {
         let old = body.timer;
         body.timer.tick_up();
         if old.is_multiple_of(8) {
             spawn_3a(body, work, cx);
             if body.timer & 0x40 != 0 {
-                body.timer = 0x80;
+                body.timer = DONE_SPAWNING;
             }
         }
         if body.timer.is_multiple_of(4) {
@@ -196,7 +199,7 @@ fn lingering(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 /// `$8E67`: wind up for `$20` frames into a jump (`vy` -160), land, then leave.
 fn jumping(body: &mut Body, work: &mut Work, grounded: bool, cx: &mut Cx<'_>) {
     body.counter = 0;
-    if body.timer & 0x80 != 0 {
+    if body.timer & AIRBORNE != 0 {
         if grounded {
             body.timer = 0;
             body.subtype = LANDED;
@@ -225,7 +228,7 @@ fn jumping(body: &mut Body, work: &mut Work, grounded: bool, cx: &mut Cx<'_>) {
         } else {
             0x20
         };
-        body.timer = 0x80;
+        body.timer = AIRBORNE;
     }
 }
 
@@ -251,7 +254,7 @@ fn finish(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         third_draw(body, work, cx);
     }
     work.hitbox = 0;
-    engine::boss_contact(CONTACT, 0, body, work, cx);
+    engine::boss_contact(CONTACT, engine::ContactMode::Both, body, work, cx);
     work.age = work.age.wrapping_add(1);
     engine::end_frame(body, work);
 }

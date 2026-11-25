@@ -2,8 +2,201 @@
 //! imported so the game builds the room from data (`docs/specs/2026-10-17-rooms-design.md`).
 
 use crate::actor::families::phases;
-use crate::actors::bank_slice;
+use crate::actor::oam::attr;
+use crate::actor::world::orientation;
+use crate::prg;
 use crate::render::Mirroring;
+
+/// Bank 14 table of per-area room-record tables (`$C048[area]`, records in bank 0).
+const ROOM_RECORD_TABLE: usize = 0xC048;
+/// Bank 13 table of per-area sprite-palette tables (`$B5F5[area]`).
+const SPRITE_PALETTE_TABLE: usize = 0xB5F5;
+/// Bank 14 table of per-area page-order tables (`$C024[area]`, orders in bank 0).
+const PAGE_ORDER_TABLE: usize = 0xC024;
+/// Bank 13 table of per-area start-record tables (`$B653[area]`).
+const START_RECORD_TABLE: usize = 0xB653;
+/// Bank 14 table of per-area screen-record tables (`$DA18[area]`).
+const SCREEN_RECORD_TABLE: usize = 0xDA18;
+
+/// Sentinel first byte of an empty screen record (`$77`).
+const EMPTY_SCREEN_SENTINEL: u8 = 0x77;
+/// Screen-record offset of the 16 fixed-row flags (`$70-$7F`).
+const SCREEN_FIXED_ROWS: usize = 5;
+/// Screen-record offset of the 8 fixed-quad flags (`$60-$67`).
+const SCREEN_FIXED_QUADS: usize = 21;
+/// Screen-record offset of the 16-bit arrival handler pointer.
+const SCREEN_ARRIVAL: usize = 29;
+/// Arrival handler pointer: leave the player as he was (`$DA0E`).
+const ARRIVAL_UNCHANGED: u16 = 0xDA0E;
+/// Arrival handler pointer: held (`$DA0F`).
+const ARRIVAL_HELD: u16 = 0xDA0F;
+/// Arrival handler pointer: flying (`$D9FF`).
+const ARRIVAL_FLYING: u16 = 0xD9FF;
+
+/// A pattern table's four 1 KiB CHR banks (`$E0-$E3`); bit 7 marks an animation handle.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ChrBanks(pub [u8; 4]);
+
+impl ChrBanks {
+    /// Bit 7: this entry names a CHR animation group rather than a literal bank.
+    pub const ANIMATED: u8 = 0x80;
+
+    /// Whether a single bank byte names an animation group.
+    #[must_use]
+    pub const fn is_animated(bank: u8) -> bool {
+        bank & Self::ANIMATED != 0
+    }
+
+    /// Raw bank byte for slot `i` (`0..4`).
+    #[must_use]
+    pub const fn bank(self, slot: usize) -> u8 {
+        self.0[slot]
+    }
+
+    /// Whether slot `i` (`0..4`) names an animation group.
+    #[must_use]
+    pub const fn animated(self, slot: usize) -> bool {
+        Self::is_animated(self.0[slot])
+    }
+
+    /// The underlying four bytes.
+    #[must_use]
+    pub const fn raw(self) -> [u8; 4] {
+        self.0
+    }
+
+    /// Maps each of the four bank bytes.
+    #[must_use]
+    pub fn map<T>(self, f: impl FnMut(u8) -> T) -> [T; 4] {
+        self.0.map(f)
+    }
+
+    /// Iterates the four bank bytes.
+    pub fn iter(&self) -> std::slice::Iter<'_, u8> {
+        self.0.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a ChrBanks {
+    type Item = &'a u8;
+    type IntoIter = std::slice::Iter<'a, u8>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+/// A room's orientation (`$DD`, room record byte 5).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Orientation {
+    /// `$DD` bit 6: the room scrolls vertically.
+    pub vertical: bool,
+    /// `$DD` bit 7: the room is two pages across.
+    pub two_pages: bool,
+}
+
+impl Orientation {
+    /// Horizontal, one page tall (`$00`).
+    pub const HORIZONTAL: Self = Self {
+        vertical: false,
+        two_pages: false,
+    };
+    /// Vertical, one page wide (`$40`).
+    pub const VERTICAL: Self = Self {
+        vertical: true,
+        two_pages: false,
+    };
+    /// Horizontal, two pages tall (`$80`).
+    pub const HORIZONTAL_TWO_PAGES: Self = Self {
+        vertical: false,
+        two_pages: true,
+    };
+
+    /// Decodes `$DD`; rejects bytes with bits outside `VERTICAL | TWO_PAGES`.
+    #[must_use]
+    pub const fn from_byte(byte: u8) -> Option<Self> {
+        if byte & !(orientation::VERTICAL | orientation::TWO_PAGES) != 0 {
+            return None;
+        }
+        Some(Self {
+            vertical: byte & orientation::VERTICAL != 0,
+            two_pages: byte & orientation::TWO_PAGES != 0,
+        })
+    }
+
+    /// Encodes back to `$DD`.
+    #[must_use]
+    pub const fn to_byte(self) -> u8 {
+        (if self.vertical {
+            orientation::VERTICAL
+        } else {
+            0
+        }) | (if self.two_pages {
+            orientation::TWO_PAGES
+        } else {
+            0
+        })
+    }
+
+    /// Two pages across, scrolling sideways (`$DD` bits 7-6 = `10`).
+    #[must_use]
+    pub const fn horizontal_two_page(self) -> bool {
+        self.two_pages && !self.vertical
+    }
+
+    /// Number of pages across the scroll axis (`1` or `2`).
+    #[must_use]
+    pub const fn across(self) -> usize {
+        if self.two_pages { 2 } else { 1 }
+    }
+}
+
+/// Initial scroll-lock mask (`$C2`, start record byte 10).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ScrollLock(pub u8);
+
+impl ScrollLock {
+    /// The raw `$C2` byte.
+    #[must_use]
+    pub const fn raw(self) -> u8 {
+        self.0
+    }
+}
+
+/// Initial scroll-mode byte (`$C3`, start record byte 11).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ScrollMode(pub u8);
+
+impl ScrollMode {
+    /// The raw `$C3` byte.
+    #[must_use]
+    pub const fn raw(self) -> u8 {
+        self.0
+    }
+}
+
+/// Initial player facing / attribute byte (`$0470`, start record byte 14).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Facing(pub u8);
+
+impl Facing {
+    /// Facing right (`$00`).
+    pub const RIGHT: Self = Self(0);
+    /// Facing left (`attr::FLIP_X`).
+    pub const LEFT: Self = Self(attr::FLIP_X);
+
+    /// The raw `$0470` byte.
+    #[must_use]
+    pub const fn raw(self) -> u8 {
+        self.0
+    }
+
+    /// Whether bit 6 (`attr::FLIP_X`) is set.
+    #[must_use]
+    pub const fn is_left(self) -> bool {
+        self.0 & attr::FLIP_X != 0
+    }
+}
 
 /// One room's layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,9 +206,9 @@ pub struct Room {
     /// The sprite palette selector (bank 13 `$B5F5[area]`, by `room >> 1`).
     pub sprite_palette: u8,
     /// The CHR banks for `$E0-$E3` (record bytes 1-4); bit 7 names an animation group.
-    pub chr: [u8; 4],
-    /// The orientation byte `$DD` (record byte 5; `actor::world::orientation`).
-    pub orientation: u8,
+    pub chr: ChrBanks,
+    /// The orientation byte `$DD` (record byte 5).
+    pub orientation: Orientation,
     /// How many pages the loader raises the attributes of (record byte 6), read only in
     /// rooms two pages across.
     pub raised_page_count: u8,
@@ -109,16 +302,69 @@ pub struct Start {
     pub camera_y: u16,
     /// The vertical scroll ring (`$C8`).
     pub ring_y: u16,
-    /// The scroll locks.
-    pub scroll_lock: u8,
+    /// The scroll locks (`$C2`).
+    pub scroll_lock: ScrollLock,
     /// The scroll mode (`$C3`, the auto-scroll bits).
-    pub scroll_mode: u8,
+    pub scroll_mode: ScrollMode,
     /// The nametable mirroring (`$EC`).
     pub mirroring: Mirroring,
     /// The first spawn schedule column (`$0403`).
     pub first_spawn_column: u8,
-    /// The player's facing.
-    pub facing: u8,
+    /// The player's facing (`$0470`).
+    pub facing: Facing,
+}
+
+/// Decoded bank-14 screen record (`$DA18[area]`).
+struct ScreenRecord {
+    raster: Option<Raster>,
+    fixed_rows: [bool; 16],
+    fixed_quads: [bool; 8],
+    arrival: Arrival,
+}
+
+impl ScreenRecord {
+    fn import(prg: &[u8], addr: usize) -> Option<Self> {
+        let byte = |i: usize| prg::byte(prg, 14, addr.checked_add(i)?);
+        let flag = |i: usize| match byte(i)? {
+            0 => Some(false),
+            0x80 => Some(true),
+            _ => None,
+        };
+        if byte(0)? == EMPTY_SCREEN_SENTINEL {
+            return Some(Self {
+                raster: None,
+                fixed_rows: [false; 16],
+                fixed_quads: [false; 8],
+                arrival: Arrival::Unchanged,
+            });
+        }
+        let mut fixed_rows = [false; 16];
+        for (i, fixed) in (SCREEN_FIXED_ROWS..).zip(&mut fixed_rows) {
+            *fixed = flag(i)?;
+        }
+        let mut fixed_quads = [false; 8];
+        for (i, fixed) in (SCREEN_FIXED_QUADS..).zip(&mut fixed_quads) {
+            *fixed = flag(i)?;
+        }
+        let raster = Raster {
+            armed: flag(0)?,
+            first_irq_cycles: prg::word(prg, 14, addr.checked_add(1)?)?,
+            chain: Chain::from_byte(byte(3)?)?,
+            next_irq: byte(4)?,
+        };
+        let arrival = match prg::word(prg, 14, addr.checked_add(SCREEN_ARRIVAL)?)? {
+            ARRIVAL_UNCHANGED => Arrival::Unchanged,
+            ARRIVAL_HELD => Arrival::Held,
+            ARRIVAL_FLYING => Arrival::Flying,
+            _ => return None,
+        };
+        Some(Self {
+            raster: Some(raster),
+            fixed_rows,
+            fixed_quads,
+            arrival,
+        })
+    }
 }
 
 impl Room {
@@ -130,67 +376,32 @@ impl Room {
     /// its `$D3` is not a [`Chain`], or its handler pointer is not one of the three arrivals.
     #[must_use]
     pub fn import(prg: &[u8], area: u8, room: u8) -> Option<Room> {
-        let byte = |bank: u8, addr: u16| Some(*bank_slice(prg, bank, addr & 0x1FFF).ok()?.first()?);
-        let word = |bank: u8, addr: u16| {
-            Some(u16::from_le_bytes([
-                byte(bank, addr)?,
-                byte(bank, addr.checked_add(1)?)?,
-            ]))
+        let pointer = |bank: usize, table: usize, from_bank: usize| -> Option<usize> {
+            let area_table = prg::word(prg, bank, table.checked_add(usize::from(area))?)?;
+            let entry = usize::from(area_table).checked_add(usize::from(room))?;
+            Some(usize::from(prg::word(prg, from_bank, entry)?))
         };
-        let pointer = |bank: u8, table: u16, from_bank: u8| {
-            word(
-                from_bank,
-                word(bank, table.checked_add(u16::from(area))?)?.checked_add(u16::from(room))?,
-            )
-        };
-        let record = pointer(14, 0xC048, 0)?;
-        let field = |i: u16| byte(0, record.checked_add(i)?);
-        let sets = word(13, 0xB5F5 + u16::from(area))?;
-        let page_order = pointer(14, 0xC024, 0)?;
-        let start = pointer(13, 0xB653, 13)?;
-        let start = |i: u16| byte(13, start.checked_add(i)?);
-        let start_word = |i: u16| Some(u16::from_be_bytes([start(i)?, start(i + 1)?]));
-        let screen = pointer(14, 0xDA18, 14)?;
-        let screen = |i: u16| byte(14, screen.checked_add(i)?);
-        let flag = |i: u16| match screen(i)? {
-            0 => Some(false),
-            0x80 => Some(true),
-            _ => None,
-        };
-        let empty = screen(0)? == 0x77;
-        let (mut fixed_rows, mut fixed_quads) = ([false; 16], [false; 8]);
-        let (raster, arrival) = if empty {
-            (None, Arrival::Unchanged)
-        } else {
-            for (i, fixed) in (5..).zip(&mut fixed_rows) {
-                *fixed = flag(i)?;
-            }
-            for (i, fixed) in (21..).zip(&mut fixed_quads) {
-                *fixed = flag(i)?;
-            }
-            let raster = Raster {
-                armed: flag(0)?,
-                first_irq_cycles: u16::from_le_bytes([screen(1)?, screen(2)?]),
-                chain: Chain::from_byte(screen(3)?)?,
-                next_irq: screen(4)?,
-            };
-            let arrival = match u16::from_le_bytes([screen(29)?, screen(30)?]) {
-                0xDA0E => Arrival::Unchanged,
-                0xDA0F => Arrival::Held,
-                0xD9FF => Arrival::Flying,
-                _ => return None,
-            };
-            (Some(raster), arrival)
-        };
+        let record = pointer(14, ROOM_RECORD_TABLE, 0)?;
+        let field = |i: usize| prg::byte(prg, 0, record.checked_add(i)?);
+        let sets = usize::from(prg::word(
+            prg,
+            13,
+            SPRITE_PALETTE_TABLE + usize::from(area),
+        )?);
+        let page_order = pointer(14, PAGE_ORDER_TABLE, 0)?;
+        let start_addr = pointer(13, START_RECORD_TABLE, 13)?;
+        let start_byte = |i: usize| prg::byte(prg, 13, start_addr.checked_add(i)?);
+        let start_word = |i: usize| Some(u16::from_be_bytes([start_byte(i)?, start_byte(i + 1)?]));
+        let screen = ScreenRecord::import(prg, pointer(14, SCREEN_RECORD_TABLE, 14)?)?;
         let mut pages = [0; 32];
         for (i, page) in (0..).zip(&mut pages) {
-            *page = byte(0, page_order.checked_add(i)?)? & 0x0F;
+            *page = prg::byte(prg, 0, page_order.checked_add(i)?)? & 0x0F;
         }
         Some(Room {
             background_palette: field(0)?,
-            sprite_palette: byte(13, sets.checked_add(u16::from(room >> 1))?)?,
-            chr: [field(1)?, field(2)?, field(3)?, field(4)?],
-            orientation: field(5)?,
+            sprite_palette: prg::byte(prg, 13, sets.checked_add(usize::from(room >> 1))?)?,
+            chr: ChrBanks([field(1)?, field(2)?, field(3)?, field(4)?]),
+            orientation: Orientation::from_byte(field(5)?)?,
             raised_page_count: field(6)?,
             pages,
             start: Start {
@@ -199,16 +410,16 @@ impl Room {
                 camera_x: start_word(4)?,
                 camera_y: start_word(6)?,
                 ring_y: start_word(8)?,
-                scroll_lock: start(10)?,
-                scroll_mode: start(11)?,
-                mirroring: Mirroring::from_register(start(12)?),
-                first_spawn_column: start(13)?,
-                facing: start(14)?,
+                scroll_lock: ScrollLock(start_byte(10)?),
+                scroll_mode: ScrollMode(start_byte(11)?),
+                mirroring: Mirroring::from_register(start_byte(12)?),
+                first_spawn_column: start_byte(13)?,
+                facing: Facing(start_byte(14)?),
             },
-            raster,
-            fixed_rows,
-            fixed_quads,
-            arrival,
+            raster: screen.raster,
+            fixed_rows: screen.fixed_rows,
+            fixed_quads: screen.fixed_quads,
+            arrival: screen.arrival,
         })
     }
 }
@@ -224,17 +435,15 @@ pub(crate) fn listed_rooms(prg: &[u8]) -> Vec<(u8, u8)> {
 }
 
 fn try_listed_rooms(prg: &[u8]) -> Option<Vec<(u8, u8)>> {
-    let word = |addr: u16| -> Option<u16> {
-        let bytes = bank_slice(prg, 14, addr & 0x1FFF).ok()?;
-        Some(u16::from_le_bytes([*bytes.first()?, *bytes.get(1)?]))
-    };
-    let areas = word(0xDA18)?.checked_sub(0xDA18)? / 2;
+    let word = |addr: usize| prg::word(prg, 14, addr);
+    let table_base = u16::try_from(SCREEN_RECORD_TABLE).expect("screen table fits u16");
+    let areas = word(SCREEN_RECORD_TABLE)?.checked_sub(table_base)? / 2;
     let tables: Vec<u16> = (0..areas)
-        .map(|area| word(0xDA18u16.checked_add(2 * area)?))
+        .map(|area| word(SCREEN_RECORD_TABLE.checked_add(2 * usize::from(area))?))
         .collect::<Option<_>>()?;
     let first_record = tables
         .iter()
-        .map(|&table| word(table))
+        .map(|&table| word(usize::from(table)))
         .collect::<Option<Vec<_>>>()?
         .into_iter()
         .min()?;

@@ -10,14 +10,36 @@ use super::engine::{
     self, Work, adc_overflows, anchor, hi, lo, probe_flags, rom_word, sub_overflows16,
 };
 use super::oam::attr;
-use super::slots::contact;
+use super::slots::{Counter, contact};
 use super::world::{
     Cx, EntryStep, Motion, Player, Projectile, Weapon, attack, busy, death, hurt, orientation,
     pose, power_up, set_first_colours, shot_flags, slide_ledge, sliding, sound, stage_script,
 };
 use crate::actor::button::Buttons;
 use crate::actors::STATE_UNTARGETED;
+use crate::palette;
 use crate::render::ppu;
+
+/// Initial upward velocity of a jump (`-44` subpixels/frame).
+const JUMP_VY: i16 = i16::from_be_bytes([0xFF, 0xD4]);
+/// Downward snap velocity when a slide clears a ledge onto a floor below.
+const SLIDE_LEDGE_VY: i16 = i16::from_be_bytes([0x00, 0x40]);
+/// Initial leftward slide launch velocity.
+const SLIDE_VX_LEFT: i16 = i16::from_be_bytes([0xFF, 0x70]);
+/// Initial rightward slide launch velocity.
+const SLIDE_VX_RIGHT: i16 = i16::from_be_bytes([0x00, 0x90]);
+/// `pose_timer` flag while gliding in a slide.
+const SLIDE_GLIDING: u8 = 0x80;
+/// `pose_timer` flag while decelerating out of a slide.
+const SLIDE_ENDING: u8 = 0x40;
+/// `projectile.timer` bit 7 when a shot is launched upward.
+const SHOT_AIMED_UP: u8 = 0x80;
+/// PRG bank holding the boss-entry pose and line tables.
+const ENTRY_BANK: u8 = 14;
+/// Boss-entry pose pointer table (`$D1A4`, bank 14).
+const ENTRY_POSE_POINTERS: u16 = 0xD1A4;
+/// Boss-entry grapnel-line pointer table (`$D1D8`, bank 14).
+const ENTRY_LINE_POINTERS: u16 = 0xD1D8;
 
 /// Test-only branch coverage; the test asserts and reports which paths ran.
 #[cfg(test)]
@@ -302,7 +324,7 @@ pub fn step_move(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
     if player.vx == 0 && !pad.intersects(Buttons::SIDEWAYS) {
         player.walk_timer = 1;
     } else {
-        player.walk_timer = player.walk_timer.wrapping_add(1);
+        player.walk_timer.tick_up();
     }
     cx.effects.player = player;
 }
@@ -771,7 +793,7 @@ impl Port<'_, '_> {
     fn draw(&mut self) {
         self.set_overflow_from(self.player.hurt);
         if self.player.hurt & hurt::STUNNED == 0 && self.player.hurt & hurt::INVULNERABLE != 0 {
-            self.player.hurt_timer = self.player.hurt_timer.wrapping_sub(1);
+            self.player.hurt_timer.tick_down();
             if self.player.hurt_timer == 0 {
                 self.player.hurt &= !(hurt::STUNNED | hurt::INVULNERABLE);
             } else {
@@ -813,11 +835,11 @@ impl Port<'_, '_> {
     fn drain_power_up(&mut self) {
         self.set_overflow_from(self.player.power_up);
         if self.player.power_up & power_up::ON != 0 {
-            self.player.flash_timer = self.player.flash_timer.wrapping_add(1);
+            self.player.flash_timer.tick_up();
             if self.player.flash_timer.is_multiple_of(64) {
                 self.overflow = adc_overflows(self.cx.effects.meter, !2, true);
                 self.cx.effects.meter = self.cx.effects.meter.wrapping_sub(2);
-                if self.cx.effects.meter & 0x80 != 0 {
+                if self.cx.effects.meter.ran_out() {
                     let weapon = self.cx.effects.stored_weapon;
                     self.cx.effects.weapon = weapon;
                     self.cx.effects.attack = if weapon == Weapon::Bolt {
@@ -829,13 +851,13 @@ impl Port<'_, '_> {
                     self.player.hurt = hurt::INVULNERABLE;
                     self.player.hurt_timer = 0x40;
                     for projectile in &mut self.cx.effects.projectiles {
-                        projectile.kind = 0;
+                        projectile.free();
                     }
                     let palette = self.cx.prg.player.weapon_palette;
                     for i in 0..3u16 {
                         self.cx.effects.palette[0x11 + usize::from(i)] = palette[usize::from(i)];
                     }
-                    set_first_colours(&mut self.cx.effects.palette, 0x0F);
+                    set_first_colours(&mut self.cx.effects.palette, palette::BLACK);
                     self.cx.effects.palette_dirty = 0x80;
                 }
             }
@@ -904,8 +926,8 @@ impl Port<'_, '_> {
     /// `$925D`: the hurt/death state.
     fn hurt(&mut self) {
         self.player.walk_gate = Buttons::NONE;
-        self.player.hurt_timer = self.player.hurt_timer.wrapping_sub(1);
-        if self.player.hurt_timer & 0x80 != 0 {
+        self.player.hurt_timer.tick_down();
+        if self.player.hurt_timer.ran_out() {
             self.set_overflow_from(self.player.energy);
             if self.player.out_of_energy() {
                 self.die();
@@ -942,8 +964,8 @@ impl Port<'_, '_> {
         if self.player.hurt & hurt::STUNNED == 0 {
             return;
         }
-        self.player.hurt_timer = self.player.hurt_timer.wrapping_sub(1);
-        if self.player.hurt_timer & 0x80 != 0 {
+        self.player.hurt_timer.tick_down();
+        if self.player.hurt_timer.ran_out() {
             if self.player.out_of_energy() {
                 self.die();
                 return;
@@ -1012,7 +1034,7 @@ impl Port<'_, '_> {
         let start = self.cx.prg.player.slot_limits[usize::from(weapon.byte())];
         let Some(slot) = (0..=usize::from(start))
             .rev()
-            .find(|&slot| self.cx.effects.projectiles[slot].kind == 0)
+            .find(|&slot| self.cx.effects.projectiles[slot].is_free())
         else {
             return;
         };
@@ -1097,7 +1119,7 @@ impl Port<'_, '_> {
                 let part = |projectile: &mut Projectile, n: usize| {
                     projectile.vy = -0x40;
                     projectile.vx = vx[n];
-                    projectile.timer = 0x80;
+                    projectile.timer = SHOT_AIMED_UP;
                     projectile.state = 0;
                     projectile.attr = 0;
                     projectile.flags = 0;
@@ -1116,7 +1138,7 @@ impl Port<'_, '_> {
                 let projectile = &mut self.cx.effects.projectiles[slot];
                 projectile.vy = -0x40;
                 projectile.vx = vx;
-                projectile.timer = 0x80;
+                projectile.timer = SHOT_AIMED_UP;
                 projectile.state = 0;
                 projectile.flags = 0;
                 projectile.damage = 4;
@@ -1195,7 +1217,7 @@ impl Port<'_, '_> {
                     projectile.attr = attr;
                     projectile.kind = Weapon::ThreeWay.shot_kind();
                     projectile.vy = vy[n];
-                    projectile.timer = 0x80;
+                    projectile.timer = SHOT_AIMED_UP;
                     projectile.state = 0;
                     projectile.flags = 0;
                     projectile.damage = 1;
@@ -1230,7 +1252,7 @@ impl Port<'_, '_> {
     fn shot_up(&mut self, slot: usize, vy: i16, damage: u8) {
         let projectile = &mut self.cx.effects.projectiles[slot];
         projectile.vy = vy;
-        projectile.timer = 0x80;
+        projectile.timer = SHOT_AIMED_UP;
         projectile.flags = 0;
         projectile.vx = 0;
         projectile.state = 0;
@@ -1243,7 +1265,7 @@ impl Port<'_, '_> {
     fn spawn_parts(&mut self, last: usize, mut part: impl FnMut(&mut Projectile, usize)) -> u8 {
         let mut free = (0..16u8)
             .rev()
-            .filter(|&slot| self.cx.effects.projectiles[usize::from(slot)].kind == 0)
+            .filter(|&slot| self.cx.effects.projectiles[usize::from(slot)].is_free())
             .collect::<Vec<_>>()
             .into_iter();
         let mut left = 0xFF;
@@ -1262,7 +1284,7 @@ impl Port<'_, '_> {
     fn spawn_melee(&mut self) -> u8 {
         let Some(slot) = (0..16)
             .rev()
-            .find(|&slot| self.cx.effects.projectiles[slot].kind == 0)
+            .find(|&slot| self.cx.effects.projectiles[slot].is_free())
         else {
             return 0xFF;
         };
@@ -1319,7 +1341,7 @@ impl Port<'_, '_> {
         let mut slot = start & 0x0F;
         for _ in 0..16 {
             let actor = &self.cx.slots.main[usize::from(slot)];
-            if actor.kind != 0
+            if !actor.is_free()
                 && actor.body.contact & contact::UNTARGETED == 0
                 && actor.body.state & STATE_UNTARGETED == 0
             {
@@ -1348,7 +1370,7 @@ impl Port<'_, '_> {
                 }
                 self.spawn_melee();
             } else if held {
-                self.player.charge_timer = self.player.charge_timer.wrapping_add(1);
+                self.player.charge_timer.tick_up();
                 if self.player.charge_timer >= 0x30 {
                     self.cx.effects.attack =
                         attack::CHARGEABLE | attack::CHARGING | attack::CHARGED;
@@ -1399,7 +1421,7 @@ impl Port<'_, '_> {
                 self.cx.effects.attack &= attack::CHARGEABLE;
                 self.player.pose = pose::LANDING | pose::LONG_LANDING;
             } else {
-                self.player.vy = i16::from_be_bytes([0xFF, 0xD4]);
+                self.player.vy = JUMP_VY;
                 self.set_vx_from_pad();
                 self.set_overflow_from(self.player.pose);
                 if self.player.pose & pose::SHOT != 0 {
@@ -1497,7 +1519,7 @@ impl Port<'_, '_> {
 
     /// `$86DE`.
     fn standing_turn(&mut self) {
-        self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
+        self.player.pose_timer.tick_up();
         let x = u16::from(self.player.pose_timer >> 1);
         if x < 2 {
             self.player.anim = self.cx.prg.player.animations.standing_turn[usize::from(x)];
@@ -1517,7 +1539,7 @@ impl Port<'_, '_> {
     fn standing_idle(&mut self) {
         let pose_bits = self.player.pose & (pose::LANDING | pose::LONG_LANDING);
         if pose_bits != 0 {
-            self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
+            self.player.pose_timer.tick_up();
             if pose_bits & pose::LONG_LANDING != 0 {
                 let x = u16::from(self.player.pose_timer >> 1);
                 if x < 0x11 {
@@ -1530,7 +1552,7 @@ impl Port<'_, '_> {
                 return;
             } else {
                 self.player.pose_timer = 0;
-                self.player.pose_step = self.player.pose_step.wrapping_add(1);
+                self.player.pose_step.tick_up();
                 if self.player.pose_step < 0x03 {
                     self.player.anim =
                         self.cx.prg.player.animations.landing[usize::from(self.player.pose_step)];
@@ -1545,13 +1567,13 @@ impl Port<'_, '_> {
             self.player.anim = 0;
             return;
         }
-        self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
+        self.player.pose_timer.tick_up();
         let x = u16::from(self.player.pose_timer >> 1);
         if x < 3 {
             self.player.anim = self.cx.prg.player.animations.standing_drift[usize::from(x)];
             return;
         }
-        self.player.pose_timer = self.player.pose_timer.wrapping_sub(1);
+        self.player.pose_timer.tick_down();
         self.player.anim = 0x44;
     }
 
@@ -1577,7 +1599,7 @@ impl Port<'_, '_> {
                 self.player.charge_timer = 0;
                 self.spawn_shot();
                 self.player.anim = 0x25;
-                self.player.attack_timer = self.player.attack_timer.wrapping_add(1);
+                self.player.attack_timer.tick_up();
                 return;
             }
             _ => {}
@@ -1597,7 +1619,7 @@ impl Port<'_, '_> {
                 0
             }
         };
-        self.player.attack_timer = self.player.attack_timer.wrapping_add(1);
+        self.player.attack_timer.tick_up();
     }
 
     /// The shared `$B8`-gated melee block (`$8743`, `$882F`, `$8AEA`, ...).
@@ -1614,7 +1636,7 @@ impl Port<'_, '_> {
         if self.cx.effects.attack & attack::CHARGED != 0 {
             return None;
         }
-        self.player.charge_timer = self.player.charge_timer.wrapping_add(1);
+        self.player.charge_timer.tick_up();
         if self.player.charge_timer < 0x30 {
             return None;
         }
@@ -1647,7 +1669,7 @@ impl Port<'_, '_> {
     fn crouching_held(&mut self) {
         self.set_overflow_from(self.player.pose);
         if self.player.pose & pose::TURNING != 0 {
-            self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
+            self.player.pose_timer.tick_up();
             let x = u16::from(self.player.pose_timer >> 1);
             if x < 2 {
                 self.player.anim = self.cx.prg.player.animations.crouching_turn[usize::from(x)];
@@ -1677,7 +1699,7 @@ impl Port<'_, '_> {
             self.player.anim = 0x04;
             return;
         }
-        self.player.attack_timer = self.player.attack_timer.wrapping_add(1);
+        self.player.attack_timer.tick_up();
         self.set_overflow_from(self.cx.effects.attack);
         if self.cx.effects.attack & attack::CHARGING != 0 {
             self.melee_block();
@@ -1831,7 +1853,7 @@ impl Port<'_, '_> {
             }
             return;
         }
-        self.player.vy = i16::from_be_bytes([0xFF, 0xD4]);
+        self.player.vy = JUMP_VY;
         self.set_vx_from_pad();
         self.player.motion = Motion::Jumping;
         self.player.pose &= pose::SHOT;
@@ -1860,7 +1882,7 @@ impl Port<'_, '_> {
     /// `$8A32`: motion 2 with a direction held.
     fn walking_step(&mut self) {
         if self.faces_press() {
-            self.player.pose_step = self.player.pose_step.wrapping_add(1);
+            self.player.pose_step.tick_up();
             if self.player.pose & pose::LANDING != 0 {
                 if self.player.pose_step < 6 {
                     self.player.anim = 0x3E;
@@ -1872,7 +1894,7 @@ impl Port<'_, '_> {
             }
             if self.player.pose_step >= 8 {
                 self.player.pose_step = 0;
-                self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
+                self.player.pose_timer.tick_up();
                 if self.player.pose_timer >= 8 {
                     self.player.pose_timer = 0;
                 }
@@ -1887,7 +1909,7 @@ impl Port<'_, '_> {
             self.player.anim = 0x02;
             return;
         }
-        self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
+        self.player.pose_timer.tick_up();
         let x = u16::from(self.player.pose_timer >> 1);
         if x < 3 {
             self.player.anim = self.cx.prg.player.animations.walking_turn[usize::from(x)];
@@ -1916,7 +1938,7 @@ impl Port<'_, '_> {
                 self.cx.prg.player.animations.walking[usize::from(self.player.pose_timer)];
             return;
         }
-        self.player.attack_timer = self.player.attack_timer.wrapping_add(1);
+        self.player.attack_timer.tick_up();
         let mut x = self.player.pose_timer;
         self.set_overflow_from(self.cx.effects.attack);
         if self.cx.effects.attack & attack::CHARGING != 0 {
@@ -1937,14 +1959,14 @@ impl Port<'_, '_> {
         self.stunned();
         if self.player.pose & pose::RESUME == 0 && self.cx.world.frame_odd {
             if self.pad.contains(Buttons::A) {
-                self.player.pose_step = self.player.pose_step.wrapping_add(1);
+                self.player.pose_step.tick_up();
                 if self.player.pose_step < 0x04 {
                     self.jump_boost();
                     self.jumping_input();
                     return;
                 }
             }
-            self.player.pose_step = self.player.pose_step.wrapping_add(1);
+            self.player.pose_step.tick_up();
             if self.player.pose_step < 0x02 {
                 self.jump_boost();
             } else {
@@ -1977,7 +1999,7 @@ impl Port<'_, '_> {
             return;
         }
         if self.player.pose & pose::TURNING != 0 {
-            self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
+            self.player.pose_timer.tick_up();
             let mut step = self.player.pose_timer;
             if self.player.pose_timer == 0x04 {
                 self.player.pose &= !pose::TURNING;
@@ -2001,7 +2023,7 @@ impl Port<'_, '_> {
             self.player.anim = 0x27;
             return;
         }
-        self.player.attack_timer = self.player.attack_timer.wrapping_add(1);
+        self.player.attack_timer.tick_up();
         self.set_overflow_from(self.cx.effects.attack);
         if self.cx.effects.attack & attack::CHARGING != 0 {
             self.melee_block();
@@ -2045,7 +2067,7 @@ impl Port<'_, '_> {
         let x = u16::from(self.player.pose_timer >> 1);
         if x < 2 {
             self.player.anim = self.cx.prg.player.animations.slide_air[usize::from(x)];
-            self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
+            self.player.pose_timer.tick_up();
             return;
         }
         if self.player.pose_step & slide_ledge::FLOOR_BELOW == 0 {
@@ -2059,7 +2081,7 @@ impl Port<'_, '_> {
         self.overflow = adc_overflows(lo(self.player.y), !0x20, true);
         self.player.y = self.player.y.wrapping_sub(0x20);
         self.player.pose = pose::LANDING | pose::LONG_LANDING;
-        self.player.vy = i16::from_be_bytes([0x00, 0x40]);
+        self.player.vy = SLIDE_LEDGE_VY;
         self.player.motion = Motion::Standing;
         self.player.pose_timer = 0;
         self.player.pose_step = 0;
@@ -2069,11 +2091,11 @@ impl Port<'_, '_> {
     /// `$8D38`: the slide on the ground (no landing flag).
     fn slide_on_ground(&mut self) {
         self.set_overflow_from(self.player.pose_timer);
-        if self.player.pose_timer & 0x80 != 0 {
+        if self.player.pose_timer & SLIDE_GLIDING != 0 {
             self.slide_glide();
             return;
         }
-        if self.player.pose_timer & 0x40 != 0 {
+        if self.player.pose_timer & SLIDE_ENDING != 0 {
             self.slide_end();
             return;
         }
@@ -2094,7 +2116,7 @@ impl Port<'_, '_> {
             x = 0;
         }
         self.player.anim = self.cx.prg.player.animations.slide_start[usize::from(x)];
-        self.player.pose_timer = self.player.pose_timer.wrapping_add(1);
+        self.player.pose_timer.tick_up();
     }
 
     /// `$8D6D`: the slide's launch: a push and the speed in the facing direction.
@@ -2109,13 +2131,13 @@ impl Port<'_, '_> {
         };
         if self.player.faces_left() {
             self.player.x = self.player.x.wrapping_sub(0x80);
-            self.player.vx = i16::from_be_bytes([0xFF, 0x70]);
+            self.player.vx = SLIDE_VX_LEFT;
         } else {
             self.player.x = self.player.x.wrapping_add(0x80);
-            self.player.vx = i16::from_be_bytes([0x00, 0x90]);
+            self.player.vx = SLIDE_VX_RIGHT;
         }
         self.player.anim = 0x3A;
-        self.player.pose_timer = 0x80;
+        self.player.pose_timer = SLIDE_GLIDING;
     }
 
     /// `$8DBB`: the slide gliding until the screen's edge or its speed runs out.
@@ -2131,7 +2153,7 @@ impl Port<'_, '_> {
             dx_hi >= 0x0D || vx_lo < 0x10
         };
         if end {
-            self.player.pose_timer = 0x40;
+            self.player.pose_timer = SLIDE_ENDING;
             self.player.anim = 0x3B;
         }
     }
@@ -2172,7 +2194,7 @@ impl Port<'_, '_> {
             self.slide_end();
             return;
         }
-        self.player.vy = i16::from_be_bytes([0xFF, 0xD4]);
+        self.player.vy = JUMP_VY;
         self.player.pose_timer = 0;
         self.player.pose_step = 0;
         self.player.pose = 0;
@@ -2248,7 +2270,7 @@ impl Port<'_, '_> {
             self.player.anim = 0x46;
             return;
         }
-        self.player.vy = i16::from_be_bytes([0xFF, 0xD4]);
+        self.player.vy = JUMP_VY;
         self.set_vx_from_pad();
         self.player.motion = Motion::Jumping;
         self.player.pose &= pose::SHOT;
@@ -2290,7 +2312,7 @@ impl Port<'_, '_> {
             self.player.anim = 0x48;
             return;
         }
-        self.player.attack_timer = self.player.attack_timer.wrapping_add(1);
+        self.player.attack_timer.tick_up();
         self.set_overflow_from(self.cx.effects.attack);
         if self.cx.effects.attack & attack::CHARGING != 0 {
             self.melee_block();
@@ -2331,7 +2353,7 @@ impl Port<'_, '_> {
                 self.work.attr = self.cx.prg.player.death_attributes[usize::from(frame >> 1)];
                 self.overlay(5);
             }
-            self.player.death_timer = timer.wrapping_add(1);
+            self.player.death_timer.tick_up();
         } else {
             if timer == 0x2F {
                 self.cx.effects.sound[1] = sound::PLAYER_DIES;
@@ -2347,7 +2369,7 @@ impl Port<'_, '_> {
                 self.work.attr = self.player.facing & attr::PALETTE;
                 self.overlay(4);
             }
-            self.player.death_timer = timer.wrapping_add(1);
+            self.player.death_timer.tick_up();
             let mut beat = self.player.death_timer;
             if beat == 4 {
                 let palette = self.cx.prg.player.death_palette;
@@ -2404,7 +2426,7 @@ impl Port<'_, '_> {
         let player = &mut *self.player;
         match EntryStep::from_byte(player.entry_step) {
             Some(EntryStep::Arriving) => {
-                player.entry_timer = player.entry_timer.wrapping_add(1);
+                player.entry_timer.tick_up();
                 if player.entry_timer >= 4 {
                     self.cx.effects.sound[0] = sound::TALLY_TICK;
                     (player.entry_timer, player.tally_digit) = (0, 0);
@@ -2416,7 +2438,7 @@ impl Port<'_, '_> {
                 self.entry_line(0);
             }
             Some(EntryStep::Tallying) => {
-                player.entry_timer = player.entry_timer.wrapping_add(1);
+                player.entry_timer.tick_up();
                 let pose = if player.entry_timer & 0x02 != 0 { 1 } else { 2 };
                 self.work.chr_slot = 5;
                 self.entry_pose(pose);
@@ -2435,11 +2457,11 @@ impl Port<'_, '_> {
                 let colour = if player.tally >= u16::from_le_bytes(self.cx.effects.boss_pool) {
                     player.entry_step = EntryStep::Tallied.byte();
                     player.entry_timer = 0;
-                    0x0F
+                    palette::BLACK
                 } else if self.cx.world.frame.is_multiple_of(8) {
-                    0x30
+                    palette::WHITE
                 } else {
-                    0x0F
+                    palette::BLACK
                 };
                 set_first_colours(&mut self.cx.effects.palette, colour);
                 let effects = &mut *self.cx.effects;
@@ -2456,7 +2478,7 @@ impl Port<'_, '_> {
                 self.entry_pose(1);
                 self.entry_line(3);
                 let player = &mut *self.player;
-                player.entry_timer = player.entry_timer.wrapping_add(1);
+                player.entry_timer.tick_up();
                 if player.entry_timer >= 4 {
                     self.cx.effects.sound[0] = sound::EXPLOSION;
                     player.entry_step = EntryStep::Posing.byte();
@@ -2469,7 +2491,7 @@ impl Port<'_, '_> {
                 self.entry_pose(self.cx.prg.player.entry_poses[held]);
                 self.work.chr_slot = 4;
                 let player = &mut *self.player;
-                player.entry_timer = player.entry_timer.wrapping_add(1);
+                player.entry_timer.tick_up();
                 if player.entry_timer < 0x0C {
                     self.entry_pose(self.cx.prg.player.entry_pose_second[held]);
                     return;
@@ -2490,13 +2512,21 @@ impl Port<'_, '_> {
         self.work.tile = 0;
         self.work.screen_x = 0x3E;
         self.work.screen_y = 0xB0;
-        self.work.pointer = rom_word(self.cx.prg, 14, 0xD1A4 + 2 * u16::from(pose));
+        self.work.pointer = rom_word(
+            self.cx.prg,
+            ENTRY_BANK,
+            ENTRY_POSE_POINTERS + 2 * u16::from(pose),
+        );
         self.overflow = engine::draw(self.work, 1, self.cx);
     }
 
     /// `$D1B0`: the line above him, frame `line` (`$D1D8`), at (`$3E`, `$78`).
     fn entry_line(&mut self, line: u8) {
-        self.work.pointer = rom_word(self.cx.prg, 14, 0xD1D8 + 2 * u16::from(line));
+        self.work.pointer = rom_word(
+            self.cx.prg,
+            ENTRY_BANK,
+            ENTRY_LINE_POINTERS + 2 * u16::from(line),
+        );
         self.work.attr |= attr::PALETTE;
         self.work.chr_slot = 4;
         self.work.screen_x = 0x3E;
@@ -2569,7 +2599,7 @@ impl Port<'_, '_> {
             self.player.pose_timer = 0;
             return;
         }
-        self.player.attack_timer = self.player.attack_timer.wrapping_add(1);
+        self.player.attack_timer.tick_up();
         self.set_overflow_from(self.cx.effects.attack);
         if self.cx.effects.attack & attack::CHARGING != 0 {
             self.melee_block();

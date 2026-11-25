@@ -5,13 +5,17 @@
 //! position itself and never runs `$A8E4`, and any frame it is not on screen frees it.
 
 use crate::actor::engine::{self, Visibility, Work, anchor};
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, EMPTY};
 use crate::actor::world::{Cx, sound};
 
+/// PRG bank holding `$28`'s tables and metasprite.
+const HOME_BANK: u8 = 11;
 const WAYPOINTS: u16 = 0x81DF;
 const SEQUENCES: u16 = 0x81ED;
 const METASPRITE: u16 = 0x81CB;
 const CHILD: u8 = 0x24;
+/// Platform travel speed per frame (`$10` = 1 px).
+const SPEED: i16 = 0x10;
 
 /// Type `$28`'s tables (bank 11), by `subtype & $3F` (the 6502's 8-bit `subtype << 2`).
 pub struct Tables {
@@ -46,29 +50,29 @@ impl State {
         // `ASL` twice on a byte: the index wraps at 8 bits, as the 6502's `TAY` does.
         let table = engine::rom_word(
             cx.prg,
-            11,
+            HOME_BANK,
             WAYPOINTS + u16::from(body.behaviour.wrapping_shl(1)),
         );
         let y = body.timer.wrapping_shl(1);
         let target = u16::from_le_bytes([
-            engine::rom_byte(cx.prg, 11, table + u16::from(y)),
-            engine::rom_byte(cx.prg, 11, table + u16::from(y.wrapping_add(1))),
+            engine::rom_byte(cx.prg, HOME_BANK, table + u16::from(y)),
+            engine::rom_byte(cx.prg, HOME_BANK, table + u16::from(y.wrapping_add(1))),
         ]);
         let reached = match body.subtype {
             0 => {
-                (body.vx, body.vy) = (0x10, 0);
+                (body.vx, body.vy) = (SPEED, 0);
                 target < work.x
             }
             1 => {
-                (body.vx, body.vy) = (-0x10, 0);
+                (body.vx, body.vy) = (-SPEED, 0);
                 work.x < target
             }
             2 => {
-                (body.vx, body.vy) = (0, 0x10);
+                (body.vx, body.vy) = (0, SPEED);
                 work.y >= target
             }
             3 => {
-                (body.vx, body.vy) = (0, -0x10);
+                (body.vx, body.vy) = (0, -SPEED);
                 target >= work.y
             }
             subtype => panic!("type $28 subtype {subtype} is past the $81D7 table"),
@@ -83,14 +87,14 @@ impl State {
         }
         if engine::on_screen(work, cx.world) != Visibility::On || work.anchor & anchor::BOTTOM != 0
         {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
-        work.pointer = engine::rom_word(cx.prg, 11, METASPRITE);
+        work.pointer = engine::rom_word(cx.prg, HOME_BANK, METASPRITE);
         work.chr_slot = 0;
         work.tile = 0;
         work.attr = 1;
-        engine::draw(work, 11, cx);
+        engine::draw(work, HOME_BANK, cx);
         work.hitbox = 1;
         engine::contact(kind, body, work, 2, cx);
         body.anim.tick_up();
@@ -107,10 +111,10 @@ fn advance(body: &mut Body, cx: &Cx<'_>) {
     body.timer.tick_up();
     let table = engine::rom_word(
         cx.prg,
-        11,
+        HOME_BANK,
         SEQUENCES + u16::from(body.behaviour.wrapping_shl(1)),
     );
-    body.subtype = engine::rom_byte(cx.prg, 11, table + u16::from(body.timer));
+    body.subtype = engine::rom_byte(cx.prg, HOME_BANK, table + u16::from(body.timer));
     (body.vx, body.vy) =
         cx.prg.families.waypoint_platform.velocities[usize::from(body.subtype & 0x3F)];
 }

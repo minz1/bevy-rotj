@@ -63,11 +63,14 @@ fn probe(work: &mut Work, cx: &mut Cx<'_>) {
     }
 }
 
+/// `body.timer` bit 7: a palette swap was blocked by a busy VRAM queue and retries next frame.
+const RETRY_SWAP: u8 = 0x80;
+
 /// `$5A`: counts `$7DD0` up; every eighth count, when no palette write is pending and
 /// the VRAM queue has room, flips `$7E10` bit 2 and writes the ROM palette to
 /// `$04E4-$04E7`. A blocked swap sets the `$7DF0` retry, which forces the swap next frame.
 fn flash(body: &mut Body, cx: &mut Cx<'_>) {
-    if body.timer & 0x80 != 0 {
+    if body.timer & RETRY_SWAP != 0 {
         swap(body, cx);
         return;
     }
@@ -76,7 +79,7 @@ fn flash(body: &mut Body, cx: &mut Cx<'_>) {
         return;
     }
     if cx.effects.palette_dirty & 0x80 != 0 || cx.effects.vram.top < 0x78 {
-        body.timer = 0x80;
+        body.timer = RETRY_SWAP;
         return;
     }
     swap(body, cx);

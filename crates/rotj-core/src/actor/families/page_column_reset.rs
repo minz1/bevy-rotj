@@ -2,7 +2,7 @@
 //! it clears a page column and frees its own slot.
 
 use crate::actor::engine::Work;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 /// Type `$B2` keeps no state of its own.
@@ -14,7 +14,7 @@ impl State {
     /// 6502 then jumps to the dispatch tail (`$CEDE`) and runs no other code.
     pub fn step(&mut self, kind: &mut u8, _body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
         cx.schedule.page_columns[3] = 0;
-        *kind = 0;
+        *kind = EMPTY;
     }
 }
 

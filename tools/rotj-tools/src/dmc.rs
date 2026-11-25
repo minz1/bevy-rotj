@@ -17,6 +17,8 @@
 //! samples themselves live in the fixed `$E000`-`$FFFF` bank (PRG bank 15).
 
 use color_eyre::eyre::{Result, bail};
+use rotj_apu::dmc::{CTRL_IRQ, CTRL_LOOP, CTRL_RATE, sample_address, sample_length};
+use rotj_music::DMC_RECORDS_OPCODE;
 
 /// PRG bank size (8 KiB FME-7 window).
 pub const BANK_SIZE: usize = 8192;
@@ -44,31 +46,31 @@ impl Record {
     /// `$4010`-bits 3..0 rate entry.
     #[must_use]
     pub const fn rate_index(self) -> u8 {
-        self.ctrl & 0x0F
+        self.ctrl & CTRL_RATE
     }
 
     /// `$4010`-bit 7 IRQ enable.
     #[must_use]
     pub const fn irq(self) -> bool {
-        self.ctrl & 0x80 != 0
+        self.ctrl & CTRL_IRQ != 0
     }
 
     /// `$4010`-bit 6 loop enable.
     #[must_use]
     pub const fn looping(self) -> bool {
-        self.ctrl & 0x40 != 0
+        self.ctrl & CTRL_LOOP != 0
     }
 
     /// Sample start CPU address (`$4012` semantics).
     #[must_use]
     pub const fn cpu_addr(self) -> u16 {
-        0xC000 + ((self.addr as u16) << 6)
+        sample_address(self.addr)
     }
 
     /// Sample length in bytes (`$4013` semantics).
     #[must_use]
     pub const fn bytes(self) -> u16 {
-        self.length as u16 * 16 + 1
+        sample_length(self.length)
     }
 
     /// ROM offset of the sample's first byte (fixed bank 15).
@@ -131,7 +133,7 @@ pub fn find_tables(prg: &[u8]) -> Vec<Table> {
     for bank in 0..prg.len() / BANK_SIZE {
         let chunk = &prg[bank * BANK_SIZE..(bank + 1) * BANK_SIZE];
         for i in 0..chunk.len().saturating_sub(2) {
-            if chunk[i] != 0xF3 {
+            if chunk[i] != DMC_RECORDS_OPCODE {
                 continue;
             }
             let pointer = u16::from_le_bytes([chunk[i + 1], chunk[i + 2]]);

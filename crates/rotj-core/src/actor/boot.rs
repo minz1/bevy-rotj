@@ -23,15 +23,9 @@ pub(crate) fn payload_byte(chr: &[u8], addr: u16) -> u8 {
     chr[usize::from(BOOT_FIRST_BANK) * 0x400 + usize::from(addr - 0x6000)]
 }
 
-/// Where the payload's buffer starts, which the screen clear fills (`$7FC0-$7FFF`).
-const BUFFER: u16 = 0x7FC0;
-
 /// The payload's WRAM at `addr`, the buffer as `buffer` holds it.
 fn wram(chr: &[u8], buffer: &[u8; 64], addr: u16) -> u8 {
-    match addr.checked_sub(BUFFER) {
-        Some(at) => buffer[usize::from(at)],
-        None => payload_byte(chr, addr),
-    }
+    super::cutscene::wram_with_buffer(chr, buffer, addr, payload_byte)
 }
 
 fn payload_bytes(chr: &[u8], addr: u16, len: u16) -> Vec<u8> {
@@ -1050,7 +1044,7 @@ impl Boot {
         }
         game.oam.marking = Mark::Password;
         match self.shown {
-            Shown::Letters => draw_sprite(game, read, BUFFER, 0x48, 0xE0),
+            Shown::Letters => draw_sprite(game, read, super::cutscene::WRAM_BUFFER, 0x48, 0xE0),
             Shown::Rejected => draw_sprite(game, read, REJECTED, 0x48, 0xE0),
             Shown::Nothing => {}
         }

@@ -7,7 +7,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::slots::hit;
-use crate::actor::slots::{Body, Metatile};
+use crate::actor::slots::{Body, EMPTY, Metatile};
 use crate::actor::world::{Cx, sound};
 
 /// The metasprite pointer the handler reads from bank 0 `$8604`.
@@ -38,7 +38,7 @@ impl State {
         engine::integrate(body, work);
         work.vy = work.vy.wrapping_sub(3);
         if work.y.row() >= FLOOR_PAGE {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         let mut probe = Probe::default();

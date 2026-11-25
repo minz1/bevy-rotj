@@ -11,8 +11,8 @@
 //! flag, so the slot frees after `$B0` frames whether drawn or not.
 
 use crate::actor::engine::{self, Visibility, Work, anchor};
-use crate::actor::slots::Body;
 use crate::actor::slots::hit;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 /// The metasprite pointer table the handler indexes by `$7D50` (`$8A6B`).
@@ -54,14 +54,14 @@ impl State {
         if engine::on_screen(work, cx.world) != Visibility::On {
             // `$89EA`: off screen it only counts down and stores, never draws.
             if body.phase >= LIFETIME {
-                *kind = 0;
+                *kind = EMPTY;
                 return;
             }
             store(body, work);
             return;
         }
         if body.phase >= LIFETIME {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         // `$8A07`: below `$80` it draws every frame; in `$80-$AF` only when the

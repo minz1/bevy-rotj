@@ -9,7 +9,7 @@
 //! its velocity is the bob, not gravity.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 /// The metasprite pointer the handler copies to `$96:$97` (bank 0 `$86F3`).
@@ -43,7 +43,7 @@ impl State {
         if engine::on_screen(work, cx.world) != Visibility::On {
             // `$86F0` -> `$8908`: free a slot that has been drawn, else just store.
             if body.phase & engine::DRAWN != 0 {
-                *kind = 0;
+                *kind = EMPTY;
             } else {
                 engine::store(body, work);
             }

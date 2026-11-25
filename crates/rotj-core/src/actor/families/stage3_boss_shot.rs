@@ -8,7 +8,7 @@
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::families::Brain;
-use crate::actor::slots::{Body, contact};
+use crate::actor::slots::{Body, EMPTY, contact};
 use crate::actor::world::{Cx, sound};
 
 const HOME_BANK: u8 = 0;
@@ -25,7 +25,7 @@ const BURST_CONTACT: u8 = contact::UNTARGETED;
 const HITBOX: u8 = 1;
 /// `$AFD6`'s amount (X:A) and mode (Y).
 const CONTACT: u16 = 0x03E0;
-const CONTACT_MODE: u8 = 0x80;
+const CONTACT_MODE: engine::ContactMode = engine::ContactMode::TouchOnly;
 
 /// The shot's tables (bank 0).
 pub struct Tables {
@@ -71,12 +71,12 @@ impl State {
             if frame < BURSTING {
                 burst(work, cx);
             }
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         work.pointer = engine::rom_word(cx.prg, HOME_BANK, METASPRITES + 2 * u16::from(frame));
         if engine::on_screen(work, cx.world) != Visibility::On {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         engine::tile_bits(work, cx.prg);

@@ -5,7 +5,7 @@
 //! `$C247` (`draw`, bank 9 through the bank-11 wrapper `$826F`); no contact.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::{Body, Counter};
+use crate::actor::slots::{Body, Counter, EMPTY};
 use crate::actor::world::Cx;
 
 const HOME_BANK: u8 = 11;
@@ -70,7 +70,7 @@ impl State {
 
         body.anim.tick_up();
         if body.anim >= LIFE {
-            *kind = 0;
+            *kind = EMPTY;
         }
     }
 }

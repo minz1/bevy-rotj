@@ -7,21 +7,64 @@ use super::engine::{draw, rom_byte, rom_word};
 use super::families::phases;
 use super::room;
 use super::script::{Flow, Runner, wait};
+use super::slots::Counter;
 use super::world::{
     EntryStep, Motion, Transition, VramWrite, Weapon, attack, set_first_colours, sound,
     stage_script,
 };
 use crate::actor::button::Buttons;
-use crate::actors::bank_slice;
 use crate::levels::{Levels, StageAssets};
 use crate::ppulist::WriteList;
-use crate::prg::Prg;
+use crate::prg::{self, Prg};
 use crate::render::{Mirroring, ctrl, mask, ppu};
 
 /// The stages there are: `$0400 / 2` indexes their tables.
 const STAGES: u8 = 18;
 /// The stage whose boss's defeat arms the ending (`$9C13`'s `$0400` test).
 pub(crate) const FINAL_AREA: u8 = 0x22;
+
+/// PRG bank 2: stage banners, stage-end sequence, and continue screen tables.
+const BANNER_BANK: u8 = 2;
+/// PRG bank 8: pause screen password tables.
+const PAUSE_BANK: u8 = 8;
+/// PRG bank 13: boss intro card, portraits, and boss HP tables.
+const BOSS_CARD_BANK: u8 = 13;
+/// PRG bank 14: area songs, checkpoints, power-up pieces, and boss-bar tiles.
+const ENGINE_BANK: u8 = 14;
+/// PRG bank 1: departing-sprite metasprites.
+const DEPART_DRAW_BANK: u8 = 1;
+
+const STAGE_PICTURES: u16 = 0x93C5;
+const STAGE_BANNER_TEXT: u16 = 0x93D7;
+const STAGE_BANNER_DIGITS: u16 = 0x93F0;
+const BANNER_GLYPHS: u16 = 0x9402;
+const CONTINUE_TEXT: u16 = 0x91B7;
+const CONTINUE_DIGIT_BITMAPS: u16 = 0x9204;
+const DEPART_SPRITE: u16 = 0x95B7;
+const END_RECOLOUR_PALETTE: u16 = 0x95B9;
+const PAUSE_PASSWORDS: u16 = 0x9DF6;
+const CHECKPOINT_AREAS: u16 = 0xD57D;
+const POWER_UP_FLASH_COLOURS: u16 = 0xD60B;
+const POWER_UP_DX_LO: u16 = 0xD6AF;
+const POWER_UP_DX_HI: u16 = 0xD6B3;
+const POWER_UP_DY_LO: u16 = 0xD6B7;
+const POWER_UP_DY_HI: u16 = 0xD6BB;
+const POWER_UP_VX_LO: u16 = 0xD6BF;
+const POWER_UP_VX_HI: u16 = 0xD6C3;
+const POWER_UP_VY_LO: u16 = 0xD6C7;
+const POWER_UP_VY_HI: u16 = 0xD6CB;
+const POWER_UP_PART_TIMER: u16 = 0xD6CF;
+const BOSS_BAR_TILES_PTR: u16 = 0xD87C;
+const BOSS_BAR_ATTRIBUTES: u16 = 0xD93E;
+const AREA_SONGS: u16 = 0xD980;
+const BOSS_CARD_TOP_PAIR: u16 = 0xBCA0;
+const BOSS_CARD_BOTTOM_PAIR: u16 = 0xBCA2;
+const BOSS_PORTRAIT_FRAME: u16 = 0xBCA4;
+const BOSS_PORTRAIT_TABLE: u16 = 0xBCA6;
+const BOSS_CARD_BANKS: u16 = 0xBCB0;
+const BOSS_HUD_PALETTE: u16 = 0xBE4B;
+const BOSS_HP_TABLE: u16 = 0xBE4E;
+const BOSS_CARD_ROWS: u16 = 0xBEDD;
 
 /// What the engine reads by stage: the level packs' stage descriptor.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,10 +108,10 @@ impl Stage {
     pub fn from_rom(prg: &[u8], index: u8) -> Stage {
         let area = index * 2;
         let at = u16::from(index);
-        let digits = rom_byte(prg, 2, 0x93F0 + at);
-        let song = rom_byte(prg, 14, 0xD980 + at);
-        let picture = rom_byte(prg, 2, 0x93C5 + at);
-        let letters = rom_word(prg, 8, 0x9DF6 + 2 * at);
+        let digits = rom_byte(prg, BANNER_BANK, STAGE_BANNER_DIGITS + at);
+        let song = rom_byte(prg, ENGINE_BANK, AREA_SONGS + at);
+        let picture = rom_byte(prg, BANNER_BANK, STAGE_PICTURES + at);
+        let letters = rom_word(prg, PAUSE_BANK, PAUSE_PASSWORDS + 2 * at);
         Stage {
             area,
             banner: [digits >> 4, digits & 0x0F],
@@ -78,8 +121,8 @@ impl Stage {
                 Music::Keep
             },
             picture: (picture & 0x80 == 0).then_some(picture),
-            password: (rom_byte(prg, 14, 0xD57D + at) == area)
-                .then(|| [0, 1, 2, 3].map(|i| rom_byte(prg, 8, letters + i))),
+            password: (rom_byte(prg, ENGINE_BANK, CHECKPOINT_AREAS + at) == area)
+                .then(|| [0, 1, 2, 3].map(|i| rom_byte(prg, PAUSE_BANK, letters + i))),
             on_clear: if area == FINAL_AREA {
                 OnClear::Ending
             } else {
@@ -178,7 +221,7 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
                 game.effects.music = sound::music::FADE_OUT;
                 end.phase = EndPhase::WalkingOff.byte();
                 for projectile in &mut game.effects.projectiles {
-                    projectile.kind = 0;
+                    projectile.free();
                 }
                 game.effects.player.power_up = 0;
                 game.effects.attack &= attack::CHARGEABLE;
@@ -197,10 +240,12 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
             }
         }
         Some(EndPhase::Departing) => {
+            /// Frames the departing sprite runs before recolouring starts.
+            const DEPART_FRAMES: u8 = 0x80;
             depart(game, prg, 0x03, 0x0F);
             let end = &mut game.effects.stage_end;
-            end.timer = end.timer.wrapping_add(1);
-            if end.timer >= 0x80 {
+            end.timer.tick_up();
+            if end.timer >= DEPART_FRAMES {
                 (end.phase, end.timer) = (EndPhase::Recolouring.byte(), 0);
             }
             pads = Some(Buttons::NONE);
@@ -208,13 +253,13 @@ pub fn stage_end(game: &mut Game, prg: &Prg) -> bool {
         Some(EndPhase::Recolouring) => {
             depart(game, prg, 0x03, 0x0F);
             let end = &mut game.effects.stage_end;
-            end.timer = end.timer.wrapping_add(1);
+            end.timer.tick_up();
             let timer = end.timer;
             if timer < 0x40 {
                 if timer.is_multiple_of(16) {
                     for (i, entry) in game.effects.palette[24..28].iter_mut().enumerate() {
                         let at = u16::from(timer >> 2) + u16::try_from(i).expect("< 4");
-                        *entry = rom_byte(prg, 2, 0x95B9 + at);
+                        *entry = rom_byte(prg, BANNER_BANK, END_RECOLOUR_PALETTE + at);
                     }
                     queue_palette(game);
                 }
@@ -267,12 +312,12 @@ fn depart(game: &mut Game, prg: &Prg, x_beat: u8, y_beat: u8) {
     let (mut cx, work) = game.parts(prg);
     work.screen_x = x;
     work.screen_y = y;
-    work.pointer = rom_word(prg, 2, 0x95B7);
+    work.pointer = rom_word(prg, BANNER_BANK, DEPART_SPRITE);
     work.chr_slot = 7;
     work.attr = 2;
     work.anchor = 0;
     work.tile = 0xC0;
-    draw(work, 1, &mut cx);
+    draw(work, DEPART_DRAW_BANK, &mut cx);
 }
 
 /// Queues the palette shadow (`$C34B`).
@@ -321,7 +366,7 @@ impl PowerUp {
         if self.frames == 0 {
             effects.sound[0] = sound::POWER_UP;
             for projectile in &mut effects.projectiles {
-                projectile.kind = 0;
+                projectile.free();
             }
             effects.attack &= attack::CHARGEABLE;
             effects.stage_end.timer = effects.scroll_lock;
@@ -333,7 +378,7 @@ impl PowerUp {
         }
         self.frames += 1;
         let flash = u16::from(effects.stage_end.phase.is_multiple_of(4));
-        let colour = rom_byte(prg, 14, 0xD60B + flash);
+        let colour = rom_byte(prg, ENGINE_BANK, POWER_UP_FLASH_COLOURS + flash);
         set_first_colours(&mut effects.palette, colour);
         effects.palette_dirty = 0x80;
         super::scroll::step(game, prg);
@@ -355,19 +400,19 @@ impl PowerUp {
         effects.weapon = Weapon::PowerUpPieces;
         let (x, y) = (player.x, player.y);
         for (index, piece) in (0..4u16).zip(effects.projectiles.iter_mut()) {
-            let byte = |table: u16| rom_byte(prg, 14, table + index);
+            let byte = |table: u16| rom_byte(prg, ENGINE_BANK, table + index);
             let word = |hi: u16, lo: u16| u16::from_be_bytes([byte(hi), byte(lo)]);
             *piece = super::world::Projectile {
                 kind: 6,
                 flags: 0xE0,
                 damage: 0,
-                vx: word(0xD6C3, 0xD6BF).cast_signed(),
-                vy: word(0xD6CB, 0xD6C7).cast_signed(),
+                vx: word(POWER_UP_VX_HI, POWER_UP_VX_LO).cast_signed(),
+                vy: word(POWER_UP_VY_HI, POWER_UP_VY_LO).cast_signed(),
                 param: u8::try_from(index).expect("< 4"),
                 part: 0,
-                part_timer: byte(0xD6CF),
-                x: x.wrapping_add(word(0xD6B3, 0xD6AF)),
-                y: y.wrapping_add(word(0xD6BB, 0xD6B7)),
+                part_timer: byte(POWER_UP_PART_TIMER),
+                x: x.wrapping_add(word(POWER_UP_DX_HI, POWER_UP_DX_LO)),
+                y: y.wrapping_add(word(POWER_UP_DY_HI, POWER_UP_DY_LO)),
                 ..*piece
             };
         }
@@ -865,10 +910,10 @@ impl BossIntro {
             Intro::Clear => {
                 game.effects.music = sound::music::STOP;
                 for slot in &mut game.slots.main {
-                    slot.kind = 0;
+                    slot.free();
                 }
                 for slot in &mut game.slots.second {
-                    slot.kind = 0;
+                    slot.free();
                 }
                 game.scroll.mirroring = Mirroring::SideBySide;
                 clear_for_area(game);
@@ -883,7 +928,8 @@ impl BossIntro {
                     bytes: vec![0; 2048],
                 });
                 for row in 0..5u16 {
-                    let bytes = (0..5).map(|i| rom_byte(prg, 13, 0xBEDD + row * 5 + i));
+                    let bytes =
+                        (0..5).map(|i| rom_byte(prg, BOSS_CARD_BANK, BOSS_CARD_ROWS + row * 5 + i));
                     vram.direct.push(VramWrite {
                         addr: ppu::tile_addr(0, 11 + row, 0),
                         flags: 0,
@@ -905,7 +951,7 @@ impl BossIntro {
                 room::build_palette(prg, 0x0F, sprites, &mut game.effects.palette);
                 queue_palette(game);
                 for i in 0..3u8 {
-                    let bank = rom_byte(prg, 13, 0xBCB0 + u16::from(i));
+                    let bank = rom_byte(prg, BOSS_CARD_BANK, BOSS_CARD_BANKS + u16::from(i));
                     game.oam.chr[usize::from(i)] = bank;
                     game.oam.chr[4 + usize::from(i)] = bank;
                 }
@@ -923,8 +969,11 @@ impl BossIntro {
                 }
             }
             Intro::Rows => {
-                let at = rom_word(prg, 14, 0xD87C) + u16::from(self.rows) * 0x40;
-                let bytes: Vec<u8> = (0..0x40).map(|i| rom_byte(prg, 14, at + i)).collect();
+                let at =
+                    rom_word(prg, ENGINE_BANK, BOSS_BAR_TILES_PTR) + u16::from(self.rows) * 0x40;
+                let bytes: Vec<u8> = (0..0x40)
+                    .map(|i| rom_byte(prg, ENGINE_BANK, at + i))
+                    .collect();
                 let addr = ppu::tile_addr(0, 24 + u16::from(self.rows) * 2, 0);
                 game.effects.vram.push(addr, 0, &bytes);
                 self.rows += 1;
@@ -933,7 +982,9 @@ impl BossIntro {
                 }
             }
             Intro::Attributes => {
-                let bytes: Vec<u8> = (0..0x10).map(|i| rom_byte(prg, 14, 0xD93E + i)).collect();
+                let bytes: Vec<u8> = (0..0x10)
+                    .map(|i| rom_byte(prg, ENGINE_BANK, BOSS_BAR_ATTRIBUTES + i))
+                    .collect();
                 game.effects
                     .vram
                     .push(ppu::attribute_addr(0, 6, 0), 0, &bytes);
@@ -967,12 +1018,18 @@ impl BossIntro {
                     vram.push(
                         ppu::tile_addr(0, 13, 5),
                         0,
-                        &[rom_byte(prg, 13, 0xBCA0), rom_byte(prg, 13, 0xBCA1)],
+                        &[
+                            rom_byte(prg, BOSS_CARD_BANK, BOSS_CARD_TOP_PAIR),
+                            rom_byte(prg, BOSS_CARD_BANK, BOSS_CARD_TOP_PAIR + 1),
+                        ],
                     );
                     vram.push(
                         ppu::tile_addr(0, 14, 5),
                         0,
-                        &[rom_byte(prg, 13, 0xBCA2), rom_byte(prg, 13, 0xBCA3)],
+                        &[
+                            rom_byte(prg, BOSS_CARD_BANK, BOSS_CARD_BOTTOM_PAIR),
+                            rom_byte(prg, BOSS_CARD_BANK, BOSS_CARD_BOTTOM_PAIR + 1),
+                        ],
                     );
                 } else if self.fades < 0x0A {
                     if self.fades.is_multiple_of(2) {
@@ -1013,12 +1070,12 @@ impl BossIntro {
         work.tile = 0;
         work.screen_x = scroll.wrapping_sub(0x14);
         work.screen_y = 0x87;
-        work.pointer = rom_word(prg, 13, 0xBCA4);
-        draw(work, 13, &mut cx);
+        work.pointer = rom_word(prg, BOSS_CARD_BANK, BOSS_PORTRAIT_FRAME);
+        draw(work, BOSS_CARD_BANK, &mut cx);
         let boss = u16::from(cx.effects.stage_args[1]);
-        work.pointer = rom_word(prg, 13, 0xBCA6 + 2 * boss);
+        work.pointer = rom_word(prg, BOSS_CARD_BANK, BOSS_PORTRAIT_TABLE + 2 * boss);
         work.attr = 0;
-        draw(work, 13, &mut cx);
+        draw(work, BOSS_CARD_BANK, &mut cx);
         game.oam.finish();
         false
     }
@@ -1047,11 +1104,16 @@ impl BossIntro {
         room::parameters(game, prg);
         game.oam.clear();
         let effects = &mut game.effects;
-        set_first_colours(&mut effects.palette, 0x0F);
+        set_first_colours(&mut effects.palette, crate::palette::BLACK);
         for i in 0..3u8 {
-            effects.palette[17 + usize::from(i)] = rom_byte(prg, 13, 0xBE4B + u16::from(i));
+            effects.palette[17 + usize::from(i)] =
+                rom_byte(prg, BOSS_CARD_BANK, BOSS_HUD_PALETTE + u16::from(i));
         }
-        effects.boss_hp = rom_word(prg, 13, 0xBE4E + 2 * u16::from(effects.stage_args[1]));
+        effects.boss_hp = rom_word(
+            prg,
+            BOSS_CARD_BANK,
+            BOSS_HP_TABLE + 2 * u16::from(effects.stage_args[1]),
+        );
         effects.boss_pool = [0x40, 0x1F];
         let player = &mut effects.player;
         (player.entry_step, player.entry_timer, player.tally) = (EntryStep::Arriving.byte(), 0, 0);
@@ -1089,10 +1151,10 @@ fn request_song(game: &mut Game, prg: &Prg) {
 /// The banner's direct PPU writes (`$92E9-$938B`): the first nametable cleared, the
 /// "STAGE" text from `$93D7` and the stage's two digits (glyphs `$9402`).
 fn banner(prg: &Prg, area: u8) -> Vec<VramWrite> {
-    let mut writes = text(prg, 0x93D7);
+    let mut writes = text(prg, STAGE_BANNER_TEXT);
     let [tens, ones] = at(&prg.levels, area).banner;
     for (digit, column) in [(tens, 15), (ones, 17)] {
-        let glyph = rom_byte(prg, 2, 0x9402 + u16::from(digit));
+        let glyph = rom_byte(prg, BANNER_BANK, BANNER_GLYPHS + u16::from(digit));
         for (row, tile) in [(13, glyph), (14, glyph | 1)] {
             writes.push(VramWrite {
                 addr: ppu::tile_addr(0, row, column),
@@ -1108,7 +1170,8 @@ fn banner(prg: &Prg, area: u8) -> Vec<VramWrite> {
 /// straight to the PPU: each a big-endian address, a count and the bytes, up to an
 /// address with bit 7 set.
 fn text(prg: &[u8], at: u16) -> Vec<VramWrite> {
-    let list = bank_slice(prg, 2, at & 0x1FFF).expect("a bank-2 text table");
+    let list = prg::from_bank(prg, usize::from(BANNER_BANK), usize::from(at & 0x1FFF))
+        .expect("a bank-2 text table");
     let runs = WriteList::new(list).map(|run| VramWrite {
         addr: run.addr,
         flags: 0,
@@ -1127,12 +1190,12 @@ fn text(prg: &[u8], at: u16) -> Vec<VramWrite> {
 fn draw_digits(game: &mut Game, prg: &[u8]) {
     game.scroll.scroll_x = 0;
     game.scroll.scroll_y = 0;
-    game.effects.vram.direct.extend(text(prg, 0x91B7));
+    game.effects.vram.direct.extend(text(prg, CONTINUE_TEXT));
     let glyphs = &mut game.effects.level.map.as_bytes_mut()[..640];
     for (glyph, cells) in glyphs.chunks_mut(64).enumerate() {
-        let rows = 0x9204 + 8 * u16::try_from(glyph).expect("10 glyphs");
+        let rows = CONTINUE_DIGIT_BITMAPS + 8 * u16::try_from(glyph).expect("10 glyphs");
         for (row, line) in cells.chunks_mut(8).enumerate() {
-            let bits = rom_byte(prg, 2, rows + u16::try_from(row).expect("< 8"));
+            let bits = rom_byte(prg, BANNER_BANK, rows + u16::try_from(row).expect("< 8"));
             for (column, cell) in line.iter_mut().enumerate() {
                 *cell = if bits << column & 0x80 != 0 { 0x11 } else { 0 };
             }
@@ -1428,8 +1491,8 @@ impl Continue {
     fn count(&mut self, game: &mut Game, prg: &[u8]) -> bool {
         match self.phase {
             DigitPhase::Holding => {
-                self.timer = self.timer.wrapping_sub(1);
-                if self.timer & 0x80 != 0 {
+                self.timer.tick_down();
+                if self.timer.ran_out() {
                     game.effects.sound[0] = if self.digit == 0 {
                         sound::COUNTDOWN_END
                     } else {

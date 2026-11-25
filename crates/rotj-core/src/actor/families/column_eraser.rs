@@ -3,7 +3,7 @@
 //! wraps to 0. It never draws and never touches the player.
 
 use crate::actor::engine::Work;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 /// `$7DD0` after the 16th step wrapped past `$F0`: the erase is done and the slot frees.
@@ -18,7 +18,7 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
         body.phase = body.phase.wrapping_add(0x10);
         if body.phase == WRAPPED {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         let first = usize::from(body.phase);

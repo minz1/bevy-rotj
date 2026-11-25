@@ -70,13 +70,13 @@ impl State {
         engine::load(body, work);
         let flash = engine::boss_flash(body, work, cx.world);
         work.attr |= body.flags;
-        if flash & 0x80 != 0 {
+        if let engine::BossFlash::Dying { show } = flash {
             if body.dying_timer == 0x01 {
                 // `$B1C4` takes the dying slot's index in X as the part's timer.
                 engine::boss_defeated(work.slot, cx);
                 spawn_aa(body, work, cx);
             }
-            if flash & 0x40 != 0 {
+            if show {
                 tail(body, work, cx);
             }
             return;
@@ -147,11 +147,16 @@ fn steer(body: &mut Body, work: &mut Work) {
     dive(body, work);
 }
 
+/// Maximum upward climb speed during a dive recovery (`-32` subpixels/frame).
+const MAX_RISE_VY: i16 = i16::from_be_bytes([0xFF, 0xE0]);
+/// Sign bit of the saved drift high byte (`body.anim`): leftward drift.
+const SAVED_DRIFT_LEFT: u8 = 0x80;
+
 /// `$8633`: the armed dive, until the boss rises back under row 8.
 fn descent(body: &mut Body, work: &mut Work) {
     body.vy = body.vy.wrapping_sub(1);
     if body.vy < 0 && body.vy.to_be_bytes()[1] < 0xE0 {
-        body.vy = i16::from_be_bytes([0xFF, 0xE0]);
+        body.vy = MAX_RISE_VY;
     }
     if work.y.row() >= 0x08 || body.vy >= 0 {
         clamp_x(body, work);
@@ -201,7 +206,11 @@ fn animating(body: &mut Body, cx: &mut Cx<'_>) {
     body.sprite = cx.prg.families.stage6_boss.animation[usize::from(body.subtype >> 3)];
     body.subtype = body.subtype.wrapping_add(1);
     if body.subtype >= 0xA8 {
-        let lo = if body.anim & 0x80 == 0 { 0x10 } else { 0xF0 };
+        let lo = if body.anim & SAVED_DRIFT_LEFT == 0 {
+            0x10
+        } else {
+            0xF0
+        };
         body.vx_drift = i16::from_be_bytes([body.anim, lo]);
         body.phase = Phase::Drifting.byte();
     }
@@ -263,7 +272,7 @@ fn tail(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::draw(work, DRAW_BANK, cx);
     }
     work.hitbox = 2;
-    engine::boss_contact(CONTACT, 0, body, work, cx);
+    engine::boss_contact(CONTACT, engine::ContactMode::Both, body, work, cx);
     engine::store(body, work);
 }
 

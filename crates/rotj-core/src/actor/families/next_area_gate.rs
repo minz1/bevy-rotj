@@ -21,6 +21,8 @@ pub(crate) const PASSES_STAGE_ARGS: u8 = 0x01;
 
 /// The countdown's end: `$7DD0` reaching it arms the transition.
 const ELAPSED: u8 = 0;
+/// `body.timer` bit 7 once the camera reached the trigger page and the countdown started.
+const COUNTING_DOWN: u8 = 0x80;
 /// Type `$32` keeps its whole state in [`Body`] (`$7D90`, `$7DF0`, `$7DD0`,
 /// `$7D50`, `$7EF0`/`$7BE0`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -38,7 +40,7 @@ impl State {
             return;
         }
         if body.behaviour != 0 {
-            if body.timer & 0x80 != 0 {
+            if body.timer & COUNTING_DOWN != 0 {
                 // $8970, $8996: count the `$7DD0` timer down.
                 body.phase = body.phase.wrapping_sub(1);
                 if body.phase != ELAPSED {
@@ -56,7 +58,7 @@ impl State {
                     return;
                 }
                 cx.effects.music = sound::music::FADE_OUT;
-                body.timer = 0x80;
+                body.timer = COUNTING_DOWN;
                 body.phase = COUNTDOWN;
                 cx.effects.scroll_lock = 0xFF;
                 return;

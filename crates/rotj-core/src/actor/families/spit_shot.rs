@@ -8,7 +8,7 @@
 
 use crate::actor::engine::{self, Visibility, Work};
 use crate::actor::oam::attr;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 /// The two metasprites, picked by `$F1` bit 2 (bank 0 `$9936`).
@@ -21,6 +21,8 @@ const GRAVITY: i16 = -8;
 const FLOOR: i16 = -64;
 /// The fixed x offset index when `$7D90` bit 7 is clear (`$98B2`).
 const STRAIGHT: u8 = 1;
+/// `behaviour` bit 7: follow the gravity arc with `subtype`'s x offset instead of flying straight.
+const ARCED: u8 = 0x80;
 /// Contact damage (`$9919`).
 const DAMAGE: u8 = 2;
 
@@ -49,12 +51,9 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
         engine::load(body, work);
         work.attr = body.flags & !attr::BEHIND;
-        let subtype = if body.behaviour & 0x80 == 0 {
-            STRAIGHT
-        } else {
-            body.subtype
-        };
-        if body.behaviour & 0x80 != 0 {
+        let arced = body.behaviour & ARCED != 0;
+        let subtype = if arced { body.subtype } else { STRAIGHT };
+        if arced {
             let mut vy = i16::from_le_bytes([body.phase, body.timer]).wrapping_add(GRAVITY);
             if vy < 0 && vy.to_le_bytes()[0] < 0xC0 {
                 vy = FLOOR;
@@ -68,14 +67,14 @@ impl State {
         let frame = u16::from((cx.world.frame & 0x04) >> 1);
         work.pointer = engine::rom_word(cx.prg, 0, METASPRITES + frame);
         if engine::on_screen(work, cx.world) != Visibility::On {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         engine::tile_bits(work, cx.prg);
         engine::draw(work, DRAW_BANK, cx);
         work.hitbox = 0;
         if engine::touch(work, DAMAGE, cx) {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         engine::store(body, work);

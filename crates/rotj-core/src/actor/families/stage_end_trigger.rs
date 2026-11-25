@@ -3,7 +3,7 @@
 //! calls no engine or collision routine.
 
 use crate::actor::engine::Work;
-use crate::actor::slots::Body;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::stage::EndPhase;
 use crate::actor::world::{Cx, Transition};
 
@@ -16,7 +16,7 @@ impl State {
     pub fn step(&mut self, kind: &mut u8, _body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
         cx.effects.transition = Transition::StageEnd;
         cx.effects.stage_end.phase = EndPhase::Approaching.byte();
-        *kind = 0;
+        *kind = EMPTY;
     }
 }
 

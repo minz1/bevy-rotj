@@ -4,8 +4,8 @@
 
 use crate::actor::collision::{self, Probe};
 use crate::actor::engine::{self, Visibility, Work, anchor};
-use crate::actor::slots::Body;
 use crate::actor::slots::hit;
+use crate::actor::slots::{Body, EMPTY};
 use crate::actor::world::Cx;
 
 /// Metasprite pointers for the states other than `$04`/`$84` (bank 8 `$8C44`).
@@ -51,12 +51,12 @@ impl State {
         }
 
         if engine::on_screen(work, cx.world) != Visibility::On {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         body.phase = body.phase.wrapping_add(1);
         if body.phase >= LIFETIME {
-            *kind = 0;
+            *kind = EMPTY;
             return;
         }
         if body.phase < BLINK || body.phase & 0x02 != 0 {

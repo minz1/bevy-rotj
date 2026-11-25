@@ -2,7 +2,7 @@
 //! arrays, integrated, drawn and touched as they pass on screen.
 
 use crate::actor::engine::{self, Visibility, Work};
-use crate::actor::slots::{Body, Field};
+use crate::actor::slots::{Body, EMPTY, Field};
 use crate::actor::stage;
 use crate::actor::world::Cx;
 
@@ -77,7 +77,7 @@ impl State {
         let hi = hi.wrapping_sub(1);
         body.ref_vx = i16::from_be_bytes([hi, lo]);
         if hi & 0x80 != 0 {
-            *kind = 0;
+            *kind = EMPTY;
         }
     }
 }

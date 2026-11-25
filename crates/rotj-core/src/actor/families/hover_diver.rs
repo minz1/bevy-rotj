@@ -82,7 +82,7 @@ impl State {
                     work.vy = i16::from_be_bytes([0xFF, rise]);
                     let [anim, counter] = risen_swing([body.anim, body.counter], work.vy);
                     body.counter = counter;
-                    body.anim = if anim & 0x80 == 0 { anim } else { 0 };
+                    body.anim = if anim.ran_out() { 0 } else { anim };
                 }
             }
             None => panic!("type $0A phase {} is past the $875B table", body.phase),

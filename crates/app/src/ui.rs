@@ -4,18 +4,16 @@
 
 use std::collections::HashMap;
 
-use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use rotj_core::actor::oam::{Mark, OamEntry, attr};
+use rotj_core::actor::oam::{self, Mark, OamEntry, attr};
 use rotj_core::chr;
-use rotj_core::palette::Rgb;
-use rotj_core::render::{Line, mask};
+use rotj_core::palette::{self, Rgb};
+use rotj_core::render::{Line, SPRITE_PALETTE_OFFSET, mask};
 
 use crate::pacing::Step;
 use crate::play::Play;
-use crate::screen::{Colours, Visible, pixels, visible};
+use crate::screen::{Colours, Visible, pixels, rgba_image, visible};
 use crate::settings::{Settings, UiStyle};
 
 /// What a tile atlas is drawn from: a pattern table's four 1 KiB CHR banks and a sprite
@@ -60,10 +58,10 @@ pub fn shown(
     } else {
         label
     };
-    let entries = oam.as_chunks::<4>().0;
-    let marked = (0..64)
-        .filter(|&entry| marks[entry].is_ui())
-        .map(|entry| OamEntry::from(entries[entry]));
+    let marked = oam::entries(oam)
+        .enumerate()
+        .filter(|&(entry, _)| marks[entry].is_ui())
+        .map(|(_, sprite)| sprite);
     carried
         .iter()
         .copied()
@@ -88,17 +86,17 @@ pub fn sprite_key(entry: OamEntry, lines: &[Line], palette: &[u8; 32], rgb: &Rgb
     if line.mask & mask::SPRITES == 0 {
         return None;
     }
-    let table = 4 * usize::from(entry.tile & 1);
+    let table = 4 * entry.tall_table();
     let banks = line.sprite_chr[table..table + 4]
         .try_into()
         .expect("4 banks");
-    let grey = mask::colour_bits(line.mask & mask::GREYSCALE != 0);
+    let greyscale = line.mask & mask::GREYSCALE != 0;
+    let base = SPRITE_PALETTE_OFFSET + 4 * usize::from(entry.attr & attr::PALETTE);
     let colours = std::array::from_fn(|v| {
-        let colour = palette[0x10 + 4 * usize::from(entry.attr & attr::PALETTE) + v] & grey;
         if v == 0 {
             [0; 3]
         } else {
-            rgb[usize::from(colour)]
+            palette::rgb(rgb, palette::colour(palette, base + v, greyscale))
         }
     });
     Some(Key { banks, colours })
@@ -109,34 +107,24 @@ pub fn sprite_key(entry: OamEntry, lines: &[Line], palette: &[u8; 32], rgb: &Rgb
 pub fn tiles(chr: &[u8], key: &Key) -> Image {
     const SIDE: usize = 128;
     let mut data = vec![0; SIDE * SIDE * 4];
+    let stride = SIDE * 4;
+    let colours = std::array::from_fn(|v| {
+        if v == 0 {
+            [0, 0, 0, 0]
+        } else {
+            let [r, g, b] = key.colours[v];
+            [r, g, b, 0xFF]
+        }
+    });
     for cell in 0..128 {
         for half in 0..2 {
             let addr = (2 * cell + half) * 16;
             let bytes = chr::tile(chr, &key.banks, addr);
-            for row in 0..8 {
-                for column in 0..8 {
-                    let value = chr::pixel(bytes, column, row);
-                    if value == 0 {
-                        continue;
-                    }
-                    let (px, py) = ((cell % 16) * 8 + column, (cell / 16) * 16 + half * 8 + row);
-                    let [r, g, b] = key.colours[usize::from(value)];
-                    data[(py * SIDE + px) * 4..][..4].copy_from_slice(&[r, g, b, 0xFF]);
-                }
-            }
+            let (px, py) = ((cell % 16) * 8, (cell / 16) * 16 + half * 8);
+            chr::blit_rgba(bytes, &mut data[py * stride + px * 4..], stride, colours);
         }
     }
-    Image::new(
-        Extent3d {
-            width: 128,
-            height: 128,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        data,
-        TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::default(),
-    )
+    rgba_image(SIDE, SIDE, data)
 }
 
 /// Where a sprite's top left lies in the visible area, in NES pixels.
@@ -242,7 +230,9 @@ fn show(
                 art.atlases.images[&piece.key].clone(),
                 TextureAtlas {
                     layout: layout.clone(),
-                    index: usize::from(piece.tile >> 1),
+                    index: usize::from(
+                        OamEntry::from([piece.y, piece.tile, piece.attr, piece.x]).tall_index(),
+                    ),
                 },
             );
             image.flip_x = piece.attr & attr::FLIP_X != 0;

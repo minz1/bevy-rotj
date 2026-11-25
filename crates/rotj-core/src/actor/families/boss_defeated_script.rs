@@ -6,7 +6,7 @@
 //! loads the working set, draws or collides.
 
 use crate::actor::engine::{self, Work};
-use crate::actor::slots::{Body, Counter, Field, Metatile};
+use crate::actor::slots::{Body, Counter, EMPTY, Field, Metatile};
 use crate::actor::stage::{self, OnClear};
 use crate::actor::world::{Cx, Motion, Transition, attack, hurt, sound, stage_script};
 
@@ -46,7 +46,7 @@ impl State {
         cx.effects.attack &= attack::CHARGEABLE;
         cx.effects.misc_flag = 0;
         for projectile in &mut cx.effects.projectiles {
-            projectile.kind = 0;
+            projectile.free();
         }
         if body.anim.is_multiple_of(4) {
             spawn_52(body, cx);
@@ -56,7 +56,7 @@ impl State {
             return;
         }
         if stage::at(&cx.prg.levels, cx.world.area).on_clear == OnClear::Ending {
-            *kind = 0;
+            *kind = EMPTY;
         } else {
             cx.effects.player.energy = 0x0E;
             cx.effects.cutscene_id = 0x0E;

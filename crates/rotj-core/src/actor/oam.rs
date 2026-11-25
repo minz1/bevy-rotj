@@ -157,9 +157,31 @@ impl OamEntry {
 
     /// Whether the sprite is above the last line the PPU draws.
     #[must_use]
-    pub fn is_visible(self) -> bool {
+    pub const fn is_visible(self) -> bool {
         self.y < 0xEF
     }
+
+    /// Pattern table (`0` or `1`) selected by bit 0 of `tile` in 8x16 mode.
+    #[must_use]
+    pub const fn tall_table(self) -> usize {
+        (self.tile & 1) as usize
+    }
+
+    /// 8x16 tile pair index (`0..128`), i.e. `tile >> 1`.
+    #[must_use]
+    pub const fn tall_index(self) -> u8 {
+        self.tile >> 1
+    }
+}
+
+/// Iterates the 64 [`OamEntry`] records of an OAM page in priority order.
+pub fn entries(page: &[u8; 256]) -> impl Iterator<Item = OamEntry> + '_ {
+    page.as_chunks::<4>().0.iter().copied().map(OamEntry::from)
+}
+
+/// Parks OAM slot `entry` (`0..64`) off the bottom of the screen.
+pub fn park(page: &mut [u8; 256], entry: usize) {
+    page[entry * 4] = OamEntry::PARKED_Y;
 }
 
 impl From<[u8; 4]> for OamEntry {
@@ -389,28 +411,27 @@ impl OamBuilder {
 /// banks, or at the sides that scrolled lines black out and `$2001`'s left-8 clip hides.
 #[must_use]
 pub fn undrawable(page: &[u8; 256], marks: &[Mark; 64], lines: &[Line]) -> Option<String> {
-    (0..64).find_map(|entry| {
-        let [y, _, attr, x] = page[entry * 4..entry * 4 + 4].try_into().expect("4 bytes");
-        let top = usize::from(y) + 1;
+    entries(page).enumerate().find_map(|(entry, sprite)| {
+        let top = usize::from(sprite.y) + 1;
         let first = lines.get(top)?;
         if !marks[entry].is_ui() || first.mask & mask::SPRITES == 0 {
             return None;
         }
         let rows = &lines[top..(top + 16).min(lines.len())];
-        let why = if attr & attr::BEHIND != 0 {
+        let why = if sprite.attr & attr::BEHIND != 0 {
             "behind the background"
         } else if first.ctrl & ctrl::TALL_SPRITES == 0 {
             "in 8x8 mode"
         } else if rows.iter().any(|line| line.sprite_chr != first.sprite_chr) {
             "across a sprite bank change"
-        } else if !(8..=240).contains(&x) {
+        } else if !(8..=240).contains(&sprite.x) {
             "at the screen's side"
         } else {
             return None;
         };
         Some(format!(
-            "{:?} entry {entry} at ({x}, {y}) {why}",
-            marks[entry]
+            "{:?} entry {entry} at ({}, {}) {why}",
+            marks[entry], sprite.x, sprite.y
         ))
     })
 }
