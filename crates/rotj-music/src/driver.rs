@@ -1322,6 +1322,15 @@ impl Music {
         }
     }
 
+    /// True when no requests are pending and no music or DMC/SFX channels are active or parked.
+    #[must_use]
+    pub fn is_idle(&self) -> bool {
+        let mask = flag::ACTIVE | flag::PARKED;
+        self.requests.iter().all(|&id| id == 0)
+            && self.channels.iter().all(|ch| ch.flags & mask == 0)
+            && self.sfx.iter().all(|ch| ch.flags & mask == 0)
+    }
+
     /// `$800C`: the driver's power-on init: clear `$0600-$06FF`, then fall
     /// through to [`Self::reset_voices`]. Returns its register writes.
     pub fn init(&mut self) -> Vec<Write> {

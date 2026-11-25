@@ -46,6 +46,33 @@ pub fn song_for_area(area: u8) -> Option<u8> {
         .filter(|&song| song < 0x80)
 }
 
+/// Category of a `$0040-$0043` driver request byte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SoundKind {
+    /// `$00..=$1F`: looping or jingle music tracks (driver channels 0-3 + DMC channel 0).
+    Music,
+    /// `$20..=$F7`: sound effects (driver channels 4-7 + DMC channel 1).
+    Sfx,
+    /// `$F8..=$FF`: driver control commands (`StopAll`, `StartFade`, `ResumeParked`, `ParkActive`).
+    Command,
+}
+
+/// Classifies a `$0040-$0043` request byte into [`SoundKind`].
+#[must_use]
+pub const fn classify_request(id: u8) -> SoundKind {
+    match id {
+        0x00..=0x1F => SoundKind::Music,
+        0x20..=0xF7 => SoundKind::Sfx,
+        0xF8..=0xFF => SoundKind::Command,
+    }
+}
+
+/// True for driver commands (`$F8..=$FB` and `$FF`) that stop all active music and SFX channels.
+#[must_use]
+pub const fn is_stop_all(id: u8) -> bool {
+    matches!(id, 0xF8..=0xFB | 0xFF)
+}
+
 /// The jump sound effect (request id `$24`). Played through request slot
 /// `$0042`; a finite noise sweep on voice 3, not a song (`docs/re/MUSIC.md`).
 pub const JUMP_SFX: u8 = 0x24;
@@ -72,5 +99,39 @@ mod tests {
     #[test]
     fn jump_sfx_is_the_traced_id() {
         assert_eq!(JUMP_SFX, 0x24);
+    }
+
+    #[test]
+    fn classify_request_partitions_the_full_byte_range() {
+        for id in 0x00..=0x1F {
+            assert_eq!(classify_request(id), SoundKind::Music, "{id:#04X}");
+            assert!(!is_stop_all(id));
+        }
+        for id in 0x20..=0xF7 {
+            assert_eq!(classify_request(id), SoundKind::Sfx, "{id:#04X}");
+            assert!(!is_stop_all(id));
+        }
+        for id in 0xF8..=0xFF {
+            assert_eq!(classify_request(id), SoundKind::Command, "{id:#04X}");
+            assert_eq!(is_stop_all(id), matches!(id, 0xF8..=0xFB | 0xFF));
+        }
+    }
+
+    #[test]
+    fn driver_reports_idle_before_and_after_finite_sfx() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let mut music = Music::from_prg(&rom.prg);
+        let _ = music.init();
+        assert!(music.is_idle());
+        music.request(JUMP_SFX);
+        assert!(!music.is_idle(), "pending request is not idle");
+        let _ = music.tick();
+        assert!(!music.is_idle(), "playing SFX is not idle");
+        for _ in 0..40 {
+            let _ = music.tick();
+        }
+        assert!(music.is_idle(), "finished SFX returns to idle");
     }
 }
