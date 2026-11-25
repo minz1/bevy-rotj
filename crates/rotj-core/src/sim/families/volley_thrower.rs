@@ -1,7 +1,7 @@
 //! Type `$48` (bank 11 `$9902`): a boss-room sprite that drifts around a tall
 //! rectangle and, every few laps, throws a volley of type `$4A` children.
 //!
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$A852`
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A000` (`load`), `$A852`
 //! (`on_screen`), `$AF38` (`free_child_slot`), `$C247` (`draw`, which `$826F`
 //! maps bank 9 for) and `$A934` (`store`). It never contacts the player.
 //!

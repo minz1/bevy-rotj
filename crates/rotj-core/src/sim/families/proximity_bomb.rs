@@ -2,7 +2,7 @@
 //! within `$200`, then falls; when its feet find ground it frees its slot and
 //! becomes a type `$18` burst of four parts.
 //!
-//! It calls only routines already in `docs/ACTORS.md` §9c: `$A000` (`load`),
+//! It calls only routines already in `docs/re/ACTORS.md` §9c: `$A000` (`load`),
 //! `$A79B` (`integrate`), `$ABDF` (`player_dx`), `$A7DD` (`collision::feet`),
 //! `$AC16` (`spawn_parts`), `$A852` (`on_screen`), `$C247` (`draw`, through
 //! `$84CA`'s bank 9 map), `$AEE3` (`touch`) and `$A8E4` (`end_frame`).

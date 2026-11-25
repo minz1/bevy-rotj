@@ -3,7 +3,7 @@
 //! Its `$7D90` behaviour byte is the phase switch: bit 7 clear is the moving
 //! phase (x steps by `$7E90:$7E10`, y by a `$7DF0:$7DD0` offset that rises 3 a
 //! frame from `-$18` to `$30`), bit 7 set is the twelve-frame dying animation
-//! that frees the slot. It calls only routines already in `docs/ACTORS.md` §9c:
+//! that frees the slot. It calls only routines already in `docs/re/ACTORS.md` §9c:
 //! `$A000` (`load`), `$A852` (`on_screen`), `$AC06` (`tile_bits`), `$C247`
 //! (`draw`) and `$AEE3` (`touch`); `$81C6` maps bank 9 at `$A000` around the
 //! draw, so the port passes bank 9 to `engine::draw`.

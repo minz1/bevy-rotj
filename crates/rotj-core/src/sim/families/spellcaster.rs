@@ -1,7 +1,7 @@
 //! Type `$6C` (bank 0 `$87F9`): a stage 3/9 enemy that cycles its sprite and
 //! throws `$24` shots.
 //!
-//! It calls only routines already in `docs/ACTORS.md` §9c: `$A000` (`load`),
+//! It calls only routines already in `docs/re/ACTORS.md` §9c: `$A000` (`load`),
 //! `$A56E` (`dying`), `$A79B` (`integrate`), `$A852` (`on_screen`), `$AF38`
 //! (`free_child_slot`), `$AC06` (`tile_bits`), `$C247` (`draw`), `$A9C4`
 //! (`contact`) and `$A934` (`store`). `$84CA` maps bank 9 at `$A000` around the

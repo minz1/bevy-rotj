@@ -443,7 +443,7 @@ pub struct Player {
     /// Y velocity, 1/16 px a frame (`$0469:$046A`).
     pub vy: i16,
     /// The stage-script byte (`$0481`): bit 7 freezes the player and clears the pads
-    /// unless bit 5 keeps them, bit 6 skips the projection (docs/ACTORS.md §7a).
+    /// unless bit 5 keeps them, bit 6 skips the projection (docs/re/ACTORS.md §7a).
     pub stage_script: u8,
     /// The death counter (`$0480`), counting motion 7's flash and burst; cleared by
     /// the death (`$D274`).

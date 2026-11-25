@@ -1,5 +1,5 @@
 //! A script as a table of rows run in order, each for one frame or more, or for none and
-//! the next row runs in the same frame (`docs/specs/2026-10-17-scripts-as-data-design.md`).
+//! the next row runs in the same frame (`docs/specs/archive/2026-10-17-scripts-as-data-design.md`).
 
 /// How a row's frame went.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

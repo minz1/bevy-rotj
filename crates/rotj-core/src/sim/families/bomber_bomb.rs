@@ -2,7 +2,7 @@
 //! it reaches ground or a platform, then plays a three-step blast animation and
 //! frees its slot.
 //!
-//! It calls only routines already in `docs/ACTORS.md` §9c: `$A000` (`load`),
+//! It calls only routines already in `docs/re/ACTORS.md` §9c: `$A000` (`load`),
 //! `$A79B` (`integrate`), `$AF7D` (`collision::below`), `$AF6A` (`collision::ride_here`),
 //! `$A852` (`on_screen`), `$AC06` (`tile_bits`), `$C247` (`draw`, through `$825A`'s
 //! bank 1 map) and `$AEE3` (`touch`).

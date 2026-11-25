@@ -2,7 +2,7 @@
 //! spawner (`$8027`) drops into a free slot, drawn at screen (120, 117) and
 //! cycling three `$7DD0` phases.
 //!
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$A56E`
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A000` (`load`), `$A56E`
 //! (`dying`, variant `$80`), `$AF38` (`free_child_slot`), `$AC06` (`tile_bits`),
 //! `$C247` (`draw`, which `$81C6` maps bank 9 at `$A000`), `$A9C4` (`contact`)
 //! and `$A934` (`store`). The position it stores is a camera offset, not the

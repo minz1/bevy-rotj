@@ -1,7 +1,7 @@
 //! Type `$40` (bank 11 `$9410`): a short-lived sprite that sits 64 px to the
 //! side of its slot and cycles through three metasprites.
 //!
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$A852`
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A000` (`load`), `$A852`
 //! (`on_screen`), `$AC06` (`tile_bits`), `$C247` (`draw`, bank 9 as `$826F` maps
 //! it), `$AEE3` (`touch`) and `$A934` (`store`).
 

@@ -1,6 +1,6 @@
 //! Type `$8C` (bank 0 `$98A3`): the child type `$8A` spits, living in slots 16-23.
 //!
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$A852`
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A000` (`load`), `$A852`
 //! (`on_screen`), `$AC06` (`tile_bits`), `$C247` (`draw`, through `$84CA`'s bank
 //! 9 mapping), `$AEE3` (`touch`) and `$A934` (`store`). It never calls `$A79B`:
 //! the `$7DF0:$7DD0` pair is its own y velocity, and the handler integrates with
@@ -212,7 +212,7 @@ mod tests {
     }
 
     /// `$AEE3` costs the player energy when he stands in the child's way. The
-    /// whole-game TAS never takes this hit (`docs/ACTORS.md` §8b's contact 0).
+    /// whole-game TAS never takes this hit (`docs/re/ACTORS.md` §8b's contact 0).
     #[test]
     fn hurts_the_player_up_close() {
         let Some(mut scene) = Scene::tas(12783) else {

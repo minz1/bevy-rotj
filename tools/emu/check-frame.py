@@ -44,7 +44,7 @@ def render(dump, frame, pair, preview_dir):
     ]
     if pair and have(os.path.join(dump, f"ppu-{frame + 1}.bin")):
         newer_ppu = os.path.join(dump, f"ppu-{frame + 1}.bin")
-        # Measured best pairing (docs/PHYSICS.md): the CHR banks a dump shows
+        # Measured best pairing (docs/re/PHYSICS.md): the CHR banks a dump shows
         # belong to the next frame (the NMI rewrites them), while OAM, palette
         # and nametables describe their own frame.
         args += ["--pattern-from", newer_ppu]

@@ -608,7 +608,7 @@ def write_header_s(header_bytes, prg_banks, chr_banks, mapper):
                 + ', '.join('${:02X}'.format(b) for b in header_bytes) + '\n\n')
 
 
-# The WRAM payload bank 2 $99A9 copies from CHR (docs/SUBLEVELS.md 7d-i): WRAM
+# The WRAM payload bank 2 $99A9 copies from CHR (docs/re/SUBLEVELS.md 7d-i): WRAM
 # $7E60-$7FFF is CHR $3DE60-$3DFFF and $6000-$7E5F is CHR $3E000-$3FE5F, so
 # cutscene.s covers CHR $3DE60-$3FE5F as code assembled at its WRAM addresses.
 PAYLOAD_CHR = 0x3DE60

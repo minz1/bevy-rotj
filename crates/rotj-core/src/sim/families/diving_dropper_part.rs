@@ -1,7 +1,7 @@
 //! Type `$74` (bank 0 `$8C9C`): a sprite that slides along y until its offset
 //! crosses zero, then holds; `$7DD0` bit 7 picks the direction.
 //!
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$A852`
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A000` (`load`), `$A852`
 //! (`on_screen`), `$AC06` (`tile_bits`), `$C247` (`draw`, bank 9 as `$84CA` maps
 //! it), `$AEE3` (`touch`) and `$A934` (`store`).
 

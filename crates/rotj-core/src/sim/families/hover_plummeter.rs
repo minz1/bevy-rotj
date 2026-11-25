@@ -2,7 +2,7 @@
 //! hovers, wakes when the player comes within `$300`, then falls and bursts into
 //! four type-`$08` parts the first time its feet find ground.
 //!
-//! It calls only routines already in `docs/ACTORS.md` §9c: `$A000` (`load`),
+//! It calls only routines already in `docs/re/ACTORS.md` §9c: `$A000` (`load`),
 //! `$A79B` (`integrate`), `$ABDF` (`player_dx`), `$A7DD` (`collision::feet`),
 //! `$AC16` (`spawn_parts`), `$A852` (`on_screen`), `$C247` (`draw`, which `$81C6`
 //! maps bank 9 at `$A000`), `$A9C4` (`contact`) and `$A8E4` (`end_frame`).

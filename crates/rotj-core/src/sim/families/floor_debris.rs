@@ -5,7 +5,7 @@
 //! handler reads (`$95C6`), so each part keeps a 16-bit position and a signed
 //! velocity in the slot arrays and falls 12 a frame.
 //!
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A852` (`on_screen`) and
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A852` (`on_screen`) and
 //! `$C247` (`draw`, bank 0 as the handler itself is mapped there). No `$A000`
 //! load, no physics, no contact.
 

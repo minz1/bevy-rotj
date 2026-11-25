@@ -1,4 +1,4 @@
-//! Type `$BE` (bank 12 `$9603`): a stage-7 boss-area part (`docs/ACTORS.md` §8b,
+//! Type `$BE` (bank 12 `$9603`): a stage-7 boss-area part (`docs/re/ACTORS.md` §8b,
 //! area `22:00`, slots 20-23, spawned by the `$B4` controller's `$8F89` helper).
 //!
 //! It accelerates downward, steps by its `$7DD0:$7DB0` / `$7E10:$7DF0`
@@ -6,7 +6,7 @@
 //! metasprites by `$F1` bits 1-2, brushes the player (`$AFD6`, mode `$80`) and
 //! frees its own slot as soon as it leaves the screen.
 //!
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$A852`
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A000` (`load`), `$A852`
 //! (`on_screen`), `$A934` (`store`) and `$AFD6` (`boss_contact`). `$81C6` is the
 //! bank-12 draw wrapper (it maps bank 9 at `$A000` and restores bank 13), so the
 //! draw is `engine::draw(work, 9, cx)`.

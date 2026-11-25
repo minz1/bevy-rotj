@@ -3,7 +3,7 @@
 //! It reads the player out of [`Effects`](super::world::Effects), computes the
 //! step from his x and y velocities, runs the game's collision probes (bank 14
 //! `$C99D`/`$CAFE`/`$CD5F`/`$C93B`), applies gravity and writes him back. See
-//! `docs/ACTORS.md` §9h.
+//! `docs/re/ACTORS.md` §9h.
 
 use super::collision::{self, Probe};
 use super::engine::{self, Work, adc_overflows, anchor, hi, rom_word, sub_overflows16};

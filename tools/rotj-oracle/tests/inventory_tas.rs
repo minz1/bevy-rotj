@@ -1,4 +1,4 @@
-//! Pins a few rows of the whole-game TAS actor inventory (`docs/ACTORS.md` §8b,
+//! Pins a few rows of the whole-game TAS actor inventory (`docs/re/ACTORS.md` §8b,
 //! `tools/rotj-oracle/examples/inventory_tas.rs`): stage 1-1 room 0's types and
 //! their first frames, the on-screen projection, and the boss fights' areas.
 //!
@@ -54,7 +54,7 @@ fn types_in(inputs: &[u8], area: u8, room: u8, frames: usize) -> BTreeMap<u8, (u
     seen
 }
 
-/// Stage 1-1 room 0 (`docs/ACTORS.md` §8b): eight types, three of them from the
+/// Stage 1-1 room 0 (`docs/re/ACTORS.md` §8b): eight types, three of them from the
 /// frame-317 level-start records (`$B2`, `$C6`, `$06`), the rest the runtime
 /// spawner as the screen scrolls.
 #[test]
@@ -110,7 +110,7 @@ fn tas_projection_reports_an_on_screen_actor() {
 
 /// The five boss fights: the HP setup `$BE12` writes `$00AA` once per
 /// stage-end area, `$0400` = `$04`, `$0E`, `$14`, `$1E`, `$22`
-/// (`docs/ACTORS.md` §8b.1).
+/// (`docs/re/ACTORS.md` §8b.1).
 #[test]
 #[ignore = "plays the whole game (about a minute in a debug build); run with --ignored"]
 fn tas_records_five_boss_fights() {

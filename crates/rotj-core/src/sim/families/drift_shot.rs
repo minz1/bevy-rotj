@@ -5,7 +5,7 @@
 //! of two bank-12 metasprites, selected by `$F1` bit 2, then contacts the player
 //! (`$A9C4`, damage 2). Off screen it frees its own slot.
 //!
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$A79B`
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A000` (`load`), `$A79B`
 //! (`integrate`), `$A852` (`on_screen`), `$C247` (`draw`), `$A9C4` (`contact`)
 //! and `$A934` (`store`). The draw reaches `$C247` through the bank-12 `$81C6`
 //! wrapper, but that wrapper only maps bank 9 at `$A000`; the metasprite pointer

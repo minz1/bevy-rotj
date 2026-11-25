@@ -1,6 +1,6 @@
 //! Type `$4C` (bank 11 `$9ADE`): a spawner that releases one `$4E` into the
 //! highest free slot each time its `$C0`-frame counter fills, from the side
-//! `$7DF0` picks. It never draws or contacts and calls no `docs/ACTORS.md` §9c
+//! `$7DF0` picks. It never draws or contacts and calls no `docs/re/ACTORS.md` §9c
 //! routine.
 
 use crate::sim::engine::{self, Work};

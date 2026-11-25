@@ -26,7 +26,7 @@ pub mod contact {
     pub const COLLECTS: u8 = 0x01;
 }
 
-/// The per-slot arrays the spawners and the engine share (`docs/ACTORS.md` §9).
+/// The per-slot arrays the spawners and the engine share (`docs/re/ACTORS.md` §9).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Body {
     /// Level x (`$7B00:$7B20`).

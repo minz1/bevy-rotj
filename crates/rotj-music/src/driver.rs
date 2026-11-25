@@ -1898,7 +1898,7 @@ mod tests {
     /// The trigger is an emulator trace: `jump` input (A at frames 750/850/950/
     /// 1050) requests `$0042=$24` at 751/851/951/1051 from bank 4 PC `$8508`,
     /// and `walkonly` (no jumps) requests nothing (`tools/emu/soundsel-jump`,
-    /// `tools/emu/soundsel-walkonly`). See `docs/MUSIC.md`.
+    /// `tools/emu/soundsel-walkonly`). See `docs/re/MUSIC.md`.
     #[test]
     fn jump_sfx_is_a_short_noise_sweep() {
         let Some(mut music) = assets() else {

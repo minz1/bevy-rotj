@@ -2040,7 +2040,7 @@ pub(crate) fn run_game(env: &mut impl Environment, prg: &Prg, chr: &[u8]) -> Gam
     run
 }
 
-/// Routines each handler family calls on the stage 1-1 tour (`docs/ACTORS.md` §9).
+/// Routines each handler family calls on the stage 1-1 tour (`docs/re/ACTORS.md` §9).
 pub(crate) fn census() -> Option<BTreeMap<u16, BTreeSet<u16>>> {
     let mut census = BTreeMap::new();
     let mut tour = |scene: &mut Scene, frames: u64| survey(scene, frames, &mut census);

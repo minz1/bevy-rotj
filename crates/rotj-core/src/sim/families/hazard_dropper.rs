@@ -3,7 +3,7 @@
 //! and drops when it underflows — and frees itself when the player is 384 px or
 //! more away.
 //!
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$ABDF`
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A000` (`load`), `$ABDF`
 //! (`player_dx`), `$CD50` (`despawn`) and `$AF38` (`free_child_slot`). It never
 //! draws and never reads `$7DD0`/`$7D50`, so its phase is always the spawn value.
 

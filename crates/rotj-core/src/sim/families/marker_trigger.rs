@@ -4,7 +4,7 @@
 //! and `$7E`), latches its phase to `$80` so it spawns only once, and frees its
 //! slot when the player is in motion 7 (the level end).
 //!
-//! It calls no routine in `docs/ACTORS.md` §9c: it never loads, integrates,
+//! It calls no routine in `docs/re/ACTORS.md` §9c: it never loads, integrates,
 //! draws or contacts, and it reads only the player's x (`$0460:$0461`), row
 //! (`$0462`) and motion (`$046E`).
 

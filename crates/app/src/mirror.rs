@@ -1,5 +1,5 @@
 //! The read-only mirror: the game's drawers as entities, for the Modern picture, the
-//! inspector and the editor (`docs/specs/2026-10-18-phase-c-mirror-design.md`, C2).
+//! inspector and the editor (`docs/specs/archive/2026-10-18-phase-c-mirror-design.md`, C2).
 
 use bevy::prelude::*;
 use rotj_core::sim::oam::{DrawRecord, Mark};

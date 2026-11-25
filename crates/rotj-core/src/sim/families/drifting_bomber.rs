@@ -1,6 +1,6 @@
 //! Type `$36` (bank 11 `$8A92`): a drifting flyer that drops a `$24` bomb.
 //!
-//! It calls only routines already in `docs/ACTORS.md` §9c: `$A000` (`load`),
+//! It calls only routines already in `docs/re/ACTORS.md` §9c: `$A000` (`load`),
 //! `$A56E` (`dying`), `$A79B` (`integrate`), `$A852` (`on_screen`), `$AC06`
 //! (`tile_bits`), `$C247` (`draw`), `$A9C4` (`contact`) and `$A934` (`store`).
 //! It ends a frame with `$A934` alone, never `$A8E4`, so it keeps its velocity

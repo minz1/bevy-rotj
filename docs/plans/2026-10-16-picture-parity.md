@@ -5,7 +5,7 @@ Status: done 2026-10-16 (tag 1.0.2); the deviations are in the spec's status lin
 **Goal:** the app draws every frame like the game, the raster splits included, and every
 lockstep proves it against the oracle, whose pictures are proven against fceux's.
 
-**Spec:** `docs/specs/2026-10-16-picture-parity-design.md`
+**Spec:** `docs/specs/archive/2026-10-16-picture-parity-design.md`
 
 ## Global constraints
 

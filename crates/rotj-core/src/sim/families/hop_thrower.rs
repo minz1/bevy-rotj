@@ -1,7 +1,7 @@
 //! Type `$3E` (bank 11 `$92B9`): a three-phase walker that stops, hops and
 //! throws a `$40` projectile.
 //!
-//! It calls only routines already in `docs/ACTORS.md` §9c: `$A000` (`load`),
+//! It calls only routines already in `docs/re/ACTORS.md` §9c: `$A000` (`load`),
 //! `$A56E` (`dying`), `$ABDF` (`player_dx`), `$A852` (`on_screen`), `$AC06`
 //! (`tile_bits`), `$C247` (`draw`), `$A9C4` (`contact`), `$AF38`
 //! (`free_child_slot`), `$CD50` (`despawn`) and `$A934` (`store`). It never

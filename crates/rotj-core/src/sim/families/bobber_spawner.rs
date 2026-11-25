@@ -4,7 +4,7 @@
 //! (`$B294`, `$B2A0`, `$B318`, `$B324`) point it at `$6A`, whose handler is not
 //! ported.
 //!
-//! It calls no routine from `docs/ACTORS.md` §9c: no `$A000` load, no `$A852`
+//! It calls no routine from `docs/re/ACTORS.md` §9c: no `$A000` load, no `$A852`
 //! projection, no draw, no contact. It only steps its own timer (`$7DF0`), scans
 //! the main slots for a free one, and writes the child's fields (`$7B00-$7EF0`)
 //! directly. Its `$7DD0` byte counts the children it has dropped (0-5).
@@ -135,7 +135,7 @@ mod tests {
         );
     }
 
-    /// The area-8 `$68` record (`docs/ACTORS.md` §7b: `$A000[area]` -> per-stage
+    /// The area-8 `$68` record (`docs/re/ACTORS.md` §7b: `$A000[area]` -> per-stage
     /// table -> `id*2`), whose byte 8 selects the `$66` child.
     fn place_record() -> SpawnRecord {
         SpawnRecord::from([

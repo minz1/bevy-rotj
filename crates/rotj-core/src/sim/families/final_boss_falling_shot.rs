@@ -2,7 +2,7 @@
 //! falls under gravity, drops to row `$0B`, then falls 32 more frames and frees
 //! its own slot.
 //!
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$81C6`
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A000` (`load`), `$81C6`
 //! (`draw`, which maps bank 9 at `$A000`), `$A852` (`on_screen`), `$AFD6`
 //! (`boss_contact`, mode `$80`) and `$A934` (`store`). It never calls `$A79B`
 //! (`integrate`) or `$A9C4` (`contact`), setting its position itself from the

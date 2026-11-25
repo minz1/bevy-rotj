@@ -154,7 +154,7 @@ mod tests {
         );
     }
 
-    /// The same kind from its spawn in stage 1-1 room 2 (`docs/ACTORS.md` §8b),
+    /// The same kind from its spawn in stage 1-1 room 2 (`docs/re/ACTORS.md` §8b),
     /// covering phase 0 before the player is level.
     #[test]
     fn matches_the_oracle_from_spawn() {

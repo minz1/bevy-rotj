@@ -13,10 +13,10 @@ name = "rotj"
 path = "src/main.rs"
 
 [dependencies]
-rotj-apu = { path = "../../crates/rotj-apu", version = "1.1.59" }
-rotj-core = { path = "../../crates/rotj-core", version = "1.1.59" }
-rotj-music = { path = "../../crates/rotj-music", version = "1.1.59" }
-rotj-rom = { path = "../../crates/rotj-rom", version = "1.1.59" }
+rotj-apu = { path = "../../crates/rotj-apu", version = "1.1.60" }
+rotj-core = { path = "../../crates/rotj-core", version = "1.1.60" }
+rotj-music = { path = "../../crates/rotj-music", version = "1.1.60" }
+rotj-rom = { path = "../../crates/rotj-rom", version = "1.1.60" }
 clap.workspace = true
 color-eyre.workspace = true
 image.workspace = true

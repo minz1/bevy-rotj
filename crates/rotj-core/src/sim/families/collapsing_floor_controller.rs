@@ -4,7 +4,7 @@
 //! drops a type `$86` through `$AC16`. It never draws and never contacts the
 //! player.
 //!
-//! It calls only routines already in `docs/ACTORS.md` §9c: `$C0C6`
+//! It calls only routines already in `docs/re/ACTORS.md` §9c: `$C0C6`
 //! (`Effects::vram.push`) and `$AC16` (`engine::spawn_parts`). The helper
 //! `$93E1` is part of the handler.
 

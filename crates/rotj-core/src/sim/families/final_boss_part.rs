@@ -2,7 +2,7 @@
 //! fixed screen offsets, cycling three `$7DD0` phases and dropping a `$BA` part
 //! when its spawning counter passes `$10`.
 //!
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$A56E`
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A000` (`load`), `$A56E`
 //! (`dying`, variant 0), `$C0C6` (`Vram::push`, through its own `$9249` tail),
 //! `$AF38` (`free_child_slot`), `$C247` (`draw`, which `$81C6` maps bank 9 at
 //! `$A000`) and `$A9C4` (`contact`). Its draw position is the offset table, not

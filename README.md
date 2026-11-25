@@ -1,11 +1,12 @@
 # Batman: Return of the Joker — Rust/Bevy Port
 
 A port of Sunsoft's 1991 NES game *Batman: Return of the Joker* to safe Rust and
-[Bevy](https://bevyengine.org). It isn't an emulator. The game's logic was rebuilt
+[Bevy](https://bevyengine.org) (`1.1.60`). It isn't an emulator. The game's logic was rebuilt
 routine by routine from the disassembly, and a 6502 emulator in `tools/rotj-oracle`
 checks the port byte for byte: the whole published TAS, from power-on through the
-ending, matches the original's RAM and WRAM at every frame of its game loop. The 1.0 releases play like
-the cartridge, sound and flicker included.
+ending, matches the original's RAM, WRAM, PPU scanlines, and APU writes at every frame of its
+game loop. Classic Mode plays like the cartridge, sound and flicker included, alongside an
+optional Modern Bevy tilemap renderer, Faithful Bevy UI overlay, and Tiled level-pack support.
 
 ## You need your own ROM
 
@@ -13,7 +14,7 @@ None of the game is in this repository or in the downloads. You need your copy o
 **Batman - Return of the Joker (USA).nes** (PRG+CHR MD5
 `830111df30b8511562d4faca6aeb792d`; the header doesn't matter).
 
-## Download
+## Download & CLI
 
 Each [release](https://github.com/minz1/bevy-rotj/releases) has a Windows exe and a
 Linux one. Put your ROM next to the exe, or drop it onto the exe (on Linux, pass it as
@@ -22,9 +23,23 @@ it. The game writes `settings.ron` next to the exe when you close the settings m
 startup a `tilesets/` folder beside it with the pictures level packs use in Tiled. If no ROM is
 found, the exe says where it looked.
 
+Command-line options:
+
+```sh
+batman-rotj --help                         # usage and environment variables
+batman-rotj --version                      # version string
+batman-rotj /path/to/rom.nes               # run with an external ROM
+batman-rotj --pack /path/to/pack [rom.nes] # play a Tiled level pack (or drop the folder / pack.json)
+```
+
 ## Build from source
 
-    cargo run --release -p batman-rotj -- /path/to/rom.nes
+With NixOS / Nix flakes, `nix develop` enters a shell with the pinned Rust toolchain and
+all system libraries (Wayland, X11, Vulkan, ALSA, ca65/ld65, cargo-deny).
+
+```sh
+cargo run --release -p batman-rotj -- /path/to/rom.nes
+```
 
 That exe finds the ROM at start-up like the downloads. To build the ROM in instead, put
 it in `raw/` or set `ROTJ_ROM=/absolute/path/to/rom.nes` before building: the build
@@ -47,44 +62,51 @@ workspace still builds and tests (the ROM tests skip). If you add the ROM later,
 | Settings   | Esc / F1 | Guide, or click the right stick |
 
 Esc opens the settings menu anywhere, and so does Select while the game is paused:
-volume, overscan, palette, the sprite limit, vsync and the UI. Everything starts the way the NES
-looked: a TV's overscan hides 8 lines at the top and bottom and the scroll seam at the sides, the colours are FirebrandX's
-Composite Direct (FBX), and more than 8 sprites on a line flicker. Turn the sprite limit off and the
-flicker from it goes. Pick FILE as the palette to use your own 64-colour `.pal`, saved
-as `palette.pal` next to the exe. UI set to FAITHFUL draws the game's own HUD, pause card
-and menus as Bevy UI, and the HUD's L/E letters stop flickering.
+volume, overscan, palette, the sprite limit, vsync, UI (`CLASSIC` / `FAITHFUL`), and picture
+(`CLASSIC` / `MODERN`). Everything starts the way the NES looked: a TV's overscan hides 8
+lines at the top and bottom and the scroll seam at the sides, the colours are FirebrandX's
+Composite Direct (`COMPOSITE DIRECT FBX`), and more than 8 sprites on a line flicker. Turn the
+sprite limit off and the flicker from it goes. Pick `FILE` as the palette to use your own
+64-colour `.pal`, saved as `palette.pal` next to the exe. UI set to `FAITHFUL` draws the
+game's own HUD, pause card and menus as Bevy UI, and the HUD's `L`/`E` letters stop flickering.
 
 The window is resizable and the picture stays at an integer scale. The game shows one
 picture per 60 Hz tick, so on a variable-refresh display (G-Sync, FreeSync) every frame
-lasts the same 1/60 s. If the renderer
-misbehaves, `ROTJ_RENDER_BACKEND=gl` (or `vulkan`) picks a wgpu backend. `ROTJ_LEVEL=1..12`
-starts on a later level; `ROTJ_RECORD_INPUT=<dir>` records your pads for a replay against
-the original.
+lasts the same 1/60 s. If the renderer misbehaves, `ROTJ_RENDER_BACKEND=gl` (or `vulkan`)
+picks a wgpu backend. `ROTJ_LEVEL=1..12` starts on a later level; `ROTJ_RECORD_INPUT=<dir>`
+records your pads for a replay against the original.
 
 ## What's here
 
 | Path | What it is |
 |------|------------|
-| `crates/rotj-rom` | finds and checks your ROM (the app's build script embeds it, or the exe loads it at start-up) |
-| `crates/rotj-core` | the game: actors, levels, scripts, the boot and the ending, plus the NES-picture renderer |
+| `crates/rotj-rom` | finds and checks your ROM (`Rom::load`, `InesHeader`, PRG+CHR MD5) |
+| `crates/rotj-core` | pure-Rust simulation (`sim::Session`), `map`, Tiled `levels`, `render`, palettes |
 | `crates/rotj-apu`, `crates/rotj-music` | the 2A03 synth and the game's own music driver, ported |
-| `crates/app` | the Bevy app |
+| `crates/app` | the Bevy 0.20 app (Classic & Modern renderers, Faithful UI, ECS mirror, settings) |
 | `tools/rotj-oracle` | the 6502/FME-7/PPU emulator the tests compare against |
-| `tools/rotj-tools` | the `rotj` extractor CLI (CHR, levels, music, actors) |
+| `tools/rotj-tools` | the `rotj` CLI (level-pack & tileset export, ROM dumps) |
+| `tools/rotj-verify` | renderer comparison utility |
 | `disasm/` | the disassembler: `disasm/assemble.sh` generates the listing from your ROM and rebuilds it byte for byte |
-| `docs/` | the reverse-engineering notes and the plan; `docs/STATUS.md` is the current state |
+| `docs/ARCHITECTURE.md` | crate/module map, `Session` boundary, state machines, and verification pyramid |
+| `docs/STATUS.md` | current release status (`1.1.60`) and open leads |
+| `CHANGELOG.md` | full release history (`0.1.0`–`1.1.60`) |
+| `docs/PLAN.md` | roadmap for `1.2.0+` Enhanced features |
+| `docs/re/`, `docs/specs/archive/` | archived reverse-engineering lab notebooks and completed `0.x`–`1.1.x` design specs |
 
 ## Tests
 
-    cargo test --workspace                      # without a ROM, the ROM tests skip
-    ROTJ_REQUIRE_ROM=1 cargo test --workspace   # with one, they must all run
+```sh
+cargo test --workspace                      # without a ROM, the ROM tests skip
+ROTJ_REQUIRE_ROM=1 cargo test --workspace   # with one, they must all run
+```
 
 The whole-game lockstep runs in release:
-`ROTJ_REQUIRE_ROM=1 cargo test --release -p rotj-core -p rotj-oracle -- --ignored`.
+`ROTJ_REQUIRE_ROM=1 cargo test --release -p rotj-core -p rotj-oracle -p batman-rotj -- --ignored`.
 Where a test was checked against the real emulator (fceux), the repository keeps only
 a digest of that capture, so the comparison still holds without shipping the capture.
 
-No `unsafe` anywhere (a workspace lint), clippy pedantic at zero warnings, and
+No `unsafe` anywhere (a workspace lint), `clippy::pedantic` at zero warnings, and
 `cargo deny` for licenses and advisories.
 
 ## License

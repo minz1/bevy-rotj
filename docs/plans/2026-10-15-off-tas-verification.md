@@ -10,7 +10,7 @@
 
 **Tech Stack:** Rust 1.99 (edition 2024 workspace), Bevy 0.20 (app only), the in-repo 6502 oracle; std only, no new dependencies.
 
-**Spec:** `docs/specs/2026-10-15-off-tas-verification-design.md`
+**Spec:** `docs/specs/archive/2026-10-15-off-tas-verification-design.md`
 
 ## Global Constraints
 
@@ -67,7 +67,7 @@
 **Files:**
 - Modify: `crates/rotj-core/src/actor.rs` (tests)
 
-- [ ] **Step 1:** from the sweep output, for each `NextArea` start in `STARTS` (18 with frame 350) and weapon 0-4 take the first passing seed (room-change starts stay sweep-only, per the spec; ~90 pinned runs plus the death runs, under the cap with stage 1's 13); group by stage (area `$0400 >> 1` -> stage via `docs/SUBLEVELS.md`'s table) into `#[ignore]` tests `random_play_in_stage_N_matches_the_oracle` (N = 2..7; stage 1's existing tests stay as they are) using `plays_randomly`; include each start's `energy = Some(1)` run if it passed.
+- [ ] **Step 1:** from the sweep output, for each `NextArea` start in `STARTS` (18 with frame 350) and weapon 0-4 take the first passing seed (room-change starts stay sweep-only, per the spec; ~90 pinned runs plus the death runs, under the cap with stage 1's 13); group by stage (area `$0400 >> 1` -> stage via `docs/re/SUBLEVELS.md`'s table) into `#[ignore]` tests `random_play_in_stage_N_matches_the_oracle` (N = 2..7; stage 1's existing tests stay as they are) using `plays_randomly`; include each start's `energy = Some(1)` run if it passed.
 - [ ] **Step 2:** `ROTJ_REQUIRE_ROM=1 cargo test --release -p rotj-core random_play -- --ignored`; all pass; total time printed in REPORT.md (must be under ~150 s).
 - [ ] **Step 3:** REPORT.md lists every divergence (start, area/room, seed, weapon, message) and every (start, weapon) with no passing seed. Do not fix divergences.
 - [ ] **Step 4:** gates: `ROTJ_REQUIRE_ROM=1 cargo test --workspace`, the ignored release run above plus `-p rotj-oracle`, clippy `-D warnings`, `cargo fmt --check`.

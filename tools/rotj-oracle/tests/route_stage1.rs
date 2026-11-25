@@ -4,7 +4,7 @@
 //! The route plays stage 1-1 from the title into the game's own mid-level
 //! transition: the symmetric "stage" counter `$0402` goes `0 -> 2` (the
 //! red-brick room), exactly where the scripted `route2` capture stalls
-//! (`docs/SUBLEVELS.md` §7d). It does **not** reach stage 1-2, so the level
+//! (`docs/re/SUBLEVELS.md` §7d). It does **not** reach stage 1-2, so the level
 //! index `$20` is never advanced; §7d records the limit and the payload that
 //! would advance `$20` (`INC $20` at WRAM `$63D0`).
 
@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use rotj_oracle::{Machine, load_rom};
 
-/// `$0402`, the room counter (`docs/SUBLEVELS.md` §7d).
+/// `$0402`, the room counter (`docs/re/SUBLEVELS.md` §7d).
 const ROOM: usize = 0x0402;
 /// `$0400`, the area index / CHR-set selector (`$D94E` output).
 const AREA: usize = 0x0400;
@@ -80,7 +80,7 @@ fn stage1_route_reaches_the_red_brick_room_change() {
     );
     // The room change advances $0402 without re-selecting the level's area: $0400
     // stays 0 and the resident map $6000-$6FFF is byte-identical across it (the
-    // scripted `route2` capture's own relationship, `docs/SUBLEVELS.md` §7d).
+    // scripted `route2` capture's own relationship, `docs/re/SUBLEVELS.md` §7d).
     let (area_before, map_before, area_after, map_after) =
         change.expect("the route reaches the red-brick room change");
     assert_eq!(area_before, 0, "area before the room change");
@@ -94,7 +94,7 @@ fn stage1_route_reaches_the_red_brick_room_change() {
     );
     // The route, like the scripted capture, stops here: no level end ($BA = 5)
     // is armed and the level index is not the stage-1-2 value. The stall is
-    // recorded in docs/SUBLEVELS.md §7d.
+    // recorded in docs/re/SUBLEVELS.md §7d.
     assert_ne!(machine.bus.ram[0x00BA], 5, "the level end was not reached");
     assert_ne!(machine.bus.ram[LEVEL_INDEX], 1, "stage 1-2 was not reached");
 }

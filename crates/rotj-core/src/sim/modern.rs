@@ -1,5 +1,5 @@
 //! The Modern picture's view of a frame: when it is drawn, and its background from the live map
-//! (`docs/specs/2026-10-18-modern-picture-design.md`).
+//! (`docs/specs/archive/2026-10-18-modern-picture-design.md`).
 
 use super::stage::{self, FINAL_AREA};
 use super::world::{Ppu, orientation};

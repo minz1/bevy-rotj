@@ -1,6 +1,6 @@
 //! Watches the PPU's scroll/address registers (`$2000/$2005/$2006`) during the
 //! `oracle-route` replay, to locate the code behind the top-band scroll split
-//! `docs/LEVELDATA.md` §16 reports.
+//! `docs/re/LEVELDATA.md` §16 reports.
 //!
 //! Run with the ROM present: `cargo run -p rotj-oracle --example bg_split`.
 

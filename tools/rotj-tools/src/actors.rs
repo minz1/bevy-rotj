@@ -114,7 +114,7 @@ pub fn dump(rom_path: &Path, stage: u8, sublevel: u8, area: u8) -> Result<()> {
         "note: the $DA18 record's script pointer is plain 6502 (here it only sets\n\
          level state), not a bytecode; a spawned object takes the first free $7CC0\n\
          slot, its state is record byte 6 ($7D50) and $7DD0 its behaviour phase.\n\
-         See docs/ACTORS.md §7d for what is decoded, §7e for what is still a lead.\n",
+         See docs/re/ACTORS.md §7d for what is decoded, §7e for what is still a lead.\n",
     );
     print!("{out}");
     Ok(())

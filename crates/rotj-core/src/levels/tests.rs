@@ -147,7 +147,7 @@ fn the_original_game_imports_to_the_assets_the_game_reads() {
     assert_eq!(levels.extra_passwords.len(), 1);
 }
 
-/// The readers are listed in docs/specs/2026-10-24-level-packs-release-2-design.md.
+/// The readers are listed in docs/specs/archive/2026-10-24-level-packs-release-2-design.md.
 #[test]
 fn bit_6_of_a_pending_cell_is_read_by_nothing() {
     let Some(rom) = rotj_rom::for_test() else {

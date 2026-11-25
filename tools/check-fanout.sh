@@ -15,7 +15,7 @@ if [[ ! $family =~ ^crates/rotj-core/src/actor/families/[a-z0-9_]+\.rs$ ]]; then
 fi
 
 changes=$( (git diff --name-status --no-renames "$base"; git status --porcelain --untracked-files=all | sed -n 's/^?? /A\t/p') | sort -u)
-allowed=("crates/rotj-core/src/actor/families.rs" "docs/ACTORS.md" "$family")
+allowed=("crates/rotj-core/src/actor/families.rs" "docs/re/ACTORS.md" "$family")
 failed=0
 
 while IFS=$'\t' read -r status path; do

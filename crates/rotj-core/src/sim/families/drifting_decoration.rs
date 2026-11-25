@@ -5,7 +5,7 @@
 //! first. A borrow pins the high byte to `$FF`, a carry pins the low byte to 0.
 //!
 //! It calls only `$826F`, the bank-11 wrapper that maps bank 9 over `$A000` and
-//! calls `$C247` (`docs/ACTORS.md` §9c, `engine::draw`), so the port passes bank
+//! calls `$C247` (`docs/re/ACTORS.md` §9c, `engine::draw`), so the port passes bank
 //! 9. It does no `$A000` load, no `$A852` projection, no contact and never frees
 //! its slot: `$7DD0` stays 0.
 

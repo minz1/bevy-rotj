@@ -74,7 +74,7 @@ local function openw(name)
     return f
 end
 
--- Curated leads (docs/RE-NOTES.md cheats + disasm/MAP.md RAM map).
+-- Curated leads (docs/re/RE-NOTES.md cheats + disasm/MAP.md RAM map).
 local LEADS = {
     { "sublevel", 0x0401, 1 },
     { "stage", 0x0402, 1 },
@@ -508,8 +508,8 @@ local function input_for(frame)
         -- at level x 160-192, until the level's actor spawner has real enemies
         -- drawn as sprites (frames ~850+ in tools/emu/route-dense). The jump
         -- is variable-height, so the jump frames hold A across each step; the
-        -- walk speed and the step's height are in docs/PHYSICS.md and
-        -- docs/ACTORS.md §7f. The player is one-hit-killable, so ROUTE_INVIN=1
+        -- walk speed and the step's height are in docs/re/PHYSICS.md and
+        -- docs/re/ACTORS.md §7f. The player is one-hit-killable, so ROUTE_INVIN=1
         -- writes the invincibility flag each frame; ROUTE_FROM is the first
         -- frame Right is held (gameplay starts ~607).
         local keys = {}
@@ -532,7 +532,7 @@ local function input_for(frame)
         -- the first two scripted held jumps by falling back to a periodic
         -- *held* jump (A held ROUTE_HOLD frames every ROUTE_PERIOD), so the
         -- actor clears each 32-40 px step it meets. A tap only rises 22 px, so
-        -- the hold must span the thrust window (docs/PHYSICS.md). ROUTE_JUMPS
+        -- the hold must span the thrust window (docs/re/PHYSICS.md). ROUTE_JUMPS
         -- still adds the route-dense explicit jumps. ROUTE_INVIN=1 pokes $0477
         -- (the game's meter/progress byte), which is only safe for RE captures.
         local keys = {}
@@ -674,7 +674,7 @@ local function input_for(frame)
         -- stage/sublevel indices ($0402/$0401), then force a reload by zeroing
         -- the lives so the game restarts the sublevel. A savestate is taken
         -- before the write, because a wrong transition can lock the game in a
-        -- handler (see docs/SUBLEVELS.md).
+        -- handler (see docs/re/SUBLEVELS.md).
         local keys = {}
         if frame >= 300 and frame <= 306 then
             keys.start = true

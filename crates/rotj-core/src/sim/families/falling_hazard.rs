@@ -2,7 +2,7 @@
 //! slots 16-23 (`$84C2`). It descends 4 px a frame, drawn until it leaves the
 //! bottom, and damages the player on contact.
 //!
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$A852`
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A000` (`load`), `$A852`
 //! (`on_screen`, off screen it frees its own slot), `$C247` (`draw`, bank 1 as
 //! `$81C8` maps it), `$AEE3` (`touch`) and `$A934` (`store`). It never reads
 //! `$7DD0`/`$7D50`, so its phase is always the spawn value.

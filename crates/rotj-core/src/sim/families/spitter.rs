@@ -1,6 +1,6 @@
 //! Type `$8A` (bank 0 `$9762`): an enemy that idles, then spits a `$8C` child.
 //!
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$A56E`
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A000` (`load`), `$A56E`
 //! (`dying`), `$ABDF` (`player_dx`), `$A852` (`on_screen`), `$AF38`
 //! (`free_child_slot`), `$AC06` (`tile_bits`), `$C247` (`draw`, through `$84CA`'s
 //! bank 9 mapping), `$A9C4` (`contact`), `$CD50` (`despawn`) and `$A934`

@@ -8,7 +8,7 @@
 //! kill. It reads the boss's hit points `$A9:$AA` and, on touching the player,
 //! drains `$0158` from the boss's displayed pool `$B2:$B3`.
 //!
-//! It calls only `docs/ACTORS.md` §9c routines: `$A000` (`load`), `$A56E`
+//! It calls only `docs/re/ACTORS.md` §9c routines: `$A000` (`load`), `$A56E`
 //! (`dying`), `$A79B` (`integrate`), `$A852` (`on_screen`), `$C247` (`draw`,
 //! which `$826F` maps bank 9 for) and `$A934` (`store`).
 

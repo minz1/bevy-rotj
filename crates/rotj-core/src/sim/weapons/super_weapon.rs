@@ -100,7 +100,7 @@ fn super_attack(
 ///
 /// Classic's rule: the charge waits while `overflow`, the 6502's overflow flag, is set.
 /// The game tests `LDA $B8; BVC`, and `LDA` leaves V as the code before left it
-/// (`docs/ACTORS.md` §9g): the last writer among Batman's frame (`$84AB`: set while B is
+/// (`docs/re/ACTORS.md` §9g): the last writer among Batman's frame (`$84AB`: set while B is
 /// held, while he stands invulnerable, or turning mid-jump or rising from a crouch), the
 /// last live second-class actor's projection and draw (which usually clear it), and a shot
 /// in a higher slot.

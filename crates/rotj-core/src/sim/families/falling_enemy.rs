@@ -129,7 +129,7 @@ mod tests {
     use crate::sim::oracle::{Coverage, Scene, assert_actor_phases};
 
     /// Area 20:02, from the whole-game TAS: the type's own spawner ($B0's
-    /// `$8C20`) puts it in slots 7-15 (`docs/ACTORS.md` §8b), so several run at
+    /// `$8C20`) puts it in slots 7-15 (`docs/re/ACTORS.md` §8b), so several run at
     /// once and the per-phase counts exceed the loops. All three `$7DD0` phases
     /// (0, 2 and 4) and the draw are exercised. The window stops at 405 frames,
     /// before the room's schedule spawns a type `$C8` at frame 39199.

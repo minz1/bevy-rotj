@@ -1,7 +1,7 @@
 //! Type `$66` (bank 0 `$8665`): the two-piece sprite type `$68` spawns, bobbing
 //! vertically between `-$20` and `+$20`.
 //!
-//! It calls only routines already in `docs/ACTORS.md` §9c: `$A000` (`load`),
+//! It calls only routines already in `docs/re/ACTORS.md` §9c: `$A000` (`load`),
 //! `$A56E` (`dying`), `$A79B` (`integrate`), `$A852` (`on_screen`), `$AC06`
 //! (`tile_bits`), `$C247` (`draw`), `$A9C4` (`contact`) and `$A934` (`store`).
 //! `$84CA` maps bank 9 at `$A000` around the draw (the port passes bank 9 to

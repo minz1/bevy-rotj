@@ -1,6 +1,6 @@
 //! Type `$62` (bank 0 `$8580`): a falling, drifting piece that starts dying when its feet find ground.
 //!
-//! It calls only routines already in `docs/ACTORS.md` §9c: `$A000` (`load`), `$A56E`
+//! It calls only routines already in `docs/re/ACTORS.md` §9c: `$A000` (`load`), `$A56E`
 //! (`dying`), `$A79B` (`integrate`), `$A7DD` (`collision::feet`), `$A852` (`on_screen`),
 //! `$84CA` -> `$C247` (`draw`, bank 9), `$AEE3` (`touch`) and `$A8E4` (`end_frame`).
 

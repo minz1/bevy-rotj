@@ -1,7 +1,7 @@
 //! Type `$4A` (bank 11 `$9A4D`): a stage-4 boss part. It drifts one pixel a
 //! frame — `+/-1` px sideways from `$7DD0`'s phase, always 1 px down — draws the
 //! bank-9 metasprite its `$9AD4` table picks, and is freed once its y reaches
-//! `$0B00`. It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`),
+//! `$0B00`. It calls only routines in `docs/re/ACTORS.md` §9c: `$A000` (`load`),
 //! `$A852` (`on_screen`), `$C247` (`draw`, bank 9 as the `$826F` wrapper maps it),
 //! `$AFD6` (`boss_contact`) and `$A934` (`store`).
 //!

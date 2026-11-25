@@ -3,7 +3,7 @@
 //! `vx_drift`. A lethal hit does not kill it: `$89B4` restores its hit points,
 //! steps `$7D50` (which picks the metasprite) and it lives on.
 //!
-//! It calls only routines already in `docs/ACTORS.md` §9c: `$A000` (`load`),
+//! It calls only routines already in `docs/re/ACTORS.md` §9c: `$A000` (`load`),
 //! `$A79B` (`integrate`), `$A852` (`on_screen`), `$A9C4` (`contact`) and `$A934`
 //! (`store`). `$84DF` maps bank 1 at `$A000` around the draw, so the port passes
 //! bank 1 to `engine::draw`. The handler ends a frame with `$A934`, never

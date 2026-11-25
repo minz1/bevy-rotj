@@ -784,7 +784,7 @@ fn the_stage_end_loads_stage_1_2() {
 
 /// A jump makes `Play::step` return effect `$42=$24` (`$84FD`/`$8508`,
 /// bank 4) on the take-off frame, and the driver plays it as the documented
-/// noise sweep (`docs/MUSIC.md` `$24`): the frame's writes include the noise
+/// noise sweep (`docs/re/MUSIC.md` `$24`): the frame's writes include the noise
 /// channel. If the request were dropped, the driver would write none of them.
 #[test]
 fn a_jump_requests_the_jump_effect_and_the_driver_plays_it() {

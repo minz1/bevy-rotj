@@ -10,7 +10,7 @@
 
 **Tech Stack:** Rust (edition 2024, workspace lints), `rotj-core` test code only, no new dependencies.
 
-**Spec:** `docs/specs/2026-10-15-state-tape-design.md`
+**Spec:** `docs/specs/archive/2026-10-15-state-tape-design.md`
 
 ## Global Constraints
 
@@ -103,7 +103,7 @@
 ### Task 4: Docs and gates
 
 **Files:**
-- Modify: `docs/ACTORS.md` §9 (the harness: tapes, recording, the stale/hash failures), `docs/STATUS.md` (Gates row: the replay runs in plain `cargo test` and in CI; "Owner decisions pending" ROM-in-CI: whole-chain parity now runs in CI through the tape), `.gitattributes` (`*.tape binary`).
+- Modify: `docs/re/ACTORS.md` §9 (the harness: tapes, recording, the stale/hash failures), `docs/STATUS.md` (Gates row: the replay runs in plain `cargo test` and in CI; "Owner decisions pending" ROM-in-CI: whole-chain parity now runs in CI through the tape), `.gitattributes` (`*.tape binary`).
 
 - [ ] **Step 1:** Write the docs changes above (STATUS is the orchestrator's to edit if this runs as an agent task: report the wording instead).
 - [ ] **Step 2: Run** the gates in Global Constraints, plus `cargo test --workspace` without `ROTJ_REQUIRE_ROM` — expected: green, and the replay test listed as run (not skipped).

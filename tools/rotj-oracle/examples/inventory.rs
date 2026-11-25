@@ -134,7 +134,7 @@ fn pad_for(frame: u64, script: Script, stuck: u64) -> u8 {
             }
         }
         // `dump.lua` INPUT=route: the two held jumps that clear stage 1-1's
-        // steps (`docs/ACTORS.md` §7f).
+        // steps (`docs/re/ACTORS.md` §7f).
         Script::Route => {
             if frame >= PLAY_FROM {
                 pad |= 0x80;

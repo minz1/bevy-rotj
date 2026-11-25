@@ -9,7 +9,7 @@
 //! The soundtrack comes from the *ported* sound driver (`rotj-music`), fed by
 //! the extracted driver and song banks: each game frame ticks the driver, which
 //! returns the APU register writes the game itself would make
-//! (`docs/MUSIC.md`, `crates/rotj-music/tests/acceptance.rs`).
+//! (`docs/re/MUSIC.md`, `crates/rotj-music/tests/acceptance.rs`).
 //!
 //! The game's own requests (`$40-$43`, from `Game::nmi`) drive it from power-on: the
 //! title's song `$01` (`$61AE`), each stage's `$D980[$0400 / 2]` (`$D973`) and every

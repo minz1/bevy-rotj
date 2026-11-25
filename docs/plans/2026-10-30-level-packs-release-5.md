@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust, serde_json, thiserror; the app's `image` crate for the PNG.
 
-**Spec:** `docs/specs/2026-10-30-level-packs-release-5-design.md`
+**Spec:** `docs/specs/archive/2026-10-30-level-packs-release-5-design.md`
 
 ## Global Constraints
 

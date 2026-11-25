@@ -102,7 +102,7 @@ fn camera(m: &Machine) -> i32 {
 /// upper platform. In the red-brick room (room >= 2) the exit looked up (the
 /// crate/door), so reward height first and the player's x (`$00B0`) as a
 /// tiebreak; `$0477` is kept in the key only (the state-4 actor that would fill
-/// it never spawns there, see `docs/SUBLEVELS.md` §7d-iii).
+/// it never spawns there, see `docs/re/SUBLEVELS.md` §7d-iii).
 fn score_of(m: &Machine) -> (u8, i32, i32) {
     let room = m.bus.ram[ROOM];
     let damage = i32::from(2u8.wrapping_sub(m.bus.ram[LIVES])) * 100

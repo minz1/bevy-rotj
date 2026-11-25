@@ -1,5 +1,5 @@
 //! Type `$52` (bank 11 `$9CFC`): a short-lived effect that other handlers spawn.
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$A852`
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A000` (`load`), `$A852`
 //! (`on_screen`), `$AC06` (`tile_bits`), `$C247` (`draw`, bank 1 as `$825A` maps
 //! it) and `$A934` (`store`). It never integrates, contacts or dispatches on
 //! `$7DD0`; `$7E90` counts two per frame from 0, so it draws four metasprites and

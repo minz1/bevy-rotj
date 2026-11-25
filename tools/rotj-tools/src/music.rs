@@ -10,7 +10,7 @@
 //!   `n` occupies `(n - 6) * 8 KiB`.
 //!
 //! The driver's own code is reimplemented in `rotj-music`; only its data is
-//! extracted here. See `docs/MUSIC.md`.
+//! extracted here. See `docs/re/MUSIC.md`.
 
 use std::path::Path;
 

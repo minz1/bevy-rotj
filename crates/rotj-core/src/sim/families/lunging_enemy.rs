@@ -1,7 +1,7 @@
 //! Type `$6A`, a stage 3/9 enemy (bank 0 `$877D`). It is spawned as a copy by
 //! the bank 0 `$8762` routine the `$68` handler falls into (`$7CC0 = $7DB0`).
 //!
-//! It calls only routines already in `docs/ACTORS.md` §9c: `$A000` (`load`),
+//! It calls only routines already in `docs/re/ACTORS.md` §9c: `$A000` (`load`),
 //! `$A56E` (`dying`), `$A79B` (`integrate`), `$A852` (`on_screen`), `$ABDF`
 //! (`player_dx`), `$AC06` (`tile_bits`), `$A9C4` (`contact`) and `$A934`
 //! (`store`). `$84CA` maps bank 9 at `$A000` around the draw (the port passes

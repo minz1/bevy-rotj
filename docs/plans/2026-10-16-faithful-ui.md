@@ -12,7 +12,7 @@ atlases built from the player's CHR.
 
 **Tech Stack:** Rust, Bevy 0.20 `bevy_ui`, serde/ron (existing).
 
-**Spec:** `docs/specs/2026-10-16-faithful-ui-design.md` (approved with changes by the Opus
+**Spec:** `docs/specs/archive/2026-10-16-faithful-ui-design.md` (approved with changes by the Opus
 stand-in, changes applied). This plan: approved with changes by the Opus stand-in (applied
 below: the clone test clears the OAM, Task 2 checks the OAM against the state before each
 step, the label carry-over lives in `Play::step`, sprites-off lines and the x range, the

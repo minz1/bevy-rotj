@@ -1,10 +1,10 @@
 # Port plan — Batman: Return of the Joker → Rust/Bevy
 
-Status: **1.1.59 tagged** (the whole game byte-exact against the oracle, boot to ending, built with the user's own ROM, every frame's picture checked line by line; `docs/STATUS.md`
-is the source of truth). **1.0 means full-game parity** (all 7 stages, 5 bosses,
+Status: **1.1.60 tagged** (the whole game byte-exact against the oracle, boot to ending, built with the user's own ROM, every frame's picture checked line by line; `docs/STATUS.md`
+is the source of truth and `docs/ARCHITECTURE.md` documents the current layout). **1.0 means full-game parity** (all 7 stages, 5 bosses,
 every actor behaviour, the complete soundtrack). Intermediate minor checkpoints are
 tagged as they land. After 1.0.0 only Classic Mode is bound by parity
-(`docs/specs/2026-10-15-classic-and-enhanced-modes-design.md`).
+(`docs/specs/archive/2026-10-15-classic-and-enhanced-modes-design.md`).
 
 ## Versioning
 
@@ -39,8 +39,8 @@ workspace version in `Cargo.toml` and the in-game version string are the same.
 | 1.0.3 | The ROM embedded at build time: a self-contained exe (the owner's call, 2026-10-16) | **tagged** |
 | 1.0.4 | ROM-less builds find the ROM at start-up (argument, `ROTJ_ROM`, beside the exe), and each release carries ROM-less Windows and Linux exes (the owner's design, 2026-10-16) | **tagged** |
 | 1.0.5 | The owner's playtest of 1.0.4: integer scaling, no audio pops (the output filter and a queue that follows the device), opposite directions as the game reads them | **tagged** |
-| 1.1.0 | The settings file and menu, one picture per tick (`docs/specs/2026-10-16-settings-menu-design.md`), and the game's own HUD, pause card, title cursor and password entry as Bevy UI, the HUD label steady (`docs/specs/2026-10-16-faithful-ui-design.md`) | **tagged** |
-| 1.1.x | Modernisation, one patch per step, no behaviour change (owner, 2026-10-16: "replace the NES stuff ALL with modern patterns and modern tech"): the GPU renderer (Bevy tilemaps and sprites; the GPU's readback must equal `Frame`), the game loop on Bevy schedules and `States`, the player as a character (enum state machines, the ECS pilot), actors mirrored to entities for everything that reads them (the Classic simulation stays `Slots`, owner 2026-10-17), levels as assets (an importer run on the player's ROM at build time), scripts as data, input as actions | |
+| 1.1.0 | The settings file and menu, one picture per tick (`docs/specs/archive/2026-10-16-settings-menu-design.md`), and the game's own HUD, pause card, title cursor and password entry as Bevy UI, the HUD label steady (`docs/specs/archive/2026-10-16-faithful-ui-design.md`) | **tagged** |
+| 1.1.x | Modernisation, one patch per step, no behaviour change (`1.1.1`–`1.1.60`): Modern Bevy tilemap & sprite renderer, Faithful Bevy UI, read-only ECS mirror, typed state machines across core/audio/app, Tiled level packs (`--pack` + tilesets + `Source::User` hardening), `rotj-core` consolidation (`map`, `sim::Session`), and docs overhaul (`CHANGELOG.md`, `docs/ARCHITECTURE.md`) | **tagged (`1.1.0`–`1.1.60`)** |
 | 1.2.0 onward | Enhanced features, each once its prerequisite has landed: interpolated motion and a `frame_rate` setting (after the GPU renderer and actors as entities), CRT filters (after the renderer), widescreen (after actors and levels), remastered audio, and an audio setting where sound effects play on their own voices instead of taking the music's channels (the owner, 2026-10-17: "modern computers can do unlimited sound") | |
 | then | Chapter select and passwords (revisit: the game's own password screen is ported) | |
 | then | Prototype music (enhanced mode) | |
@@ -84,7 +84,7 @@ spec is written after 1.0.1, starting with the pilot (one actor family and the p
 ### Revisit for 1.1 (modernisation candidates, collected as found)
 
 The ranked survey with file:line, risk and the Classic proof for each item is
-`docs/MODERNIZE.md` (2026-10-15, verified by a second reviewer: crates checked on crates.io).
+`docs/specs/archive/MODERNIZE.md` (2026-10-15, verified by a second reviewer: crates checked on crates.io).
 
 - The app's NES-style compositor (`play::compose`, nametables and band splits) ->
   Bevy tilemaps and sprites, checked against Classic's picture.
@@ -93,7 +93,7 @@ The ranked survey with file:line, risk and the Classic proof for each item is
   renderer, inspector and editor; `Slots` stays the Classic simulation (owner, 2026-10-17).
 - Routine-shaped modules mirroring the 6502 listing -> systems named for what they do (the
   `Outside` brackets went in 1.1.15).
-- Settings passed as one value into the core (`docs/specs/2026-10-15-classic-and-enhanced-modes-design.md`).
+- Settings passed as one value into the core (`docs/specs/archive/2026-10-15-classic-and-enhanced-modes-design.md`).
 - Frame pacing (owner, 2026-10-15, a 170 Hz display): the 60 Hz `FixedUpdate` tick is
   not aligned with the display, so input waits 0-1 game frames unevenly and motion
   judders; the interpolation work fixes it, with a vsync setting and the queued-frame
@@ -121,20 +121,20 @@ exploration, playtest replays and picture parity.
 After 1.0.0 parity binds Classic Mode only, which stays the default and stays verified
 at every merge and tag; a modern render path and anything that changes the game's
 behaviour (the 1/16-pixel fixed point, the camera, one-hit deaths) arrive as Enhanced
-Mode settings layered over it (`docs/specs/2026-10-15-classic-and-enhanced-modes-design.md`). `disasm/` stays byte-identical as a baseline check, with ROM patches as
+Mode settings layered over it (`docs/specs/archive/2026-10-15-classic-and-enhanced-modes-design.md`). `disasm/` stays byte-identical as a baseline check, with ROM patches as
 separate artifacts.
 
 **Widescreen (decided 2026-10-14; an Enhanced feature after 1.1.x).** A settings option that widens the
 view past the NES's 256 px; classic 256 px stays the default. The extra columns
 come from the level map the port already streams, but actors spawn as the level
-pages forward (`docs/ACTORS.md` §5a), timed for a 256 px screen, so the spawn
+pages forward (`docs/re/ACTORS.md` §5a), timed for a 256 px screen, so the spawn
 window has to widen with the view or enemies pop in visibly. The HUD stays anchored to the
 centre 256 px.
 
 ## Bring your own ROM (1.0.1, decided 2026-10-14, done 2026-10-16)
 
 The repo distributes none of the game, so it can go public
-(`docs/specs/2026-10-15-bring-your-own-rom-design.md`, `docs/plans/2026-10-15-bring-your-own-rom.md`):
+(`docs/specs/archive/2026-10-15-bring-your-own-rom-design.md`, `docs/plans/2026-10-15-bring-your-own-rom.md`):
 the app, the tests, the oracle and the disassembly read the user's ROM through
 `crates/rotj-rom` (MD5-checked); the `.s` listing is generated locally by
 `disasm/assemble.sh`; fceux captures are replaced by oracle runs pinned to fceux by
@@ -164,53 +164,25 @@ code and documentation stay.
 - All assets extracted into `assets/`.
 - Buildable, byte-identical 6502 disassembly kept in `disasm/` (we will patch).
 - Audio synthesized natively in safe Rust (2A03 + DMC for this cart; see
-  `docs/RE-NOTES.md` — ROTJ has no expansion audio).
+  `docs/re/RE-NOTES.md` — ROTJ has no expansion audio).
 
 ## Layout
+
+See [docs/ARCHITECTURE.md](ARCHITECTURE.md) for the detailed crate and module map.
 
 | Path | Purpose |
 | --- | --- |
 | `raw/` | your ROM in a development checkout (untracked) |
+| `flake.nix` | Nix dev shell (Rust toolchain, Bevy system libs, ca65/ld65, cargo-deny) |
 | `disasm/` | ca65/ld65 disassembly; `assemble.sh` must rebuild byte-identical ROM |
-| `tools/rotj-tools` | `rotj` CLI: extraction pipeline (CHR, palettes, levels, music) |
-| `crates/rotj-core` | shared formats: iNES parsing, CHR decode, level/palette/music data |
-| `crates/rotj-apu` | 2A03 synthesis cores (pulse×2, triangle, noise, DMC) |
-| `crates/app` | Bevy game: fixed 60 Hz, NES-pixel world, states, player, render |
-| `assets/` | local `rotj` extractor output (untracked since 1.0.1; the game reads the ROM) |
-| `docs/` | plan + RE notes |
-
-## Milestones
-
-1. **Toolchain & CI** — done: workspace, lints, deny, GitHub Actions.
-2. **ROM mapping & CHR extraction** — done: mapper identified, 32 CHR banks
-   rendered with tested decoder.
-3. **Disassembly bootstrap** — in progress (background agent): per-bank `.s`,
-   ld65 config for FME-7 windows, `assemble.sh` verifying byte-identical
-   rebuild. Next: deepen bank 15 (reset/NMI/IRQ handlers), recursive descent,
-   labels, bank-trace FME-7 writes.
-4. **Asset extraction depth** — next after (3):
-   - palette tables (bg + sprite per stage) → re-render CHR with real colors
-   - nametable/level data per sublevel → `assets/levels/*.ron`-ish
-   - sprite/actor tables, enemy definitions
-   - music data (note tables, instrument/envelope tables) → `assets/audio/*`
-5. **Engine** — Bevy systems mirroring the NES engine:
-   - PPU-equivalent: tile background renderer with per-band CHR bank swap
-     (parallax), sprite layer with 8×8/8×16 tiles + priority, palette RAM
-   - camera / scroll (NES-style per-axis scroll + forced blanking behaviors)
-   - player physics mined from disasm + Mesen watchpoints (RAM `$009E`,
-     `$00C3`, `$0466`, `$047D` leads)
-   - object/actor system (behaviors per enemy table), collision, weapons
-   - stage progression, checkpoints, HUD, bosses
-6. **Audio** — `rotj-apu` register file + mixer are in place (cores verified
-   against Tetanes; triangle DAC-hold bug fixed). Remaining: DMC core (needs the
-   disassembly's sample layout), music driver decode, then output wiring.
-   **Output decision (2026-10-13): use Bevy's built-in `bevy_audio`** with a
-   custom source that pulls samples from `Apu::tick`/`Apu::output` — no new
-   dependency and works on Bevy 0.20 today. `bevy_seedling` (Firewheel) is the
-   nicer future path but its latest release (0.8.0, 2026-08-09) targets Bevy
-   0.19; revisit when a 0.20-compatible release exists.
-7. **Verification** — frame-by-frame comparison against real ROM rendering
-   (VGMaps + emulator reference), input/physics acceptance tests.
+| `crates/rotj-rom` | ROM discovery, iNES header metadata, and PRG+CHR MD5 verification |
+| `crates/rotj-core` | pure-Rust simulation (`sim::Session`), `map`, Tiled `levels`, software PPU renderer, palettes |
+| `crates/rotj-apu`, `crates/rotj-music` | 2A03 synthesis cores and ported Sunsoft music driver |
+| `crates/app` | Bevy 0.20 app: fixed 60 Hz, Classic & Modern renderers, Faithful UI, ECS mirror, settings |
+| `tools/rotj-oracle` | 6502/FME-7/PPU emulator for lockstep verification |
+| `tools/rotj-tools`, `tools/rotj-verify` | `rotj` CLI (level-pack/tileset export, ROM dumps) and renderer verifier |
+| `docs/` | `ARCHITECTURE.md`, `STATUS.md`, `PLAN.md`, `CUTCONTENT.md`, `re/` notebooks, `specs/` (`archive/` for 0.x–1.1) |
+| `CHANGELOG.md` | full `0.1.0`–`1.1.60` release history |
 
 ## Post-1.0 content: cherry-picking the 16-bit versions (planned, not ported)
 
@@ -292,7 +264,7 @@ a low-value source).
 - **Unused tileset:** the asset is 8x8 tiles only. Someone groups them into the
   game's 16 px metatiles and draws the map. Before relying on the survey,
   prove the banks are unused: no stage's CHR table selects them (needs the
-  stage/sublevel -> CHR-bank rule from `docs/LEVELDATA.md` §13e).
+  stage/sublevel -> CHR-bank rule from `docs/re/LEVELDATA.md` §13e).
 - **Imported layouts:** capture the prototype level's solid/empty grid from an
   SNES emulator (the same capture method this project uses), resample it onto
   the NES 16 px grid, emit a Tiled map, skin it with NES tiles, then hand-tune

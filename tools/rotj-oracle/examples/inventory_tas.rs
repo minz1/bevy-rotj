@@ -288,7 +288,7 @@ impl Acc {
 
 /// Replay the TAS and print the inventory. (`$BA` = 5 and the `$D58F` level-end
 /// path never fire in this TAS; the boss areas come from the HP setup instead —
-/// see `docs/ACTORS.md` §8b.1.)
+/// see `docs/re/ACTORS.md` §8b.1.)
 fn main() {
     let Some(inputs) = tas_inputs() else {
         return;

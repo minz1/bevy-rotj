@@ -3,7 +3,7 @@
 //!
 //! `$7DD0` is the phase: waiting, drifting (decaying the sideways drift) or
 //! charged (counter at `$C0`, it only draws). It calls only routines in
-//! `docs/ACTORS.md` §9c: `$A000`
+//! `docs/re/ACTORS.md` §9c: `$A000`
 //! (`load`), `$AF97` (`boss_flash`), `$B1C4` (`boss_defeated`), `$A79B`
 //! (`integrate`), `$A852` (`on_screen`), `$C247` (`draw`, bank 9 as `$C229`
 //! maps it), `$AFD6` (`boss_contact`), `$AF38` (`free_child_slot`) and `$A934`

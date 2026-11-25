@@ -510,7 +510,7 @@ mod tests {
     }
 
     /// The `$AFD6` tail contact. The whole-game TAS never overlaps the player
-    /// (`docs/ACTORS.md` §8b contact 0), so both are pinned to one point: the
+    /// (`docs/re/ACTORS.md` §8b contact 0), so both are pinned to one point: the
     /// pin makes `$AFD6` drain the player's energy (`$0479` is set).
     #[test]
     fn the_boss_hurts_the_player_up_close() {

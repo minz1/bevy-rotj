@@ -1,5 +1,5 @@
 //! Reverse-engineering evidence for the background CHR animation
-//! (`docs/LEVELDATA.md` §16): replays `oracle-route` and prints the writes to
+//! (`docs/re/LEVELDATA.md` §16): replays `oracle-route` and prints the writes to
 //! the CHR shadow `$E0-$E7` and the animation's own counters
 //! (`$0430-$0433`, sequence `$0410`) for the slot that moves.
 //!

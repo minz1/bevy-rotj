@@ -1,5 +1,5 @@
 //! A room's layout as data: what the loader `$B40A` reads from the ROM on each room entry,
-//! imported so the game builds the room from data (`docs/specs/2026-10-17-rooms-design.md`).
+//! imported so the game builds the room from data (`docs/specs/archive/2026-10-17-rooms-design.md`).
 
 use crate::prg;
 use crate::render::Mirroring;

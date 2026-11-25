@@ -1,6 +1,6 @@
 //! The Modern picture (`picture: Modern`): in play, the level's tilemap and the game's sprites
 //! as Bevy entities, drawn into an image the screen quad shows instead of the PPU's
-//! (`docs/specs/2026-10-18-modern-picture-design.md`).
+//! (`docs/specs/archive/2026-10-18-modern-picture-design.md`).
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;

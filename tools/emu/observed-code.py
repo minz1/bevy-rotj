@@ -13,7 +13,7 @@ the address of the instruction *after* the store (the writing store sits just
 before it). That is still a valid instruction start, which is all a seed needs.
 
 The FME-7 places cmd $8/$9/$A/$B in `$6000/$8000/$A000/$C000` respectively
-(docs/ACTORS.md §0, nesdev), not in the $8000.. order an earlier version of
+(docs/re/ACTORS.md §0, nesdev), not in the $8000.. order an earlier version of
 this script assumed; the corrected map is what makes each PC land in the right
 bank. cmd $8 with bit 7 set makes `$6000` WRAM rather than a PRG bank.
 
@@ -57,7 +57,7 @@ def rows(path):
 
 
 # FME-7 PRG command -> the CPU window base it selects. cmd $8 holds $6000,
-# $9 holds $8000, $A holds $A000, $B holds $C000 (docs/ACTORS.md §0, nesdev).
+# $9 holds $8000, $A holds $A000, $B holds $C000 (docs/re/ACTORS.md §0, nesdev).
 WINDOW_BASE = {8: 0x6000, 9: 0x8000, 10: 0xA000, 11: 0xC000}
 
 

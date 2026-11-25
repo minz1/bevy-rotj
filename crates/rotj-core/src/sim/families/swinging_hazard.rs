@@ -1,7 +1,7 @@
 //! Type `$5E` (bank 0 `$831D`): a swinging three-piece sprite whose pieces sit
 //! at offsets from tables indexed by a `$7DD0` countdown.
 //!
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A852` (`on_screen`), `$C247`
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A852` (`on_screen`), `$C247`
 //! (`draw`, bank 9 as `$84CA` maps it), `$AEE3` (`touch`) and `$CD50` (`despawn`).
 //! It never loads the slot into the working set: each piece's position is the
 //! slot's own position plus a table offset.

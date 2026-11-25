@@ -1,7 +1,7 @@
 //! Type `$64` (bank 0 `$8606`): a still two-piece sprite that bobs on screen by
 //! the `$83CC` table, indexed by a timer that steps 4 a frame and wraps at `$80`.
 //!
-//! It calls only routines already in `docs/ACTORS.md` §9c: `$A000` (`load`),
+//! It calls only routines already in `docs/re/ACTORS.md` §9c: `$A000` (`load`),
 //! `$A79B` (`integrate`), `$A852` (`on_screen`), `$AC06` (`tile_bits`), `$C247`
 //! (`draw`, through `$84CA`'s bank 9 map), `$A9C4` (`contact`) and `$A934`
 //! (`store`). Its velocity is zero and it never uses gravity.

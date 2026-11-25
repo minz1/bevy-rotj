@@ -4,7 +4,7 @@
 //! handlers `$8029` (`$0476` 0), `$8170` (1), `$8891` (2), `$8D39` (3), `$91B2` (4), `$9647` (5)
 //! and `$9D2E` (6, the power-up's pieces), the
 //! bank-5 subroutines they call (`$9E13`, `$9E46`, `$9ED6`) and the draw (`$C247`,
-//! [`engine::draw`]); `docs/ACTORS.md` §9g.
+//! [`engine::draw`]); `docs/re/ACTORS.md` §9g.
 
 use super::collision::{self, Probe};
 use super::engine::{self, Work, anchor, rom_word};

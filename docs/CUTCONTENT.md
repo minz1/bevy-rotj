@@ -242,7 +242,7 @@ survey's *sound-test* claim is supported; only its attribution of track 6 to
 "not present in the sound test" needs the id mapping above (`$06` is one of the
 two ids absent from `$9C85`; the other, `$0E`, *is* requested elsewhere).
 
-The port runs it (`actor/sound_test.rs`, `docs/ACTORS.md` §9s). "At the title" is
+The port runs it (`actor/sound_test.rs`, `docs/re/ACTORS.md` §9s). "At the title" is
 loose: `$D3C6` reads `$F6` once, after the title's choice has flashed and faded and
 the screen is cleared (or a password is accepted), so A and Start must still be held
 then, and nothing else. In lockstep with the oracle
@@ -290,7 +290,7 @@ it; anything not proven is marked **lead**. Scratch scripts live in
 
 **The dispatch table is full.** Bank 14 `$CF0D` selects the handler's PRG bank by
 `type / 2` and `$CF72` is the 16-bit handler pointer indexed by the occupied byte
-(`docs/ACTORS.md` §8a, code at `$CED5`). All 101 even entries `$00`-`$C8` are
+(`docs/re/ACTORS.md` §8a, code at `$CED5`). All 101 even entries `$00`-`$C8` are
 non-zero. `$00`'s entry `$CED9` is the actor loop's own `LDY $7CC0,x` — the free
 branch — not a handler, so the real handler set is the **100 types `$02`-`$C8`**
 (`tools/emu/cutaudit2-scratch/audit_actors.py`).
@@ -310,7 +310,7 @@ slot bank 16-31). Searching the PRG for that idiom (byte `A9 xx
 | `$46` | bank 11 `$15AE` | the stage-4 boss `$42` (bank 11 `$947A`), its `$46` child (port `k42`) |
 | `$90` | bank 0 `$1D70` | `sub_9D13`, called at `$9B85` by the `$8E` handler (bank 0 `$993A`) when its counter `$7E90` reaches `$50` |
 | `$92` | bank 0 `$1E47` | the `$90` handler (bank 0 `$9DAD`) spawns it |
-| `$B8` | bank 12 `$0F47` | the stage-7 boss controller `$B4` (bank 12 `$8C59`) on its death, after the TAS's last input (inventory stops at 40894; `$B8` appears at TAS 40921, `docs/ACTORS.md` §8b.1 / port `kb8`) |
+| `$B8` | bank 12 `$0F47` | the stage-7 boss controller `$B4` (bank 12 `$8C59`) on its death, after the TAS's last input (inventory stops at 40894; `$B8` appears at TAS 40921, `docs/re/ACTORS.md` §8b.1 / port `kb8`) |
 
 **Conclusion.** There is **no orphan handler**: every one of the 100 types has a
 spawn write. The six off-TAS types are reached only through branches the TAS's
@@ -320,7 +320,7 @@ The port implements all 100 (`crates/rotj-core/src/actor/families.rs`; `k46`,
 
 **Reached by input alone.** All three off-TAS types appear in the oracle when
 the TAS's input is replaced by a released pad at the boss, with no RAM poke
-(the `matches_the_oracle` scenes of `k46`/`k90`/`k92`, `docs/ACTORS.md` §9d):
+(the `matches_the_oracle` scenes of `k46`/`k90`/`k92`, `docs/re/ACTORS.md` §9d):
 
 - `$90`/`$92`: in the `$8E`'s phase 3 (`$9B11`) `$7E90` is zeroed when the
   20-frame wind-up ends, then counts +1 a frame: the burst at `$50`, phase 1
@@ -360,7 +360,7 @@ only a player who does not kill the boss as fast as the TAS.
 
 **The bank-3 record pool holds 312 records over 63 types.** `$A000[area]`
 selects a per-area stage table, `[stage]` a record table, `[id*2]` a 12-byte
-record (`$D714`/`$D765`; `docs/ACTORS.md` §7b). The pool of record pointers spans
+record (`$D714`/`$D765`; `docs/re/ACTORS.md` §7b). The pool of record pointers spans
 `$AC88`-`$BB1C`.
 
 **96 of the 312 records are dead.** The id the spawner reads is `(schedule byte &
@@ -469,7 +469,7 @@ value written to the CHR shadow `$E0`-`$E7` and (b) every direct FME-7 CHR write
 (reconstructed from `$8000` selecting a command `0-7` and the `$A000` value it
 points). To that union `audit_chr.py` adds the ending's and the banner's bank
 lists (`$67EC`/`$6AAD`/`$6CEA`/`$7103`, `$76D7`, read from the payload) and the
-level map-loader bases (`$8B63`, 8 consecutive 1 KiB banks each, `docs/LEVELDATA.md`
+level map-loader bases (`$8B63`, 8 consecutive 1 KiB banks each, `docs/re/LEVELDATA.md`
 §13e). Result: **223 of 256 banks mapped, 33 never**.
 
 The 33 never-mapped 1 KiB banks, grouped by 8 KiB CHR bank (`KiB = bank*8 + k`):

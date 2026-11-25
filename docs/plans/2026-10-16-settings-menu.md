@@ -13,7 +13,7 @@ Bevy UI drawn with the game's own font, assembled from the player's CHR at start
 **Tech Stack:** Rust (workspace edition), Bevy 0.20 (`bevy_ui`, `bevy_audio`), serde + ron
 0.12 (already dependencies).
 
-**Spec:** `docs/specs/2026-10-16-settings-menu-design.md` (approved 2026-10-16).
+**Spec:** `docs/specs/archive/2026-10-16-settings-menu-design.md` (approved 2026-10-16).
 
 ## Global Constraints
 

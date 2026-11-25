@@ -1,7 +1,7 @@
 //! Type `$7E` (bank 0 `$9032`): the spinner of stage 8 (area 16:00), spawned by
 //! the `$80` handler (`$9297`) in slots 12-15.
 //!
-//! It calls only routines in `docs/ACTORS.md` §9c: `$A000` (`load`), `$A79B`
+//! It calls only routines in `docs/re/ACTORS.md` §9c: `$A000` (`load`), `$A79B`
 //! (`integrate`), `$A7DD` (`collision::feet`), `$AF7D` (`collision::below`),
 //! `$A852` (`on_screen`), `$C247` (`draw`, bank 9 as `$84CA` maps it), `$AEE3`
 //! (`touch`) and `$A934` (`store`). Its spawning phase also calls the bank-0 helper

@@ -2,8 +2,8 @@
 //! oracle from the committed `tests/data/stage1-inputs.csv` route.
 //!
 //! Evidence for the room's two actors and the player's motion addresses
-//! (`$00B0` x, `$00B1` y), recorded in `docs/SUBLEVELS.md` §7d and
-//! `docs/ACTORS.md` §10.
+//! (`$00B0` x, `$00B1` y), recorded in `docs/re/SUBLEVELS.md` §7d and
+//! `docs/re/ACTORS.md` §10.
 
 use std::path::PathBuf;
 
@@ -76,7 +76,7 @@ fn red_brick_room_actors() {
 /// The player's x is `$00B0` and y `$00B1`: holding Right walks him from the
 /// room's left wall (x 20) to its right wall (x 214); a held A jumps him
 /// (state `$046E` reaches 3 and y falls from 176 to ~122). So he is *not*
-/// frozen in the room (`docs/SUBLEVELS.md` §7d corrects the earlier lead).
+/// frozen in the room (`docs/re/SUBLEVELS.md` §7d corrects the earlier lead).
 #[test]
 fn red_brick_room_is_walkable_and_jumpable() {
     let Some(mut m) = in_room() else {

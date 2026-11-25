@@ -30,7 +30,7 @@ pub const STAGE_1_1_SONG: u8 = AREA_SONGS[0];
 /// Proved for area 0: the emulator trace requests `$0041=$04` at frame 609 of
 /// stage 1-1 (`tools/emu/music-frame802/ram-writes.csv`, PC `$D97F`) with
 /// `$0400=$00`; the table read is byte-for-byte the ROM. The other entries are
-/// the ROM table, not yet traced (`docs/MUSIC.md`).
+/// the ROM table, not yet traced (`docs/re/MUSIC.md`).
 pub const AREA_SONGS: [u8; 18] = [
     0x04, 0x04, 0xFF, 0x0B, 0x07, 0x09, 0x09, 0xFF, 0x05, 0x05, 0xFF, 0x0B, 0x07, 0x04, 0x04, 0xFF,
     0x0C, 0xFF,
@@ -47,7 +47,7 @@ pub fn song_for_area(area: u8) -> Option<u8> {
 }
 
 /// The jump sound effect (request id `$24`). Played through request slot
-/// `$0042`; a finite noise sweep on voice 3, not a song (`docs/MUSIC.md`).
+/// `$0042`; a finite noise sweep on voice 3, not a song (`docs/re/MUSIC.md`).
 pub const JUMP_SFX: u8 = 0x24;
 
 #[cfg(test)]

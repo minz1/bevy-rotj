@@ -253,7 +253,7 @@ Per-stage assignment **not proven** — needs the stage table (see §9).
   All records address the fixed bank 15 (`$E000-$FFFF`): nine distinct
   (address,length) samples at bank-15 offsets `$0500`(1009), `$0900`(1009),
   `$0D00`(1009), `$1100`(993), `$1500`(993), `$1900`(497/1265), `$1B00`(497/113).
-  Extracted by `rotj dmc` to `assets/audio/dmc/` (see `docs/RE-NOTES.md`).
+  Extracted by `rotj dmc` to `assets/audio/dmc/` (see `docs/re/RE-NOTES.md`).
 
 ## 9. Uncertainties / not established
 
@@ -313,7 +313,7 @@ Pages:
 | `$7000-$72FF` | nametable/tile staging buffers |
 | `$7B00-$7EFF` | object/actor arrays |
 
-GameHacking leads from `docs/RE-NOTES.md` (`$009E`, `$00AA`, `$00C3`, `$00F1`,
+GameHacking leads from `docs/re/RE-NOTES.md` (`$009E`, `$00AA`, `$00C3`, `$00F1`,
 `$0466`, `$046F`, `$0477`, `$047D`, `$0482`, `$04F2/$04F3`, `$06D3-$06D8`,
 `$7DD0-$7DD2`) were **not** individually verified here. **(lead, unverified)**
 
@@ -359,7 +359,7 @@ Tables followed (anchor address, resolved handler-entry count); banks 0, 8, 11,
 
 Two of the bank-15 anchors are the known split handlers of `MAP.md` §3 (`$E076`,
 `$E0EA`); `$E163`/`$E1A1` are the same shape and new. Bank 13 `$ABA8` decodes
-`$AB5A` (four states) and `$AB69`, matching `docs/ACTORS.md` §7c; bank 0 `$8C74`,
+`$AB5A` (four states) and `$AB69`, matching `docs/re/ACTORS.md` §7c; bank 0 `$8C74`,
 bank 8 `$8A68` and bank 12 `$81C0` are the per-type tables named there. Banks
 02/04/05 also contain tables. They kept the linear-sweep fallback because a
 table alone does not say which bank runs where, so their anchors were
@@ -377,7 +377,7 @@ observed execution collapsed coverage (3274 → 566 in bank 0)"; that was an
 artefact of two bugs in the harvest, both fixed:
 
 - the FME-7 window map was read backwards (`$8→$8000 …`), so every PC was
-  attributed to the wrong bank. The corrected map (`docs/ACTORS.md` §0) is
+  attributed to the wrong bank. The corrected map (`docs/re/ACTORS.md` §0) is
   `$8→$6000`, `$9→$8000`, `$A→$A000`, `$B→$C000`, with cmd `$8` bit 7 = WRAM.
 - the PC was attributed from the frame's *final* window state, but the game
   re-maps windows several times per frame (e.g. bank 10 runs at `$8000` for one

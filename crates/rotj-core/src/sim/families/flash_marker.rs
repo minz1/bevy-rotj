@@ -7,7 +7,7 @@
 //! falling, and the `$7E` handler when spawning. The `$78` handler also calls it but
 //! never spawns in the TAS, so it is not a `$7A` parent there.
 //!
-//! It calls only routines already in `docs/ACTORS.md` §9c: `$A000` (`load`),
+//! It calls only routines already in `docs/re/ACTORS.md` §9c: `$A000` (`load`),
 //! `$A852` (`on_screen`), `$AC06` (`tile_bits`), `$C247` (`draw`) and `$A934`
 //! (`store`). `$84CA` maps bank 9 at `$A000` around the draw (the port passes
 //! bank 9 to `engine::draw`). No `$A79B` integrate, no `$A9C4` contact: it never

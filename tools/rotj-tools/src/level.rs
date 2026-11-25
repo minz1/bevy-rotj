@@ -55,7 +55,7 @@ pub fn extract(rom_path: &Path, id: SublevelId, out: &Path, dump: Option<&Path>)
     );
     summary.push_str(
         "note: the streamed background (metatile map -> nametable) is not decoded;\n\
-         see docs/LEVELDATA.md for what is proven and what remains unknown.\n",
+         see docs/re/LEVELDATA.md for what is proven and what remains unknown.\n",
     );
     std::fs::write(out.join("level.txt"), &summary)
         .wrap_err_with(|| format!("writing {}", out.join("level.txt").display()))?;
@@ -89,7 +89,7 @@ fn verify(level: &LevelData, out: &Path, dump: &Path) -> Result<()> {
     } else {
         println!(
             "   RESULT: NO MATCH — the ROM's level lists only patch {} of {} nametable \
-             bytes; the rest is generated at run time (see docs/LEVELDATA.md).",
+             bytes; the rest is generated at run time (see docs/re/LEVELDATA.md).",
             patch_total,
             nametables.len()
         );

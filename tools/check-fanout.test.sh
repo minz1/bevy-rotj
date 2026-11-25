@@ -11,7 +11,7 @@ fresh() {
     git -C "$dir" init -q
     mkdir -p "$dir/crates/rotj-core/src/actor/families" "$dir/docs"
     for f in crates/rotj-core/src/actor/engine.rs crates/rotj-core/src/actor/families.rs \
-        crates/rotj-core/src/actor/families/hover_diver.rs docs/ACTORS.md; do
+        crates/rotj-core/src/actor/families/hover_diver.rs docs/re/ACTORS.md; do
         echo "// $f" >"$dir/$f"
     done
     git -C "$dir" add -A
@@ -30,7 +30,7 @@ expect() {
     echo "ok $name"
 }
 
-d=$(fresh); echo "pub struct State;" >"$d/$family"; echo "// arm" >>"$d/crates/rotj-core/src/actor/families.rs"; echo row >>"$d/docs/ACTORS.md"
+d=$(fresh); echo "pub struct State;" >"$d/$family"; echo "// arm" >>"$d/crates/rotj-core/src/actor/families.rs"; echo row >>"$d/docs/re/ACTORS.md"
 expect 0 "family file, arms and docs" "$d"
 
 d=$(fresh); echo "// edit" >>"$d/crates/rotj-core/src/actor/engine.rs"
@@ -39,7 +39,7 @@ expect 1 "uncommitted core edit" "$d"
 d=$(fresh); git -C "$d" mv crates/rotj-core/src/actor/engine.rs crates/rotj-core/src/actor/families/moved_engine.rs
 expect 1 "rename of a core file" "$d"
 
-d=$(fresh); git -C "$d" rm -q docs/ACTORS.md
+d=$(fresh); git -C "$d" rm -q docs/re/ACTORS.md
 expect 1 "deletion" "$d"
 
 d=$(fresh); echo "// edit" >>"$d/crates/rotj-core/src/actor/families/hover_diver.rs"

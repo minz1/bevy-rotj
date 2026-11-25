@@ -1,7 +1,7 @@
 //! ROM decoders for level maps, auto-tiler tables, attribute maps, and collision classes.
 //!
 //! Everything here was verified against fceux's stage 1-1 captures and the emulator dumps,
-//! which the tests reproduce with the oracle and pin by digest (`docs/LEVELDATA.md`).
+//! which the tests reproduce with the oracle and pin by digest (`docs/re/LEVELDATA.md`).
 
 use super::{
     ATTRIBUTE_BYTES, ATTRIBUTE_PAGES, CLASS_COUNT, MAP_COLUMNS, Map, NAMETABLE_COLUMNS,

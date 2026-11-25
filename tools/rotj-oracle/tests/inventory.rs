@@ -110,7 +110,7 @@ fn dispatch_table_pins_the_per_type_handlers() {
 
 /// Level 0 (stage 1-1) spawns exactly these types under the walk script; their
 /// handlers are the dispatch table's. The first three (frame 607) match the
-/// captured opening screen (`docs/ACTORS.md` §7d/§7f).
+/// captured opening screen (`docs/re/ACTORS.md` §7d/§7f).
 #[test]
 fn level_0_spawns_the_expected_types() {
     if load_rom().is_none() {
