@@ -1,0 +1,13 @@
+(
+    volume: 100,
+    overscan: Hidden,
+    palette: CompositeDirect,
+    sprite_limit: true,
+    vsync: true,
+    ui: Classic,
+    picture: Classic,
+    frame_rate: Classic,
+    crt: Off,
+    sfx_voices: Classic,
+    intro_blend: false,
+)

@@ -1,5 +1,7 @@
-//! The settings menu: Bevy UI over the frozen game, in the game's own font (the 8x16
-//! letters of CHR banks `$CC-$CF`, which the sound test and the pause load).
+//! The settings menu: categorized Bevy UI over the frozen game, in the game's own font
+//! (the 8x16 letters of CHR banks `$CC-$CF`, which the sound test and the pause load).
+
+use std::time::Duration;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -12,57 +14,110 @@ use crate::input::NesInput;
 use crate::pacing::Step;
 use crate::play::Play;
 use crate::screen::{Colours, PaletteStatus, pixels, visible};
-use crate::settings::{Overscan, PaletteChoice, Picture, Settings, SettingsDir, UiStyle, save};
+use crate::settings::{
+    CrtFilter, FrameRate, Overscan, PaletteChoice, Picture, Settings, SettingsDir, SfxVoices,
+    UiStyle, save,
+};
 
-/// One line of the settings menu, in order.
+/// Which screen of the settings menu is active.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum Row {
+enum Page {
     #[default]
-    Volume,
-    Overscan,
+    Root,
+    Display,
+    Graphics,
+    Audio,
+    LoadPack,
+}
+
+impl Page {
+    #[cfg(test)]
+    const ALL: [Self; 5] = [
+        Self::Root,
+        Self::Display,
+        Self::Graphics,
+        Self::Audio,
+        Self::LoadPack,
+    ];
+
+    const fn title(self) -> &'static str {
+        match self {
+            Self::Root => "SETTINGS",
+            Self::Display => "DISPLAY",
+            Self::Graphics => "GRAPHICS",
+            Self::Audio => "AUDIO",
+            Self::LoadPack => "LOAD PACK",
+        }
+    }
+
+    const fn rows(self) -> &'static [Row] {
+        match self {
+            Self::Root => &[
+                Row::Open(Self::Display),
+                Row::Open(Self::Graphics),
+                Row::Open(Self::Audio),
+                Row::Open(Self::LoadPack),
+                Row::Back,
+            ],
+            Self::Display => &[
+                Row::Palette,
+                Row::Overscan,
+                Row::Crt,
+                Row::Vsync,
+                Row::FrameRate,
+                Row::Back,
+            ],
+            Self::Graphics => &[
+                Row::Picture,
+                Row::Ui,
+                Row::SpriteLimit,
+                Row::IntroBlend,
+                Row::Back,
+            ],
+            Self::Audio => &[Row::Volume, Row::SfxVoices, Row::Back],
+            Self::LoadPack => &[Row::OriginalPack, Row::Back],
+        }
+    }
+}
+
+/// One selectable line inside a menu [`Page`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Row {
+    Open(Page),
     Palette,
-    SpriteLimit,
+    Overscan,
+    Crt,
     Vsync,
-    Ui,
+    FrameRate,
     Picture,
+    Ui,
+    SpriteLimit,
+    IntroBlend,
+    Volume,
+    SfxVoices,
+    OriginalPack,
     Back,
 }
 
 impl Row {
-    /// The rows, in the order the menu shows them.
-    const ALL: [Self; 8] = [
-        Self::Volume,
-        Self::Overscan,
-        Self::Palette,
-        Self::SpriteLimit,
-        Self::Vsync,
-        Self::Ui,
-        Self::Picture,
-        Self::Back,
-    ];
-
-    /// The row's label.
-    fn label(self) -> &'static str {
+    /// The row's left-column label.
+    const fn label(self) -> &'static str {
         match self {
-            Self::Volume => "VOLUME",
-            Self::Overscan => "OVERSCAN",
+            Self::Open(page) => page.title(),
             Self::Palette => "PALETTE",
-            Self::SpriteLimit => "SPRITE LIMIT",
+            Self::Overscan => "OVERSCAN",
+            Self::Crt => "CRT",
             Self::Vsync => "VSYNC",
-            Self::Ui => "UI",
+            Self::FrameRate => "FRAME RATE",
             Self::Picture => "PICTURE",
+            Self::Ui => "UI",
+            Self::SpriteLimit => "SPRITE LIMIT",
+            Self::IntroBlend => "INTRO BLEND",
+            Self::Volume => "VOLUME",
+            Self::SfxVoices => "SFX VOICES",
+            Self::OriginalPack => "ORIGINAL",
             Self::Back => "BACK",
         }
-    }
-
-    /// The row after this one, wrapping past the last.
-    fn next(self) -> Self {
-        Self::ALL[(self as usize + 1) % Self::ALL.len()]
-    }
-
-    /// The row before this one, wrapping past the first.
-    fn previous(self) -> Self {
-        Self::ALL[(self as usize + Self::ALL.len() - 1) % Self::ALL.len()]
     }
 
     /// The text the row shows for its setting.
@@ -83,6 +138,17 @@ impl Row {
                 PaletteChoice::File => "FILE",
             }
             .into(),
+            Self::Crt => match settings.crt {
+                CrtFilter::Off => "OFF",
+                CrtFilter::Scanlines => "SCANLINES",
+                CrtFilter::Crt => "CRT",
+            }
+            .into(),
+            Self::FrameRate => match settings.frame_rate {
+                FrameRate::Classic => "60".into(),
+                FrameRate::Fps(fps) => fps.to_string(),
+                FrameRate::Display => "DISPLAY".into(),
+            },
             Self::SpriteLimit => on(settings.sprite_limit).into(),
             Self::Vsync => on(settings.vsync).into(),
             Self::Ui => match settings.ui {
@@ -95,12 +161,17 @@ impl Row {
                 Picture::Modern => "MODERN",
             }
             .into(),
-            Self::Back => String::new(),
+            Self::IntroBlend => on(settings.intro_blend).into(),
+            Self::SfxVoices => match settings.sfx_voices {
+                SfxVoices::Classic => "CLASSIC",
+                SfxVoices::Unlimited => "UNLIMITED",
+            }
+            .into(),
+            Self::Open(_) | Self::OriginalPack | Self::Back => String::new(),
         }
     }
 
-    /// Changes the row's setting one step left (`-1`) or right (`1`): volume by 5 within
-    /// 0-100, the others cycling.
+    /// Changes the row's setting one step left (`-1`) or right (`1`).
     fn step(self, settings: &mut Settings, step: i8) {
         match self {
             Self::Volume => {
@@ -134,6 +205,18 @@ impl Row {
                 };
                 settings.palette = ORDER[next % ORDER.len()];
             }
+            Self::Crt => {
+                const ORDER: [CrtFilter; 3] =
+                    [CrtFilter::Off, CrtFilter::Scanlines, CrtFilter::Crt];
+                let at = ORDER.iter().position(|&c| c == settings.crt).unwrap_or(0);
+                let next = if step < 0 {
+                    at + ORDER.len() - 1
+                } else {
+                    at + 1
+                };
+                settings.crt = ORDER[next % ORDER.len()];
+            }
+            Self::FrameRate => settings.frame_rate = settings.frame_rate.step(step),
             Self::SpriteLimit => settings.sprite_limit = !settings.sprite_limit,
             Self::Vsync => settings.vsync = !settings.vsync,
             Self::Ui => {
@@ -148,14 +231,21 @@ impl Row {
                     Picture::Modern => Picture::Classic,
                 };
             }
-            Self::Back => {}
+            Self::IntroBlend => settings.intro_blend = !settings.intro_blend,
+            Self::SfxVoices => {
+                settings.sfx_voices = match settings.sfx_voices {
+                    SfxVoices::Classic => SfxVoices::Unlimited,
+                    SfxVoices::Unlimited => SfxVoices::Classic,
+                };
+            }
+            Self::Open(_) | Self::OriginalPack | Self::Back => {}
         }
     }
 }
 
 /// The name of the chosen palette when it is a third party's, which its author asks a
 /// selectable palette to show.
-fn credit(palette: PaletteChoice) -> &'static str {
+const fn credit(palette: PaletteChoice) -> &'static str {
     match palette {
         PaletteChoice::CompositeDirect => "COMPOSITE DIRECT FBX",
         PaletteChoice::RgbPpu | PaletteChoice::Ntsc | PaletteChoice::File => "",
@@ -174,6 +264,12 @@ const HINT_ROW: usize = 200;
 const HINT: &str = "SELECT  SETTINGS";
 /// Footer notice shown when saving `settings.ron` failed.
 const SAVE_FAILED: &str = "SAVE FAILED";
+/// Footer notice on `DISPLAY` when high refresh is chosen with Classic picture.
+const NEEDS_MODERN: &str = "NEEDS MODERN PICTURE";
+/// Initial hold duration before directional repeat kicks in.
+const REPEAT_DELAY: Duration = Duration::from_millis(330);
+/// Interval between repeated steps while a direction stays held.
+const REPEAT_INTERVAL: Duration = Duration::from_millis(65);
 const _: () = assert!(
     HINT_ROW + 16 <= 8 + 224,
     "the hint shows with overscan hidden"
@@ -181,12 +277,57 @@ const _: () = assert!(
 /// The atlas cell of a blank glyph, after the 64 pairs.
 const BLANK: usize = 64;
 
-/// Whether the settings menu is closed or open on a specific row.
+/// Directional buttons eligible for held-key auto-repeat.
+const DIRECTIONS: Buttons = Buttons::from_bits(
+    Buttons::UP.bits() | Buttons::DOWN.bits() | Buttons::LEFT.bits() | Buttons::RIGHT.bits(),
+);
+
+/// Held-direction auto-repeat timer so sweeping `VOLUME` or `FRAME RATE` feels responsive.
+#[derive(Debug, Default, Clone, Copy)]
+struct RepeatState {
+    held: Buttons,
+    remaining: Duration,
+}
+
+impl RepeatState {
+    fn reset(&mut self) {
+        self.held = Buttons::NONE;
+        self.remaining = Duration::ZERO;
+    }
+
+    /// Returns directional pulses to act on this frame: immediate edge presses plus
+    /// periodic repeats while held.
+    fn poll(&mut self, held: Buttons, pressed: Buttons, dt: Duration) -> Buttons {
+        let dir_held = held & DIRECTIONS;
+        let dir_pressed = pressed & DIRECTIONS;
+        if dir_held == Buttons::NONE {
+            self.reset();
+            return dir_pressed;
+        }
+        if dir_pressed != Buttons::NONE || dir_held != self.held {
+            self.held = dir_held;
+            self.remaining = REPEAT_DELAY;
+            return dir_pressed;
+        }
+        if dt >= self.remaining {
+            self.remaining = REPEAT_INTERVAL;
+            return dir_held;
+        }
+        self.remaining = self.remaining.saturating_sub(dt);
+        Buttons::NONE
+    }
+}
+
+/// Whether the settings menu is closed or open on a specific page and cursor index.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum MenuState {
     #[default]
     Closed,
-    Open(Row),
+    Open {
+        page: Page,
+        cursor: usize,
+        root_cursor: usize,
+    },
 }
 
 /// Which overlay is currently shown on top of the game picture.
@@ -203,13 +344,14 @@ enum OverlayView {
 pub(crate) struct Menu {
     state: MenuState,
     save_failed: bool,
+    repeat: RepeatState,
 }
 
 impl Menu {
     /// True while the settings menu is open and the game is frozen beneath it.
     #[must_use]
     pub const fn is_open(&self) -> bool {
-        matches!(self.state, MenuState::Open(_))
+        matches!(self.state, MenuState::Open { .. })
     }
 }
 
@@ -270,59 +412,124 @@ fn with_alpha([r, g, b]: [u8; 3]) -> [u8; 4] {
     [r, g, b, 0xFF]
 }
 
+fn close_and_save(
+    menu: &mut Menu,
+    input: &mut NesInput,
+    settings: &Settings,
+    dir: Option<&std::path::Path>,
+) {
+    menu.state = MenuState::Closed;
+    menu.repeat.reset();
+    input.hide_held();
+    if let Some(dir) = dir
+        && let Err(error) = save(dir, settings)
+        && !menu.save_failed
+    {
+        warn!("settings not saved to {}: {error}", dir.display());
+        menu.save_failed = true;
+    }
+}
+
+/// Inputs read while steering the settings menu.
+#[derive(SystemParam)]
+pub(crate) struct SteerInput<'w, 's> {
+    keys: Res<'w, ButtonInput<KeyCode>>,
+    gamepads: Query<'w, 's, &'static Gamepad>,
+    time: Res<'w, Time>,
+    nes: ResMut<'w, NesInput>,
+}
+
 /// Opens and drives the menu: Esc, F1, a pad's Guide or right stick anywhere, Select on
-/// the game's pause; the same, B, or A or Start on BACK close it.
+/// the game's pause; B steps back one level (closing from the root), Esc/F1 closes from any page.
 #[expect(
     clippy::needless_pass_by_value,
     reason = "Bevy system params, rust-clippy#8940"
 )]
 pub(crate) fn steer(
-    keys: Res<'_, ButtonInput<KeyCode>>,
-    gamepads: Query<'_, '_, &Gamepad>,
-    mut input: ResMut<'_, NesInput>,
+    mut inputs: SteerInput<'_, '_>,
     play: Res<'_, Play>,
     mut menu: ResMut<'_, Menu>,
     mut settings: ResMut<'_, Settings>,
     dir: Res<'_, SettingsDir>,
 ) {
-    let toggle = keys.any_just_pressed([KeyCode::Escape, KeyCode::F1])
-        || gamepads.iter().any(|pad| {
+    let toggle = inputs.keys.any_just_pressed([KeyCode::Escape, KeyCode::F1])
+        || inputs.gamepads.iter().any(|pad| {
             pad.just_pressed(GamepadButton::Mode) || pad.just_pressed(GamepadButton::RightThumb)
         });
-    let pressed = input.pressed;
-    let MenuState::Open(row) = &mut menu.state else {
+    let pressed = inputs.nes.pressed;
+    let MenuState::Open {
+        page,
+        cursor,
+        root_cursor,
+    } = menu.state
+    else {
         if toggle || play.paused() && pressed.contains(Buttons::SELECT) {
-            menu.state = MenuState::Open(Row::Volume);
+            menu.state = MenuState::Open {
+                page: Page::Root,
+                cursor: 0,
+                root_cursor: 0,
+            };
+            menu.repeat.reset();
         }
         return;
     };
-    let back = *row == Row::Back;
-    if toggle
-        || pressed.contains(Buttons::B)
-        || back && pressed.intersects(Buttons::A | Buttons::START)
-    {
-        menu.state = MenuState::Closed;
-        input.hide_held();
-        if let Some(dir) = &dir.0
-            && let Err(error) = save(dir, &settings)
-            && !menu.save_failed
-        {
-            warn!("settings not saved to {}: {error}", dir.display());
-            menu.save_failed = true;
+    if toggle {
+        close_and_save(&mut menu, &mut inputs.nes, &settings, dir.0.as_deref());
+        return;
+    }
+    let rows = page.rows();
+    let row = rows[cursor.min(rows.len() - 1)];
+    let confirm = pressed.intersects(Buttons::A | Buttons::START);
+    if pressed.contains(Buttons::B) || (confirm && row == Row::Back) {
+        if page == Page::Root {
+            close_and_save(&mut menu, &mut inputs.nes, &settings, dir.0.as_deref());
+        } else {
+            menu.state = MenuState::Open {
+                page: Page::Root,
+                cursor: root_cursor,
+                root_cursor,
+            };
+            menu.repeat.reset();
         }
         return;
     }
-    if pressed.contains(Buttons::UP) {
-        *row = row.previous();
+    if confirm && let Row::Open(target) = row {
+        menu.state = MenuState::Open {
+            page: target,
+            cursor: 0,
+            root_cursor: cursor,
+        };
+        menu.repeat.reset();
+        return;
     }
-    if pressed.contains(Buttons::DOWN) {
-        *row = row.next();
+
+    let dirs = menu
+        .repeat
+        .poll(inputs.nes.buttons, pressed, inputs.time.delta());
+    let mut next_cursor = cursor;
+    if dirs.contains(Buttons::UP) {
+        next_cursor = (next_cursor + rows.len() - 1) % rows.len();
     }
-    if pressed.contains(Buttons::LEFT) {
-        row.step(&mut settings, -1);
+    if dirs.contains(Buttons::DOWN) {
+        next_cursor = (next_cursor + 1) % rows.len();
     }
-    if pressed.contains(Buttons::RIGHT) {
-        row.step(&mut settings, 1);
+    if next_cursor != cursor {
+        menu.state = MenuState::Open {
+            page,
+            cursor: next_cursor,
+            root_cursor: if page == Page::Root {
+                next_cursor
+            } else {
+                root_cursor
+            },
+        };
+    }
+    let active_row = rows[next_cursor];
+    if dirs.contains(Buttons::LEFT) {
+        active_row.step(&mut settings, -1);
+    }
+    if dirs.contains(Buttons::RIGHT) {
+        active_row.step(&mut settings, 1);
     }
 }
 
@@ -404,9 +611,33 @@ fn line(font: &Font, text: &str, tint: Color) -> impl Bundle {
     )
 }
 
-/// The menu's box: the title, then each row with its value, the cursor's row white, then
-/// the palette's credit.
-fn menu_box(picture: &mut ChildSpawnerCommands<'_>, font: &Font, shown: &Shown<'_>, selected: Row) {
+/// Footer lines shown below `page`'s rows.
+fn footer_lines(page: Page, settings: &Settings, save_failed: bool) -> Vec<&'static str> {
+    let mut lines = Vec::new();
+    if page == Page::Display {
+        let palette_credit = credit(settings.palette);
+        if !palette_credit.is_empty() {
+            lines.push(palette_credit);
+        }
+        if !settings.frame_rate.is_classic() && settings.picture == Picture::Classic {
+            lines.push(NEEDS_MODERN);
+        }
+    }
+    if save_failed {
+        lines.push(SAVE_FAILED);
+    }
+    lines
+}
+
+/// The menu's box: the page title, its rows (the cursor's row white), and any footer notices.
+fn menu_box(
+    picture: &mut ChildSpawnerCommands<'_>,
+    font: &Font,
+    shown: &Shown<'_>,
+    page: Page,
+    selected: usize,
+) {
+    let grey = shown.colour(rotj_core::palette::GREY);
     picture
         .spawn((
             Node {
@@ -421,16 +652,16 @@ fn menu_box(picture: &mut ChildSpawnerCommands<'_>, font: &Font, shown: &Shown<'
         .with_children(|menu_box| {
             menu_box.spawn(line(
                 font,
-                &format!("{:^COLUMNS$}", "SETTINGS"),
+                &format!("{:^COLUMNS$}", page.title()),
                 Color::WHITE,
             ));
             menu_box.spawn(line(font, "", Color::WHITE));
-            for row in Row::ALL {
+            for (index, &row) in page.rows().iter().enumerate() {
                 let value = row.value(&shown.settings, &shown.colours);
-                let tint = if row == selected {
+                let tint = if index == selected {
                     Color::WHITE
                 } else {
-                    shown.colour(rotj_core::palette::GREY)
+                    grey
                 };
                 menu_box.spawn(line(
                     font,
@@ -438,18 +669,12 @@ fn menu_box(picture: &mut ChildSpawnerCommands<'_>, font: &Font, shown: &Shown<'
                     tint,
                 ));
             }
-            menu_box.spawn(line(font, "", Color::WHITE));
-            menu_box.spawn(line(
-                font,
-                &format!("{:^COLUMNS$}", credit(shown.settings.palette)),
-                shown.colour(rotj_core::palette::GREY),
-            ));
-            if shown.menu.save_failed {
-                menu_box.spawn(line(
-                    font,
-                    &format!("{SAVE_FAILED:^COLUMNS$}"),
-                    shown.colour(rotj_core::palette::GREY),
-                ));
+            let footers = footer_lines(page, &shown.settings, shown.menu.save_failed);
+            if !footers.is_empty() {
+                menu_box.spawn(line(font, "", Color::WHITE));
+                for notice in footers {
+                    menu_box.spawn(line(font, &format!("{notice:^COLUMNS$}"), grey));
+                }
             }
         });
 }
@@ -471,7 +696,7 @@ fn draw(
         return;
     };
     let view = match shown.menu.state {
-        MenuState::Open(_) => OverlayView::Menu,
+        MenuState::Open { .. } => OverlayView::Menu,
         MenuState::Closed if shown.play.paused() => OverlayView::PauseHint,
         MenuState::Closed => OverlayView::None,
     };
@@ -520,8 +745,8 @@ fn draw(
                         children![line(&font, HINT, Color::WHITE)],
                     ));
                 }
-                MenuState::Open(row) => {
-                    menu_box(picture, &font, &shown, row);
+                MenuState::Open { page, cursor, .. } => {
+                    menu_box(picture, &font, &shown, page, cursor);
                 }
             });
         });
@@ -590,26 +815,47 @@ mod tests {
         PaletteChoice::File,
     ];
 
+    const CRTS: [CrtFilter; 3] = [CrtFilter::Off, CrtFilter::Scanlines, CrtFilter::Crt];
+
+    const RATES: [FrameRate; 3] = [FrameRate::Classic, FrameRate::Fps(170), FrameRate::Display];
+
     #[test]
     fn every_menu_character_has_a_glyph() {
-        let settings = Settings::default();
-        let mut texts: Vec<String> = Row::ALL.iter().map(|row| row.label().to_string()).collect();
-        texts.extend(["SETTINGS".into(), HINT.into(), SAVE_FAILED.into()]);
+        let mut texts: Vec<String> = Page::ALL
+            .into_iter()
+            .flat_map(|page| {
+                std::iter::once(page.title().to_string())
+                    .chain(page.rows().iter().map(|row| row.label().to_string()))
+            })
+            .collect();
+        texts.extend([HINT.into(), SAVE_FAILED.into(), NEEDS_MODERN.into()]);
         texts.extend(PALETTES.map(|palette| credit(palette).into()));
         for palette in PALETTES {
             for status in [PaletteStatus::Loaded, PaletteStatus::FileMissing] {
-                let settings = Settings {
-                    palette,
-                    sprite_limit: false,
-                    ui: UiStyle::Faithful,
-                    picture: Picture::Modern,
-                    ..settings.clone()
-                };
-                let colours = Colours {
-                    status,
-                    ..Colours::default()
-                };
-                texts.extend(Row::ALL.iter().map(|row| row.value(&settings, &colours)));
+                for crt in CRTS {
+                    for frame_rate in RATES {
+                        let settings = Settings {
+                            palette,
+                            crt,
+                            frame_rate,
+                            sprite_limit: false,
+                            ui: UiStyle::Faithful,
+                            picture: Picture::Modern,
+                            sfx_voices: SfxVoices::Unlimited,
+                            intro_blend: true,
+                            ..Settings::default()
+                        };
+                        let colours = Colours {
+                            status,
+                            ..Colours::default()
+                        };
+                        for page in Page::ALL {
+                            texts.extend(
+                                page.rows().iter().map(|row| row.value(&settings, &colours)),
+                            );
+                        }
+                    }
+                }
             }
         }
         for text in &texts {
@@ -618,75 +864,103 @@ mod tests {
     }
 
     #[test]
-    fn each_row_shows_its_setting_and_steps_alone() {
-        const LINES: [(&str, &str); 8] = [
-            ("VOLUME", "100"),
-            ("OVERSCAN", "HIDE"),
-            ("PALETTE", "COMPOSITE"),
-            ("SPRITE LIMIT", "ON"),
-            ("VSYNC", "ON"),
-            ("UI", "CLASSIC"),
-            ("PICTURE", "CLASSIC"),
-            ("BACK", ""),
-        ];
-        let settings = Settings::default();
+    fn each_setting_row_steps_alone() {
         let colours = Colours::default();
-        let shown: Vec<(&str, String)> = Row::ALL
-            .iter()
-            .map(|row| (row.label(), row.value(&settings, &colours)))
-            .collect();
-        let expected: Vec<(&str, String)> = LINES
-            .iter()
-            .map(|&(label, value)| (label, value.to_owned()))
-            .collect();
-        assert_eq!(shown, expected);
-
         let base = Settings {
             volume: 95,
             ..Settings::default()
         };
-        for row in Row::ALL {
+        let setting_rows: Vec<Row> = Page::ALL
+            .into_iter()
+            .flat_map(|page| page.rows().iter().copied())
+            .filter(|row| !matches!(row, Row::Open(_) | Row::OriginalPack | Row::Back))
+            .collect();
+        for &row in &setting_rows {
             let mut stepped = base.clone();
             row.step(&mut stepped, 1);
-            let changed: Vec<&str> = Row::ALL
+            let changed: Vec<&str> = setting_rows
                 .iter()
                 .filter(|&&other| other.value(&base, &colours) != other.value(&stepped, &colours))
-                .map(|row| row.label())
+                .map(|r| r.label())
                 .collect();
-            if row == Row::Back {
-                assert!(changed.is_empty(), "BACK changed {changed:?}");
-            } else {
-                assert_eq!(changed, [row.label()]);
-            }
+            assert_eq!(changed, [row.label()], "{row:?}");
         }
     }
 
     #[test]
-    fn the_cursor_wraps_at_both_ends() {
-        assert_eq!(Row::Volume.previous(), Row::Back);
-        assert_eq!(Row::Back.next(), Row::Volume);
-    }
-
-    #[test]
-    fn the_box_fits_the_smallest_view() {
+    fn every_page_box_fits_the_smallest_view() {
         let width = pixels(COLUMNS * 8) + 2.0 * (PAD + BORDER);
-        let height = pixels((Row::ALL.len() + 4) * 16) + 2.0 * (PAD + BORDER);
-        assert!(width <= 256.0 && height <= 224.0, "{width}x{height}");
-        let longest = Row::ALL
-            .iter()
-            .map(|row| VALUE_COLUMN.max(row.label().len()) + "COMPOSITE".len())
-            .max();
-        assert!(longest <= Some(COLUMNS));
+        assert!(width <= 256.0, "width {width}");
+        let worst_settings = Settings {
+            palette: PaletteChoice::CompositeDirect,
+            frame_rate: FrameRate::Display,
+            picture: Picture::Classic,
+            ..Settings::default()
+        };
+        for page in Page::ALL {
+            let footers = footer_lines(page, &worst_settings, true);
+            let footer_rows = if footers.is_empty() {
+                0
+            } else {
+                1 + footers.len()
+            };
+            let total_rows = 2 + page.rows().len() + footer_rows;
+            let height = pixels(total_rows * 16) + 2.0 * (PAD + BORDER);
+            assert!(height <= 224.0, "{page:?}: {width}x{height}");
+            for &row in page.rows() {
+                assert!(row.label().len() <= VALUE_COLUMN, "{row:?}");
+            }
+        }
         assert!(PALETTES.iter().all(|&p| credit(p).len() <= COLUMNS));
+        assert!(NEEDS_MODERN.len() <= COLUMNS);
     }
 
     #[test]
-    fn only_composite_direct_is_credited() {
+    fn only_composite_direct_is_credited_and_shown_on_display() {
         let credited: Vec<_> = PALETTES
             .into_iter()
             .filter(|&p| !credit(p).is_empty())
             .collect();
         assert_eq!(credited, [PaletteChoice::CompositeDirect]);
+        let defaults = Settings::default();
+        assert_eq!(
+            footer_lines(Page::Display, &defaults, false),
+            ["COMPOSITE DIRECT FBX"]
+        );
+        let high_classic = Settings {
+            frame_rate: FrameRate::Display,
+            picture: Picture::Classic,
+            ..defaults
+        };
+        assert_eq!(
+            footer_lines(Page::Display, &high_classic, false),
+            ["COMPOSITE DIRECT FBX", NEEDS_MODERN]
+        );
+    }
+
+    #[test]
+    fn repeat_fires_on_edge_then_waits_delay_and_repeats() {
+        let mut repeat = RepeatState::default();
+        assert_eq!(
+            repeat.poll(Buttons::RIGHT, Buttons::RIGHT, Duration::from_millis(16)),
+            Buttons::RIGHT
+        );
+        assert_eq!(
+            repeat.poll(Buttons::RIGHT, Buttons::NONE, Duration::from_millis(100)),
+            Buttons::NONE
+        );
+        assert_eq!(
+            repeat.poll(Buttons::RIGHT, Buttons::NONE, REPEAT_DELAY),
+            Buttons::RIGHT
+        );
+        assert_eq!(
+            repeat.poll(Buttons::RIGHT, Buttons::NONE, REPEAT_INTERVAL),
+            Buttons::RIGHT
+        );
+        assert_eq!(
+            repeat.poll(Buttons::NONE, Buttons::NONE, Duration::from_millis(16)),
+            Buttons::NONE
+        );
     }
 
     /// The menu over the game at stage 1-1's start, keys pressed by hand, settings saved
@@ -789,16 +1063,20 @@ mod tests {
     }
 
     #[test]
-    fn right_changes_the_setting_and_closing_saves() {
+    fn submenu_changes_setting_and_closing_saves() {
         let Some((mut app, dir)) = app("save") else {
             return;
         };
-        tap(&mut app, KeyCode::Escape);
-        tap(&mut app, KeyCode::ArrowDown);
+        tap(&mut app, KeyCode::Escape); // Root -> DISPLAY
+        tap(&mut app, KeyCode::KeyX); // A enters DISPLAY (row 0 = PALETTE)
+        tap(&mut app, KeyCode::ArrowDown); // row 1 = OVERSCAN
         tap(&mut app, KeyCode::ArrowRight);
         assert_eq!(app.world().resource::<Settings>().overscan, Overscan::Shown);
         assert!(!dir.join("settings.ron").exists(), "saved on close only");
-        tap(&mut app, KeyCode::Escape);
+        tap(&mut app, KeyCode::KeyZ); // B returns to Root
+        assert!(open(&app), "B from submenu returns to Root");
+        tap(&mut app, KeyCode::KeyZ); // B from Root closes & saves
+        assert!(!open(&app));
         assert_eq!(
             crate::settings::load_with_warnings(&dir).0.overscan,
             Overscan::Shown

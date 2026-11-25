@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 const FILE: &str = "settings.ron";
 
-/// Presentation settings; the defaults are the NES's behaviour, or 1.0's where it had none.
+/// Presentation and audio settings; the defaults are the NES's behaviour, or 1.0's where it had none.
 #[derive(Resource, Serialize, Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Settings {
     /// Master volume, 0-100.
@@ -28,6 +28,14 @@ pub(crate) struct Settings {
     pub ui: UiStyle,
     /// How the picture is drawn.
     pub picture: Picture,
+    /// Display refresh / motion interpolation target.
+    pub frame_rate: FrameRate,
+    /// Post-process CRT presentation preset.
+    pub crt: CrtFilter,
+    /// Audio voice allocation for sound effects.
+    pub sfx_voices: SfxVoices,
+    /// Blend alternating 30 Hz frames during the intro logo/subtitle flicker.
+    pub intro_blend: bool,
 }
 
 impl Default for Settings {
@@ -40,6 +48,10 @@ impl Default for Settings {
             vsync: true,
             ui: UiStyle::Classic,
             picture: Picture::Classic,
+            frame_rate: FrameRate::Classic,
+            crt: CrtFilter::Off,
+            sfx_voices: SfxVoices::Classic,
+            intro_blend: false,
         }
     }
 }
@@ -82,6 +94,125 @@ pub(crate) enum PaletteChoice {
     Ntsc,
     /// `palette.pal` beside the exe.
     File,
+}
+
+/// Display refresh / motion interpolation target.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum FrameRate {
+    /// NES 60 Hz locked, 1 picture per tick, zero interpolation latency.
+    #[default]
+    Classic,
+    /// Fixed target FPS (clamped `60..=480`; `60` behaves identically to `Classic`).
+    Fps(u16),
+    /// Match display refresh / VSync via continuous pacing.
+    Display,
+}
+
+impl FrameRate {
+    /// Lowest supported frame-rate target (the NES tick rate).
+    pub const MIN_FPS: u16 = 60;
+    /// Highest supported explicit FPS cap.
+    pub const MAX_FPS: u16 = 480;
+    /// Curated stops exposed by the menu's `FRAME RATE` slider (before `Display`).
+    pub const CURATED_FPS: [u16; 9] = [60, 75, 90, 120, 144, 165, 170, 240, 360];
+
+    /// Clamps `Fps(n)` to [`Self::MIN_FPS`]`..=`[`Self::MAX_FPS`].
+    #[must_use]
+    pub const fn clamped(self) -> Self {
+        match self {
+            Self::Fps(fps) => {
+                if fps < Self::MIN_FPS {
+                    Self::Fps(Self::MIN_FPS)
+                } else if fps > Self::MAX_FPS {
+                    Self::Fps(Self::MAX_FPS)
+                } else {
+                    Self::Fps(fps)
+                }
+            }
+            other => other,
+        }
+    }
+
+    /// True when running locked to 60 Hz without interpolation.
+    #[must_use]
+    pub const fn is_classic(self) -> bool {
+        matches!(self, Self::Classic | Self::Fps(Self::MIN_FPS))
+    }
+
+    /// Steps left (`dir < 0`) or right (`dir >= 0`) along the curated stops and `Display`.
+    #[must_use]
+    pub fn step(self, dir: i8) -> Self {
+        const STOPS: [FrameRate; 10] = [
+            FrameRate::Classic,
+            FrameRate::Fps(75),
+            FrameRate::Fps(90),
+            FrameRate::Fps(120),
+            FrameRate::Fps(144),
+            FrameRate::Fps(165),
+            FrameRate::Fps(170),
+            FrameRate::Fps(240),
+            FrameRate::Fps(360),
+            FrameRate::Display,
+        ];
+        let normalized = match self.clamped() {
+            Self::Fps(Self::MIN_FPS) => Self::Classic,
+            other => other,
+        };
+        if let Some(at) = STOPS.iter().position(|&stop| stop == normalized) {
+            let next = if dir < 0 {
+                (at + STOPS.len() - 1) % STOPS.len()
+            } else {
+                (at + 1) % STOPS.len()
+            };
+            return STOPS[next];
+        }
+        // Custom Fps(n) between curated stops: step to the adjacent curated stop.
+        let Self::Fps(fps) = normalized else {
+            return Self::Classic;
+        };
+        if dir < 0 {
+            Self::CURATED_FPS
+                .iter()
+                .rev()
+                .copied()
+                .find(|&stop| stop < fps)
+                .map_or(Self::Display, |stop| {
+                    if stop == Self::MIN_FPS {
+                        Self::Classic
+                    } else {
+                        Self::Fps(stop)
+                    }
+                })
+        } else {
+            Self::CURATED_FPS
+                .iter()
+                .copied()
+                .find(|&stop| stop > fps)
+                .map_or(Self::Display, Self::Fps)
+        }
+    }
+}
+
+/// Post-process CRT presentation preset.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CrtFilter {
+    /// Unfiltered nearest-neighbor pixels.
+    #[default]
+    Off,
+    /// Flat NES-row-aligned scanlines with brightness compensation.
+    Scanlines,
+    /// Scanlines, subtle aperture grille, barrel curvature, phosphor glow, and vignette.
+    Crt,
+}
+
+/// Audio voice allocation for sound effects.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum SfxVoices {
+    /// Single 2A03 APU shared by music and SFX, write-exact to the NES.
+    #[default]
+    Classic,
+    /// Dedicated Music APU plus a polyphonic SFX voice pool.
+    Unlimited,
 }
 
 /// Where `settings.ron` lives; `None` when the exe's directory is unknown.
@@ -145,6 +276,10 @@ struct Fields {
     vsync: Option<Box<RawValue>>,
     ui: Option<Box<RawValue>>,
     picture: Option<Box<RawValue>>,
+    frame_rate: Option<Box<RawValue>>,
+    crt: Option<Box<RawValue>>,
+    sfx_voices: Option<Box<RawValue>>,
+    intro_blend: Option<Box<RawValue>>,
 }
 
 /// The settings `text` holds that this release reads, each on its own: a value it does
@@ -194,6 +329,26 @@ fn parse(text: &str) -> ron::error::SpannedResult<(Settings, Vec<String>)> {
         "picture",
         fields.picture,
         &mut settings.picture,
+        &mut warnings,
+    );
+    read(
+        "frame_rate",
+        fields.frame_rate,
+        &mut settings.frame_rate,
+        &mut warnings,
+    );
+    settings.frame_rate = settings.frame_rate.clamped();
+    read("crt", fields.crt, &mut settings.crt, &mut warnings);
+    read(
+        "sfx_voices",
+        fields.sfx_voices,
+        &mut settings.sfx_voices,
+        &mut warnings,
+    );
+    read(
+        "intro_blend",
+        fields.intro_blend,
+        &mut settings.intro_blend,
         &mut warnings,
     );
     Ok((settings, warnings))
@@ -251,6 +406,10 @@ mod tests {
             vsync: false,
             ui: UiStyle::Faithful,
             picture: Picture::Modern,
+            frame_rate: FrameRate::Fps(170),
+            crt: CrtFilter::Crt,
+            sfx_voices: SfxVoices::Unlimited,
+            intro_blend: true,
         };
         save(&dir, &settings).expect("save");
         assert_eq!(load(&dir), settings);
@@ -268,7 +427,7 @@ mod tests {
 
     #[test]
     fn an_unknown_key_is_ignored() {
-        let (_, settings) = load_text("unknown", "(volume: 40, frame_rate: Display)");
+        let (_, settings) = load_text("unknown", "(volume: 40, future_widescreen: Wide16x9)");
         assert_eq!(settings.volume, 40);
     }
 
@@ -289,11 +448,35 @@ mod tests {
     }
 
     #[test]
+    fn frame_rate_clamps_and_steps_curated_stops() {
+        assert_eq!(
+            load_text("fps-low", "(frame_rate: Fps(10))").1.frame_rate,
+            FrameRate::Fps(60)
+        );
+        assert_eq!(
+            load_text("fps-high", "(frame_rate: Fps(999))").1.frame_rate,
+            FrameRate::Fps(480)
+        );
+        assert!(FrameRate::Classic.is_classic());
+        assert!(FrameRate::Fps(60).is_classic());
+        assert!(!FrameRate::Fps(120).is_classic());
+        assert!(!FrameRate::Display.is_classic());
+
+        assert_eq!(FrameRate::Classic.step(1), FrameRate::Fps(75));
+        assert_eq!(FrameRate::Classic.step(-1), FrameRate::Display);
+        assert_eq!(FrameRate::Display.step(1), FrameRate::Classic);
+        assert_eq!(FrameRate::Fps(100).step(1), FrameRate::Fps(120));
+        assert_eq!(FrameRate::Fps(100).step(-1), FrameRate::Fps(90));
+        assert_eq!(FrameRate::Fps(400).step(1), FrameRate::Display);
+        assert_eq!(FrameRate::Fps(400).step(-1), FrameRate::Fps(360));
+    }
+
+    #[test]
     fn a_value_this_release_does_not_know_keeps_the_rest() {
         let dir = dir("newer");
         fs::write(
             dir.join(FILE),
-            "(volume: 40, palette: Hdr, overscan: Shown, vsync: maybe, ui: Modern)",
+            "(volume: 40, palette: Hdr, overscan: Shown, vsync: maybe, ui: Modern, crt: Laser)",
         )
         .expect("write");
         let (settings, warnings) = load_with_warnings(&dir);
@@ -303,7 +486,7 @@ mod tests {
             ..Settings::default()
         };
         assert_eq!(settings, expected);
-        assert_eq!(warnings.len(), 3, "each invalid field warned: {warnings:?}");
+        assert_eq!(warnings.len(), 4, "each invalid field warned: {warnings:?}");
         assert!(!dir.join("settings.ron.bak").exists(), "the file is kept");
     }
 
@@ -311,6 +494,14 @@ mod tests {
     fn the_1_1_0_file_parses() {
         let (settings, warnings) =
             parse(include_str!("../settings-1.1.0.ron")).expect("1.1.0's file");
+        assert_eq!(settings, Settings::default());
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn the_1_2_0_file_parses() {
+        let (settings, warnings) =
+            parse(include_str!("../settings-1.2.0.ron")).expect("1.2.0's file");
         assert_eq!(settings, Settings::default());
         assert!(warnings.is_empty(), "{warnings:?}");
     }
