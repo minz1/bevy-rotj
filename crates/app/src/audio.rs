@@ -125,6 +125,8 @@ pub(crate) struct Music {
     stream: ApuStream,
     driver: rotj_music::Music,
     queue: SampleQueue,
+    /// Per-tick sound requests queued by `Step::Game` for 1-to-1 lockstep on multi-tick catch-up.
+    pending_frames: VecDeque<[Option<SoundId>; 4]>,
     /// The gain applied to the last sample, ramping toward the asked one.
     gain: f32,
 }
@@ -143,13 +145,19 @@ impl Music {
             stream,
             driver,
             queue,
+            pending_frames: VecDeque::new(),
             gain: 0.0,
         }
     }
 
-    /// Queues a request the game made (`$40-$43`).
+    /// Queues one request directly onto the driver (`$40-$43`).
     pub fn request(&mut self, id: SoundId) {
         self.driver.request(id.byte());
+    }
+
+    /// Queues a tick's four `$40-$43` requests so multi-tick catch-up steps audio 1-to-1.
+    pub fn request_frame(&mut self, sounds: [Option<SoundId>; 4]) {
+        self.pending_frames.push_back(sounds);
     }
 
     /// Advances one game frame: ticks the driver when [`AudioDrive::Running`] and applies
@@ -158,6 +166,11 @@ impl Music {
     pub fn advance_frame(&mut self, drive: AudioDrive) {
         let target_gain = match drive {
             AudioDrive::Running { target_gain } => {
+                if let Some(frame_sounds) = self.pending_frames.pop_front() {
+                    for id in frame_sounds.into_iter().flatten() {
+                        self.request(id);
+                    }
+                }
                 for write in self.driver.tick() {
                     self.stream.apu_mut().write(write.addr, write.value);
                 }
@@ -295,13 +308,14 @@ fn start_music(
     commands.spawn(AudioPlayer::<MusicSource>(handle));
 }
 
-/// Advances the synth one frame.
+/// Advances the synth one frame per due simulation tick.
 #[expect(
     clippy::needless_pass_by_value,
     reason = "Bevy system params, rust-clippy#8940"
 )]
 fn advance_music(
     mut music: ResMut<'_, Music>,
+    clock: Res<'_, crate::pacing::Clock>,
     settings: Res<'_, crate::settings::Settings>,
     menu: Res<'_, crate::menu::Menu>,
 ) {
@@ -312,7 +326,9 @@ fn advance_music(
             target_gain: gain(settings.volume),
         }
     };
-    music.advance_frame(drive);
+    for _ in 0..clock.ticks_due().max(1) {
+        music.advance_frame(drive);
+    }
 }
 
 #[cfg(test)]

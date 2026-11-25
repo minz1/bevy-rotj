@@ -1,12 +1,12 @@
 //! The Modern picture (`picture: Modern`): in play, the level's tilemap and the game's sprites
-//! as Bevy entities, drawn into an image the screen quad shows instead of the PPU's
-//! (`docs/specs/archive/2026-10-18-modern-picture-design.md`).
+//! as Bevy entities, drawn into an image the screen quad shows instead of the PPU's, with
+//! optional display-scale high-refresh interpolation (`frame_rate != Classic`).
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use bevy::camera::visibility::RenderLayers;
-use bevy::camera::{RenderTarget, Viewport};
+use bevy::camera::{Projection, RenderTarget, Viewport};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
@@ -16,16 +16,20 @@ use bevy::sprite_render::{
 };
 use rotj_core::chr;
 use rotj_core::palette::Rgb;
-use rotj_core::render::{Line, SCREEN_H, SCREEN_W};
+use rotj_core::render::{Line, Mirroring, SCREEN_H, SCREEN_W};
 use rotj_core::sim::modern::{
-    COLUMNS, MAX_RUNS, ModernFrame, Piece, ROWS, Run, TileGrid, run_tile,
+    GRID_COLUMNS, GRID_ROWS, GUARD, MAX_RUNS, ModernFrame, Piece, Pieces, Run, TileGrid,
+    run_tile_signed,
 };
-use rotj_core::sim::oam::{OamEntry, attr};
+use rotj_core::sim::oam::{Mark, OamEntry, attr};
+use rotj_core::sim::session::FrameSnapshot;
 
-use crate::mirror::Drawer;
-use crate::pacing::Step;
+use crate::DisplayScale;
+use crate::menu::Menu;
+use crate::mirror::{Drawer, InterpolationHistory, TickSnapshot};
+use crate::pacing::{Clock, Step};
 use crate::play::Play;
-use crate::screen::{Colours, Screen, ScreenSprite, pixels, screen_image};
+use crate::screen::{Colours, Screen, ScreenSprite, pixels, screen_image, screen_quad_rect};
 use crate::settings::{Picture, Settings, UiStyle};
 use crate::ui::{Key, sprite_key_at_line, tiles};
 
@@ -38,11 +42,17 @@ const SPRITES: usize = 1;
 /// The pieces a frame is drawn in, top to bottom.
 const PIECES: usize = MAX_RUNS;
 
+/// Maximum per-tick displacement (in NES pixels) that interpolates; larger jumps snap cleanly
+/// (teleports, respawns, scroll wraps, room transitions).
+const SNAP_THRESHOLD: f32 = 16.0;
+
 /// The Modern picture's image, the camera clearing it to the backdrop, each piece's tilemaps
 /// and the art they use.
 #[derive(Resource)]
 struct Modern {
     image: Handle<Image>,
+    /// Integer pixel multiple of `image` (`1` = `256x240`, `M` = `256*M x 240*M`).
+    scale: u32,
     backdrop: Entity,
     pieces: [Layer; PIECES],
     atlases: HashMap<Key, Handle<Image>>,
@@ -79,8 +89,8 @@ struct BuiltTileset {
     sets: [Set; 4],
 }
 
-/// Four tilemaps, one per background palette, [`COLUMNS`] by [`ROWS`], their tilesets, and the
-/// camera drawing them and the sprites over the piece's lines.
+/// Four tilemaps, one per background palette, [`GRID_COLUMNS`] by [`GRID_ROWS`], their tilesets,
+/// and the camera drawing them and the sprites over the piece's lines.
 struct Layer {
     camera: Entity,
     chunks: [Entity; 4],
@@ -98,17 +108,22 @@ fn size(n: usize) -> u32 {
     u32::try_from(n).expect("a screen's worth")
 }
 
+fn target_image(scale: u32) -> Image {
+    let s = scale.clamp(1, 8);
+    Image::new_target_texture(
+        size(SCREEN_W) * s,
+        size(SCREEN_H) * s,
+        TextureFormat::Rgba8Unorm,
+        Some(TextureFormat::Rgba8UnormSrgb),
+    )
+}
+
 fn spawn(
     mut commands: Commands<'_, '_>,
     mut images: ResMut<'_, Assets<Image>>,
     mut layouts: ResMut<'_, Assets<TextureAtlasLayout>>,
 ) {
-    let image = images.add(Image::new_target_texture(
-        size(SCREEN_W),
-        size(SCREEN_H),
-        TextureFormat::Rgba8Unorm,
-        Some(TextureFormat::Rgba8UnormSrgb),
-    ));
+    let image = images.add(target_image(1));
     let backdrop = commands
         .spawn((
             modern_camera(&image, -isize_of(PIECES) - 1, ClearColorConfig::Default),
@@ -126,6 +141,7 @@ fn spawn(
     ));
     commands.insert_resource(Modern {
         image,
+        scale: 1,
         backdrop,
         pieces,
         atlases: HashMap::new(),
@@ -182,12 +198,12 @@ fn spawn_layer(
         commands
             .spawn((
                 TilemapChunk {
-                    chunk_size: UVec2::new(size(COLUMNS), size(ROWS)),
+                    chunk_size: UVec2::new(size(GRID_COLUMNS), size(GRID_ROWS)),
                     tile_display_size: UVec2::splat(8),
                     tileset,
                     ..default()
                 },
-                TilemapChunkTileData(vec![None; COLUMNS * ROWS]),
+                TilemapChunkTileData(vec![None; GRID_COLUMNS * GRID_ROWS]),
                 Transform::default(),
                 Visibility::Hidden,
                 RenderLayers::layer(layer),
@@ -236,6 +252,186 @@ fn colours(palette: &[u8; 32], first: usize, greyscale: bool, rgb: &Rgb) -> Set 
     })
 }
 
+/// Immutable per-frame interpolation context between the previous and current 60 Hz ticks.
+#[derive(Clone, Copy)]
+struct Interp<'a> {
+    prev: Option<&'a FrameSnapshot>,
+    curr: Option<&'a FrameSnapshot>,
+    alpha: f32,
+}
+
+impl<'a> Interp<'a> {
+    const NONE: Self = Self {
+        prev: None,
+        curr: None,
+        alpha: 1.0,
+    };
+
+    fn from_history(history: Option<&'a InterpolationHistory>, alpha: f32) -> Self {
+        let Some(history) = history else {
+            return Self::NONE;
+        };
+        let (Some(prev), Some(curr)) = (&history.prev, &history.curr) else {
+            return Self::NONE;
+        };
+        if !can_interpolate(prev, curr) || alpha >= 1.0 {
+            return Self::NONE;
+        }
+        Self {
+            prev: Some(&prev.snapshot),
+            curr: Some(&curr.snapshot),
+            alpha: alpha.clamp(0.0, 1.0),
+        }
+    }
+
+    fn map_offset(self, piece_index: usize, curr: Piece) -> Vec2 {
+        let (
+            Some(prev),
+            Piece::Map {
+                line,
+                end,
+                left,
+                top,
+                ..
+            },
+        ) = (self.prev, curr)
+        else {
+            return Vec2::ZERO;
+        };
+        let Some(prev_modern) = prev.modern.as_ref() else {
+            return Vec2::ZERO;
+        };
+        map_piece_offset(
+            &prev_modern.view.pieces,
+            piece_index,
+            (line, end, left, top),
+            self.alpha,
+        )
+    }
+
+    fn run_offset(self, piece_index: usize, curr: Run) -> Vec2 {
+        let Some(prev_modern) = self.prev.and_then(|p| p.modern.as_ref()) else {
+            return Vec2::ZERO;
+        };
+        run_piece_offset(&prev_modern.view.pieces, piece_index, curr, self.alpha)
+    }
+
+    fn sprite_shift(self, mark: Mark) -> Vec2 {
+        let (Some(prev), Some(curr)) = (self.prev, self.curr) else {
+            return Vec2::ZERO;
+        };
+        drawer_screen_shift(prev, curr, mark, self.alpha)
+    }
+}
+
+/// True when two consecutive tick snapshots belong to the same unpaused room and may interpolate.
+fn can_interpolate(prev: &TickSnapshot, curr: &TickSnapshot) -> bool {
+    prev.room == curr.room && !prev.paused && !curr.paused
+}
+
+/// Returns `offset = interp - curr` (in NES pixels, y down) for a [`Piece::Map`]; `ZERO` on snap.
+fn map_piece_offset(
+    prev_pieces: &Pieces,
+    piece_index: usize,
+    (line, end, left, top): (usize, usize, i32, i32),
+    alpha: f32,
+) -> Vec2 {
+    let Some(Piece::Map {
+        line: prev_line,
+        end: prev_end,
+        left: prev_left,
+        top: prev_top,
+        ..
+    }) = prev_pieces.get(piece_index).copied().flatten()
+    else {
+        return Vec2::ZERO;
+    };
+    if prev_line != line || prev_end != end {
+        return Vec2::ZERO;
+    }
+    let delta_x = left - prev_left;
+    let delta_y = top - prev_top;
+    if delta_x.abs() > 16 || delta_y.abs() > 16 {
+        return Vec2::ZERO;
+    }
+    let dx = f32::from(i16::try_from(delta_x).expect("within snap threshold"));
+    let dy = f32::from(i16::try_from(delta_y).expect("within snap threshold"));
+    let back = 1.0 - alpha;
+    Vec2::new(-dx * back, -dy * back)
+}
+
+/// Signed shortest delta on a circular axis of length `period` (`period > 0`).
+fn wrapped_delta(prev: i32, curr: i32, period: i32) -> i32 {
+    let half = period / 2;
+    (curr - prev + half).rem_euclid(period) - half
+}
+
+/// Returns `offset = interp - curr` (in NES pixels, y down) for a nametable [`Run`]; `ZERO` on snap.
+fn run_piece_offset(prev_pieces: &Pieces, piece_index: usize, curr: Run, alpha: f32) -> Vec2 {
+    let Some(Piece::Run(prev)) = prev_pieces.get(piece_index).copied().flatten() else {
+        return Vec2::ZERO;
+    };
+    if prev.line != curr.line || prev.end != curr.end || prev.top.mirroring != curr.top.mirroring {
+        return Vec2::ZERO;
+    }
+    let period_x = if curr.top.mirroring == Mirroring::SideBySide {
+        512
+    } else {
+        256
+    };
+    let delta_x = wrapped_delta(
+        i32::from(prev.scroll_x()).rem_euclid(period_x),
+        i32::from(curr.scroll_x()).rem_euclid(period_x),
+        period_x,
+    );
+    let run_y = |run: Run| {
+        i32::try_from(((usize::from(run.top.v) >> 5) & 0x1F) * 8 + run.fine_y())
+            .expect("nametable y")
+    };
+    let delta_y = wrapped_delta(run_y(prev), run_y(curr), 240);
+    if delta_x.abs() > 16 || delta_y.abs() > 16 {
+        return Vec2::ZERO;
+    }
+    let dx = f32::from(i16::try_from(delta_x).expect("within snap threshold"));
+    let dy = f32::from(i16::try_from(delta_y).expect("within snap threshold"));
+    let back = 1.0 - alpha;
+    Vec2::new(-dx * back, -dy * back)
+}
+
+/// Net screen-space shift `(interp_world - curr_world) - (interp_cam - curr_cam)` in NES pixels
+/// (y down) for a sprite drawer; returns `ZERO` for UI/Scene marks or on any snap condition
+/// (slot reuse, empty slot, teleport, or large camera jump).
+fn drawer_screen_shift(prev: &FrameSnapshot, curr: &FrameSnapshot, mark: Mark, alpha: f32) -> Vec2 {
+    if !matches!(
+        mark,
+        Mark::Player | Mark::Actor(_) | Mark::Second(_) | Mark::Projectile(_)
+    ) {
+        return Vec2::ZERO;
+    }
+    let Some(p) = prev.drawers.iter().find(|d| d.drawer == mark) else {
+        return Vec2::ZERO;
+    };
+    let Some(c) = curr.drawers.iter().find(|d| d.drawer == mark) else {
+        return Vec2::ZERO;
+    };
+    if p.kind != c.kind || c.kind == Some(0) {
+        return Vec2::ZERO;
+    }
+    let pos = |x: u16, y: u16| Vec2::new(f32::from(x), f32::from(y)) / 16.0;
+    let d_world = pos(c.x, c.y) - pos(p.x, p.y);
+    if d_world.x.abs() > SNAP_THRESHOLD || d_world.y.abs() > SNAP_THRESHOLD {
+        return Vec2::ZERO;
+    }
+    let d_cam = pos(curr.camera.0, curr.camera.1) - pos(prev.camera.0, prev.camera.1);
+    let d_cam = if d_cam.x.abs() > SNAP_THRESHOLD || d_cam.y.abs() > SNAP_THRESHOLD {
+        Vec2::ZERO
+    } else {
+        d_cam
+    };
+    let back = 1.0 - alpha;
+    (d_cam - d_world) * back
+}
+
 /// What the picture is drawn from.
 #[derive(SystemParam)]
 struct Inputs<'w> {
@@ -243,6 +439,10 @@ struct Inputs<'w> {
     settings: Res<'w, Settings>,
     colours: Res<'w, Colours>,
     screen: Res<'w, Screen>,
+    clock: Option<Res<'w, Clock>>,
+    menu: Option<Res<'w, Menu>>,
+    history: Option<Res<'w, InterpolationHistory>>,
+    display_scale: Option<Res<'w, DisplayScale>>,
 }
 
 /// The entities the picture changes.
@@ -269,6 +469,10 @@ fn draw(
         settings,
         colours: colours_table,
         screen,
+        clock,
+        menu,
+        history,
+        display_scale,
     } = inputs;
     let Scene {
         mut cameras,
@@ -284,17 +488,35 @@ fn draw(
     let frame = (active == ActivePicture::Modern)
         .then(|| play.session().snapshot().modern.as_ref())
         .flatten();
-    let shown_image = match active {
-        ActivePicture::Modern => modern.image.clone(),
-        ActivePicture::Classic => screen_image(&screen),
+    let menu_open = menu.as_deref().is_some_and(Menu::is_open);
+    let interpolating =
+        frame.is_some() && !settings.frame_rate.is_classic() && !menu_open && !play.paused();
+    let desired_scale = if interpolating {
+        display_scale.map_or(1, |s| s.0.clamp(1, 8))
+    } else {
+        1
     };
+    if desired_scale != modern.scale {
+        if let Some(mut image) = images.get_mut(&modern.image) {
+            *image = target_image(desired_scale);
+        }
+        modern.scale = desired_scale;
+    }
+    let (shown_image, active_scale) = match active {
+        ActivePicture::Modern => (modern.image.clone(), modern.scale),
+        ActivePicture::Classic => (screen_image(&screen), 1),
+    };
+    let expected_rect = Some(screen_quad_rect(settings.overscan, active_scale));
     for mut quad in &mut quads {
         if quad.image != shown_image {
             quad.image = shown_image.clone();
         }
+        if quad.rect != expected_rect {
+            quad.rect = expected_rect;
+        }
     }
     let rgb = &colours_table.rgb;
-    if let Ok((mut backdrop, _)) = cameras.get_mut(modern.backdrop) {
+    if let Ok((mut backdrop, _, _)) = cameras.get_mut(modern.backdrop) {
         backdrop.is_active = frame.is_some();
         if let Some(frame) = frame {
             let [red, green, blue] =
@@ -306,6 +528,7 @@ fn draw(
         images: &mut images,
         chunks: &mut chunks,
         cameras: &mut cameras,
+        scale: modern.scale,
     };
     let Some(frame) = frame else {
         for layer in &mut modern.pieces {
@@ -313,7 +536,13 @@ fn draw(
         }
         return;
     };
-    show_background(&mut modern, &mut out, &play, frame, rgb);
+    let alpha = if interpolating {
+        clock.map_or(1.0, |c| c.alpha())
+    } else {
+        1.0
+    };
+    let interp = Interp::from_history(history.as_deref(), alpha);
+    show_background(&mut modern, &mut out, &play, frame, rgb, interp);
     let faithful = settings.ui == UiStyle::Faithful;
     spawn_sprites(
         &mut commands,
@@ -321,8 +550,11 @@ fn draw(
         &mut images,
         &drawers,
         &play,
-        faithful,
-        rgb,
+        SpriteFrame {
+            faithful,
+            rgb,
+            interp,
+        },
     );
 }
 
@@ -339,13 +571,22 @@ type Chunks<'w, 's> = Query<
 >;
 
 /// The pieces' cameras and the backdrop's.
-type Cameras<'w, 's> = Query<'w, 's, (&'static mut Camera, &'static mut Transform)>;
+type Cameras<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static mut Camera,
+        &'static mut Transform,
+        &'static mut Projection,
+    ),
+>;
 
 /// What drawing a piece changes.
 struct Out<'a, 'w, 's> {
     images: &'a mut Assets<Image>,
     chunks: &'a mut Chunks<'w, 's>,
     cameras: &'a mut Cameras<'w, 's>,
+    scale: u32,
 }
 
 /// Each piece's tilemaps: map playfields from the frame's map tiles, nametable runs from the PPU,
@@ -356,6 +597,7 @@ fn show_background(
     play: &Play,
     frame: &ModernFrame,
     rgb: &Rgb,
+    interp: Interp<'_>,
 ) {
     let sets: [Set; 4] = std::array::from_fn(|set| {
         colours(&play.session().ppu().palette, set * 4, frame.greyscale, rgb)
@@ -365,27 +607,37 @@ fn show_background(
             Some(Piece::Run(run)) => Some(run_tiles(play, &run)),
             _ => None,
         });
+    let guard_px = pixels(GUARD * 8);
     for (index, layer) in modern.pieces.iter_mut().enumerate() {
         let shown = match frame.view.pieces[index] {
-            Some(Piece::Map {
-                line,
-                end,
-                left,
-                top,
-                banks,
-            }) => {
+            Some(
+                piece @ Piece::Map {
+                    line,
+                    end,
+                    left,
+                    top,
+                    banks,
+                },
+            ) => {
                 let fine_x = f32::from(u8::try_from(left.rem_euclid(8)).expect("0-7"));
                 let fine_y = f32::from(u8::try_from(top.rem_euclid(8)).expect("0-7"));
+                let offset = interp.map_offset(index, piece);
                 frame.tiles_for(index).map(|tiles| Shown {
                     banks,
                     tiles,
-                    corner: Vec2::new(-fine_x, fine_y - pixels(line)),
+                    corner: Vec2::new(
+                        -fine_x - guard_px - offset.x,
+                        fine_y + guard_px - pixels(line) + offset.y,
+                    ),
                     lines: line..end,
                 })
             }
-            Some(Piece::Run(run)) => run_grids[index]
-                .as_deref()
-                .map(|tiles| screen_space(&run, tiles)),
+            Some(Piece::Run(run)) => {
+                let offset = interp.run_offset(index, run);
+                run_grids[index]
+                    .as_deref()
+                    .map(|tiles| screen_space(&run, tiles, offset))
+            }
             None => None,
         };
         show_layer(layer, out, play, sets, shown);
@@ -393,13 +645,14 @@ fn show_background(
 }
 
 /// A run's piece in screen space, its tiles from [`run_tiles`].
-fn screen_space<'a>(run: &Run, tiles: &'a [Option<(u8, u8)>]) -> Shown<'a> {
+fn screen_space<'a>(run: &Run, tiles: &'a [Option<(u8, u8)>], offset: Vec2) -> Shown<'a> {
+    let guard_px = pixels(GUARD * 8);
     Shown {
         banks: run.banks(),
         tiles,
         corner: Vec2::new(
-            -f32::from(run.top.fine_x),
-            pixels(run.fine_y()) - pixels(run.line),
+            -f32::from(run.top.fine_x) - guard_px - offset.x,
+            pixels(run.fine_y()) + guard_px - pixels(run.line) + offset.y,
         ),
         lines: run.line..run.end,
     }
@@ -414,12 +667,19 @@ struct Shown<'a> {
     lines: Range<usize>,
 }
 
-/// The run's tiles on the layer's grid, from the tile row its first line is in down to its end.
-fn run_tiles(play: &Play, run: &Run) -> Vec<Option<(u8, u8)>> {
-    let rows = (run.end - run.line + run.fine_y()).div_ceil(8);
-    (0..ROWS)
-        .flat_map(|row| (0..COLUMNS).map(move |column| (column, row)))
-        .map(|(column, row)| (row < rows).then(|| run_tile(play.session().ppu(), run, column, row)))
+/// The run's tiles on the guard-padded layer grid, from one tile above/left of its top row.
+fn run_tiles(play: &Play, run: &Run) -> TileGrid {
+    let rows = (run.end - run.line + run.fine_y()).div_ceil(8) + 2 * GUARD;
+    let guard = i32::try_from(GUARD).expect("small guard");
+    (0..GRID_ROWS)
+        .flat_map(|row| (0..GRID_COLUMNS).map(move |column| (column, row)))
+        .map(|(column, row)| {
+            (row < rows).then(|| {
+                let col = i32::try_from(column).expect("column") - guard;
+                let r = i32::try_from(row).expect("row") - guard;
+                run_tile_signed(play.session().ppu(), run, col, r)
+            })
+        })
         .collect()
 }
 
@@ -431,16 +691,20 @@ fn show_layer(
     sets: [Set; 4],
     shown: Option<Shown<'_>>,
 ) {
-    if let Ok((mut camera, mut transform)) = out.cameras.get_mut(layer.camera) {
+    if let Ok((mut camera, mut transform, mut projection)) = out.cameras.get_mut(layer.camera) {
         camera.is_active = shown.is_some();
         if let Some(shown) = &shown {
+            let s = out.scale.clamp(1, 8);
             let lines = shown.lines.clone();
             camera.viewport = Some(Viewport {
-                physical_position: UVec2::new(0, size(lines.start)),
-                physical_size: UVec2::new(size(SCREEN_W), size(lines.len())),
+                physical_position: UVec2::new(0, size(lines.start) * s),
+                physical_size: UVec2::new(size(SCREEN_W) * s, size(lines.len()) * s),
                 ..default()
             });
             transform.translation.y = -pixels(lines.start + lines.end) / 2.0;
+            if let Projection::Orthographic(orthographic) = &mut *projection {
+                orthographic.scale = 1.0 / f32::from(u16::try_from(s).expect("1..=8"));
+            }
         }
     }
     let Some(shown) = shown else {
@@ -464,8 +728,8 @@ fn show_layer(
         layer.built = Some(wanted);
     }
     let centre = Vec3::new(
-        shown.corner.x + pixels(COLUMNS * 4),
-        shown.corner.y - pixels(ROWS * 4),
+        shown.corner.x + pixels(GRID_COLUMNS * 4),
+        shown.corner.y - pixels(GRID_ROWS * 4),
         2.0,
     );
     for (set, &chunk) in layer.chunks.iter().enumerate() {
@@ -477,7 +741,7 @@ fn show_layer(
                 .map(|(tile, _)| TileData::from_tileset_index(u16::from(tile)))
         });
         *data = TilemapChunkTileData::from_y_down_tiles(
-            UVec2::new(size(COLUMNS), size(ROWS)),
+            UVec2::new(size(GRID_COLUMNS), size(GRID_ROWS)),
             tiles.collect(),
         );
         transform.translation = centre;
@@ -551,6 +815,14 @@ fn slice_sprite(
     sprite
 }
 
+/// Per-frame sprite rendering options passed to [`spawn_sprites`].
+#[derive(Clone, Copy)]
+struct SpriteFrame<'a> {
+    faithful: bool,
+    rgb: &'a Rgb,
+    interp: Interp<'a>,
+}
+
 /// Every record's sprites in draw order, each a child of its drawer's mirror entity: behind
 /// the tilemaps when its priority bit says, an earlier draw in front of a later one.
 fn spawn_sprites(
@@ -559,9 +831,13 @@ fn spawn_sprites(
     images: &mut Assets<Image>,
     drawers: &Query<'_, '_, (Entity, &Drawer)>,
     play: &Play,
-    faithful: bool,
-    rgb: &Rgb,
+    frame: SpriteFrame<'_>,
 ) {
+    let SpriteFrame {
+        faithful,
+        rgb,
+        interp,
+    } = frame;
     let session = play.session();
     let records = session
         .snapshot()
@@ -575,6 +851,7 @@ fn spawn_sprites(
             .iter()
             .find(|(_, drawer)| drawer.0 == record.mark)
             .map(|(entity, _)| entity);
+        let shift = interp.sprite_shift(record.mark);
         for entry in record.sprites(256).filter(|entry| entry.is_visible()) {
             let slices = sprite_slices(entry, session.lines(), &session.ppu().palette, rgb);
             if slices.is_empty() {
@@ -599,8 +876,8 @@ fn spawn_sprites(
                     sprite,
                     Anchor::TOP_LEFT,
                     Transform::from_xyz(
-                        f32::from(entry.x),
-                        -f32::from(entry.y) - 1.0 - pixels(row_start),
+                        f32::from(entry.x) + shift.x,
+                        -f32::from(entry.y) - 1.0 - pixels(row_start) - shift.y,
                         z,
                     ),
                     RenderLayers::layer(SPRITES),
@@ -643,6 +920,7 @@ mod tests {
     use rotj_core::Buttons;
     use rotj_core::sim::Transition;
     use rotj_core::sim::modern::View;
+    use rotj_core::sim::session::DrawerState;
 
     /// Batman walking right and firing every other pair of frames.
     fn pad(frame: usize) -> Buttons {
@@ -682,7 +960,7 @@ mod tests {
         assert!(draw < at(upload).expect("the upload"));
     }
 
-    /// Stage 1-1, the `$0E` boss bar, then the final boss's room with a part's death tiles; one
+    /// Stage 1-1, the `$0E` boss bar, Stage 1 boss floor, band rooms, and final boss; one
     /// test, since two headless renders at once fail.
     #[test]
     #[ignore = "renders with the GPU (here software Vulkan); ROTJ_SCREENSHOT names the PNGs' directory"]
@@ -896,7 +1174,7 @@ mod tests {
             line.sprite_chr[0] = 0x39;
         }
         let entry = OamEntry {
-            y: 185, // top_y = 186 -> rows 0..6 on lines 186..192, rows 6..16 on lines 192..202
+            y: 185,
             tile: 2,
             attr: attr::FLIP_Y,
             x: 40,
@@ -914,9 +1192,126 @@ mod tests {
         let dummy_layout = Handle::<TextureAtlasLayout>::default();
         let top_slice = slice_sprite(dummy_atlas.clone(), &dummy_layout, entry, 0, 6);
         let bottom_slice = slice_sprite(dummy_atlas, &dummy_layout, entry, 6, 16);
-        // Flip Y: screen rows 0..6 sample source rows 10..16, screen rows 6..16 sample 0..10.
         assert_eq!(top_slice.rect, Some(Rect::new(8.0, 10.0, 16.0, 16.0)));
         assert_eq!(bottom_slice.rect, Some(Rect::new(8.0, 0.0, 16.0, 10.0)));
         assert!(top_slice.flip_y && bottom_slice.flip_y);
+    }
+
+    #[test]
+    fn interpolation_midpoints_and_snap_conditions() {
+        // 1. Drawer moving +4 px right while camera stays still.
+        let snap = |cam_x: u16, actor_kind: u8, actor_x: u16| FrameSnapshot {
+            camera: (cam_x * 16, 0),
+            drawers: vec![
+                DrawerState {
+                    drawer: Mark::Player,
+                    kind: None,
+                    x: 100 * 16,
+                    y: 120 * 16,
+                },
+                DrawerState {
+                    drawer: Mark::Actor(0),
+                    kind: Some(actor_kind),
+                    x: actor_x * 16,
+                    y: 80 * 16,
+                },
+            ],
+            ..FrameSnapshot::default()
+        };
+        let prev = snap(0, 0x12, 50);
+        let curr = snap(0, 0x12, 54);
+        assert_eq!(
+            drawer_screen_shift(&prev, &curr, Mark::Actor(0), 0.0),
+            Vec2::new(-4.0, 0.0)
+        );
+        assert_eq!(
+            drawer_screen_shift(&prev, &curr, Mark::Actor(0), 0.5),
+            Vec2::new(-2.0, 0.0)
+        );
+        assert_eq!(
+            drawer_screen_shift(&prev, &curr, Mark::Actor(0), 1.0),
+            Vec2::ZERO
+        );
+
+        // 2. Stationary player while camera scrolls +4 px right stays locked to floor.
+        let scroll_curr = snap(4, 0x12, 50);
+        assert_eq!(
+            drawer_screen_shift(&prev, &scroll_curr, Mark::Player, 0.5),
+            Vec2::new(2.0, 0.0)
+        );
+
+        // 3. Slot reuse (different kind) snaps to ZERO.
+        let reused = snap(0, 0x34, 54);
+        assert_eq!(
+            drawer_screen_shift(&prev, &reused, Mark::Actor(0), 0.5),
+            Vec2::ZERO
+        );
+
+        // 4. Teleport (> 16 px) snaps to ZERO.
+        let teleported = snap(0, 0x12, 90);
+        assert_eq!(
+            drawer_screen_shift(&prev, &teleported, Mark::Actor(0), 0.5),
+            Vec2::ZERO
+        );
+
+        // 5. UI marks never interpolate.
+        assert_eq!(
+            drawer_screen_shift(&prev, &curr, Mark::Hud, 0.5),
+            Vec2::ZERO
+        );
+
+        // 6. Room change or pause disables interpolation cleanly.
+        let mut hist = InterpolationHistory::default();
+        hist.push(TickSnapshot {
+            room: (0, 0),
+            paused: false,
+            snapshot: prev.clone(),
+        });
+        hist.push(TickSnapshot {
+            room: (0, 2),
+            paused: false,
+            snapshot: curr.clone(),
+        });
+        assert_eq!(
+            Interp::from_history(Some(&hist), 0.5).sprite_shift(Mark::Actor(0)),
+            Vec2::ZERO
+        );
+
+        // 7. Map piece interpolation and snap.
+        let mut pieces: Pieces = [None; MAX_RUNS];
+        pieces[0] = Some(Piece::Map {
+            line: 0,
+            end: 240,
+            left: 100,
+            top: 0,
+            banks: [0; 4],
+        });
+        assert_eq!(
+            map_piece_offset(&pieces, 0, (0, 240, 104, 0), 0.25),
+            Vec2::new(-3.0, 0.0)
+        );
+        assert_eq!(
+            map_piece_offset(&pieces, 0, (0, 240, 150, 0), 0.25),
+            Vec2::ZERO,
+            "camera jump > 16 px snaps"
+        );
+
+        // 8. Parallax run horizontal wrap (510 -> 2 mod 512 = +4 px).
+        let run_at = |sx: u16| Run {
+            line: 0,
+            end: 64,
+            top: Line {
+                v: ((sx >> 8) << 10) | ((sx >> 3) & 0x1F),
+                fine_x: u8::try_from(sx & 7).expect("0..7"),
+                mirroring: Mirroring::SideBySide,
+                ..Line::default()
+            },
+        };
+        let mut run_pieces: Pieces = [None; MAX_RUNS];
+        run_pieces[0] = Some(Piece::Run(run_at(510)));
+        assert_eq!(
+            run_piece_offset(&run_pieces, 0, run_at(2), 0.5),
+            Vec2::new(-2.0, 0.0)
+        );
     }
 }

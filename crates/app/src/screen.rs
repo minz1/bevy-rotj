@@ -218,6 +218,19 @@ pub(crate) fn upload_frame(
     screen.dirty = false;
 }
 
+/// Source crop rect in texels for a screen texture rendered at integer multiple `scale` (`1..=8`).
+#[must_use]
+pub(crate) fn screen_quad_rect(overscan: Overscan, scale: u32) -> Rect {
+    let shown = visible(overscan);
+    let s = usize::try_from(scale.max(1)).expect("small integer scale");
+    Rect::new(
+        pixels(shown.x * s),
+        pixels(shown.y * s),
+        pixels((shown.x + shown.width) * s),
+        pixels((shown.y + shown.height) * s),
+    )
+}
+
 /// Applies changed [`Settings`] to the picture: its colours, the visible lines and vsync.
 #[expect(
     clippy::needless_pass_by_value,
@@ -236,12 +249,7 @@ pub(crate) fn apply_settings(
     colours.set_if_neq(colours_for(settings.palette, dir.0.as_deref()));
     let shown = visible(settings.overscan);
     for mut sprite in &mut quads {
-        sprite.rect = Some(Rect::new(
-            pixels(shown.x),
-            pixels(shown.y),
-            pixels(shown.x + shown.width),
-            pixels(shown.y + shown.height),
-        ));
+        sprite.rect = Some(screen_quad_rect(settings.overscan, 1));
         sprite.custom_size = Some(Vec2::new(pixels(shown.width), pixels(shown.height)) * 4.0);
     }
     let mode = if settings.vsync {

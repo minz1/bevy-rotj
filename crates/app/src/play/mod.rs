@@ -268,28 +268,44 @@ fn power_on(
     crate::screen::spawn_screen_quad(&mut commands, &screen_image(&screen));
 }
 
-/// One frame of the game; the state follows it: the title while it boots (again after
-/// GAME OVER's reset), gameplay from its first loop frame.
+/// Bundles the optional host services updated on each 60 Hz simulation tick.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct TickServices<'w> {
+    clock: Option<Res<'w, crate::pacing::Clock>>,
+    recorder: Option<ResMut<'w, Recorder>>,
+    music: Option<ResMut<'w, crate::audio::Music>>,
+    history: Option<ResMut<'w, crate::mirror::InterpolationHistory>>,
+}
+
+/// One or more 60 Hz frames of the game; the state follows it: the title while it boots
+/// (again after GAME OVER's reset), gameplay from its first loop frame.
 #[expect(
     clippy::needless_pass_by_value,
     reason = "Bevy system params, rust-clippy#8940"
 )]
 pub(crate) fn tick(
-    input: Res<'_, NesInput>,
+    mut input: ResMut<'_, NesInput>,
     mut play: ResMut<'_, Play>,
-    recorder: Option<ResMut<'_, Recorder>>,
-    music: Option<ResMut<'_, crate::audio::Music>>,
+    mut services: TickServices<'_>,
     state: Res<'_, State<GameState>>,
     mut next: ResMut<'_, NextState<GameState>>,
 ) {
-    let pad = input.game_buttons();
-    if let Some(mut recorder) = recorder {
-        recorder.record(pad);
-    }
-    let sound = play.step(pad);
-    if let Some(mut music) = music {
-        for request in sound.into_iter().flatten() {
-            music.request(request);
+    let ticks = services.clock.as_ref().map_or(1, |c| c.ticks_due().max(1));
+    for _ in 0..ticks {
+        let pad = input.take_tick_buttons();
+        if let Some(recorder) = services.recorder.as_deref_mut() {
+            recorder.record(pad);
+        }
+        let sound = play.step(pad);
+        if let Some(history) = services.history.as_deref_mut() {
+            history.push(crate::mirror::TickSnapshot {
+                room: play.session().room_id(),
+                paused: play.paused(),
+                snapshot: play.session().snapshot().clone(),
+            });
+        }
+        if let Some(music) = services.music.as_deref_mut() {
+            music.request_frame(sound);
         }
     }
     let now = if play.booting() {

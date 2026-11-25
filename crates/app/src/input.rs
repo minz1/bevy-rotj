@@ -17,6 +17,9 @@ pub(crate) struct NesInput {
     pub released: Buttons,
     /// Held buttons the game does not see until they are released.
     hidden: Buttons,
+    /// Newly pressed buttons latched between 60 Hz ticks so quick taps at high refresh rates
+    /// are never missed by the simulation.
+    latched: Buttons,
 }
 
 impl NesInput {
@@ -26,17 +29,28 @@ impl NesInput {
         self.released = !buttons & self.buttons;
         self.buttons = buttons;
         self.hidden &= buttons;
+        self.latched |= self.pressed & !self.hidden;
     }
 
     /// Hides every button held now from the game until it is released.
     pub fn hide_held(&mut self) {
         self.hidden = self.buttons;
+        self.latched = Buttons::NONE;
     }
 
     /// The pad the game reads: held buttons less the hidden ones.
     #[must_use]
     pub const fn game_buttons(self) -> Buttons {
         Buttons::from_bits(self.buttons.bits() & !self.hidden.bits())
+    }
+
+    /// Consumes the pad for a 60 Hz simulation tick: held buttons plus any brief edge presses
+    /// latched since the last tick, less hidden buttons.
+    #[must_use]
+    pub fn take_tick_buttons(&mut self) -> Buttons {
+        let latched = Buttons::from_bits(self.latched.bits() & !self.hidden.bits());
+        self.latched = Buttons::NONE;
+        self.game_buttons() | latched
     }
 }
 
@@ -222,5 +236,18 @@ mod tests {
         let buttons = Buttons::A | Buttons::B;
         assert!(buttons.contains(Buttons::A));
         assert!(!buttons.contains(Buttons::A | Buttons::START));
+    }
+
+    #[test]
+    fn quick_tap_between_ticks_is_latched_until_consumed() {
+        let mut input = NesInput::default();
+        // Frame 1 (high-refresh non-tick): A goes down.
+        input.update(Buttons::A);
+        // Frame 2 (high-refresh non-tick): A released before the 60 Hz tick runs.
+        input.update(Buttons::NONE);
+        assert_eq!(input.game_buttons(), Buttons::NONE);
+        assert_eq!(input.take_tick_buttons(), Buttons::A);
+        // Next tick sees NONE once the latch was consumed.
+        assert_eq!(input.take_tick_buttons(), Buttons::NONE);
     }
 }

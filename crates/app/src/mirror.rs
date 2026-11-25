@@ -3,9 +3,45 @@
 
 use bevy::prelude::*;
 use rotj_core::sim::oam::{DrawRecord, Mark};
+use rotj_core::sim::session::FrameSnapshot;
 
 use crate::pacing::Step;
 use crate::play::Play;
+
+/// One 60 Hz tick's immutable presentation state, retained for high-refresh interpolation.
+#[derive(Debug, Clone)]
+pub(crate) struct TickSnapshot {
+    /// `(area, room)` at this tick; a change snaps interpolation.
+    pub room: (u8, u8),
+    /// Whether the game's own pause card was active on this tick.
+    pub paused: bool,
+    /// The simulation's NMI snapshot (drawers, camera, Modern view).
+    pub snapshot: FrameSnapshot,
+}
+
+/// Previous and current 60 Hz ticks for Modern high-refresh interpolation.
+#[derive(Resource, Debug, Default)]
+pub(crate) struct InterpolationHistory {
+    /// Snapshot from the tick before `curr`.
+    pub prev: Option<TickSnapshot>,
+    /// Snapshot from the most recent tick.
+    pub curr: Option<TickSnapshot>,
+}
+
+impl InterpolationHistory {
+    /// Records a newly stepped 60 Hz tick, shifting `curr` into `prev`.
+    pub fn push(&mut self, tick: TickSnapshot) {
+        self.prev = self.curr.take();
+        self.curr = Some(tick);
+    }
+
+    /// Clears history (e.g. on level-pack hot-swap or hard reset) so the next frame snaps.
+    #[cfg(test)]
+    pub fn clear(&mut self) {
+        self.prev = None;
+        self.curr = None;
+    }
+}
 
 /// The drawer an entity mirrors: a slot or Batman.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,6 +143,7 @@ impl Plugin for MirrorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MirrorCamera>()
             .init_resource::<OtherDraws>()
+            .init_resource::<InterpolationHistory>()
             .add_systems(Startup, spawn)
             .add_systems(Update, copy.after(Step::Game).before(Step::Picture));
     }
@@ -199,5 +236,23 @@ mod tests {
             assert_eq!(total, records.len(), "frame {frame}");
         }
         assert!(drew > 300, "{drew} mirrored sprites shown");
+    }
+
+    #[test]
+    fn interpolation_history_shifts_and_clears() {
+        let mut history = InterpolationHistory::default();
+        let make = |room| TickSnapshot {
+            room,
+            paused: false,
+            snapshot: FrameSnapshot::default(),
+        };
+        history.push(make((0, 0)));
+        assert!(history.prev.is_none());
+        assert_eq!(history.curr.as_ref().map(|t| t.room), Some((0, 0)));
+        history.push(make((0, 2)));
+        assert_eq!(history.prev.as_ref().map(|t| t.room), Some((0, 0)));
+        assert_eq!(history.curr.as_ref().map(|t| t.room), Some((0, 2)));
+        history.clear();
+        assert!(history.prev.is_none() && history.curr.is_none());
     }
 }

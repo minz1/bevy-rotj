@@ -263,6 +263,7 @@ fn main() {
     .insert_resource(saved)
     .insert_resource(StartupWarnings(warnings))
     .init_resource::<screen::Colours>()
+    .init_resource::<DisplayScale>()
     .insert_resource(settings::SettingsDir(dir))
     .init_state::<GameState>()
     .add_systems(
@@ -287,6 +288,17 @@ fn main() {
         screen::Screen::new(&mut images)
     };
     app.insert_resource(screen).run();
+}
+
+/// Integer pixel multiple the screen picture is currently displayed at (`1..=8`), shared
+/// with Modern so display-scale interpolation matches the window's integer zoom.
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DisplayScale(pub u32);
+
+impl Default for DisplayScale {
+    fn default() -> Self {
+        Self(1)
+    }
 }
 
 /// The camera that shows the screen quad in the window, the only one [`fit_camera`] fits.
@@ -355,6 +367,7 @@ fn fit_camera(
     settings: Res<'_, settings::Settings>,
     mut cameras: Query<'_, '_, (&mut Projection, &mut Transform), With<ScreenCamera>>,
     mut ui_scale: ResMut<'_, UiScale>,
+    mut display_scale: ResMut<'_, DisplayScale>,
 ) {
     let Ok(window) = windows.single() else {
         return;
@@ -365,6 +378,14 @@ fn fit_camera(
     let shown = screen::visible(settings.overscan);
     let picture = Vec2::new(screen::pixels(shown.width), screen::pixels(shown.height));
     let (scale, offset) = integer_view(window.width(), window.height(), picture);
+    let clamped = (1u32..=8)
+        .rev()
+        .find(|&m| {
+            let factor = f32::from(u16::try_from(m).expect("1..=8"));
+            factor * picture.x <= window.width() && factor * picture.y <= window.height()
+        })
+        .unwrap_or(1);
+    display_scale.set_if_neq(DisplayScale(clamped));
     ui_scale.0 = 4.0 / scale;
     for (mut projection, mut transform) in &mut cameras {
         if let Projection::Orthographic(orthographic) = &mut *projection {
@@ -646,6 +667,7 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(settings::Settings::default());
         world.insert_resource(UiScale(1.0));
+        world.insert_resource(DisplayScale::default());
         world.spawn((Window::default(), PrimaryWindow));
         let screen = world
             .spawn((

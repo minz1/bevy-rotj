@@ -223,6 +223,13 @@ impl Session {
         matches!(&self.game.script, Some(Script::Boot(boot)) if boot.on_title())
     }
 
+    /// Current `(area, room)` identifier, used by the host to detect room changes without
+    /// inspecting simulation internals.
+    #[must_use]
+    pub const fn room_id(&self) -> (u8, u8) {
+        (self.game.world.area, self.game.world.room)
+    }
+
     /// True when any script is running instead of the gameplay loop.
     #[must_use]
     pub fn in_script(&self) -> bool {

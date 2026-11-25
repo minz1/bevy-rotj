@@ -10,12 +10,19 @@ use crate::levels::Levels;
 use crate::map::{Cell, Chain};
 use crate::render::{Line, SCREEN_H, SCREEN_W, ctrl, mask};
 
-/// The Modern tilemap's size in 8x8 tiles: the screen and one more each way, for the scroll.
+/// The Modern tilemap's visible size in 8x8 tiles: the screen and one more each way, for the scroll.
 pub const COLUMNS: usize = SCREEN_W / 8 + 1;
 /// See [`COLUMNS`].
 pub const ROWS: usize = SCREEN_H / 8 + 1;
+/// Extra guard tile on every edge of the Modern tilemap so sub-pixel interpolation never reveals
+/// an empty border across tile boundaries.
+pub const GUARD: usize = 1;
+/// Total columns in a [`TileGrid`] (`COLUMNS + 2 * GUARD`).
+pub const GRID_COLUMNS: usize = COLUMNS + 2 * GUARD;
+/// Total rows in a [`TileGrid`] (`ROWS + 2 * GUARD`).
+pub const GRID_ROWS: usize = ROWS + 2 * GUARD;
 
-/// One piece's `COLUMNS * ROWS` background grid of `(tile, palette)` pairs.
+/// One piece's `GRID_COLUMNS * GRID_ROWS` background grid of `(tile, palette)` pairs.
 pub type TileGrid = Vec<Option<(u8, u8)>>;
 
 /// What the Modern picture draws of the frame on screen, taken with the page it shows.
@@ -25,8 +32,8 @@ pub struct ModernFrame {
     pub view: View,
     /// `$2001`'s greyscale bit.
     pub greyscale: bool,
-    /// Map tiles (`COLUMNS * ROWS`) for each [`Piece::Map`] in [`View::pieces`], tagged by its
-    /// piece index.
+    /// Map tiles (`GRID_COLUMNS * GRID_ROWS`) for each [`Piece::Map`] in [`View::pieces`], tagged
+    /// by its piece index.
     pub map_tiles: Vec<(usize, TileGrid)>,
 }
 
@@ -35,6 +42,7 @@ impl ModernFrame {
     #[must_use]
     pub(crate) fn of(game: &Game, levels: &Levels, lines: &[Line]) -> Option<ModernFrame> {
         let view = view(game, levels, lines)?;
+        let guard_px = i32::try_from(GUARD * 8).expect("guard pixels");
         let mut map_tiles = Vec::new();
         for (index, piece) in view.pieces.iter().enumerate() {
             let Some(Piece::Map {
@@ -47,12 +55,12 @@ impl ModernFrame {
             else {
                 continue;
             };
-            let base_left = left - left.rem_euclid(8);
-            let base_top = top - top.rem_euclid(8);
+            let base_left = left - left.rem_euclid(8) - guard_px;
+            let base_top = top - top.rem_euclid(8) - guard_px;
             let height = i32::try_from(end - line).expect("a line count");
-            let max_y = top + height;
-            let tiles = (0..ROWS)
-                .flat_map(|row| (0..COLUMNS).map(move |column| (column, row)))
+            let max_y = top + height + guard_px;
+            let tiles = (0..GRID_ROWS)
+                .flat_map(|row| (0..GRID_COLUMNS).map(move |column| (column, row)))
                 .map(|(column, row)| {
                     let [x, y] =
                         [column, row].map(|at| i32::try_from(at * 8).expect("a screen's worth"));
@@ -383,6 +391,37 @@ pub fn run_tile(ppu: &Ppu, run: &Run, column: usize, row: usize) -> (u8, u8) {
         ..run.top
     };
     nametable_tile(ppu, &line, column * 8)
+}
+
+/// Like [`run_tile`], accepting signed `(column, row)` offsets so guard tiles (`-1`) wrap cleanly
+/// around the nametable ring without diverging from [`run_tile`] on non-negative coordinates.
+#[must_use]
+pub fn run_tile_signed(ppu: &Ppu, run: &Run, column: i32, row: i32) -> (u8, u8) {
+    if let (Ok(col), Ok(r)) = (usize::try_from(column), usize::try_from(row)) {
+        return run_tile(ppu, run, col, r);
+    }
+    let base_y = i32::from((run.top.v >> 5) & 0x1F);
+    let coarse_y = if row >= 0 {
+        u16::try_from((base_y + row) & 0x1F).expect("0..32")
+    } else {
+        u16::try_from((base_y + row).rem_euclid(30)).expect("0..30")
+    };
+    let (v, x_px) = if let Ok(col) = usize::try_from(column) {
+        ((run.top.v & !0x03E0) | (coarse_y << 5), col * 8)
+    } else {
+        let base_cx = i32::from((((run.top.v >> 10) & 1) << 5) | (run.top.v & 0x1F));
+        let wrapped = u16::try_from((base_cx + column).rem_euclid(64)).expect("0..64");
+        let nt_x = (wrapped >> 5) & 1;
+        let cx = wrapped & 0x1F;
+        let v = (run.top.v & !0x07FF) | (nt_x << 10) | (coarse_y << 5) | cx;
+        (v, 0)
+    };
+    let line = Line {
+        v,
+        fine_x: 0,
+        ..run.top
+    };
+    nametable_tile(ppu, &line, x_px)
 }
 
 /// The tile and palette the nametables give line `line`'s background pixel `x`.
