@@ -4,18 +4,18 @@ use super::model::{
     Extra, Layer, Map, Object, PackFile, Position, Property, Region, TilesetRef, World, to_text,
 };
 use super::*;
-use crate::actor::slots::Slots;
-use crate::actor::spawn::{lock_at, spawn_at, spawn_row};
-use crate::actor::stage::{Music, OnClear};
-use crate::actor::world::Schedule;
-use crate::actors::{
-    CELL_FLAGS, CELL_LOCK, CELL_PENDING, CELL_RECORD, SpawnRecord, spawn_schedule,
-};
-use crate::collision::CLASS_COUNT;
-use crate::render::Mirroring;
-use crate::rooms::{
+use crate::map::CLASS_COUNT;
+use crate::map::{
     Arrival, Chain, ChrBanks, Facing, Orientation, ScrollLock, ScrollMode, Start, listed_rooms,
 };
+use crate::render::Mirroring;
+use crate::sim::slots::Slots;
+use crate::sim::spawn::{
+    CELL_FLAGS, CELL_LOCK, CELL_PENDING, CELL_RECORD, SpawnRecord, spawn_schedule,
+};
+use crate::sim::spawn::{lock_at, spawn_at, spawn_row};
+use crate::sim::stage::{Music, OnClear};
+use crate::sim::world::Schedule;
 
 /// The ids a room's read cells name: the pending cells on the pages of its table.
 fn read_ids(room: &Room, schedule: &[u8; PAGE_CELLS]) -> BTreeSet<usize> {
@@ -64,7 +64,7 @@ fn the_original_game_imports_to_the_assets_the_game_reads() {
         let at = &stage.stage.name;
         assert!(back.stage == stage.stage, "{at}: stage");
         assert!(
-            back.stage.descriptor == Descriptor::from_rom(&rom.prg, index),
+            back.stage.descriptor == StageDescriptor::from_rom(&rom.prg, index),
             "{at}: descriptor"
         );
         assert!(back.terrain == stage.terrain, "{at}: terrain");
@@ -414,7 +414,7 @@ fn hand_made() -> Levels {
             stage: Stage {
                 name: "9-9".into(),
                 area: 0,
-                descriptor: Descriptor {
+                descriptor: StageDescriptor {
                     area: 0,
                     banner: [9, 9],
                     music: Music::Song(0x03),
@@ -684,7 +684,7 @@ fn two_areas() -> Levels {
         stage: Stage {
             name: name.into(),
             area,
-            descriptor: Descriptor {
+            descriptor: StageDescriptor {
                 area: area * 2,
                 banner: [area + 1, 1],
                 music: Music::Song(0x03),
@@ -1555,10 +1555,10 @@ fn the_tilesets_draw_each_variant_as_the_game_loads_it() {
             Some((area, variant, room_index))
         })
         .expect("a room with an animated bank");
-    let mut game = crate::actor::room::start(prg, &rom.chr, 0);
+    let mut game = crate::sim::room::start(prg, &rom.chr, 0);
     game.world.area = area.area * 2;
     game.world.room = u8::try_from(room_index * 2).expect("a room");
-    crate::actor::room::load(&mut game, prg);
+    crate::sim::room::load(&mut game, prg);
     let shadow = area.variants[variant]
         .iter()
         .position(|&bank| bank & 0x80 != 0)

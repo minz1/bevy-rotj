@@ -3,7 +3,7 @@
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use rotj_core::actor::button::Buttons;
+use rotj_core::Buttons;
 use rotj_core::chr;
 use rotj_core::palette::Rgb;
 
@@ -200,7 +200,7 @@ enum OverlayView {
 
 /// Whether the menu is open, and its cursor.
 #[derive(Resource, Default)]
-pub struct Menu {
+pub(crate) struct Menu {
     state: MenuState,
     save_failed: bool,
 }
@@ -222,7 +222,7 @@ struct Font {
 
 /// The atlas cell (a top and bottom tile pair) of `c`, or `None` outside the game's font.
 #[must_use]
-pub fn glyph(c: char) -> Option<usize> {
+pub(crate) fn glyph(c: char) -> Option<usize> {
     let cell = |column: usize, row: usize| 8 * row + column;
     match c {
         ' ' => Some(BLANK),
@@ -244,7 +244,7 @@ pub fn glyph(c: char) -> Option<usize> {
 /// The font as an 8-wide grid of 8x16 glyphs, the last cell blank: pixel value 0
 /// transparent, 1 `$0F`, 2 and 3 `$30`, as the sound test's palette `0F 0F 30 30` draws it.
 #[must_use]
-pub fn font_atlas(chr: &[u8], rgb: &Rgb) -> Image {
+pub(crate) fn font_atlas(chr: &[u8], rgb: &Rgb) -> Image {
     const WIDTH: usize = 64;
     const HEIGHT: usize = 9 * 16;
     let colours = [
@@ -276,7 +276,7 @@ fn with_alpha([r, g, b]: [u8; 3]) -> [u8; 4] {
     clippy::needless_pass_by_value,
     reason = "Bevy system params, rust-clippy#8940"
 )]
-pub fn steer(
+pub(crate) fn steer(
     keys: Res<'_, ButtonInput<KeyCode>>,
     gamepads: Query<'_, '_, &Gamepad>,
     mut input: ResMut<'_, NesInput>,
@@ -528,7 +528,7 @@ fn draw(
 }
 
 /// The settings menu.
-pub struct MenuPlugin;
+pub(crate) struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
@@ -752,7 +752,7 @@ mod tests {
     }
 
     fn frame(app: &App) -> u8 {
-        app.world().resource::<Play>().game().world.frame
+        app.world().resource::<Play>().session().frame()
     }
 
     #[test]

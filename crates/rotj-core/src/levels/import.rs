@@ -14,14 +14,14 @@ use super::{
     along_across, boss, class_of, derived_first_spawn_column, derived_mirroring, kind_of,
     region_place, schedule_cell, tile_index,
 };
-use crate::actor::families::MAIN;
-use crate::actor::slots::contact;
-use crate::actor::spawn::SpawnTable;
-use crate::actor::stage::{Music, OnClear, Stage as Descriptor};
-use crate::actors::{CELL_LOCK, CELL_PENDING, CELL_RECORD, STATE_DROPS_PICKUP, SpawnRecord};
-use crate::collision::CLASS_COUNT;
-use crate::rooms::{Arrival, ChrBanks, Facing, Orientation, Room, ScrollLock, ScrollMode, Start};
-use crate::terrain::Terrain;
+use crate::map::CLASS_COUNT;
+use crate::map::Terrain;
+use crate::map::{Arrival, ChrBanks, Facing, Orientation, Room, ScrollLock, ScrollMode, Start};
+use crate::sim::families::MAIN;
+use crate::sim::slots::contact;
+use crate::sim::spawn::SpawnTable;
+use crate::sim::spawn::{CELL_LOCK, CELL_PENDING, CELL_RECORD, STATE_DROPS_PICKUP, SpawnRecord};
+use crate::sim::stage::{Music, OnClear, StageDescriptor};
 
 /// A pack that does not import.
 #[derive(Debug, Error)]
@@ -253,7 +253,7 @@ fn descriptor(
     stage: &PackStage,
     area: u8,
     user: Option<&Catalog>,
-) -> Result<Descriptor, ImportError> {
+) -> Result<StageDescriptor, ImportError> {
     let knob =
         |key: &str, value: &str| at_stage(stage, &format!("`{key}`: unknown value `{value}`"));
     let banner = match *stage.hud_label.as_bytes() {
@@ -307,7 +307,7 @@ fn descriptor(
         "ending" => OnClear::Ending,
         other => return Err(knob("on_clear", other)),
     };
-    Ok(Descriptor {
+    Ok(StageDescriptor {
         area: area * 2,
         banner,
         music,

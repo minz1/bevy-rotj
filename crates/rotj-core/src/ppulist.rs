@@ -9,7 +9,7 @@
 //! Format recovered from the ROM bytes and confirmed against two independent
 //! derivations: the lists at bank 02 `$91B7` and bank 0C `$9BEB` end exactly
 //! at offsets `$1203` and `$1C35`, the extents the disassembly recorded for
-//! them. [`crate::ppulist::verify_known_lists`] re-checks that.
+//! them.
 
 /// Iterator over the entries of one write-list.
 #[derive(Debug, Clone)]
@@ -65,45 +65,6 @@ impl<'a> Iterator for WriteList<'a> {
             data: bytes,
         })
     }
-}
-
-/// A known list to re-check against the ROM: `(bank, offset, entries, address
-/// of the terminating $FF)`. The values come from `disasm/MAP.md` §4/§5, which
-/// recorded where each list ends.
-pub const KNOWN_LISTS: [(u8, u16, usize, u16); 2] = [
-    // bank, base offset, entries, terminator offset
-    (0x02, 0x11B7, 6, 0x1203),
-    (0x0C, 0x1BEB, 8, 0x1C35),
-];
-
-/// Decode the list at `bank`:`offset` and report whether it matches the
-/// recorded shape. Returns a human-readable summary for either outcome.
-#[must_use]
-pub fn verify_known_lists(prg: &[u8]) -> Vec<String> {
-    KNOWN_LISTS
-        .iter()
-        .map(|&(bank, offset, entries, terminator)| {
-            let slice =
-                crate::prg::from_bank(prg, usize::from(bank), usize::from(offset)).unwrap_or(&[]);
-            let mut list = WriteList::new(slice);
-            let decoded: Vec<Entry<'_>> = list.by_ref().collect();
-            // `end_offset` is one past the $FF, so the terminator sits at
-            // `terminator - offset`.
-            let terminator_at = list
-                .end_offset()
-                .and_then(|end| u16::try_from(end).ok())
-                .and_then(|end| end.checked_sub(1))
-                .and_then(|end| offset.checked_add(end));
-            let ok = decoded.len() == entries && terminator_at == Some(terminator);
-            format!(
-                "bank {bank:02X} ${offset:04X}: {} entries (expected {entries}), \
-                 terminator ${:04X} (expected ${terminator:04X}) -> {}",
-                decoded.len(),
-                terminator_at.unwrap_or(0),
-                if ok { "OK" } else { "MISMATCH" }
-            )
-        })
-        .collect()
 }
 
 #[cfg(test)]

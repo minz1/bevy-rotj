@@ -1,0 +1,1407 @@
+//! What actors read and write outside their own slot.
+
+use super::button::Buttons;
+use super::families::phases;
+use super::oam::{OamBuilder, attr};
+use super::scroll::Scroll;
+use super::slots::{Counter, Slots};
+use crate::render::{Mirroring, ppu};
+
+/// The live spawn schedule (`$7410`) and its page -> row table (`$0440`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Schedule {
+    /// Cells: bit 7 pending, bits 7-6 = `01` a scroll lock, bits 0-5 a record id.
+    pub cells: [u8; 256],
+    /// Each page's base column in the schedule and the map (`$0440-$045F`).
+    pub page_columns: [u8; 32],
+}
+
+impl Default for Schedule {
+    fn default() -> Schedule {
+        Schedule {
+            cells: [0; 256],
+            page_columns: [0; 32],
+        }
+    }
+}
+
+/// The visible area's size from the camera, in 1/16 px (`256 * 16` wide on the NES).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct View {
+    /// Width.
+    pub width: i32,
+    /// Height.
+    pub height: i32,
+}
+
+pub use crate::map::Level;
+
+phases! {
+    /// The selected weapon (`$0476`), which picks the projectiles' handler (bank 5 `$801B`). The
+    /// manual's names were never matched to RAM; each is named for what it does. The byte also indexes the game's per-weapon tables.
+    #[derive(Default)]
+    pub Weapon at "$0476", weapon_bytes_round_trip {
+        /// The default single shot (likely the Cross Bow).
+        #[default]
+        Bolt = 0,
+        /// Turns toward a target (the manual's homing Batarang).
+        Homing = 1,
+        /// Flies on, pushing its speed toward a cruise, and splits at a wall or when spent.
+        Splitter = 2,
+        /// Two parts that weave as they fly.
+        Wave = 3,
+        /// Three parts at once (likely the Shield Star).
+        ThreeWay = 4,
+        /// The power-up's weapon.
+        Super = 5,
+        /// Not a weapon: the power-up's closing pieces, flown by the same loop.
+        PowerUpPieces = 6,
+    }
+}
+
+impl Weapon {
+    /// The `kind` its plain shot is spawned with; the loop flies it by the weapon, not the kind.
+    #[must_use]
+    pub const fn shot_kind(self) -> u8 {
+        (self.byte() + 1) << 1
+    }
+}
+
+phases! {
+    /// What the player is doing (`$046E`), which picks his handler (bank 4 `$96C3`). The byte also
+    /// indexes the game's 12-entry per-motion tables.
+    #[derive(Default)]
+    pub Motion at "$046E", motion_bytes_round_trip {
+        /// On the ground, still.
+        #[default]
+        Standing = 0,
+        /// Pad down.
+        Crouching = 1,
+        /// On the ground with a direction held.
+        Walking = 2,
+        /// Airborne with x control.
+        Jumping = 3,
+        /// Down+A from a crouch: the slide, which ends in a crouch or turns into a jump.
+        Sliding = 4,
+        /// Off a ledge or dropped.
+        Falling = 5,
+        /// Pad up: the weapons aim up.
+        AimingUp = 6,
+        /// The death, and the freeze the level's end (`$D274`) sets when a boss is beaten.
+        Dying = 7,
+        /// Held through the power-up, hidden on odd frames.
+        PoweringUp = 8,
+        /// Lowered into the boss room while the tally counts.
+        BossEntry = 9,
+        /// Held by a script (the boss beaten, room `$DA0F`): no handler runs.
+        Held = 10,
+        /// Steered through the air by the pad (actor `$54`, room `$D9FF`), only shooting.
+        Flying = 11,
+    }
+}
+
+impl Motion {
+    /// Standing, crouching or walking: on his feet and not aiming.
+    #[must_use]
+    pub const fn on_foot(self) -> bool {
+        matches!(self, Motion::Standing | Motion::Crouching | Motion::Walking)
+    }
+}
+
+phases! {
+    /// The boss room entry's steps (`$0488`), motion 9's handler (bank 14 `$D03C`).
+    pub EntryStep at "$0488", entry_step_bytes_round_trip {
+        /// Four frames on his line before the tally starts.
+        Arriving = 0,
+        /// The tally counts up to the boss's hit points.
+        Tallying = 1,
+        /// Four frames with the full tally shown.
+        Tallied = 2,
+        /// The held poses, then the fight; every byte past 3 runs it too.
+        Posing = 3,
+    }
+}
+
+phases! {
+    /// The screen transition selector (`$BA`), which dispatches scripts at `$D4D3`.
+    #[derive(Default)]
+    pub Transition at "$BA", transition_bytes_round_trip {
+        /// No transition; the gameplay loop runs.
+        #[default]
+        None = 0,
+        /// Room change (`$B7EC`), parameterized by `transition_arg` (`$BB`).
+        RoomChange = 1,
+        /// Stage-end sequence (`$940C`).
+        StageEnd = 2,
+        /// Next area load (`$D513`).
+        NextArea = 3,
+        /// Life lost restart (`$D527`).
+        LifeLost = 4,
+        /// Full-meter power-up (`$D58F`).
+        PowerUp = 5,
+        /// The ending (`$D967`).
+        Ending = 6,
+    }
+}
+
+/// Sets every 4-colour set's first entry (the colour pixel 0 mirrors) of a palette shadow.
+pub fn set_first_colours(palette: &mut [u8; 32], colour: u8) {
+    for first in palette.iter_mut().step_by(4) {
+        *first = colour;
+    }
+}
+
+/// The room's orientation byte (`$DD`, room record byte 5).
+pub mod orientation {
+    /// The room is two pages wide or tall.
+    pub const TWO_PAGES: u8 = 0x80;
+    /// The room scrolls vertically.
+    pub const VERTICAL: u8 = 0x40;
+
+    /// Two pages across, scrolling sideways (`$DD` bits 7-6 = `10`).
+    #[must_use]
+    pub const fn horizontal_two_page(orientation: u8) -> bool {
+        orientation & (TWO_PAGES | VERTICAL) == TWO_PAGES
+    }
+
+    /// Two pages tall, scrolling vertically (`$DD` bits 7-6 = `11`).
+    #[must_use]
+    pub const fn vertical_two_page(orientation: u8) -> bool {
+        orientation & (TWO_PAGES | VERTICAL) == TWO_PAGES | VERTICAL
+    }
+}
+
+/// The bits of the player's pose (`$047F`).
+pub mod pose {
+    /// A turn is pending.
+    pub const TURNING: u8 = 0x80;
+    /// The shot pose.
+    pub const SHOT: u8 = 0x40;
+    /// The next frame resumes the motion saved in [`SAVED_MOTION`].
+    pub const RESUME: u8 = 0x20;
+    /// The landing animation plays (set on touching down).
+    pub const LANDING: u8 = 0x10;
+    /// The saved motion's byte, with [`RESUME`].
+    pub const SAVED_MOTION: u8 = 0x0F;
+    /// With [`LANDING`] and without [`RESUME`]: the long landing (after a jump, bank 4
+    /// `$96E0`) rather than the short one (`$96DD`); it shares the saved motion's bits.
+    pub const LONG_LANDING: u8 = 0x01;
+}
+
+/// The bits of the stage-script byte (`$0481`).
+pub mod stage_script {
+    /// The player's movement is frozen.
+    pub const FROZEN: u8 = 0x80;
+    /// The projection is skipped: the player is not drawn.
+    pub const HIDDEN: u8 = 0x40;
+    /// With [`FROZEN`]: the pads are kept rather than cleared.
+    pub const KEEP_PADS: u8 = 0x20;
+}
+
+/// The bits of the busy byte (`$AF`).
+pub mod busy {
+    /// A scripted sequence holds the game; the pause tests it.
+    pub const SCRIPTED: u8 = 0x80;
+}
+
+/// The bits of the attack byte (`$B8`).
+pub mod attack {
+    /// The weapon charges (every weapon but the bolt).
+    pub const CHARGEABLE: u8 = 0x80;
+    /// A charge is building (B held since the press).
+    pub const CHARGING: u8 = 0x40;
+    /// The charged attack is out.
+    pub const CHARGED: u8 = 0x20;
+}
+
+/// The bits of the power-up byte (`$0472`).
+pub mod power_up {
+    /// The power-up is on: invulnerable, the meter drains, weapon pickups are ignored.
+    pub const ON: u8 = 0x80;
+}
+
+/// The bits of the slide byte (`$0473`).
+pub mod sliding {
+    /// The player is sliding.
+    pub const ON: u8 = 0x80;
+}
+
+/// A request the sound driver takes from `$40-$43`: a song, a music command or an effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SoundId(u8);
+
+impl SoundId {
+    /// The request a slot's byte holds; 0 is an empty slot.
+    #[must_use]
+    pub const fn from_byte(byte: u8) -> Option<SoundId> {
+        if byte == 0 { None } else { Some(SoundId(byte)) }
+    }
+
+    /// The id the driver takes.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        self.0
+    }
+}
+
+/// The sound driver's ids. The four request slots (`$40` music, `$41` song, `$42` and `$43`
+/// sounds) share one id space; the slot belongs to the call site.
+pub mod sound {
+    /// A breakable block breaks.
+    pub const BLOCK_BREAKS: u8 = 0x20;
+    /// The player's attack kills an actor (`die`, `$AB13`).
+    pub const ACTOR_DIES: u8 = 0x21;
+    /// A landing or burst: a bomb, payload, debris, a shell, a splitter, the slide into a boss.
+    pub const IMPACT: u8 = 0x22;
+    /// A big blast: a boss's death, the stage 4 boss's flash, a boss shot's wall hit, the ending.
+    pub const EXPLOSION: u8 = 0x23;
+    /// The player jumps (standing or walking) and launches a slide.
+    pub const JUMP: u8 = 0x24;
+    /// The player is hurt.
+    pub const PLAYER_HURT: u8 = 0x25;
+    /// A pickup is taken.
+    pub const PICKUP: u8 = 0x26;
+    /// An enemy attacks: the ace ranger's part, the crate soldier's shot, the patrol walker's bite.
+    pub const ENEMY_FIRES: u8 = 0x28;
+    /// The three-way weapon's shot.
+    pub const THREE_WAY_SHOT: u8 = 0x29;
+    /// The three-way weapon's tether.
+    pub const THREE_WAY_TETHER: u8 = 0x2A;
+    /// An actor spawns (the waypoint platform, the stage 6 boss).
+    pub const SPAWN: u8 = 0x2B;
+    /// The wave weapon's spread.
+    pub const WAVE_SPREAD: u8 = 0x2C;
+    /// The plain shot.
+    pub const SHOT: u8 = 0x2D;
+    /// The homing charged attack (spawn, every 32nd frame), and `hop_thrower`'s throw.
+    pub const CHARGE: u8 = 0x2E;
+    /// The splitter weapon's shot.
+    pub const SPLITTER_SHOT: u8 = 0x2F;
+    /// The splitter weapon's orbiting piece.
+    pub const SPLITTER_ORBIT: u8 = 0x30;
+    /// The power-up is taken.
+    pub const POWER_UP: u8 = 0x31;
+    /// The player dies.
+    pub const PLAYER_DIES: u8 = 0x33;
+    /// A diver touches down: the hover diver on the floor, the hover plummeter's burst.
+    pub const DIVER_LANDS: u8 = 0x34;
+    /// A heavy landing: the stomper's and the stage 4 boss's, and `volley_thrower`'s volley.
+    pub const STOMP: u8 = 0x35;
+    /// The level starts (ACTORS' `$1C`: the cell painter).
+    pub const LEVEL_START: u8 = 0x37;
+    /// A shot lands on an actor.
+    pub const ACTOR_HIT: u8 = 0x38;
+    /// A password letter is entered.
+    pub const PASSWORD_LETTER: u8 = 0x39;
+    /// A menu choice is confirmed.
+    pub const CONFIRM: u8 = 0x3B;
+    /// A player's shot hits a shielded actor and bounces off.
+    pub const SHOT_DEFLECTED: u8 = 0x3C;
+    /// The drifting bomber's bomb, the scenery spawner's piece (the diving bomber's is `IMPACT`).
+    pub const DROP: u8 = 0x3D;
+    /// The tally counts a step.
+    pub const TALLY_TICK: u8 = 0x3E;
+    /// The three-way weapon's bubble.
+    pub const THREE_WAY_BUBBLE: u8 = 0x3F;
+    /// The death screen's tick.
+    pub const DEATH_TICK: u8 = 0x40;
+    /// The countdown's tick.
+    pub const COUNTDOWN_TICK: u8 = 0x41;
+    /// The wave weapon's shot.
+    pub const WAVE_SHOT: u8 = 0x43;
+    /// The password is rejected.
+    pub const PASSWORD_REJECTED: u8 = 0x45;
+    /// The countdown ends.
+    pub const COUNTDOWN_END: u8 = 0x46;
+    /// The super attack unleashes.
+    pub const SUPER_UNLEASH: u8 = 0x47;
+    /// The super attack's orbiter.
+    pub const SUPER_ORBITER: u8 = 0x48;
+
+    /// The music control written to `$40`.
+    pub mod music {
+        /// Silences the music.
+        pub const STOP: u8 = 0xFF;
+        /// Fades the music out (`start_fade`, `$81A2`).
+        pub const FADE_OUT: u8 = 0xFC;
+        /// Pauses the music.
+        pub const PAUSE: u8 = 0xFE;
+        /// Resumes the music.
+        pub const RESUME: u8 = 0xFD;
+    }
+
+    /// The songs, requested through `$41`.
+    pub mod song {
+        /// The title screen.
+        pub const TITLE: u8 = 0x01;
+        /// The attract demo.
+        pub const ATTRACT: u8 = 0x02;
+        /// The boss fight, started when the boss-entry sequence ends.
+        pub const BOSS_FIGHT: u8 = 0x03;
+        /// The game over screen.
+        pub const GAME_OVER: u8 = 0x08;
+        /// The boss's introduction card.
+        pub const BOSS_CARD: u8 = 0x0A;
+        /// The stage clear.
+        pub const STAGE_CLEAR: u8 = 0x0E;
+        /// The cutscene picture's song (`$600B`).
+        pub const BANNER: u8 = 0x0F;
+        /// The pause, for both pause and resume.
+        pub const PAUSE: u8 = 0x3A;
+        /// The next-area transition.
+        pub const NEXT_AREA: u8 = 0x44;
+    }
+}
+
+/// The bits of the hurt byte (`$047A`).
+pub mod hurt {
+    /// The hurt lockout: controls locked while the timers run.
+    pub const STUNNED: u8 = 0x80;
+    /// The invulnerability after the hurt (what the contacts and the damage tile test).
+    pub const INVULNERABLE: u8 = 0x40;
+}
+
+/// The bits of a projectile's flags (`$7F30`).
+pub mod shot_flags {
+    /// The shot is spent or harmless: the actor scan skips it.
+    pub const HARMLESS: u8 = 0x80;
+    /// The shot is not spent by a hit.
+    pub const PIERCING: u8 = 0x40;
+    /// The shot passes a shield instead of being deflected.
+    pub const PASSES_SHIELDS: u8 = 0x20;
+    /// Only drawn: harmless, never spent, past shields (a deflected or spent piece).
+    pub const INERT: u8 = HARMLESS | PIERCING | PASSES_SHIELDS;
+    /// Never spent by a hit and passes shields (a charged attack's piece).
+    pub const UNSTOPPABLE: u8 = PIERCING | PASSES_SHIELDS;
+}
+
+/// The bits of a projectile's state (`$7C80`).
+pub mod shot_state {
+    /// The shot is spent: its end animation plays.
+    pub const SPENT: u8 = 0x80;
+    /// The shot falls under gravity until its timer runs out.
+    pub const FALLING: u8 = 0x40;
+}
+
+/// A homing shot's target byte (`$7F40`).
+pub mod homing_target {
+    /// Set when the shot has no target slot.
+    pub const NONE_BIT: u8 = 0x80;
+    /// What the game writes for no target.
+    pub const NONE: u8 = 0xFF;
+}
+
+/// The flags of [`Player::pose_step`] (`$047D`) during the slide off a ledge.
+pub mod slide_ledge {
+    /// The ledge probe has run.
+    pub const PROBED: u8 = 0x80;
+    /// The probe found a floor below: he stands up on the ledge instead of falling.
+    pub const FLOOR_BELOW: u8 = 0x40;
+}
+
+/// The bits of [`Player::death_flags`] (`$0465`).
+pub mod death {
+    /// He dies with no overlay (fell below the screen): the dying overlay is skipped.
+    pub const NO_OVERLAY: u8 = 0x80;
+    /// The burst pose has begun; written (`ORA #1`) but never read.
+    pub const BURST: u8 = 0x01;
+}
+
+/// The player as actors see him.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Player {
+    /// Level x, 1/16 px (`$0460:$0461`).
+    pub x: u16,
+    /// Level y, 1/16 px (`$0462:$0463`).
+    pub y: u16,
+    /// Screen x (`$B0`).
+    pub screen_x: u8,
+    /// Screen y (`$B1`).
+    pub screen_y: u8,
+    /// Energy (`$0478`).
+    pub energy: u8,
+    /// The power-up byte (`$0472`): bit 7 the power-up (the Super weapon) is on.
+    pub power_up: u8,
+    /// The slide byte (`$0473`): bit 7 sliding; the contacts read it as "the player hits actors".
+    pub sliding: u8,
+    /// The hurt byte (`$047A`): bit 7 the hurt lockout, bit 6 the invulnerability after it.
+    pub hurt: u8,
+    /// Contact reach below him (`$047B`).
+    pub reach_y: u8,
+    /// X velocity (`$046C:$046D`).
+    pub vx: i16,
+    /// What he is doing (`$046E`).
+    pub motion: Motion,
+    /// Batman's sprite attribute byte (`$046F`): bit 6 faces left; the palette bits beside
+    /// it, which his palette changes set.
+    pub facing: u8,
+    /// Frames of hurt invulnerability (`$0479`).
+    pub hurt_timer: u8,
+    /// Player pose/action flags (`$047F`): bit 7 a turn is pending, bit 6 the shot
+    /// pose, bit 5 resume a saved motion, bits 0-3 the saved motion.
+    pub pose: u8,
+    /// Y velocity, 1/16 px a frame (`$0469:$046A`).
+    pub vy: i16,
+    /// The stage-script byte (`$0481`): bit 7 freezes the player and clears the pads
+    /// unless bit 5 keeps them, bit 6 skips the projection (docs/ACTORS.md §7a).
+    pub stage_script: u8,
+    /// The death counter (`$0480`), counting motion 7's flash and burst; cleared by
+    /// the death (`$D274`).
+    pub death_timer: u8,
+    /// Walk animation state (`$0466`).
+    pub anim: u8,
+    /// The platform's carry x velocity, 1/16 px (`$0467:$0468`).
+    pub carrier: i16,
+    /// Masks the pad's walk bits (`$0470`).
+    pub walk_gate: Buttons,
+    /// The walk ramp timer (`$047C`).
+    pub walk_timer: u8,
+    /// The per-pose step (`$047D`): a counter, and during the slide off a ledge the
+    /// [`slide_ledge`] flags.
+    pub pose_step: u8,
+    /// The per-pose frame counter (`$047E`), cleared with the air state.
+    pub pose_timer: u8,
+    /// The probe's result flags (`$A8`), zeroed each frame and set from `$9F` whole; only
+    /// [`DAMAGED`](super::engine::probe_flags::DAMAGED) is read: spike damage lands even
+    /// through invulnerability.
+    pub hit: u8,
+    /// `$B9`: 0x80 set by the movement's tail, cleared by the draw; the `$CAA9` and
+    /// `$CC6D` class handlers skip when bit 7 is set.
+    pub moved: u8,
+    /// The draw's hit-flash counter (`$0464`).
+    pub flash_timer: u8,
+    /// The death flags (`$0465`), the [`death`] bits; the game reads them with `BIT`.
+    pub death_flags: u8,
+    /// The attack (shoot) frame counter (`$046B`).
+    pub attack_timer: u8,
+    /// The B-held charge counter (`$B7`); at `$30` the charge is ready.
+    pub charge_timer: u8,
+    /// The boss room entry's step (`$0488`), an [`EntryStep`] byte.
+    pub entry_step: u8,
+    /// The entry step's frame counter (`$0489`).
+    pub entry_timer: u8,
+    /// The tally the entry counts up to `$B2:$B3` (`$048A:$048B`, little-endian).
+    pub tally: u16,
+    /// The tally's cycling last digits (`$048F`).
+    pub tally_digit: u8,
+    /// The sprite bank `$E4` the entry keeps (`$0487`).
+    pub entry_chr: u8,
+}
+
+impl Player {
+    /// Is he facing left (`$046F` bit 6)?
+    #[must_use]
+    pub fn faces_left(&self) -> bool {
+        self.facing & attr::FLIP_X != 0
+    }
+
+    /// Is his energy negative (`$0478` below zero): dead, or dying once the stun ends?
+    #[must_use]
+    pub fn out_of_energy(&self) -> bool {
+        self.energy.cast_signed() < 0
+    }
+}
+
+/// Everything a handler reads and does not own.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct World {
+    /// Camera x, 1/16 px (`$CC:$CD`).
+    pub camera_x: u16,
+    /// Camera y, 1/16 px (`$CE:$CF`).
+    pub camera_y: u16,
+    /// The visible area.
+    pub view: View,
+    /// Scroll orientation flags (`$DD`).
+    pub orientation: u8,
+    /// This frame's random bytes (`$F9`, `$FA`).
+    pub rng: [u8; 2],
+    /// The odd-frame flag (`$F7` bit 7).
+    pub frame_odd: bool,
+    /// The NMI frame counter (`$F1`).
+    pub frame: u8,
+    /// The area (`$0400`).
+    pub area: u8,
+    /// The room within the area (`$0402`).
+    pub room: u8,
+    /// Joypad 1 held buttons (`$F6`): bit 0 right, 1 left, 2 down, 3 up.
+    pub pad: Buttons,
+    /// Joypad 1 buttons newly pressed this frame, the edges of [`World::pad`] (`$F5`).
+    pub pressed: Buttons,
+    /// The actor spawn distance from the camera (`$D7`), set outside the actors;
+    /// type `$12` reads it.
+    pub spawn_distance: u8,
+}
+
+/// The game state handlers read and change outside the actor slots.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Effects {
+    /// Sound requests (`$42`, `$43`).
+    pub sound: [u8; 2],
+    /// Music control (`$40`), the `sound::music` commands.
+    pub music: u8,
+    /// Song request (`$41`).
+    pub song: u8,
+    /// The player, as earlier handlers this frame left him.
+    pub player: Player,
+    /// The selected weapon (`$0476`).
+    pub weapon: Weapon,
+    /// Lives left after this one (`$0482`).
+    pub lives: u8,
+    /// Second meter (`$0477`).
+    pub meter: u8,
+    /// The weapon kept across the level end and the power-up (`$0483`).
+    pub stored_weapon: Weapon,
+    /// Screen transition selector (`$BA`).
+    pub transition: Transition,
+    /// The transition's parameter (`$BB`).
+    pub transition_arg: u8,
+    /// `$AF` bit 7: a scripted sequence (death, boss entry, level end, super attack)
+    /// holds the game; it blocks the pause.
+    pub busy: u8,
+    /// The player's attack flags (`$B8`): bit 7 the weapon charges, bit 6 a charge is
+    /// building, bit 5 the charged attack is out.
+    pub attack: u8,
+    /// The boss's hit points (`$A9:$AA`), set by bank 13 `$BE12`.
+    pub boss_hp: u16,
+    /// The boss's hit pool (`$B2:$B3`), drained by the boss contact and counted up
+    /// beside the hit points by the entry.
+    pub boss_pool: [u8; 2],
+    /// The scroll-lock flags (`$C2`): bits lock the camera's left/right/up/down steps,
+    /// `$FF` = none (bank 13 `$B927`).
+    pub scroll_lock: u8,
+    /// Bit 7 hides the HUD (`$0404`).
+    pub hud: u8,
+    /// `$0475`, written 0 by type `$50`; nothing in the port reads it.
+    pub misc_flag: u8,
+    /// The pending banner cutscene (`$0406`), set by type `$54` (`$A0`) or `$50` (`$0E`).
+    pub cutscene_id: u8,
+    /// The vertical scroll (`$D5`): the raster split's top band, and type `$58` reads
+    /// it as its probe offset.
+    pub scroll_y: u8,
+    /// The stage-end script (`$0408-$040C`); type `$0E` clears its phase.
+    pub stage_end: super::stage::StageEnd,
+    /// The stage arguments (`$040E`, `$040F`): a sprite id and the boss id (also the
+    /// player motion kept across the power-up).
+    pub stage_args: [u8; 2],
+    /// The palette the NMI uploads (`$04E0-$04FF`).
+    pub palette: [u8; 32],
+    /// `$B5`, bit 7 set when a handler changes the palette, cleared once the palette is queued.
+    pub palette_dirty: u8,
+    /// Which of the four CHR shadows animate, by bit (`$0401`); type `$84` clears it.
+    pub animated: u8,
+    /// The player's projectiles (the `$7BD0` slots).
+    pub projectiles: [Projectile; 16],
+    /// The area name's metasprite the pause builds (`$7FD0-$7FE1`).
+    pub pause_name: [u8; 18],
+    /// `$7FF1`, zeroed with the pause's name.
+    pub pause_aux: u8,
+    /// The level's terrain, which collision reads and level edits write.
+    pub level: Level,
+    /// The nametable updates queued for the NMI.
+    pub vram: Vram,
+}
+
+/// The nametable update queue (`$0100-$0180`, filled downward) and the edits' state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Vram {
+    /// The queue pointer (`$0181`): the next free byte, `$7F` when empty.
+    pub top: u8,
+    /// Updates queued since the queue was last drained, oldest first.
+    pub writes: Vec<VramWrite>,
+    /// Both nametables' attribute tables as last queued (`$7530-$75AF`).
+    pub attributes: [u8; 128],
+    /// The nametable address at the camera's top row on vertical levels (`$CA:$CB`).
+    pub origin: u16,
+    /// Writes made straight to the PPU outside the queue, with rendering off.
+    pub direct: Vec<VramWrite>,
+}
+
+/// One queued run of PPU writes (`$C0C6`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VramWrite {
+    /// PPU address.
+    pub addr: u16,
+    /// The entry's flags byte (`$32`).
+    pub flags: u8,
+    /// The bytes written from `addr` on.
+    pub bytes: Vec<u8>,
+}
+
+/// The PPU's nametable RAM (two physical tables) and palette RAM.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ppu {
+    /// `[0]` is physical table A, `[1]` table B.
+    pub nametables: [[u8; 1024]; 2],
+    /// Palette RAM, `$3F00-$3F1F`.
+    pub palette: [u8; 32],
+}
+
+impl Ppu {
+    /// A blank PPU.
+    #[must_use]
+    pub fn new() -> Ppu {
+        Ppu {
+            nametables: [[0; 1024]; 2],
+            palette: [0x0F; 32],
+        }
+    }
+
+    /// Applies queued writes the way the NMI flushes them (`$C084`): flags bit 2
+    /// steps the address by 32, and `mirroring` (`$EC`, the FME-7 command `$C`)
+    /// maps the four logical tables onto the two physical ones.
+    pub fn apply(&mut self, writes: &[VramWrite], mirroring: Mirroring) {
+        for write in writes {
+            let step = if write.flags & 4 != 0 { 32 } else { 1 };
+            let mut addr = write.addr;
+            for &byte in &write.bytes {
+                self.poke(addr, byte, mirroring);
+                addr = addr.wrapping_add(step);
+            }
+        }
+    }
+
+    fn poke(&mut self, addr: u16, byte: u8, mirroring: Mirroring) {
+        let addr = addr & 0x3FFF;
+        if addr >= PALETTE_ADDRESS {
+            let mut at = usize::from(addr & 0x1F);
+            if at & 0x13 == 0x10 {
+                at &= 0x0F;
+            }
+            self.palette[at] = byte;
+        } else if addr >= ppu::nametable(0) {
+            let table = usize::from((addr >> 10) & 3);
+            let physical = mirroring.physical(table);
+            self.nametables[physical][usize::from(addr & 0x3FF)] = byte;
+        }
+    }
+}
+
+impl Default for Ppu {
+    fn default() -> Self {
+        Ppu::new()
+    }
+}
+
+impl Default for Vram {
+    fn default() -> Self {
+        Vram {
+            top: 0x7F,
+            writes: Vec::new(),
+            attributes: [0; 128],
+            origin: 0,
+            direct: Vec::new(),
+        }
+    }
+}
+
+/// The PPU address of the palette.
+const PALETTE_ADDRESS: u16 = 0x3F00;
+
+impl Vram {
+    /// Queues `bytes` for the palette (`$3F00`).
+    pub fn push_palette(&mut self, bytes: &[u8]) {
+        self.push(PALETTE_ADDRESS, 0, bytes);
+    }
+
+    /// Queues `bytes` for PPU `addr` (`$C0C6`, data from memory).
+    pub fn push(&mut self, addr: u16, flags: u8, bytes: &[u8]) {
+        let len = u8::try_from(bytes.len()).expect("a queue entry fits a byte count");
+        self.top = self.top.wrapping_sub(len).wrapping_sub(4);
+        self.writes.push(VramWrite {
+            addr,
+            flags,
+            bytes: bytes.to_vec(),
+        });
+    }
+}
+
+/// One of the player's projectiles, as the actor contact scan sees it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Projectile {
+    /// Type, 0 when free (`$7BD0`).
+    pub kind: u8,
+    /// Screen x (`$7B80`).
+    pub screen_x: u8,
+    /// Screen y (`$7B90`).
+    pub screen_y: u8,
+    /// Flags (`$7F30`), the bits of [`shot_flags`].
+    pub flags: u8,
+    /// Damage it deals (`$7F20`).
+    pub damage: u8,
+    /// X velocity (`$7D00:$7D10`).
+    pub vx: i16,
+    /// Y velocity (`$7D20:$7EB0`).
+    pub vy: i16,
+    /// A per-slot state byte (`$7C80`), the bits of [`shot_state`].
+    pub state: u8,
+    /// A per-slot countdown (`$7CB0`): the wall-bounce timer and a spent shot's or
+    /// explosion's frames.
+    pub timer: u8,
+    /// The draw's attribute (`$7C20`), read into `Work::attr`.
+    pub attr: u8,
+    /// A per-slot parameter by weapon (`$7F40`): [`Projectile::target`], [`Projectile::orbit`].
+    pub param: u8,
+    /// A charged attack's part, spread index or frame count, or the lit bit (`$7F50`).
+    pub part: u8,
+    /// A charged attack's frame counter, a slot, or the lit or vertical bit (`$7F60`).
+    pub part_timer: u8,
+    /// The level x in 1/16 px: high byte `$7BB0` (also slots 16-23's `$7BA0`), low `$7BC0`.
+    pub x: u16,
+    /// The level y in 1/16 px: the high byte is `$7C60`, the low `$7C70`.
+    pub y: u16,
+}
+
+/// A circling part's step round the homing charge (`$7F40`), one of 32.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Orbit(u8);
+
+impl Orbit {
+    /// The steps in one orbit.
+    const STEPS: u8 = 0x20;
+
+    /// The byte the game keeps.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        self.0
+    }
+
+    /// The step a byte holds.
+    #[must_use]
+    pub const fn from_byte(byte: u8) -> Orbit {
+        Orbit(byte)
+    }
+
+    /// The index into the circle offsets (`$87FC`).
+    #[must_use]
+    pub fn offset(self) -> usize {
+        usize::from(self.0 & 0x3F)
+    }
+
+    /// One step on, back to 0 past the last.
+    #[must_use]
+    pub const fn next(self) -> Orbit {
+        let next = self.0.wrapping_add(1);
+        Orbit(if next >= Orbit::STEPS { 0 } else { next })
+    }
+}
+
+/// The projectile arrays, 16 wide each.
+pub const PROJECTILE_ARRAYS: [u16; 19] = [
+    0x7BD0, 0x7B80, 0x7B90, 0x7F30, 0x7F20, 0x7D00, 0x7D10, 0x7D20, 0x7EB0, 0x7C80, 0x7CB0, 0x7C20,
+    0x7F40, 0x7F50, 0x7F60, 0x7BB0, 0x7BC0, 0x7C60, 0x7C70,
+];
+
+impl Projectile {
+    /// Bit 7 of [`Projectile::kind`]: marks a charged attack's projectile.
+    pub const CHARGED: u8 = 0x80;
+    /// Bit 7 of [`Projectile::timer`] while in flight: fired upward.
+    pub const AIMED_UP: u8 = 0x80;
+
+    /// Whether this projectile slot is empty (`kind == EMPTY`).
+    #[must_use]
+    pub const fn is_free(&self) -> bool {
+        self.kind == super::slots::EMPTY
+    }
+
+    /// Frees this projectile slot (`kind = EMPTY`).
+    pub const fn free(&mut self) {
+        self.kind = super::slots::EMPTY;
+    }
+
+    /// Whether this projectile belongs to a charged attack (`kind & CHARGED != 0`).
+    #[must_use]
+    pub const fn is_charged(&self) -> bool {
+        self.kind & Self::CHARGED != 0
+    }
+
+    /// Whether this in-flight projectile was fired upward (`timer & AIMED_UP != 0`).
+    #[must_use]
+    pub const fn is_aimed_up(&self) -> bool {
+        self.timer & Self::AIMED_UP != 0
+    }
+
+    /// The timer down by one; frees the slot (true) when that sets bit 7.
+    pub fn count_down(&mut self) -> bool {
+        self.timer.tick_down();
+        if self.timer.ran_out() {
+            self.free();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// The homing shot's target slot (`$7F40`), none while [`homing_target::NONE_BIT`] is set.
+    #[must_use]
+    pub const fn target(&self) -> Option<u8> {
+        if self.param & homing_target::NONE_BIT == 0 {
+            Some(self.param)
+        } else {
+            None
+        }
+    }
+
+    /// Sets the homing shot's target slot, [`homing_target::NONE`] for none.
+    pub fn set_target(&mut self, target: Option<u8>) {
+        self.param = target.unwrap_or(homing_target::NONE);
+    }
+
+    /// A circling part's step round the homing charge (`$7F40`).
+    #[must_use]
+    pub const fn orbit(&self) -> Orbit {
+        Orbit::from_byte(self.param)
+    }
+
+    /// Sets a circling part's step round the homing charge.
+    pub fn set_orbit(&mut self, orbit: Orbit) {
+        self.param = orbit.byte();
+    }
+
+    /// The homing charge's three circling parts' slots, nibbles of `$7F50` and `$7F60`.
+    #[must_use]
+    pub const fn circlers(&self) -> [u8; 3] {
+        [self.part >> 4, self.part & 0x0F, self.part_timer & 0x0F]
+    }
+
+    /// Keeps the homing charge's three circling parts' slots (each below 16).
+    pub fn set_circlers(&mut self, [first, second, third]: [u8; 3]) {
+        self.part = first << 4 | second;
+        self.part_timer = third;
+    }
+
+    /// The projectile's byte in `array` (one of [`PROJECTILE_ARRAYS`]).
+    #[must_use]
+    pub fn byte(&self, array: u16) -> u8 {
+        let across = self.vx.to_be_bytes();
+        let down = self.vy.to_be_bytes();
+        match array {
+            0x7BD0 => self.kind,
+            0x7B80 => self.screen_x,
+            0x7B90 => self.screen_y,
+            0x7F30 => self.flags,
+            0x7F20 => self.damage,
+            0x7D00 => across[0],
+            0x7D10 => across[1],
+            0x7D20 => down[0],
+            0x7EB0 => down[1],
+            0x7C80 => self.state,
+            0x7CB0 => self.timer,
+            0x7C20 => self.attr,
+            0x7F40 => self.param,
+            0x7F50 => self.part,
+            0x7F60 => self.part_timer,
+            0x7BB0 => self.x.to_be_bytes()[0],
+            0x7BC0 => self.x.to_be_bytes()[1],
+            0x7C60 => self.y.to_be_bytes()[0],
+            0x7C70 => self.y.to_be_bytes()[1],
+            other => panic!("${other:04X} is not a weapon array"),
+        }
+    }
+
+    /// Writes the weapon's byte in `array`.
+    pub fn set_byte(&mut self, array: u16, value: u8) {
+        let across = self.vx.to_be_bytes();
+        let down = self.vy.to_be_bytes();
+        match array {
+            0x7BD0 => self.kind = value,
+            0x7B80 => self.screen_x = value,
+            0x7B90 => self.screen_y = value,
+            0x7F30 => self.flags = value,
+            0x7F20 => self.damage = value,
+            0x7D00 => self.vx = i16::from_be_bytes([value, across[1]]),
+            0x7D10 => self.vx = i16::from_be_bytes([across[0], value]),
+            0x7D20 => self.vy = i16::from_be_bytes([value, down[1]]),
+            0x7EB0 => self.vy = i16::from_be_bytes([down[0], value]),
+            0x7C80 => self.state = value,
+            0x7CB0 => self.timer = value,
+            0x7C20 => self.attr = value,
+            0x7F40 => self.param = value,
+            0x7F50 => self.part = value,
+            0x7F60 => self.part_timer = value,
+            0x7BB0 => self.x = u16::from_be_bytes([value, self.x.to_be_bytes()[1]]),
+            0x7BC0 => self.x = u16::from_be_bytes([self.x.to_be_bytes()[0], value]),
+            0x7C60 => self.y = u16::from_be_bytes([value, self.y.to_be_bytes()[1]]),
+            0x7C70 => self.y = u16::from_be_bytes([self.y.to_be_bytes()[0], value]),
+            other => panic!("${other:04X} is not a weapon array"),
+        }
+    }
+}
+
+/// The game's random bytes (`$F9/$FA`), advanced once per frame by the app.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Rng(pub [u8; 2]);
+
+impl Rng {
+    /// One step of the game's generator (bank 14 `$C21C`).
+    pub fn next_frame(&mut self) {
+        let [hi, lo] = self.0;
+        let feedback = (hi ^ lo) & 2 != 0;
+        self.0 = [
+            (u8::from(feedback) << 7) | (hi >> 1),
+            ((hi & 1) << 7) | (lo >> 1),
+        ];
+    }
+}
+
+/// What a handler may touch besides its own slot.
+pub struct Cx<'a> {
+    /// The PRG image and its tables.
+    pub prg: &'a crate::prg::Prg,
+    /// Read-only state.
+    pub world: &'a World,
+    /// The other slots; the running actor's own slot holds only its `kind` meanwhile.
+    pub slots: &'a mut Slots,
+    /// The live schedule (re-armed on despawn).
+    pub schedule: &'a mut Schedule,
+    /// Effects outside the slots.
+    pub effects: &'a mut Effects,
+    /// The camera's scroll state; a handler that shakes the screen writes `scroll_x` (`$FD`).
+    pub scroll: &'a mut Scroll,
+    /// The OAM page being built.
+    pub oam: &'a mut OamBuilder,
+}
+
+impl Cx<'_> {
+    /// The byte at a slot-array address, wherever the game's layout puts it.
+    #[must_use]
+    pub fn byte(&self, addr: u16) -> u8 {
+        super::slots::read(self.slots, &self.effects.projectiles, addr)
+    }
+
+    /// Writes the byte at a slot-array address.
+    pub fn set_byte(&mut self, addr: u16, value: u8) {
+        super::slots::write(self.slots, &mut self.effects.projectiles, addr, value);
+    }
+
+    /// Field `field` of slot `slot` (0-31), wherever the game's layout puts it.
+    #[must_use]
+    pub fn get(&self, slot: usize, field: super::slots::Field) -> u8 {
+        super::slots::get(self.slots, &self.effects.projectiles, slot, field)
+    }
+
+    /// Writes field `field` of slot `slot` (0-31).
+    pub fn set(&mut self, slot: usize, field: super::slots::Field, value: u8) {
+        super::slots::set(
+            self.slots,
+            &mut self.effects.projectiles,
+            slot,
+            field,
+            value,
+        );
+    }
+}
+
+#[cfg(test)]
+mod layout {
+    use super::{
+        Effects, Level, Motion, PROJECTILE_ARRAYS, Player, Projectile, Schedule, View, Vram,
+        VramWrite, Weapon, World,
+    };
+    use crate::sim::button::Buttons;
+
+    fn word(ram: &[u8; 2048], hi: usize) -> u16 {
+        u16::from_be_bytes([ram[hi], ram[hi + 1]])
+    }
+
+    impl Player {
+        pub(crate) fn lift(ram: &[u8; 2048]) -> Player {
+            Player {
+                x: word(ram, 0x460),
+                y: word(ram, 0x462),
+                screen_x: ram[0xB0],
+                screen_y: ram[0xB1],
+                energy: ram[0x478],
+                power_up: ram[0x472],
+                sliding: ram[0x473],
+                hurt: ram[0x47A],
+                reach_y: ram[0x47B],
+                vx: word(ram, 0x46C).cast_signed(),
+                motion: Motion::from_byte(ram[0x46E]).expect("a motion 0-11 at $046E"),
+                facing: ram[0x46F],
+                hurt_timer: ram[0x479],
+                pose: ram[0x47F],
+                vy: word(ram, 0x469).cast_signed(),
+                stage_script: ram[0x481],
+                death_timer: ram[0x480],
+                anim: ram[0x466],
+                carrier: word(ram, 0x467).cast_signed(),
+                walk_gate: Buttons::from_bits(ram[0x470]),
+                walk_timer: ram[0x47C],
+                pose_step: ram[0x47D],
+                pose_timer: ram[0x47E],
+                hit: ram[0xA8],
+                moved: ram[0xB9],
+                flash_timer: ram[0x464],
+                death_flags: ram[0x465],
+                attack_timer: ram[0x46B],
+                charge_timer: ram[0xB7],
+                entry_step: ram[0x488],
+                entry_timer: ram[0x489],
+                tally: u16::from_le_bytes([ram[0x48A], ram[0x48B]]),
+                tally_digit: ram[0x48F],
+                entry_chr: ram[0x487],
+            }
+        }
+
+        pub(crate) fn project(&self, ram: &mut [u8; 2048]) {
+            ram[0x460..0x462].copy_from_slice(&self.x.to_be_bytes());
+            ram[0x462..0x464].copy_from_slice(&self.y.to_be_bytes());
+            ram[0xB0] = self.screen_x;
+            ram[0xB1] = self.screen_y;
+            ram[0x478] = self.energy;
+            ram[0x472] = self.power_up;
+            ram[0x473] = self.sliding;
+            ram[0x47A] = self.hurt;
+            ram[0x47B] = self.reach_y;
+            ram[0x46C..0x46E].copy_from_slice(&self.vx.to_be_bytes());
+            ram[0x46E] = self.motion.byte();
+            ram[0x46F] = self.facing;
+            ram[0x479] = self.hurt_timer;
+            ram[0x47F] = self.pose;
+            ram[0x469..0x46B].copy_from_slice(&self.vy.to_be_bytes());
+            ram[0x481] = self.stage_script;
+            ram[0x480] = self.death_timer;
+            ram[0x466] = self.anim;
+            ram[0x467..0x469].copy_from_slice(&self.carrier.to_be_bytes());
+            ram[0x470] = self.walk_gate.bits();
+            ram[0x47C] = self.walk_timer;
+            ram[0x47D] = self.pose_step;
+            ram[0x47E] = self.pose_timer;
+            ram[0xA8] = self.hit;
+            ram[0xB9] = self.moved;
+            ram[0x464] = self.flash_timer;
+            ram[0x465] = self.death_flags;
+            ram[0x46B] = self.attack_timer;
+            ram[0xB7] = self.charge_timer;
+            ram[0x488] = self.entry_step;
+            ram[0x489] = self.entry_timer;
+            ram[0x48A..0x48C].copy_from_slice(&self.tally.to_le_bytes());
+            ram[0x48F] = self.tally_digit;
+            ram[0x487] = self.entry_chr;
+        }
+    }
+
+    impl World {
+        /// A world with the camera at `camera_x` and everything else zero.
+        pub(crate) fn at(camera_x: u16) -> World {
+            World {
+                camera_x,
+                camera_y: 0,
+                view: View {
+                    width: 256 * 16,
+                    height: 240 * 16,
+                },
+                orientation: 0,
+                rng: [0; 2],
+                frame_odd: false,
+                frame: 0,
+                area: 0,
+                room: 0,
+                pad: Buttons::NONE,
+                pressed: Buttons::NONE,
+                spawn_distance: 0,
+            }
+        }
+
+        pub(crate) fn project(&self, ram: &mut [u8; 2048]) {
+            ram[0xCC..0xCE].copy_from_slice(&self.camera_x.to_be_bytes());
+            ram[0xCE..0xD0].copy_from_slice(&self.camera_y.to_be_bytes());
+            ram[0xDD] = self.orientation;
+            ram[0x400] = self.area;
+            ram[0x402] = self.room;
+            [ram[0xF9], ram[0xFA]] = self.rng;
+            ram[0xF7] = (ram[0xF7] & 0x7F) | (u8::from(self.frame_odd) << 7);
+            ram[0xF1] = self.frame;
+            ram[0xF6] = self.pad.bits();
+            ram[0xF5] = self.pressed.bits();
+            ram[0xD7] = self.spawn_distance;
+        }
+
+        pub(crate) fn lift(ram: &[u8; 2048]) -> World {
+            let camera_x = word(ram, 0xCC);
+            let camera_y = word(ram, 0xCE);
+            World {
+                camera_x,
+                camera_y,
+                view: View {
+                    width: 256 * 16,
+                    height: 240 * 16,
+                },
+                orientation: ram[0xDD],
+                rng: [ram[0xF9], ram[0xFA]],
+                frame_odd: ram[0xF7] & 0x80 != 0,
+                frame: ram[0xF1],
+                area: ram[0x400],
+                room: ram[0x402],
+                pad: Buttons::from_bits(ram[0xF6]),
+                pressed: Buttons::from_bits(ram[0xF5]),
+                spawn_distance: ram[0xD7],
+            }
+        }
+    }
+
+    impl Effects {
+        pub(crate) fn lift(ram: &[u8; 2048], wram: &[u8; 8192]) -> Effects {
+            let projectiles = std::array::from_fn(|i| {
+                let mut projectile = Projectile::default();
+                for array in PROJECTILE_ARRAYS {
+                    projectile.set_byte(array, wram[usize::from(array - 0x6000) + i]);
+                }
+                projectile
+            });
+            Effects {
+                sound: [ram[0x42], ram[0x43]],
+                music: ram[0x40],
+                song: ram[0x41],
+                player: Player::lift(ram),
+                weapon: Weapon::from_byte(ram[0x476]).expect("a weapon 0-6 at $0476"),
+                lives: ram[0x482],
+                meter: ram[0x477],
+                stored_weapon: Weapon::from_byte(ram[0x483]).expect("a weapon 0-6 at $0483"),
+                transition: super::Transition::from_byte(ram[0xBA])
+                    .expect("a transition 0-6 at $BA"),
+                transition_arg: ram[0xBB],
+                busy: ram[0xAF],
+                attack: ram[0xB8],
+                boss_hp: word(ram, 0xA9),
+                boss_pool: [ram[0xB2], ram[0xB3]],
+                scroll_lock: ram[0xC2],
+                hud: ram[0x404],
+                cutscene_id: ram[0x406],
+                misc_flag: ram[0x475],
+                scroll_y: ram[0xD5],
+                stage_end: super::super::stage::StageEnd {
+                    phase: ram[0x408],
+                    timer: ram[0x409],
+                    x: ram[0x40A],
+                    y: ram[0x40B],
+                    fade: ram[0x40C],
+                },
+                stage_args: [ram[0x40E], ram[0x40F]],
+                palette: ram[0x4E0..0x500].try_into().expect("32 bytes"),
+                palette_dirty: ram[0xB5],
+                animated: ram[0x401],
+                projectiles,
+                pause_name: wram[0x1FD0..0x1FE2].try_into().expect("18 bytes"),
+                pause_aux: wram[0x1FF1],
+                level: Level {
+                    map: crate::map::Map::from_bytes(wram[..0x1000].try_into().expect("the map")),
+                    corners: std::array::from_fn(|id| {
+                        [0x1000, 0x10D0, 0x11A0, 0x1270].map(|table| wram[table + id])
+                    }),
+                    classes: wram[0x1340..0x1410].try_into().expect("the classes"),
+                    attributes: wram[0x1600..0x1A00].try_into().expect("the attributes"),
+                    unread: Level::pack_unread(&wram[0x1000..0x2000]),
+                },
+                vram: Vram {
+                    top: ram[0x181],
+                    writes: Vram::lift_writes(ram),
+                    attributes: wram[0x1530..0x15B0].try_into().expect("the attributes"),
+                    origin: word(ram, 0xCA),
+                    direct: Vec::new(),
+                },
+            }
+        }
+
+        pub(crate) fn project(&self, ram: &mut [u8; 2048], wram: &mut [u8; 8192]) {
+            [ram[0x42], ram[0x43]] = self.sound;
+            ram[0x40] = self.music;
+            ram[0x41] = self.song;
+            self.player.project(ram);
+            ram[0x476] = self.weapon.byte();
+            ram[0x482] = self.lives;
+            ram[0x477] = self.meter;
+            ram[0x483] = self.stored_weapon.byte();
+            ram[0xBA] = self.transition.byte();
+            ram[0xBB] = self.transition_arg;
+            ram[0xAF] = self.busy;
+            ram[0xB8] = self.attack;
+            ram[0xA9..0xAB].copy_from_slice(&self.boss_hp.to_be_bytes());
+            [ram[0xB2], ram[0xB3]] = self.boss_pool;
+            ram[0xC2] = self.scroll_lock;
+            ram[0x404] = self.hud;
+            ram[0x406] = self.cutscene_id;
+            ram[0x475] = self.misc_flag;
+            ram[0xD5] = self.scroll_y;
+            let end = &self.stage_end;
+            ram[0x408..0x40D].copy_from_slice(&[end.phase, end.timer, end.x, end.y, end.fade]);
+            [ram[0x40E], ram[0x40F]] = self.stage_args;
+            ram[0x4E0..0x500].copy_from_slice(&self.palette);
+            ram[0xB5] = self.palette_dirty;
+            ram[0x401] = self.animated;
+            wram[..0x1000].copy_from_slice(self.level.map.as_bytes());
+            for (id, corners) in self.level.corners.iter().enumerate() {
+                for (table, &corner) in [0x1000, 0x10D0, 0x11A0, 0x1270].iter().zip(corners) {
+                    wram[table + id] = corner;
+                }
+            }
+            wram[0x1340..0x1410].copy_from_slice(&self.level.classes);
+            wram[0x1600..0x1A00].copy_from_slice(&self.level.attributes);
+            self.level.unpack_unread(&mut wram[0x1000..]);
+            wram[0x1530..0x15B0].copy_from_slice(&self.vram.attributes);
+            wram[0x1FD0..0x1FE2].copy_from_slice(&self.pause_name);
+            wram[0x1FF1] = self.pause_aux;
+            self.vram.project(ram);
+            for (i, projectile) in self.projectiles.iter().enumerate() {
+                for array in PROJECTILE_ARRAYS {
+                    wram[usize::from(array - 0x6000) + i] = projectile.byte(array);
+                }
+            }
+        }
+    }
+
+    impl Vram {
+        /// The queued entries from `$0181` up to `$017F`, oldest first.
+        fn lift_writes(ram: &[u8; 2048]) -> Vec<VramWrite> {
+            let mut writes = Vec::new();
+            let mut at = usize::from(ram[0x181]) + 1;
+            while at + 4 <= 0x80 {
+                let entry = &ram[0x100 + at..0x180];
+                let count = usize::from(entry[3]);
+                let Some(bytes) = entry.get(4..4 + count) else {
+                    break;
+                };
+                writes.push(VramWrite {
+                    addr: u16::from_be_bytes([entry[1], entry[2]]),
+                    flags: entry[0],
+                    bytes: bytes.to_vec(),
+                });
+                at += 4 + count;
+            }
+            writes.reverse();
+            writes
+        }
+
+        fn project(&self, ram: &mut [u8; 2048]) {
+            let queued: usize = self.writes.iter().map(|write| write.bytes.len() + 4).sum();
+            let mut at = usize::from(self.top) + queued;
+            let mut put = |byte: u8| {
+                ram[0x100 + (at & 0xFF)] = byte;
+                at = at.wrapping_sub(1);
+            };
+            for write in &self.writes {
+                let [hi, lo] = write.addr.to_be_bytes();
+                write.bytes.iter().rev().copied().for_each(&mut put);
+                let count = u8::try_from(write.bytes.len()).expect("a byte count");
+                [count, lo, hi, write.flags].into_iter().for_each(&mut put);
+            }
+            ram[0x181] = self.top;
+            ram[0xCA..0xCC].copy_from_slice(&self.origin.to_be_bytes());
+        }
+    }
+
+    impl Schedule {
+        pub(crate) fn lift(ram: &[u8; 2048], wram: &[u8; 8192]) -> Schedule {
+            Schedule {
+                cells: wram[0x1410..0x1510].try_into().expect("256 cells"),
+                page_columns: ram[0x440..0x460].try_into().expect("32 page columns"),
+            }
+        }
+
+        pub(crate) fn project(&self, ram: &mut [u8; 2048], wram: &mut [u8; 8192]) {
+            wram[0x1410..0x1510].copy_from_slice(&self.cells);
+            ram[0x440..0x460].copy_from_slice(&self.page_columns);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Motion, Orbit, Projectile, Rng};
+
+    #[test]
+    fn orbit_bytes_round_trip() {
+        for byte in 0..=u8::MAX {
+            let mut shot = Projectile {
+                param: byte,
+                ..Projectile::default()
+            };
+            let orbit = shot.orbit();
+            assert_eq!(orbit.byte(), byte);
+            assert_eq!(Orbit::from_byte(byte), orbit);
+            assert_eq!(orbit.offset(), usize::from(byte & 0x3F));
+            let next = byte.wrapping_add(1);
+            assert_eq!(orbit.next().byte(), if next >= 0x20 { 0 } else { next });
+            shot.set_orbit(orbit);
+            assert_eq!(shot.param, byte);
+        }
+    }
+
+    #[test]
+    fn circler_slots_round_trip() {
+        for byte in 0..=u8::MAX {
+            let mut shot = Projectile {
+                part: byte,
+                part_timer: byte,
+                ..Projectile::default()
+            };
+            let circlers = shot.circlers();
+            assert_eq!(circlers, [byte >> 4, byte & 0x0F, byte & 0x0F]);
+            shot.set_circlers(circlers);
+            assert_eq!((shot.part, shot.part_timer), (byte, byte & 0x0F));
+        }
+    }
+
+    #[test]
+    fn homing_targets_round_trip() {
+        for byte in 0..=u8::MAX {
+            let mut shot = Projectile {
+                param: byte,
+                ..Projectile::default()
+            };
+            let target = shot.target();
+            assert_eq!(target, (byte & 0x80 == 0).then_some(byte));
+            shot.set_target(target);
+            assert_eq!(shot.param, if byte & 0x80 == 0 { byte } else { 0xFF });
+        }
+    }
+
+    #[test]
+    fn set_first_colours_sets_every_fourth_entry() {
+        let mut palette: [u8; 32] = std::array::from_fn(|i| u8::try_from(i).expect("32"));
+        super::set_first_colours(&mut palette, 0x0F);
+        for (i, &colour) in palette.iter().enumerate() {
+            let expected = if i % 4 == 0 {
+                0x0F
+            } else {
+                u8::try_from(i).expect("32")
+            };
+            assert_eq!(colour, expected, "entry {i}");
+        }
+    }
+
+    #[test]
+    fn the_pose_bits_are_the_games() {
+        use super::pose;
+        assert_eq!(
+            [
+                pose::TURNING,
+                pose::SHOT,
+                pose::RESUME,
+                pose::LANDING,
+                pose::SAVED_MOTION,
+                pose::LONG_LANDING
+            ],
+            [0x80, 0x40, 0x20, 0x10, 0x0F, 0x01]
+        );
+    }
+
+    #[test]
+    fn on_foot_is_standing_crouching_or_walking() {
+        let on_foot: Vec<u8> = (0..=11)
+            .filter_map(Motion::from_byte)
+            .filter(|motion| motion.on_foot())
+            .map(Motion::byte)
+            .collect();
+        assert_eq!(on_foot, [0, 1, 2]);
+    }
+
+    #[test]
+    fn rng_steps_like_c21c() {
+        let mut rng = Rng([0x01, 0x02]);
+        rng.next_frame();
+        assert_eq!(rng.0, [0x80, 0x81]);
+        rng.next_frame();
+        assert_eq!(rng.0, [0x40, 0x40]);
+    }
+}

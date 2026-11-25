@@ -8,11 +8,11 @@ use bevy::prelude::*;
 use bevy::winit::{UpdateMode, WinitSettings};
 
 /// The tick's length.
-pub const PERIOD: Duration = Duration::from_nanos(16_666_667);
+pub(crate) const PERIOD: Duration = Duration::from_nanos(16_666_667);
 
 /// The frame's work, in order.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Step {
+pub(crate) enum Step {
     /// The game's tick.
     Game,
     /// The music driver's frame and the synth.
@@ -25,7 +25,7 @@ pub enum Step {
 /// update half a period or less after it (a redraw request) does not, so the game never
 /// runs two ticks in one period.
 #[must_use]
-pub fn tick_due(last: Option<Instant>, now: Instant) -> bool {
+pub(crate) fn tick_due(last: Option<Instant>, now: Instant) -> bool {
     last.is_none_or(|last| now.duration_since(last) > PERIOD / 2)
 }
 
@@ -41,7 +41,7 @@ enum TickState {
 
 /// When the last tick ran, and whether this frame runs one.
 #[derive(Resource, Default)]
-pub struct Clock {
+pub(crate) struct Clock {
     state: TickState,
     log: Option<FrameLog>,
 }
@@ -51,7 +51,7 @@ pub struct Clock {
     clippy::needless_pass_by_value,
     reason = "Bevy system params, rust-clippy#8940"
 )]
-pub fn due(clock: Res<'_, Clock>) -> bool {
+pub(crate) fn due(clock: Res<'_, Clock>) -> bool {
     matches!(clock.state, TickState::Active { due: true, .. })
 }
 
@@ -108,7 +108,7 @@ fn start_frame(mut clock: ResMut<'_, Clock>) {
 }
 
 /// Paces the app's frames to the tick.
-pub struct PacingPlugin;
+pub(crate) struct PacingPlugin;
 
 impl Plugin for PacingPlugin {
     fn build(&self, app: &mut App) {

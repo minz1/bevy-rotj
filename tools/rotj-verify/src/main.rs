@@ -172,6 +172,9 @@ fn read(path: &Path) -> Result<Vec<u8>> {
 }
 
 /// Resolves a job's sources, applying the per-component frame overrides.
+/// PPU pattern-table region (`$0000-$1FFF`).
+const PATTERN_BYTES: usize = 0x2000;
+
 fn sources(job: &Job) -> Result<Sources> {
     let ppu = read(&job.ppu)?;
     let ram = read(&job.ram)?;
@@ -188,10 +191,10 @@ fn sources(job: &Job) -> Result<Sources> {
     let scroll_x = job.scroll.x.unwrap_or(u16::from(ram[0x00AC]));
     let scroll_y = job.scroll.y.unwrap_or(u16::from(ram[0x00AD]));
 
-    let mut pattern = ppu[..rotj_core::stage::PATTERN_BYTES].to_vec();
+    let mut pattern = ppu[..PATTERN_BYTES].to_vec();
     if let Some(path) = &job.pattern_from {
         let other = read(path)?;
-        pattern.copy_from_slice(&other[..rotj_core::stage::PATTERN_BYTES]);
+        pattern.copy_from_slice(&other[..PATTERN_BYTES]);
     }
 
     let palette_source = match &job.palette_from {

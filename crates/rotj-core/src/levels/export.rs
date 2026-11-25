@@ -16,12 +16,12 @@ use super::{
     class_of, classes, derived_first_spawn_column, derived_mirroring, import, region_place,
     schedule_cell, tile_index, variant_name,
 };
-use crate::actor::boot::{PASSWORDS, payload_byte};
-use crate::actor::spawn::SpawnTable;
-use crate::actor::stage::{Music, OnClear, Stage as Descriptor};
-use crate::actors::{CELL_FLAGS, CELL_LOCK, CELL_PENDING, CELL_RECORD, spawn_schedule};
-use crate::rooms::{Arrival, Room, listed_rooms};
-use crate::terrain::Terrain;
+use crate::map::Terrain;
+use crate::map::{Arrival, Room, listed_rooms};
+use crate::sim::boot::{PASSWORDS, payload_byte};
+use crate::sim::spawn::SpawnTable;
+use crate::sim::spawn::{CELL_FLAGS, CELL_LOCK, CELL_PENDING, CELL_RECORD, spawn_schedule};
+use crate::sim::stage::{Music, OnClear, StageDescriptor};
 
 /// The `player-start` marker's object id.
 const PLAYER_START_ID: u32 = 65;
@@ -50,7 +50,7 @@ impl Levels {
                 break;
             };
             let offset = area * 2;
-            let descriptor = Descriptor::from_rom(prg, area);
+            let descriptor = StageDescriptor::from_rom(prg, area);
             let rooms = rooms
                 .iter()
                 .filter(|&&(room_area, _)| room_area == offset)
@@ -100,7 +100,7 @@ impl Levels {
 }
 
 /// The banner's digits as `pack.json` writes them, `3-2`.
-fn hud_label(descriptor: &Descriptor) -> String {
+fn hud_label(descriptor: &StageDescriptor) -> String {
     format!("{}-{}", descriptor.banner[0], descriptor.banner[1])
 }
 

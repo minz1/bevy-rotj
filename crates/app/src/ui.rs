@@ -6,10 +6,10 @@ use std::collections::HashMap;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use rotj_core::actor::oam::{self, Mark, OamEntry, attr};
 use rotj_core::chr;
 use rotj_core::palette::{self, Rgb};
 use rotj_core::render::{Line, SPRITE_PALETTE_OFFSET, mask};
+use rotj_core::sim::oam::{self, Mark, OamEntry, attr};
 
 use crate::pacing::Step;
 use crate::play::Play;
@@ -19,7 +19,7 @@ use crate::settings::{Settings, UiStyle};
 /// What a tile atlas is drawn from: a pattern table's four 1 KiB CHR banks and a sprite
 /// palette's colours, colour 0 transparent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Key {
+pub(crate) struct Key {
     /// The CHR banks of the table.
     pub banks: [u8; 4],
     /// The palette's four colours.
@@ -28,7 +28,7 @@ pub struct Key {
 
 /// A UI sprite to show: its OAM bytes and its atlas.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Shown {
+pub(crate) struct Shown {
     /// OAM y: the sprite starts on the line after.
     pub y: u8,
     /// The 8x16 tile: bit 0 the pattern table, the rest the tile pair.
@@ -45,7 +45,7 @@ pub struct Shown {
 /// one drew none) first and the rest in OAM order, which the overlay draws back to front so
 /// the lowest entry wins as on the PPU; each in its line's banks and colours, 8x16 mode.
 #[must_use]
-pub fn shown(
+pub(crate) fn shown(
     oam: &[u8; 256],
     marks: &[Mark; 64],
     label: &[OamEntry],
@@ -81,7 +81,12 @@ pub fn shown(
 /// The atlas an OAM entry's 8x16 sprite is drawn from: its line's sprite banks and its
 /// palette's colours, or `None` on a line with sprites off.
 #[must_use]
-pub fn sprite_key(entry: OamEntry, lines: &[Line], palette: &[u8; 32], rgb: &Rgb) -> Option<Key> {
+pub(crate) fn sprite_key(
+    entry: OamEntry,
+    lines: &[Line],
+    palette: &[u8; 32],
+    rgb: &Rgb,
+) -> Option<Key> {
     let line = lines.get(usize::from(entry.y) + 1)?;
     if line.mask & mask::SPRITES == 0 {
         return None;
@@ -104,7 +109,7 @@ pub fn sprite_key(entry: OamEntry, lines: &[Line], palette: &[u8; 32], rgb: &Rgb
 
 /// A pattern table as 128 8x16 tiles, 16 to a row, in `key`'s colours, colour 0 clear.
 #[must_use]
-pub fn tiles(chr: &[u8], key: &Key) -> Image {
+pub(crate) fn tiles(chr: &[u8], key: &Key) -> Image {
     const SIDE: usize = 128;
     let mut data = vec![0; SIDE * SIDE * 4];
     let stride = SIDE * 4;
@@ -189,13 +194,14 @@ fn show(
     overlays: Query<'_, '_, Entity, With<Overlay>>,
     mut last: Local<'_, Vec<Shown>>,
 ) {
+    let session = play.session();
     let pieces = if settings.ui == UiStyle::Faithful {
         shown(
-            &play.oam,
-            &play.marks,
-            play.label.carried(&play.marks),
-            &play.lines,
-            &play.ppu.palette,
+            session.oam(),
+            session.marks(),
+            play.label.carried(session.marks()),
+            session.lines(),
+            &session.ppu().palette,
             &colours.rgb,
         )
     } else {
@@ -273,7 +279,7 @@ fn show(
 }
 
 /// The faithful UI.
-pub struct UiPlugin;
+pub(crate) struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {

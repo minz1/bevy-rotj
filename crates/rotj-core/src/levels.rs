@@ -5,21 +5,21 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::actor::families::next_area_gate::PASSES_STAGE_ARGS;
-use crate::actor::families::{MAIN, SECOND};
-use crate::actor::spawn::SpawnTable;
-use crate::actor::stage::{Music, Stage as Descriptor};
-use crate::actors::SpawnRecord;
+use crate::map::Terrain;
+use crate::map::{ChrBanks, Raster, Room};
 use crate::render::Mirroring;
-use crate::rooms::{ChrBanks, Raster, Room};
-use crate::terrain::Terrain;
+use crate::sim::families::next_area_gate::PASSES_STAGE_ARGS;
+use crate::sim::families::{MAIN, SECOND};
+use crate::sim::spawn::SpawnRecord;
+use crate::sim::spawn::SpawnTable;
+use crate::sim::stage::{Music, StageDescriptor};
 
-pub mod custom;
-pub mod export;
-pub mod folder;
-pub mod import;
+pub(crate) mod custom;
+pub(crate) mod export;
+pub(crate) mod folder;
+pub(crate) mod import;
 pub mod model;
-pub mod tilesets;
+pub(crate) mod tilesets;
 
 pub use custom::custom_picture;
 pub use export::{export, write};
@@ -47,15 +47,15 @@ const JSON_VERSION: &str = "1.11";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Levels {
     /// The stages.
-    pub stages: Vec<StageAssets>,
+    pub(crate) stages: Vec<StageAssets>,
     /// The password screen's passwords the pause never shows.
-    pub extra_passwords: Vec<ExtraPassword>,
+    pub(crate) extra_passwords: Vec<ExtraPassword>,
 }
 
 /// A password the pause never shows, which starts a checkpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ExtraPassword {
-    /// Its letters, `A`-`Z` in ASCII, as [`Descriptor::password`].
+pub(crate) struct ExtraPassword {
+    /// Its letters, `A`-`Z` in ASCII, as [`StageDescriptor::password`].
     pub letters: [u8; 4],
     /// The index in [`Levels::stages`] of the checkpoint it starts.
     pub stage: usize,
@@ -72,7 +72,7 @@ pub enum Source {
 
 /// One stage's assets: an area's map, schedule and rooms.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StageAssets {
+pub(crate) struct StageAssets {
     /// What the stage is.
     pub stage: Stage,
     /// The area's terrain.
@@ -85,7 +85,7 @@ pub struct StageAssets {
 
 /// One room's assets.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RoomAssets {
+pub(crate) struct RoomAssets {
     /// Its layout.
     pub room: Room,
     /// Its spawn records.
@@ -94,13 +94,13 @@ pub struct RoomAssets {
 
 /// A stage's identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Stage {
+pub(crate) struct Stage {
     /// Its name; the original game's are the banner's (`3-2`).
     pub name: String,
     /// The area (0-17) its metatiles, CHR and screen record come from.
     pub area: u8,
     /// What the engine reads by stage; its `area` is `area * 2`.
-    pub descriptor: Descriptor,
+    pub descriptor: StageDescriptor,
 }
 
 /// What a pack names and the player's ROM resolves: each area's tilesets (one per CHR
@@ -145,7 +145,7 @@ impl Catalog {
     #[must_use]
     pub fn from_rom(prg: &[u8], chr: &[u8]) -> Option<Catalog> {
         Some(Catalog {
-            songs: crate::actor::sound_test::songs(prg).into(),
+            songs: crate::sim::sound_test::songs(prg).into(),
             ..Catalog::from_levels(&Levels::from_rom(prg, chr)?)
         })
     }

@@ -13,7 +13,7 @@ const FILE: &str = "settings.ron";
 
 /// Presentation settings; the defaults are the NES's behaviour, or 1.0's where it had none.
 #[derive(Resource, Serialize, Clone, Debug, PartialEq, Eq)]
-pub struct Settings {
+pub(crate) struct Settings {
     /// Master volume, 0-100.
     pub volume: u8,
     /// Whether the 8 lines a TV hides at the top and bottom show.
@@ -46,7 +46,7 @@ impl Default for Settings {
 
 /// How the picture is drawn.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Picture {
+pub(crate) enum Picture {
     /// The PPU's picture, line by line.
     Classic,
     /// In play, the level's tilemap and the game's sprites as Bevy entities.
@@ -55,7 +55,7 @@ pub enum Picture {
 
 /// How the game's own UI is drawn.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UiStyle {
+pub(crate) enum UiStyle {
     /// As the game's sprites, flicker and all.
     Classic,
     /// The game's own UI sprites as Bevy UI, steady.
@@ -64,7 +64,7 @@ pub enum UiStyle {
 
 /// Which of the 240 lines show.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Overscan {
+pub(crate) enum Overscan {
     /// Lines 8-231, as a TV shows them.
     Hidden,
     /// All 240.
@@ -73,7 +73,7 @@ pub enum Overscan {
 
 /// The colour table.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PaletteChoice {
+pub(crate) enum PaletteChoice {
     /// FirebrandX's Composite Direct, a NES's composite output.
     CompositeDirect,
     /// The 2C03 RGB PPU.
@@ -86,11 +86,11 @@ pub enum PaletteChoice {
 
 /// Where `settings.ron` lives; `None` when the exe's directory is unknown.
 #[derive(Resource)]
-pub struct SettingsDir(pub Option<PathBuf>);
+pub(crate) struct SettingsDir(pub Option<PathBuf>);
 
 /// The exe's directory.
 #[must_use]
-pub fn exe_dir() -> Option<PathBuf> {
+pub(crate) fn exe_dir() -> Option<PathBuf> {
     std::env::current_exe()
         .ok()?
         .parent()
@@ -100,7 +100,7 @@ pub fn exe_dir() -> Option<PathBuf> {
 /// `dir`'s settings and any non-fatal warnings: the defaults without a file; a file that
 /// does not parse is kept as `settings.ron.bak` and the defaults used.
 #[must_use]
-pub fn load_with_warnings(dir: &Path) -> (Settings, Vec<String>) {
+pub(crate) fn load_with_warnings(dir: &Path) -> (Settings, Vec<String>) {
     let path = dir.join(FILE);
     let text = match fs::read_to_string(&path) {
         Ok(text) => text,
@@ -200,7 +200,7 @@ fn parse(text: &str) -> ron::error::SpannedResult<(Settings, Vec<String>)> {
 }
 
 /// Writes `settings` to `dir` through a temporary file, so a crash never leaves half a file.
-pub fn save(dir: &Path, settings: &Settings) -> std::io::Result<()> {
+pub(crate) fn save(dir: &Path, settings: &Settings) -> std::io::Result<()> {
     let text = ron::ser::to_string_pretty(settings, ron::ser::PrettyConfig::default())
         .map_err(std::io::Error::other)?;
     let temporary = dir.join(format!("{FILE}.tmp"));

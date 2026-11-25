@@ -18,6 +18,78 @@ use thiserror::Error;
 /// verified against (the whole iNES file is `d229eab8a56783be1af66d1fec169f92`).
 pub const PRG_CHR_MD5: &str = "830111df30b8511562d4faca6aeb792d";
 
+/// Size of one 16 KiB iNES PRG bank unit.
+pub const PRG_BANK_SIZE: usize = 0x4000;
+/// Size of one 8 KiB iNES CHR bank unit.
+pub const CHR_BANK_SIZE: usize = 0x2000;
+
+/// Parsed 16-byte iNES header metadata.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InesHeader {
+    prg_banks: u8,
+    chr_banks: u8,
+    flags6: u8,
+    flags7: u8,
+}
+
+impl InesHeader {
+    /// Parses the 16-byte iNES header at the start of `bytes`.
+    pub fn parse(bytes: &[u8]) -> Result<InesHeader, RomError> {
+        let header = bytes.get(..16).ok_or(RomError::TooShort)?;
+        if &header[..4] != b"NES\x1a" {
+            return Err(RomError::NotInes);
+        }
+        Ok(InesHeader {
+            prg_banks: header[4],
+            chr_banks: header[5],
+            flags6: header[6],
+            flags7: header[7],
+        })
+    }
+
+    /// Number of 16 KiB PRG banks declared by the header.
+    #[must_use]
+    pub const fn prg_banks(self) -> u8 {
+        self.prg_banks
+    }
+
+    /// Number of 8 KiB CHR banks declared by the header.
+    #[must_use]
+    pub const fn chr_banks(self) -> u8 {
+        self.chr_banks
+    }
+
+    /// iNES mapper number (`flags7 & $F0 | flags6 >> 4`).
+    #[must_use]
+    pub const fn mapper(self) -> u8 {
+        (self.flags6 >> 4) | (self.flags7 & 0xF0)
+    }
+
+    /// Whether the header declares vertical nametable mirroring (`flags6` bit 0).
+    #[must_use]
+    pub const fn mirroring_vertical(self) -> bool {
+        self.flags6 & 0x01 != 0
+    }
+
+    /// Whether the header declares battery-backed PRG RAM (`flags6` bit 1).
+    #[must_use]
+    pub const fn has_battery(self) -> bool {
+        self.flags6 & 0x02 != 0
+    }
+
+    /// Whether a 512-byte trainer precedes the PRG ROM (`flags6` bit 2).
+    #[must_use]
+    pub const fn has_trainer(self) -> bool {
+        self.flags6 & 0x04 != 0
+    }
+
+    /// Whether the header declares four-screen VRAM (`flags6` bit 3).
+    #[must_use]
+    pub const fn four_screen(self) -> bool {
+        self.flags6 & 0x08 != 0
+    }
+}
+
 /// The ROM's file name in a development checkout's `raw/`.
 const RAW_NAME: &str = "Batman - Return of the Joker (USA).nes";
 
@@ -122,20 +194,17 @@ pub struct Rom {
 impl Rom {
     /// Parses an iNES image of mapper 69 (FME-7) without checking which game it is.
     pub fn parse_ines(bytes: &[u8]) -> Result<Rom, RomError> {
-        let header = bytes.get(..16).ok_or(RomError::TooShort)?;
-        if &header[..4] != b"NES\x1a" {
-            return Err(RomError::NotInes);
-        }
-        let mapper = (header[6] >> 4) | (header[7] & 0xF0);
+        let header = InesHeader::parse(bytes)?;
+        let mapper = header.mapper();
         if mapper != 69 {
             return Err(RomError::UnsupportedMapper { mapper });
         }
-        if header[4] == 0 {
+        if header.prg_banks() == 0 {
             return Err(RomError::NoPrgRom);
         }
-        let prg_start = if header[6] & 0x04 == 0 { 16 } else { 16 + 512 };
-        let prg_end = prg_start + usize::from(header[4]) * 0x4000;
-        let chr_end = prg_end + usize::from(header[5]) * 0x2000;
+        let prg_start = if header.has_trainer() { 16 + 512 } else { 16 };
+        let prg_end = prg_start + usize::from(header.prg_banks()) * PRG_BANK_SIZE;
+        let chr_end = prg_end + usize::from(header.chr_banks()) * CHR_BANK_SIZE;
         let prg = bytes
             .get(prg_start..prg_end)
             .ok_or(RomError::PrgTruncated)?;
@@ -304,6 +373,19 @@ mod tests {
         rom[7] = 0x40;
         let rom = Rom::parse_ines(&rom).expect("mapper 69");
         assert_eq!((rom.prg.len(), rom.chr.len()), (0x4000, 0));
+    }
+
+    #[test]
+    fn parses_ines_header_flags_correctly() {
+        let header = InesHeader::parse(b"NES\x1a\x08\x20\x57\x40\x00\x00\x00\x00\x00\x00\x00\x00")
+            .expect("valid header");
+        assert_eq!(header.prg_banks(), 8);
+        assert_eq!(header.chr_banks(), 32);
+        assert_eq!(header.mapper(), 69);
+        assert!(header.mirroring_vertical());
+        assert!(header.has_battery());
+        assert!(header.has_trainer());
+        assert!(!header.four_screen());
     }
 
     #[test]

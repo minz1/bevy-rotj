@@ -4,9 +4,9 @@
 //! has (nametables, CHR, palette RAM, OAM) and each line's own scroll, `$2000`/`$2001`
 //! and CHR banks, so mid-frame changes show up exactly where the hardware shows them.
 
-use crate::actor::oam::{self, attr};
 use crate::chr::{self, TILE_BYTES};
 use crate::palette;
+use crate::sim::oam::{self, attr};
 
 /// Picture width in NES pixels.
 pub const SCREEN_W: usize = 256;

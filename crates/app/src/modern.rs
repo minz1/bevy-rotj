@@ -14,13 +14,11 @@ use bevy::sprite::Anchor;
 use bevy::sprite_render::{
     TileData, TilemapChunk, TilemapChunkTileData, update_tilemap_chunk_indices,
 };
-use rotj_core::actor::Game;
-use rotj_core::actor::modern::{MAX_RUNS, Run, View, run_tile, tile_at, view};
-use rotj_core::actor::oam::attr;
 use rotj_core::chr;
-use rotj_core::levels::Levels;
 use rotj_core::palette::Rgb;
-use rotj_core::render::{Line, SCREEN_H, SCREEN_W, mask};
+use rotj_core::render::{SCREEN_H, SCREEN_W};
+use rotj_core::sim::modern::{COLUMNS, MAX_RUNS, ModernFrame, ROWS, Run, run_tile};
+use rotj_core::sim::oam::attr;
 
 use crate::mirror::Drawer;
 use crate::pacing::Step;
@@ -28,52 +26,6 @@ use crate::play::Play;
 use crate::screen::{Colours, Screen, ScreenSprite, pixels, screen_image};
 use crate::settings::{Picture, Settings, UiStyle};
 use crate::ui::{Key, sprite_key, tiles};
-
-/// The tilemap's size in 8x8 tiles: the screen and one more each way, for the scroll.
-pub const COLUMNS: usize = SCREEN_W / 8 + 1;
-/// See [`COLUMNS`].
-pub const ROWS: usize = SCREEN_H / 8 + 1;
-
-/// What the Modern picture draws of the frame on screen, taken with the page it shows.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModernFrame {
-    /// Where the screen is in the level, and the background's banks.
-    pub view: View,
-    /// `$2001`'s greyscale bit.
-    pub greyscale: bool,
-    /// Each tile's (tile, palette), [`COLUMNS`] by [`ROWS`], from the screen's top-left tile.
-    pub tiles: Vec<Option<(u8, u8)>>,
-}
-
-impl ModernFrame {
-    /// The frame `lines` draws from `game`, or `None` when it is drawn Classic.
-    #[must_use]
-    pub fn of(game: &Game, levels: &Levels, lines: &[Line]) -> Option<ModernFrame> {
-        let view = view(game, levels, lines)?;
-        let (left, top) = (
-            view.left - view.left.rem_euclid(8),
-            view.top - view.top.rem_euclid(8),
-        );
-        let end = view.top + i32::try_from(view.map_end).expect("a line");
-        let tiles = (0..ROWS)
-            .flat_map(|row| (0..COLUMNS).map(move |column| (column, row)))
-            .map(|(column, row)| {
-                let [x, y] =
-                    [column, row].map(|at| i32::try_from(at * 8).expect("a screen's worth"));
-                (top + y < end)
-                    .then(|| tile_at(game, left + x, top + y))
-                    .flatten()
-            })
-            .collect();
-        Some(ModernFrame {
-            view,
-            greyscale: lines
-                .first()
-                .is_some_and(|line| line.mask & mask::GREYSCALE != 0),
-            tiles,
-        })
-    }
-}
 
 /// A palette's four colours, as RGB.
 type Set = [[u8; 3]; 4];
@@ -97,7 +49,7 @@ struct Modern {
 
 /// Which renderer supplies the screen quad's image for the current frame.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ActivePicture {
+pub(crate) enum ActivePicture {
     /// The PPU's software-composed image.
     #[default]
     Classic,
@@ -108,8 +60,9 @@ pub enum ActivePicture {
 impl ActivePicture {
     /// Whether this frame renders Modern or falls back to Classic.
     #[must_use]
-    pub const fn for_frame(settings: &Settings, play: &Play) -> ActivePicture {
-        if matches!(settings.picture, Picture::Modern) && play.shown.modern.is_some() {
+    pub(crate) const fn for_frame(settings: &Settings, play: &Play) -> ActivePicture {
+        if matches!(settings.picture, Picture::Modern) && play.session().snapshot().modern.is_some()
+        {
             ActivePicture::Modern
         } else {
             ActivePicture::Classic
@@ -327,7 +280,7 @@ fn draw(
     }
     let active = ActivePicture::for_frame(&settings, &play);
     let frame = (active == ActivePicture::Modern)
-        .then(|| play.shown.modern.as_ref())
+        .then(|| play.session().snapshot().modern.as_ref())
         .flatten();
     let shown_image = match active {
         ActivePicture::Modern => modern.image.clone(),
@@ -342,7 +295,8 @@ fn draw(
     if let Ok((mut backdrop, _)) = cameras.get_mut(modern.backdrop) {
         backdrop.is_active = frame.is_some();
         if let Some(frame) = frame {
-            let [red, green, blue] = colours(&play.ppu.palette, 0, frame.greyscale, rgb)[0];
+            let [red, green, blue] =
+                colours(&play.session().ppu().palette, 0, frame.greyscale, rgb)[0];
             backdrop.clear_color = ClearColorConfig::Custom(Color::srgb_u8(red, green, blue));
         }
     }
@@ -401,8 +355,9 @@ fn show_background(
     frame: &ModernFrame,
     rgb: &Rgb,
 ) {
-    let sets: [Set; 4] =
-        std::array::from_fn(|set| colours(&play.ppu.palette, set * 4, frame.greyscale, rgb));
+    let sets: [Set; 4] = std::array::from_fn(|set| {
+        colours(&play.session().ppu().palette, set * 4, frame.greyscale, rgb)
+    });
     let [left, top] = [frame.view.left, frame.view.top]
         .map(|at| f32::from(u8::try_from(at.rem_euclid(8)).expect("0-7")));
     let map = (frame.view.map_end > 0).then(|| Shown {
@@ -456,7 +411,7 @@ fn run_tiles(play: &Play, run: &Run) -> Vec<Option<(u8, u8)>> {
     let rows = (run.end - run.line + run.fine_y()).div_ceil(8);
     (0..ROWS)
         .flat_map(|row| (0..COLUMNS).map(move |column| (column, row)))
-        .map(|(column, row)| (row < rows).then(|| run_tile(&play.ppu, run, column, row)))
+        .map(|(column, row)| (row < rows).then(|| run_tile(play.session().ppu(), run, column, row)))
         .collect()
 }
 
@@ -533,8 +488,9 @@ fn spawn_sprites(
     faithful: bool,
     rgb: &Rgb,
 ) {
-    let records = play
-        .shown
+    let session = play.session();
+    let records = session
+        .snapshot()
         .records
         .iter()
         .filter(|record| !(faithful && record.mark.is_ui()));
@@ -546,7 +502,7 @@ fn spawn_sprites(
             .find(|(_, drawer)| drawer.0 == record.mark)
             .map(|(entity, _)| entity);
         for entry in record.sprites(256).filter(|entry| entry.is_visible()) {
-            let Some(key) = sprite_key(entry, &play.lines, &play.ppu.palette, rgb) else {
+            let Some(key) = sprite_key(entry, session.lines(), &session.ppu().palette, rgb) else {
                 continue;
             };
             used.insert(key);
@@ -590,7 +546,7 @@ fn spawn_sprites(
 }
 
 /// The Modern picture.
-pub struct ModernPlugin;
+pub(crate) struct ModernPlugin;
 
 impl Plugin for ModernPlugin {
     fn build(&self, app: &mut App) {
@@ -614,8 +570,9 @@ mod tests {
 
     use super::*;
 
-    use rotj_core::actor::button::Buttons;
-    use rotj_core::actor::world::Transition;
+    use rotj_core::Buttons;
+    use rotj_core::sim::Transition;
+    use rotj_core::sim::modern::View;
 
     /// Batman walking right and firing every other pair of frames.
     fn pad(frame: usize) -> Buttons {
@@ -704,29 +661,18 @@ mod tests {
             crate::play::tests::transition(&mut play, Transition::RoomChange, arg);
         }
         crate::play::tests::enter_the_boss_room(&mut play, 0x22);
-        let intact = play.ppu.nametables;
-        let part = play
-            .game_mut()
-            .slots
-            .main
-            .iter_mut()
-            .find(|slot| slot.kind == 0xB6)
+        let intact = play.session().ppu().nametables;
+        let (dest, mirroring) = play
+            .destroy_final_boss_part()
             .expect("a part of the final boss");
-        part.body.health |= 0x8000;
-        let tables = crate::play::tests::prg(rom).families;
-        let dest = tables.final_boss_part.death_dests[usize::from(part.body.subtype)];
         for _ in 0..10 {
             play.step(Buttons::NONE);
         }
-        let table = play
-            .game()
-            .scroll
-            .mirroring
-            .physical(usize::from(dest >> 10) & 3);
+        let table = mirroring.physical(usize::from(dest >> 10) & 3);
         let block = (0..4).flat_map(|row| (0..4).map(move |column| row * 32 + column));
         let changed = block
             .map(|cell| usize::from(dest & 0x3FF) + cell)
-            .any(|at| play.ppu.nametables[table][at] != intact[table][at]);
+            .any(|at| play.session().ppu().nametables[table][at] != intact[table][at]);
         assert!(
             changed,
             "the death tiles at ${dest:04X} reach the nametables"
@@ -774,7 +720,14 @@ mod tests {
         for frame in 0..frames {
             app.world_mut().resource_mut::<Play>().step(pad(frame));
             app.update();
-            drawn += usize::from(app.world().resource::<Play>().shown.modern.is_some());
+            drawn += usize::from(
+                app.world()
+                    .resource::<Play>()
+                    .session()
+                    .snapshot()
+                    .modern
+                    .is_some(),
+            );
         }
         let path = std::env::var_os("ROTJ_SCREENSHOT")
             .map_or_else(std::env::temp_dir, PathBuf::from)
@@ -789,7 +742,12 @@ mod tests {
         }
         assert!(path.exists(), "no screenshot at {}", path.display());
         let play = app.world().resource::<Play>();
-        let view = play.shown.modern.as_ref().map(|frame| frame.view);
+        let view = play
+            .session()
+            .snapshot()
+            .modern
+            .as_ref()
+            .map(|frame| frame.view);
         let mut frame = rotj_core::render::Frame::new();
         play.compose(&mut frame, rotj_core::render::OAM_SPRITES, false);
         let mut classic = vec![0; SCREEN_W * SCREEN_H * 4];

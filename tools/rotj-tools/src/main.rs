@@ -9,22 +9,74 @@ use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::{Context, Result, bail, eyre};
-use rotj_core::ines::FME7_PRG_BANK_SIZE;
-use rotj_core::{GRAY_PREVIEW_PALETTE, InesRom, TILES_PER_BANK, WriteList};
+use rotj_core::chr::{self, TILE_BYTES};
+use rotj_core::ppulist::{Entry, WriteList};
+use rotj_core::prg::BANK_BYTES;
+use rotj_rom::{CHR_BANK_SIZE, InesHeader, Rom};
 
 mod actors;
-
-mod stage;
-
 mod dmc;
-
 mod level;
-
 mod levelrom;
-
 mod music;
-
+mod re_level;
+mod re_stage;
+mod re_sublevels;
+mod stage;
 mod sublevels;
+
+/// Neutral grayscale ramp for CHR bank preview sheets.
+const GRAY_PREVIEW_PALETTE: [u8; 4] = [0x00, 0x55, 0xAA, 0xFF];
+/// Tiles in one 8 KiB CHR bank.
+const TILES_PER_BANK: usize = CHR_BANK_SIZE / TILE_BYTES;
+/// Tiles per row of the rendered CHR preview sheet.
+const TILE_SHEET_COLS: usize = 16;
+/// Pixel width of the rendered CHR preview sheet (16 tiles * 8 px).
+const TILE_SHEET_W: usize = TILE_SHEET_COLS * 8;
+/// Pixel height of the rendered CHR preview sheet (32 tile rows * 8 px).
+const TILE_SHEET_H: usize = (TILES_PER_BANK / TILE_SHEET_COLS) * 8;
+
+/// Known write-lists recorded in `disasm/MAP.md` §4/§5: `(bank, offset, entries, terminator)`.
+const KNOWN_LISTS: [(u8, u16, usize, u16); 2] =
+    [(0x02, 0x11B7, 6, 0x1203), (0x0C, 0x1BEB, 8, 0x1C35)];
+
+fn bank_to_rgba(bank: &[u8], palette: [u8; 4]) -> Vec<u8> {
+    assert_eq!(bank.len(), CHR_BANK_SIZE);
+    let colours = palette.map(|g| [g, g, g, 0xFF]);
+    let mut out = vec![0u8; TILE_SHEET_W * TILE_SHEET_H * 4];
+    for (i, tile) in bank.as_chunks::<TILE_BYTES>().0.iter().enumerate() {
+        let cx = (i % TILE_SHEET_COLS) * 8;
+        let cy = (i / TILE_SHEET_COLS) * 8;
+        let w4 = TILE_SHEET_W * 4;
+        chr::blit_rgba(tile, &mut out[cy * w4 + cx * 4..], w4, colours);
+    }
+    out
+}
+
+fn verify_known_lists(prg: &[u8]) -> Vec<String> {
+    KNOWN_LISTS
+        .iter()
+        .map(|&(bank, offset, entries, terminator)| {
+            let slice = rotj_core::prg::from_bank(prg, usize::from(bank), usize::from(offset))
+                .unwrap_or(&[]);
+            let mut list = WriteList::new(slice);
+            let decoded: Vec<Entry<'_>> = list.by_ref().collect();
+            let terminator_at = list
+                .end_offset()
+                .and_then(|end| u16::try_from(end).ok())
+                .and_then(|end| end.checked_sub(1))
+                .and_then(|end| offset.checked_add(end));
+            let ok = decoded.len() == entries && terminator_at == Some(terminator);
+            format!(
+                "bank {bank:02X} ${offset:04X}: {} entries (expected {entries}), \
+                 terminator ${:04X} (expected ${terminator:04X}) -> {}",
+                decoded.len(),
+                terminator_at.unwrap_or(0),
+                if ok { "OK" } else { "MISMATCH" }
+            )
+        })
+        .collect()
+}
 
 #[derive(Parser)]
 #[command(
@@ -267,7 +319,7 @@ impl Cli {
                 dump,
             } => level::extract(
                 &rom,
-                rotj_core::level::SublevelId { stage, sublevel },
+                re_level::SublevelId { stage, sublevel },
                 &out,
                 dump.as_deref(),
             ),
@@ -326,10 +378,11 @@ fn write_tilesets(tilesets: Vec<rotj_core::levels::Tileset>, out: &Path) -> Resu
 }
 
 /// Read and parse the ROM.
-fn load_rom(path: &Path) -> Result<Vec<u8>> {
+fn load_rom(path: &Path) -> Result<(InesHeader, Rom)> {
     let data = std::fs::read(path).wrap_err_with(|| format!("reading {}", path.display()))?;
-    InesRom::from_bytes(&data).wrap_err("parsing iNES")?;
-    Ok(data)
+    let header = InesHeader::parse(&data).wrap_err("parsing iNES header")?;
+    let rom = Rom::parse_ines(&data).wrap_err("parsing iNES")?;
+    Ok((header, rom))
 }
 
 /// Write `rgba` as a PNG of the given size.
@@ -344,24 +397,22 @@ fn write_png(path: &Path, width: u32, height: u32, rgba: Vec<u8>) -> Result<()> 
 }
 
 fn header(path: &Path) -> Result<()> {
-    let data = load_rom(path)?;
-    let rom = InesRom::from_bytes(&data)?;
+    let (header, _) = load_rom(path)?;
     println!(
         "PRG banks: {}\nCHR banks: {}\nMapper:    {}",
-        rom.header().prg_banks(),
-        rom.header().chr_banks(),
-        rom.header().mapper()
+        header.prg_banks(),
+        header.chr_banks(),
+        header.mapper()
     );
     Ok(())
 }
 
 fn chr(path: &Path, out: &Path) -> Result<()> {
-    let data = load_rom(path)?;
-    let rom = InesRom::from_bytes(&data)?;
-    let width = u32::try_from(rotj_core::chr::TILE_SHEET_W).expect("const tiny");
-    let height = u32::try_from(rotj_core::chr::TILE_SHEET_H).expect("const tiny");
-    for (i, bank) in rom.chr_banks().enumerate() {
-        let rgba = rotj_core::chr::bank_to_rgba(bank, GRAY_PREVIEW_PALETTE);
+    let (_, rom) = load_rom(path)?;
+    let width = u32::try_from(TILE_SHEET_W).expect("const tiny");
+    let height = u32::try_from(TILE_SHEET_H).expect("const tiny");
+    for (i, bank) in rom.chr.as_chunks::<CHR_BANK_SIZE>().0.iter().enumerate() {
+        let rgba = bank_to_rgba(bank, GRAY_PREVIEW_PALETTE);
         let file = out.join(format!("bank{i:02}.png"));
         write_png(&file, width, height, rgba)?;
         println!("{} ({TILES_PER_BANK} tiles)", file.display());
@@ -370,26 +421,22 @@ fn chr(path: &Path, out: &Path) -> Result<()> {
 }
 
 fn pattern(path: &Path, out: &Path) -> Result<()> {
-    let data = load_rom(path)?;
-    let rom = InesRom::from_bytes(&data)?;
-    let pattern: Vec<u8> = rom.chr_banks().flatten().copied().collect();
+    let (_, rom) = load_rom(path)?;
     if let Some(dir) = out.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::write(out, &pattern).wrap_err_with(|| format!("writing {}", out.display()))?;
-    println!("{} ({} bytes)", out.display(), pattern.len());
+    std::fs::write(out, &rom.chr).wrap_err_with(|| format!("writing {}", out.display()))?;
+    println!("{} ({} bytes)", out.display(), rom.chr.len());
     Ok(())
 }
 
 fn prg(path: &Path, out: &Path) -> Result<()> {
-    let data = load_rom(path)?;
-    let rom = InesRom::from_bytes(&data)?;
-    let prg: Vec<u8> = rom.prg_banks().flatten().copied().collect();
+    let (_, rom) = load_rom(path)?;
     if let Some(dir) = out.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::write(out, &prg).wrap_err_with(|| format!("writing {}", out.display()))?;
-    println!("{} ({} bytes)", out.display(), prg.len());
+    std::fs::write(out, &rom.prg).wrap_err_with(|| format!("writing {}", out.display()))?;
+    println!("{} ({} bytes)", out.display(), rom.prg.len());
     Ok(())
 }
 
@@ -433,11 +480,10 @@ fn preview(pattern_path: &Path, out: &Path) -> Result<()> {
 }
 
 fn ppulist(path: &Path, bank: u8, offset: u16, verify: bool) -> Result<()> {
-    let data = load_rom(path)?;
-    let rom = InesRom::from_bytes(&data)?;
-    let prg: Vec<u8> = rom.prg_banks().flatten().copied().collect();
+    let (_, rom) = load_rom(path)?;
+    let prg = &rom.prg;
 
-    let base = usize::from(bank) * FME7_PRG_BANK_SIZE + usize::from(offset);
+    let base = usize::from(bank) * BANK_BYTES + usize::from(offset);
     let slice = prg
         .get(base..)
         .ok_or_else(|| color_eyre::eyre::eyre!("bank ${bank:02X} ${offset:04X} is outside PRG"))?;
@@ -472,7 +518,7 @@ fn ppulist(path: &Path, bank: u8, offset: u16, verify: bool) -> Result<()> {
     if verify {
         println!("-- lists recorded in disasm/MAP.md:");
         let mut all_ok = true;
-        for line in rotj_core::ppulist::verify_known_lists(&prg) {
+        for line in verify_known_lists(prg) {
             all_ok &= !line.contains("MISMATCH");
             println!("  {line}");
         }
@@ -488,11 +534,10 @@ fn ppulist(path: &Path, bank: u8, offset: u16, verify: bool) -> Result<()> {
 /// The tables are found from the driver's `$F3` stream command rather than a
 /// hardcoded address, so the extraction follows the ROM if it is patched.
 fn dmc_extract(path: &Path, out: &Path) -> Result<()> {
-    let data = load_rom(path)?;
-    let rom = InesRom::from_bytes(&data)?;
-    let prg: Vec<u8> = rom.prg_banks().flatten().copied().collect();
+    let (_, rom) = load_rom(path)?;
+    let prg = &rom.prg;
 
-    let tables = dmc::find_tables(&prg);
+    let tables = dmc::find_tables(prg);
     if tables.is_empty() {
         bail!("no DMC record table found (no $F3 pointer into the $A000 window)");
     }
@@ -506,7 +551,7 @@ fn dmc_extract(path: &Path, out: &Path) -> Result<()> {
         }
     }
     let table = unique[0];
-    dmc::validate(&prg, &table.records)?;
+    dmc::validate(prg, &table.records)?;
 
     let mut sites: BTreeMap<(u8, u16), String> = BTreeMap::new();
     for table in &tables {

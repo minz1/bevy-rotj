@@ -12,10 +12,11 @@
 //! The driver's own code is reimplemented in `rotj-music`; only its data is
 //! extracted here. See `docs/MUSIC.md`.
 
-use color_eyre::eyre::{Context, Result, bail};
-use rotj_core::InesRom;
-use rotj_core::ines::FME7_PRG_BANK_SIZE;
 use std::path::Path;
+
+use color_eyre::eyre::{Context, Result, bail};
+use rotj_core::prg::BANK_BYTES;
+use rotj_rom::Rom;
 
 /// PRG bank holding the sound driver and its tables.
 pub const DRIVER_BANK: u8 = 10;
@@ -34,18 +35,17 @@ pub const SONG_COUNT: usize = 48;
 pub fn extract(rom_path: &Path, out: &Path) -> Result<()> {
     let data =
         std::fs::read(rom_path).wrap_err_with(|| format!("reading {}", rom_path.display()))?;
-    let rom = InesRom::from_bytes(&data).wrap_err("parsing iNES")?;
-    let prg: Vec<u8> = rom.prg_banks().flatten().copied().collect();
+    let rom = Rom::parse_ines(&data).wrap_err("parsing iNES")?;
+    let prg = &rom.prg;
     let bank = |n: u8| -> Result<&[u8]> {
-        let start = usize::from(n) * FME7_PRG_BANK_SIZE;
-        prg.get(start..start + FME7_PRG_BANK_SIZE)
+        rotj_core::prg::bank(prg, usize::from(n))
             .ok_or_else(|| color_eyre::eyre::eyre!("PRG bank {n} is outside the ROM"))
     };
 
     std::fs::create_dir_all(out)?;
     std::fs::write(out.join("driver.bin"), bank(DRIVER_BANK)?).wrap_err("writing driver.bin")?;
 
-    let mut songs = Vec::with_capacity(SONG_BANK_COUNT as usize * FME7_PRG_BANK_SIZE);
+    let mut songs = Vec::with_capacity(SONG_BANK_COUNT as usize * BANK_BYTES);
     for n in SONG_BANK_BASE..SONG_BANK_BASE + SONG_BANK_COUNT {
         songs.extend_from_slice(bank(n)?);
     }
@@ -68,7 +68,7 @@ pub fn extract(rom_path: &Path, out: &Path) -> Result<()> {
     println!(
         "{} ({} bytes), {} ({} bytes)",
         out.join("driver.bin").display(),
-        FME7_PRG_BANK_SIZE,
+        BANK_BYTES,
         out.join("song-banks.bin").display(),
         songs.len()
     );

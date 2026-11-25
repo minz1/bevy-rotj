@@ -11,7 +11,7 @@ use rotj_core::levels::{TILESET_PX, custom_picture, tilesets};
 /// `dir/packs/<pack>/custom.tsj` picture into `dir/tilesets/packs/<pack>/custom.png`, where
 /// the file is missing or differs from what the ROM makes now; a pack whose picture fails is
 /// logged and skipped.
-pub fn write(dir: &Path, prg: &[u8], chr: &[u8]) -> io::Result<()> {
+pub(crate) fn write(dir: &Path, prg: &[u8], chr: &[u8]) -> io::Result<()> {
     let folder = dir.join("tilesets");
     fs::create_dir_all(&folder)?;
     let tilesets =

@@ -3,12 +3,12 @@
 
 use super::model::{Property, to_text};
 use super::{Catalog, JSON_VERSION, Levels, TILED_VERSION, TILESET_TILES, tileset_name};
-use crate::actor::room::{build_palette, loaded_bank};
-use crate::actor::world::set_first_colours;
 use crate::chr;
+use crate::map::Terrain;
+use crate::map::{ChrBanks, Room};
 use crate::palette::{self, rgba};
-use crate::rooms::{ChrBanks, Room};
-use crate::terrain::Terrain;
+use crate::sim::room::{build_palette, loaded_bank};
+use crate::sim::world::set_first_colours;
 
 /// A tileset picture's width and height in px: 16 metatiles of 16 px.
 pub const TILESET_PX: u32 = 256;

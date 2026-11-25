@@ -609,40 +609,32 @@ mod tests {
         }
         std::fs::remove_dir_all(&dir).expect("cleans up");
         let prg = || rotj_core::prg::Prg::new(rom.prg.clone(), expected.clone());
-        let checkpoints = (0..)
-            .take_while(|&level| rotj_core::actor::stage::level_area(&expected, level).is_some());
+        let checkpoints =
+            (0..).take_while(|&level| rotj_core::sim::level_area(&expected, level).is_some());
         for level in checkpoints {
             let forced = u8::try_from(level).ok().filter(|&level| level > 0);
             let mut play = play::Play::power_on(prg(), rom.chr.clone(), forced);
             assert!(
-                step_until(
-                    &mut play,
-                    400,
-                    rotj_core::actor::button::Buttons::NONE,
-                    on_title,
-                ),
+                step_until(&mut play, 400, rotj_core::Buttons::NONE, on_title),
                 "{level}: no title"
             );
-            play.step(rotj_core::actor::button::Buttons::START);
+            play.step(rotj_core::Buttons::START);
             assert!(
-                step_until(
-                    &mut play,
-                    400,
-                    rotj_core::actor::button::Buttons::NONE,
-                    |play| !play.booting(),
-                ),
+                step_until(&mut play, 400, rotj_core::Buttons::NONE, |play| {
+                    !play.booting()
+                }),
                 "{level}"
             );
             assert_eq!(
-                Some(play.game().world.area),
-                rotj_core::actor::stage::level_area(&expected, level)
+                Some(play.session().area()),
+                rotj_core::sim::level_area(&expected, level)
             );
         }
         let mut play = play::Play::start(prg(), rom.chr.clone(), 0);
         for _ in 0..300 {
-            play.step(rotj_core::actor::button::Buttons::RIGHT);
+            play.step(rotj_core::Buttons::RIGHT);
         }
-        assert_eq!(play.game().world.area, 0);
+        assert_eq!(play.session().area(), 0);
     }
 
     const FULL: Vec2 = Vec2::new(256.0, 240.0);

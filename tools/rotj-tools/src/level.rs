@@ -9,17 +9,17 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use color_eyre::eyre::{Context, Result};
-use rotj_core::level::{self, LevelData, SublevelId};
+
+use crate::re_level::{self, LevelData, SublevelId};
 
 /// Decode the ROM's level data for one sublevel and (optionally) verify it
 /// against an emulator capture directory.
 pub fn extract(rom_path: &Path, id: SublevelId, out: &Path, dump: Option<&Path>) -> Result<()> {
     let data =
         std::fs::read(rom_path).wrap_err_with(|| format!("reading {}", rom_path.display()))?;
-    let rom = rotj_core::InesRom::from_bytes(&data).wrap_err("parsing iNES")?;
-    let prg: Vec<u8> = rom.prg_banks().flatten().copied().collect();
+    let rom = rotj_rom::Rom::parse_ines(&data).wrap_err("parsing iNES")?;
 
-    let level = LevelData::decode(&prg, id)?;
+    let level = LevelData::decode(&rom.prg)?;
 
     std::fs::create_dir_all(out)?;
     std::fs::write(out.join("level.bin"), &level.collision)
@@ -51,7 +51,7 @@ pub fn extract(rom_path: &Path, id: SublevelId, out: &Path, dump: Option<&Path>)
         "collision bitmap: {} bytes, {} set (${:02X})",
         level.collision.len(),
         nonzero,
-        level::COLLISION_SET
+        re_level::COLLISION_SET
     );
     summary.push_str(
         "note: the streamed background (metatile map -> nametable) is not decoded;\n\
@@ -76,7 +76,7 @@ fn verify(level: &LevelData, out: &Path, dump: &Path) -> Result<()> {
 
     // (1) The first screen, as the ROM's own patches render it.
     let image = level.nametable_image();
-    let (mismatched, total) = level::diff_bytes(&image, &nametables);
+    let (mismatched, total) = re_level::diff_bytes(&image, &nametables);
     let (agree, patch_total) = level.patch_agreement(&nametables);
     println!("-- acceptance: first screen vs nametables.bin");
     println!("   patch bytes in range of the capture: {agree}/{patch_total} agree");
@@ -96,7 +96,7 @@ fn verify(level: &LevelData, out: &Path, dump: &Path) -> Result<()> {
     }
 
     // (2) The collision bitmap.
-    let (cmis, ctot) = level::diff_bytes(&level.collision, &collision);
+    let (cmis, ctot) = re_level::diff_bytes(&level.collision, &collision);
     println!("-- acceptance: collision bitmap vs collision.bin");
     println!(
         "   {cmis}/{ctot} bytes differ (decoded {} of the captured {} WRAM bytes)",
@@ -111,7 +111,7 @@ fn verify(level: &LevelData, out: &Path, dump: &Path) -> Result<()> {
         && ppu900.len() >= 0x2800
     {
         let nt900 = &ppu900[0x2000..0x2800];
-        let (d, n) = level::diff_bytes(&nametables, nt900);
+        let (d, n) = re_level::diff_bytes(&nametables, nt900);
         println!(
             "-- frame 900 cross-check: {d}/{n} nametable bytes differ from frame 700 \
              (streamed columns; static ROM data cannot explain them)"

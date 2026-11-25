@@ -10,7 +10,9 @@ use std::path::Path;
 
 use color_eyre::eyre::{Context, Result};
 use rotj_core::render::SCREEN_W;
-use rotj_core::stage::{PATTERN_BYTES, PPU_BYTES, RAM_BYTES, Stage, WINDOW_BYTES, WRAM_BYTES};
+
+use crate::re_stage::{PATTERN_BYTES, PPU_BYTES, RAM_BYTES, Stage, WINDOW_BYTES, WRAM_BYTES};
+use crate::re_sublevels::{STAGE_ADDR, SUBLEVEL_ADDR};
 
 /// Reads one dump file, checking its expected length.
 fn read_exact(path: &Path, len: usize) -> Result<Vec<u8>> {
@@ -90,8 +92,8 @@ pub fn extract(dump: &Path, frame: u32, out: &Path, pattern_space: &Path) -> Res
             .expect("String writes cannot fail");
     }
     write(&out.join("windows.txt"), report.as_bytes())?;
-    let sublevel = ram[0x0401];
-    let stage_index = ram[0x0402];
+    let sublevel = ram[usize::from(SUBLEVEL_ADDR)];
+    let stage_index = ram[usize::from(STAGE_ADDR)];
     let meta = format!(
         "frame: {frame}\nstage: {stage_index}\nsublevel: {sublevel}\n\
          nametable bytes: {}\nscreen width: {SCREEN_W}\n\

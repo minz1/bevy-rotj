@@ -2,15 +2,14 @@
 
 use std::ops::Deref;
 
-use crate::actor::engine::{self, Hitboxes};
-use crate::actor::families;
-use crate::actor::player;
-use crate::actor::weapons;
-use crate::ines::FME7_PRG_BANK_SIZE;
 use crate::levels::Levels;
+use crate::sim::engine::{self, Hitboxes};
+use crate::sim::families;
+use crate::sim::player;
+use crate::sim::weapons;
 
 /// Size of one FME-7 8 KiB PRG bank.
-pub const BANK_BYTES: usize = FME7_PRG_BANK_SIZE;
+pub const BANK_BYTES: usize = 8 * 1024;
 
 /// The PRG image's size: 16 banks of 8 KiB.
 pub const PRG_SIZE: usize = 16 * BANK_BYTES;
@@ -19,15 +18,15 @@ pub const PRG_SIZE: usize = 16 * BANK_BYTES;
 pub struct Prg {
     bytes: Vec<u8>,
     /// The actors' hit boxes.
-    pub hitboxes: Hitboxes,
+    pub(crate) hitboxes: Hitboxes,
     /// The handler families' own tables.
-    pub families: families::Tables,
+    pub(crate) families: families::Tables,
     /// The player's own tables.
-    pub player: player::Tables,
+    pub(crate) player: player::Tables,
     /// The weapons' own tables.
-    pub weapons: weapons::Tables,
+    pub(crate) weapons: weapons::Tables,
     /// The HUD's digit glyph tiles (bank 14 `$D26A`).
-    pub digit_tiles: [u8; 10],
+    pub(crate) digit_tiles: [u8; 10],
     /// The levels the game plays, each stage by `$0400 >> 1`.
     pub levels: Levels,
 }

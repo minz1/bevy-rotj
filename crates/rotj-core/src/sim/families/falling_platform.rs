@@ -1,0 +1,42 @@
+//! Second-class type `$10`, a platform that falls away once stood on (bank 12 `$8952`).
+
+use crate::sim::families::crumbling_block;
+use crate::sim::slots::{Body, EMPTY};
+use crate::sim::world::Cx;
+
+/// It keeps its fall speed in the pair `[behaviour, hit]`: `hit` the low byte in 1/16 px,
+/// `behaviour` the high byte in 16 px.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct State;
+
+impl State {
+    /// One frame (`$8952`): still until stood on, then falls, accelerating, and is
+    /// freed past row 16.
+    pub fn step(index: usize, kind: &mut u8, body: &mut Body, cx: &Cx<'_>) {
+        body.scratch = 0;
+        body.anim = 0;
+        if cx.slots.pressed(index) & 0x80 == 0 {
+            (body.hit, body.behaviour, body.subtype, body.phase) = (0, 0, 0, 0);
+            return;
+        }
+        crumbling_block::accelerate_fall(body);
+        if body.y >= 0x1000 {
+            *kind = EMPTY;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::sim::oracle::{Scene, assert_second_phases};
+
+    #[test]
+    fn matches_the_oracle_in_stage_7_1() {
+        let Some(scene) = Scene::tas(39270) else {
+            return;
+        };
+        let coverage = assert_second_phases(scene, 80, &[0x10]);
+        assert!(coverage.occupied > 40, "{coverage:?}");
+        assert!(coverage.drawn > 0, "{coverage:?}");
+    }
+}

@@ -3,7 +3,7 @@
 pub mod common;
 
 use rotj_core::digest::{fnv1a, table};
-use rotj_core::levelmap::{area_for_level, map_from_rom};
+use rotj_core::map::{area_for_level, map_from_rom};
 use rotj_oracle::power_on;
 use rotj_oracle::{Machine, WriteEvent};
 

@@ -4,11 +4,11 @@
 //! (`$F6` order: Right in bit 0, A in bit 7).
 
 use bevy::prelude::*;
-use rotj_core::actor::button::Buttons;
+use rotj_core::Buttons;
 
 /// Controller state for the current frame.
 #[derive(Resource, Debug, Default, Clone, Copy)]
-pub struct NesInput {
+pub(crate) struct NesInput {
     /// Buttons held right now.
     pub buttons: Buttons,
     /// Buttons that went down since the previous frame.
@@ -66,7 +66,7 @@ const PADMAP: [(Buttons, &[GamepadButton]); 8] = [
 
 /// Keyboard contribution to the bitset.
 #[must_use]
-pub fn keyboard_buttons(keys: &ButtonInput<KeyCode>) -> Buttons {
+fn keyboard_buttons(keys: &ButtonInput<KeyCode>) -> Buttons {
     let mut buttons = Buttons::NONE;
     for (button, codes) in KEYMAP {
         if codes.iter().any(|key| keys.pressed(*key)) {
@@ -78,7 +78,7 @@ pub fn keyboard_buttons(keys: &ButtonInput<KeyCode>) -> Buttons {
 
 /// Gamepad contribution to the bitset, for one pad's `pressed` predicate.
 #[must_use]
-pub fn gamepad_buttons(pressed: impl Fn(GamepadButton) -> bool) -> Buttons {
+fn gamepad_buttons(pressed: impl Fn(GamepadButton) -> bool) -> Buttons {
     let mut buttons = Buttons::NONE;
     for (button, pads) in PADMAP {
         if pads.iter().any(|pad| pressed(*pad)) {
@@ -90,7 +90,10 @@ pub fn gamepad_buttons(pressed: impl Fn(GamepadButton) -> bool) -> Buttons {
 
 /// Merge every connected gamepad and the keyboard into one NES bitset.
 #[must_use]
-pub fn read_buttons(keys: &ButtonInput<KeyCode>, gamepads: &Query<'_, '_, &Gamepad>) -> Buttons {
+pub(crate) fn read_buttons(
+    keys: &ButtonInput<KeyCode>,
+    gamepads: &Query<'_, '_, &Gamepad>,
+) -> Buttons {
     let mut buttons = keyboard_buttons(keys);
     for pad in gamepads.iter() {
         buttons |= gamepad_buttons(|button| pad.pressed(button));
@@ -99,7 +102,7 @@ pub fn read_buttons(keys: &ButtonInput<KeyCode>, gamepads: &Query<'_, '_, &Gamep
 }
 
 /// Input plugin: keeps [`NesInput`] current every frame.
-pub struct InputPlugin;
+pub(crate) struct InputPlugin;
 
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {

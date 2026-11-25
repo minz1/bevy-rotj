@@ -13,7 +13,7 @@ use crate::settings::{Overscan, PaletteChoice, Settings, SettingsDir};
 
 /// The stage's rendered picture, plus the display image it is uploaded to.
 #[derive(Resource)]
-pub struct Screen {
+pub(crate) struct Screen {
     frame: Frame,
     image: Handle<Image>,
     dirty: bool,
@@ -36,7 +36,7 @@ impl Screen {
 
 /// Whether a custom `palette.pal` loaded cleanly or fell back to the default palette.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum PaletteStatus {
+pub(crate) enum PaletteStatus {
     /// Built-in palette, or `palette.pal` loaded cleanly.
     #[default]
     Loaded,
@@ -46,7 +46,7 @@ pub enum PaletteStatus {
 
 /// The colour table the picture is shown in.
 #[derive(Resource, Clone, Debug, PartialEq, Eq)]
-pub struct Colours {
+pub(crate) struct Colours {
     /// RGB for each palette-RAM value.
     pub rgb: Rgb,
     /// Load status for file-backed palettes.
@@ -64,7 +64,7 @@ impl Default for Colours {
 
 /// The table for `choice`; `File` reads `<dir>/palette.pal` each time it is asked for.
 #[must_use]
-pub fn colours_for(choice: PaletteChoice, dir: Option<&Path>) -> Colours {
+pub(crate) fn colours_for(choice: PaletteChoice, dir: Option<&Path>) -> Colours {
     let (rgb, status) = match choice {
         PaletteChoice::CompositeDirect => (NES_PALETTE, PaletteStatus::Loaded),
         PaletteChoice::RgbPpu => (RGB_PPU, PaletteStatus::Loaded),
@@ -101,7 +101,7 @@ pub fn colours_for(choice: PaletteChoice, dir: Option<&Path>) -> Colours {
 
 /// Opaque RGBA for each palette-RAM value in `indices`, through `rgb`; black at the 8
 /// pixels on each side of the lines `edges` marks.
-pub fn rgba_into(indices: &[u8], rgb: &Rgb, edges: &[bool], out: &mut [u8]) {
+pub(crate) fn rgba_into(indices: &[u8], rgb: &Rgb, edges: &[bool], out: &mut [u8]) {
     let pixels = out.as_chunks_mut::<4>().0.iter_mut().zip(indices);
     for (at, (pixel, &index)) in pixels.enumerate() {
         let edge = edges.get(at / SCREEN_W) == Some(&true)
@@ -118,7 +118,7 @@ pub fn rgba_into(indices: &[u8], rgb: &Rgb, edges: &[bool], out: &mut [u8]) {
 
 /// The part of the 256x240 picture that shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Visible {
+pub(crate) struct Visible {
     /// The first column and line shown.
     pub x: usize,
     /// The first line shown.
@@ -132,7 +132,7 @@ pub struct Visible {
 /// What a TV shows (8 lines off the top and bottom; the sides of scrolled lines go
 /// black instead, so a static screen's full width shows) or the whole picture.
 #[must_use]
-pub const fn visible(overscan: Overscan) -> Visible {
+pub(crate) const fn visible(overscan: Overscan) -> Visible {
     match overscan {
         Overscan::Hidden => Visible {
             x: 0,
@@ -151,10 +151,10 @@ pub const fn visible(overscan: Overscan) -> Visible {
 
 /// Marker for the screen quad.
 #[derive(Component, Debug)]
-pub struct ScreenSprite;
+pub(crate) struct ScreenSprite;
 
 /// Spawns the 4x-scaled screen quad showing [`Screen`]'s image.
-pub fn spawn_screen_quad(commands: &mut Commands<'_, '_>, image: &Handle<Image>) {
+pub(crate) fn spawn_screen_quad(commands: &mut Commands<'_, '_>, image: &Handle<Image>) {
     commands.spawn((
         ScreenSprite,
         Sprite::from_image(image.clone()),
@@ -164,12 +164,12 @@ pub fn spawn_screen_quad(commands: &mut Commands<'_, '_>, image: &Handle<Image>)
 
 /// The image the port's picture is uploaded to.
 #[must_use]
-pub fn screen_image(screen: &Screen) -> Handle<Image> {
+pub(crate) fn screen_image(screen: &Screen) -> Handle<Image> {
     screen.image.clone()
 }
 
 /// The frame the port draws into.
-pub fn screen_frame(screen: &mut Screen) -> &mut Frame {
+pub(crate) fn screen_frame(screen: &mut Screen) -> &mut Frame {
     screen.dirty = true;
     &mut screen.frame
 }
@@ -202,7 +202,7 @@ fn blank_image() -> Image {
     clippy::needless_pass_by_value,
     reason = "Bevy system params, rust-clippy#8940"
 )]
-pub fn upload_frame(
+pub(crate) fn upload_frame(
     mut screen: ResMut<'_, Screen>,
     colours: Res<'_, Colours>,
     mut images: ResMut<'_, Assets<Image>>,
@@ -223,7 +223,7 @@ pub fn upload_frame(
     clippy::needless_pass_by_value,
     reason = "Bevy system params, rust-clippy#8940"
 )]
-pub fn apply_settings(
+pub(crate) fn apply_settings(
     settings: Res<'_, Settings>,
     dir: Res<'_, SettingsDir>,
     mut colours: ResMut<'_, Colours>,
@@ -257,7 +257,7 @@ pub fn apply_settings(
 }
 
 /// `count` pixels as a length.
-pub fn pixels(count: usize) -> f32 {
+pub(crate) fn pixels(count: usize) -> f32 {
     f32::from(u16::try_from(count).expect("a screen's worth"))
 }
 
@@ -274,7 +274,7 @@ mod tests {
         let mut play =
             crate::play::Play::power_on(crate::play::tests::prg(rom), rom.chr.clone(), None);
         for _ in 0..400 {
-            play.step(rotj_core::actor::button::Buttons::NONE);
+            play.step(rotj_core::Buttons::NONE);
         }
         let mut frame = Frame::new();
         play.compose(&mut frame, rotj_core::render::MAX_SPRITES_PER_LINE, false);

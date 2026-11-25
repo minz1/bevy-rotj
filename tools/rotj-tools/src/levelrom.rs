@@ -2,14 +2,14 @@
 //!
 //! Unlike `rotj level` / `rotj sublevel` (which read an emulator capture), this
 //! reads the *CHR-resident compressed map* the game's loader at bank 02 `$89FE`
-//! decompresses, via [`rotj_core::levelmap::map_from_rom`]. It needs only the
+//! decompresses, via [`rotj_core::map::map_from_rom`]. It needs only the
 //! ROM, so it is the path to stages the port cannot capture.
 
 use std::fmt::Write as _;
 use std::path::Path;
 
 use color_eyre::eyre::{Context, Result, eyre};
-use rotj_core::levelmap::{
+use rotj_core::map::{
     MAP_COLUMNS, ROM_MAP_ROWS, area_bank, area_for_level, area_ppu, map_from_rom,
 };
 

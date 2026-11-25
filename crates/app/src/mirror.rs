@@ -2,100 +2,34 @@
 //! inspector and the editor (`docs/specs/2026-10-18-phase-c-mirror-design.md`, C2).
 
 use bevy::prelude::*;
-use rotj_core::actor::Game;
-use rotj_core::actor::oam::{DrawRecord, Mark};
-use rotj_core::levels::Levels;
-use rotj_core::render::Line;
+use rotj_core::sim::oam::{DrawRecord, Mark};
 
 use crate::pacing::Step;
 use crate::play::Play;
 
 /// The drawer an entity mirrors: a slot or Batman.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Drawer(pub Mark);
+pub(crate) struct Drawer(pub Mark);
 
-/// The slot's type byte, [`rotj_core::actor::slots::EMPTY`] when it is empty.
+/// The slot's type byte (`0` when it is empty).
 #[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Kind(pub u8);
+struct Kind(u8);
 
 /// Where the drawer is in the level, in pixels, y down.
 #[derive(Component, Debug, Default, Clone, Copy, PartialEq)]
-pub struct LevelPosition(pub Vec2);
+struct LevelPosition(Vec2);
 
 /// The drawer's records for the frame on screen, in draw order.
 #[derive(Component, Debug, Default, Clone, PartialEq)]
-pub struct Draws(pub Vec<DrawRecord>);
+struct Draws(Vec<DrawRecord>);
 
 /// The view's top-left in the level, in pixels, y down.
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
-pub struct MirrorCamera(pub Vec2);
+struct MirrorCamera(Vec2);
 
 /// The frame's records whose drawer is no entity: the scene's, the HUD's and the screens'.
 #[derive(Resource, Debug, Default, Clone, PartialEq)]
-pub struct OtherDraws(pub Vec<DrawRecord>);
-
-/// One drawer's state in a [`Snapshot`].
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DrawerState {
-    pub drawer: Mark,
-    /// `None` for Batman, who has no type byte.
-    pub kind: Option<u8>,
-    pub position: Vec2,
-}
-
-/// The game as the mirror shows it, taken when `Play` copies the page it shows.
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct Snapshot {
-    /// The page's draw records.
-    pub records: Vec<DrawRecord>,
-    /// Every drawer, the slots in order then Batman.
-    pub drawers: Vec<DrawerState>,
-    pub camera: Vec2,
-    /// What the Modern picture draws of the frame, when it draws it.
-    pub modern: Option<crate::modern::ModernFrame>,
-}
-
-impl Snapshot {
-    /// The game at its NMI in `levels`, whose frame `lines` draws.
-    #[must_use]
-    pub fn of(game: &Game, levels: &Levels, lines: &[Line]) -> Snapshot {
-        let slot = |drawer, kind, x, y| DrawerState {
-            drawer,
-            kind: Some(kind),
-            position: level_pixels(x, y),
-        };
-        let actors = (0u8..)
-            .zip(&game.slots.main)
-            .map(|(index, actor)| slot(Mark::Actor(index), actor.kind, actor.body.x, actor.body.y));
-        let seconds = (0u8..).zip(&game.slots.second).map(|(index, second)| {
-            slot(
-                Mark::Second(index),
-                second.kind,
-                second.body.x,
-                second.body.y,
-            )
-        });
-        let projectiles = (0u8..)
-            .zip(&game.effects.projectiles)
-            .map(|(index, shot)| slot(Mark::Projectile(index), shot.kind, shot.x, shot.y));
-        let player = &game.effects.player;
-        let batman = DrawerState {
-            drawer: Mark::Player,
-            kind: None,
-            position: level_pixels(player.x, player.y),
-        };
-        Snapshot {
-            records: game.oam.shown.clone(),
-            drawers: actors
-                .chain(seconds)
-                .chain(projectiles)
-                .chain([batman])
-                .collect(),
-            camera: level_pixels(game.world.camera_x, game.world.camera_y),
-            modern: crate::modern::ModernFrame::of(game, levels, lines),
-        }
-    }
-}
+struct OtherDraws(Vec<DrawRecord>);
 
 /// A position in the game's 1/16 px, in pixels.
 fn level_pixels(x: u16, y: u16) -> Vec2 {
@@ -146,7 +80,7 @@ fn copy(
     mut camera: ResMut<'_, MirrorCamera>,
     mut other: ResMut<'_, OtherDraws>,
 ) {
-    let snapshot = &play.shown;
+    let snapshot = play.session().snapshot();
     for (drawer, kind, mut position, mut draws) in &mut drawers {
         let Some(state) = snapshot.drawers.iter().find(|s| s.drawer == drawer.0) else {
             continue;
@@ -154,17 +88,20 @@ fn copy(
         if let (Some(mut kind), Some(byte)) = (kind, state.kind) {
             kind.set_if_neq(Kind(byte));
         }
-        position.set_if_neq(LevelPosition(state.position));
+        position.set_if_neq(LevelPosition(level_pixels(state.x, state.y)));
         let records = snapshot.records.iter().filter(|r| r.mark == drawer.0);
         draws.set_if_neq(Draws(records.cloned().collect()));
     }
-    camera.set_if_neq(MirrorCamera(snapshot.camera));
+    camera.set_if_neq(MirrorCamera(level_pixels(
+        snapshot.camera.0,
+        snapshot.camera.1,
+    )));
     let records = snapshot.records.iter().filter(|r| !has_entity(r.mark));
     other.set_if_neq(OtherDraws(records.cloned().collect()));
 }
 
 /// The mirror.
-pub struct MirrorPlugin;
+pub(crate) struct MirrorPlugin;
 
 impl Plugin for MirrorPlugin {
     fn build(&self, app: &mut App) {
@@ -194,59 +131,6 @@ mod tests {
         ))
     }
 
-    #[test]
-    fn the_snapshot_takes_each_drawers_kind_and_position_from_the_game() {
-        let Some(mut play) = start() else {
-            return;
-        };
-        let fired = (0..120).any(|frame| {
-            play.step(rotj_core::actor::button::Buttons::from_bits(pad(frame)));
-            play.game()
-                .effects
-                .projectiles
-                .iter()
-                .any(|shot| shot.kind != 0)
-        });
-        assert!(fired, "a shot is out");
-        let game = play.game();
-        let snapshot = Snapshot::of(game, play.levels(), &play.lines);
-        let state = |mark| {
-            snapshot
-                .drawers
-                .iter()
-                .find(|state| state.drawer == mark)
-                .copied()
-                .expect("every drawer")
-        };
-        for (index, actor) in (0u8..).zip(&game.slots.main) {
-            let actor_state = state(Mark::Actor(index));
-            assert_eq!(actor_state.kind, Some(actor.kind));
-            assert_eq!(
-                actor_state.position * 16.0,
-                Vec2::new(f32::from(actor.body.x), f32::from(actor.body.y))
-            );
-        }
-        for (index, second) in (0u8..).zip(&game.slots.second) {
-            assert_eq!(state(Mark::Second(index)).kind, Some(second.kind));
-        }
-        for (index, shot) in (0u8..).zip(&game.effects.projectiles) {
-            let shot_state = state(Mark::Projectile(index));
-            assert_eq!(shot_state.kind, Some(shot.kind));
-            assert_eq!(
-                shot_state.position * 16.0,
-                Vec2::new(f32::from(shot.x), f32::from(shot.y))
-            );
-        }
-        let player = &game.effects.player;
-        assert_eq!(state(Mark::Player).kind, None);
-        assert_eq!(
-            state(Mark::Player).position * 16.0,
-            Vec2::new(f32::from(player.x), f32::from(player.y))
-        );
-        assert_eq!(snapshot.records, game.oam.shown);
-        assert_eq!(snapshot.drawers.len(), 24 + 8 + 16 + 1);
-    }
-
     /// Over level 0's first frames, every sprite the page shows from a mirrored drawer
     /// has that drawer's records, and the records split over the entities and
     /// [`OtherDraws`] add up to the page's.
@@ -261,7 +145,7 @@ mod tests {
         for frame in 0..300 {
             app.world_mut()
                 .resource_mut::<Play>()
-                .step(rotj_core::actor::button::Buttons::from_bits(pad(frame)));
+                .step(rotj_core::Buttons::from_bits(pad(frame)));
             app.update();
             let entities: Vec<(Mark, Option<Kind>, LevelPosition, Draws)> = app
                 .world_mut()
@@ -273,13 +157,19 @@ mod tests {
                 .collect();
             let world = app.world();
             let play = world.resource::<Play>();
-            for state in &play.shown.drawers {
+            let snapshot = play.session().snapshot();
+            for state in &snapshot.drawers {
                 let (_, kind, position, _) = entities
                     .iter()
                     .find(|entity| entity.0 == state.drawer)
                     .expect("an entity per drawer");
                 assert_eq!(kind.map(|kind| kind.0), state.kind, "{:?}", state.drawer);
-                assert_eq!(position.0, state.position, "{:?}", state.drawer);
+                assert_eq!(
+                    position.0,
+                    level_pixels(state.x, state.y),
+                    "{:?}",
+                    state.drawer
+                );
             }
             let draws: Vec<(Mark, Draws)> = entities
                 .into_iter()
@@ -294,7 +184,7 @@ mod tests {
                 );
                 drew += shown;
             }
-            let records = &play.shown.records;
+            let records = &snapshot.records;
             for (mark, records_of) in &draws {
                 let expected: Vec<&DrawRecord> =
                     records.iter().filter(|r| r.mark == *mark).collect();

@@ -1,7 +1,7 @@
 //! `rotj sublevel`: a stage directory for any captured sublevel.
 //!
 //! Where `rotj stage` copies the PPU's nametables, this derives the tile area
-//! from the metatile map (`rotj_core::levelmap::Map`) and reads the
+//! from the metatile map (`rotj_core::map::Map`) and reads the
 //! stage/sublevel/scroll out of RAM, so one command covers every capture.
 //!
 //! The attribute table is **not** derivable from the map: the metatile map and
@@ -12,9 +12,10 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use color_eyre::eyre::{Context, Result, eyre};
-use rotj_core::levelmap::Map;
-use rotj_core::stage::{NAMETABLE_OFFSET, PALETTE_OFFSET, PPU_BYTES, RAM_BYTES, WRAM_BYTES};
-use rotj_core::sublevels;
+use rotj_core::map::Map;
+
+use crate::re_stage::{NAMETABLE_OFFSET, PALETTE_OFFSET, PPU_BYTES, RAM_BYTES, WRAM_BYTES};
+use crate::re_sublevels as sublevels;
 
 /// Bytes of an attribute table inside one physical nametable.
 const ATTRIBUTE_BYTES: usize = 0x40;

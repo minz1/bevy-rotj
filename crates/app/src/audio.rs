@@ -24,7 +24,7 @@ use bevy::audio::{
 };
 use bevy::prelude::*;
 use rotj_apu::stream::ApuStream;
-use rotj_core::actor::world::SoundId;
+use rotj_core::SoundId;
 
 /// Output sample rate.
 const SAMPLE_RATE: u32 = 44_100;
@@ -43,7 +43,7 @@ const FADE_STEP: f32 = 1.0 / 441.0;
 
 /// The gain for a 0-100 volume, squared so the steps sound even.
 #[must_use]
-pub fn gain(volume: u8) -> f32 {
+pub(crate) fn gain(volume: u8) -> f32 {
     (f32::from(volume) / 100.0).powi(2)
 }
 
@@ -82,7 +82,7 @@ pub(crate) fn driver() -> rotj_music::Music {
 
 /// Mixed samples in flight, from the game clock to the audio device.
 #[derive(Resource, Clone, Default)]
-pub struct SampleQueue(Arc<Mutex<VecDeque<f32>>>);
+pub(crate) struct SampleQueue(Arc<Mutex<VecDeque<f32>>>);
 
 impl SampleQueue {
     /// Queues one sample, dropping it if the device is not keeping up (stale
@@ -108,7 +108,7 @@ impl SampleQueue {
 
 /// Whether the game clock is driving the sound driver or frozen under the menu.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum AudioDrive {
+pub(crate) enum AudioDrive {
     /// Ticks the music driver and ramps gain toward `target_gain`.
     Running {
         /// Target output gain (0.0..=1.0).
@@ -121,7 +121,7 @@ pub enum AudioDrive {
 /// The synth on the game's clock: ticks the ported driver each frame, applies
 /// the register writes it returns, and fills the queue.
 #[derive(Resource)]
-pub struct Music {
+pub(crate) struct Music {
     stream: ApuStream,
     driver: rotj_music::Music,
     queue: SampleQueue,
@@ -185,7 +185,7 @@ enum QueueState {
 }
 
 /// A Bevy audio source that drains [`SampleQueue`] once it holds [`QUEUE_TARGET`].
-pub struct QueueSource {
+pub(crate) struct QueueSource {
     queue: SampleQueue,
     state: QueueState,
 }
@@ -241,7 +241,7 @@ impl Source for QueueSource {
 
 /// The playable asset: a handle to the shared queue.
 #[derive(Asset, TypePath)]
-pub struct MusicSource {
+pub(crate) struct MusicSource {
     queue: SampleQueue,
 }
 
@@ -258,7 +258,7 @@ impl Decodable for MusicSource {
 
 /// Audio plugin: keeps the synth on the game clock and plays its output.
 #[derive(Default)]
-pub struct AudioPlugin;
+pub(crate) struct AudioPlugin;
 
 impl Plugin for AudioPlugin {
     fn build(&self, app: &mut App) {

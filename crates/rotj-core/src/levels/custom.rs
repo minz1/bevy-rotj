@@ -9,11 +9,11 @@ use super::Catalog;
 use super::import::Metatile;
 use super::model::Property;
 use super::tilesets::{TILESET_PX, draw_corner};
-use crate::actor::room::loaded_bank;
 use crate::chr;
-use crate::collision::CLASS_COUNT;
+use crate::map::CLASS_COUNT;
+use crate::map::ChrBanks;
 use crate::palette::GREY_RAMP;
-use crate::rooms::ChrBanks;
+use crate::sim::room::loaded_bank;
 
 /// The tileset name a room's map gives it.
 pub(crate) const CUSTOM: &str = "custom";
