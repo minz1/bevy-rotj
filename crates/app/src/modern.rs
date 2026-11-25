@@ -16,16 +16,18 @@ use bevy::sprite_render::{
 };
 use rotj_core::chr;
 use rotj_core::palette::Rgb;
-use rotj_core::render::{SCREEN_H, SCREEN_W};
-use rotj_core::sim::modern::{COLUMNS, MAX_RUNS, ModernFrame, ROWS, Run, run_tile};
-use rotj_core::sim::oam::attr;
+use rotj_core::render::{Line, SCREEN_H, SCREEN_W};
+use rotj_core::sim::modern::{
+    COLUMNS, MAX_RUNS, ModernFrame, Piece, ROWS, Run, TileGrid, run_tile,
+};
+use rotj_core::sim::oam::{OamEntry, attr};
 
 use crate::mirror::Drawer;
 use crate::pacing::Step;
 use crate::play::Play;
 use crate::screen::{Colours, Screen, ScreenSprite, pixels, screen_image};
 use crate::settings::{Picture, Settings, UiStyle};
-use crate::ui::{Key, sprite_key, tiles};
+use crate::ui::{Key, sprite_key_at_line, tiles};
 
 /// A palette's four colours, as RGB.
 type Set = [[u8; 3]; 4];
@@ -33,8 +35,8 @@ type Set = [[u8; 3]; 4];
 /// The render layer the Modern picture's sprites use; each piece's tilemaps have their own after it.
 const SPRITES: usize = 1;
 
-/// The pieces a frame is drawn in, top to bottom: the playfield from the map, then the runs.
-const PIECES: usize = MAX_RUNS + 1;
+/// The pieces a frame is drawn in, top to bottom.
+const PIECES: usize = MAX_RUNS;
 
 /// The Modern picture's image, the camera clearing it to the backdrop, each piece's tilemaps
 /// and the art they use.
@@ -346,8 +348,8 @@ struct Out<'a, 'w, 's> {
     cameras: &'a mut Cameras<'w, 's>,
 }
 
-/// Each piece's tilemaps: the playfield's from the frame's map tiles, each run's from the
-/// nametables, in screen space.
+/// Each piece's tilemaps: map playfields from the frame's map tiles, nametable runs from the PPU,
+/// in screen space.
 fn show_background(
     modern: &mut Modern,
     out: &mut Out<'_, '_, '_>,
@@ -358,28 +360,34 @@ fn show_background(
     let sets: [Set; 4] = std::array::from_fn(|set| {
         colours(&play.session().ppu().palette, set * 4, frame.greyscale, rgb)
     });
-    let [left, top] = [frame.view.left, frame.view.top]
-        .map(|at| f32::from(u8::try_from(at.rem_euclid(8)).expect("0-7")));
-    let map = (frame.view.map_end > 0).then(|| Shown {
-        banks: frame.view.banks,
-        tiles: &frame.tiles,
-        corner: Vec2::new(-left, top),
-        lines: 0..frame.view.map_end,
-    });
-    let runs: Vec<_> = frame
-        .view
-        .runs
-        .iter()
-        .flatten()
-        .map(|run| (run, run_tiles(play, run)))
-        .collect();
-    let pieces = std::iter::once(map)
-        .chain(
-            runs.iter()
-                .map(|(run, tiles)| Some(screen_space(run, tiles))),
-        )
-        .chain(std::iter::repeat_with(|| None));
-    for (layer, shown) in modern.pieces.iter_mut().zip(pieces) {
+    let run_grids: [Option<TileGrid>; MAX_RUNS] =
+        std::array::from_fn(|index| match frame.view.pieces[index] {
+            Some(Piece::Run(run)) => Some(run_tiles(play, &run)),
+            _ => None,
+        });
+    for (index, layer) in modern.pieces.iter_mut().enumerate() {
+        let shown = match frame.view.pieces[index] {
+            Some(Piece::Map {
+                line,
+                end,
+                left,
+                top,
+                banks,
+            }) => {
+                let fine_x = f32::from(u8::try_from(left.rem_euclid(8)).expect("0-7"));
+                let fine_y = f32::from(u8::try_from(top.rem_euclid(8)).expect("0-7"));
+                frame.tiles_for(index).map(|tiles| Shown {
+                    banks,
+                    tiles,
+                    corner: Vec2::new(-fine_x, fine_y - pixels(line)),
+                    lines: line..end,
+                })
+            }
+            Some(Piece::Run(run)) => run_grids[index]
+                .as_deref()
+                .map(|tiles| screen_space(&run, tiles)),
+            None => None,
+        };
         show_layer(layer, out, play, sets, shown);
     }
 }
@@ -477,6 +485,72 @@ fn show_layer(
     }
 }
 
+/// Contiguous vertical row spans `[row_start..row_end)` of an 8x16 OAM sprite sharing one
+/// `(sprite_chr, palette)` [`Key`]. Steady sprites produce one span; bank-split sprites (such as
+/// Batman straddling Stage 1's boss floor) produce two clipped slices.
+fn sprite_slices(
+    entry: OamEntry,
+    lines: &[Line],
+    palette: &[u8; 32],
+    rgb: &Rgb,
+) -> Vec<(usize, usize, Key)> {
+    let top_y = usize::from(entry.y) + 1;
+    let mut slices: Vec<(usize, usize, Key)> = Vec::new();
+    for row in 0..16 {
+        let Some(line) = lines.get(top_y + row) else {
+            break;
+        };
+        let Some(key) = sprite_key_at_line(entry, line, palette, rgb) else {
+            continue;
+        };
+        if let Some(last) = slices.last_mut()
+            && last.1 == row
+            && last.2 == key
+        {
+            last.1 = row + 1;
+        } else {
+            slices.push((row, row + 1, key));
+        }
+    }
+    slices
+}
+
+/// Builds a Bevy [`Sprite`] for rows `row_start..row_end` of `entry`'s 8x16 tile in `atlas`.
+fn slice_sprite(
+    atlas: Handle<Image>,
+    layout: &Handle<TextureAtlasLayout>,
+    entry: OamEntry,
+    row_start: usize,
+    row_end: usize,
+) -> Sprite {
+    let flip_x = entry.attr & attr::FLIP_X != 0;
+    let flip_y = entry.attr & attr::FLIP_Y != 0;
+    let mut sprite = if row_start == 0 && row_end == 16 {
+        Sprite::from_atlas_image(
+            atlas,
+            TextureAtlas {
+                layout: layout.clone(),
+                index: usize::from(entry.tall_index()),
+            },
+        )
+    } else {
+        let index = usize::from(entry.tall_index());
+        let tx = pixels((index % 16) * 8);
+        let ty = pixels((index / 16) * 16);
+        let (src_top, src_bottom) = if flip_y {
+            (pixels(16 - row_end), pixels(16 - row_start))
+        } else {
+            (pixels(row_start), pixels(row_end))
+        };
+        let mut s = Sprite::from_image(atlas);
+        s.rect = Some(Rect::new(tx, ty + src_top, tx + 8.0, ty + src_bottom));
+        s
+    };
+    sprite.flip_x = flip_x;
+    sprite.flip_y = flip_y;
+    sprite
+}
+
 /// Every record's sprites in draw order, each a child of its drawer's mirror entity: behind
 /// the tilemaps when its priority bit says, an earlier draw in front of a later one.
 fn spawn_sprites(
@@ -502,42 +576,38 @@ fn spawn_sprites(
             .find(|(_, drawer)| drawer.0 == record.mark)
             .map(|(entity, _)| entity);
         for entry in record.sprites(256).filter(|entry| entry.is_visible()) {
-            let Some(key) = sprite_key(entry, session.lines(), &session.ppu().palette, rgb) else {
+            let slices = sprite_slices(entry, session.lines(), &session.ppu().palette, rgb);
+            if slices.is_empty() {
                 continue;
-            };
-            used.insert(key);
-            let atlas = modern
-                .atlases
-                .entry(key)
-                .or_insert_with(|| images.add(tiles(&play.chr, &key)))
-                .clone();
-            let mut sprite = Sprite::from_atlas_image(
-                atlas,
-                TextureAtlas {
-                    layout: modern.layout.clone(),
-                    index: usize::from(entry.tall_index()),
-                },
-            );
-            sprite.flip_x = entry.attr & attr::FLIP_X != 0;
-            sprite.flip_y = entry.attr & attr::FLIP_Y != 0;
+            }
             let depth = if entry.attr & attr::BEHIND != 0 {
                 1.5
             } else {
                 3.5
             };
-            let mut spawned = commands.spawn((
-                ModernSprite,
-                sprite,
-                Anchor::TOP_LEFT,
-                Transform::from_xyz(
-                    f32::from(entry.x),
-                    -f32::from(entry.y) - 1.0,
-                    depth - f32::from(order) / 1024.0,
-                ),
-                RenderLayers::layer(SPRITES),
-            ));
-            if let Some(parent) = parent {
-                spawned.insert(ChildOf(parent));
+            let z = depth - f32::from(order) / 1024.0;
+            for (row_start, row_end, key) in slices {
+                used.insert(key);
+                let atlas = modern
+                    .atlases
+                    .entry(key)
+                    .or_insert_with(|| images.add(tiles(&play.chr, &key)))
+                    .clone();
+                let sprite = slice_sprite(atlas, &modern.layout, entry, row_start, row_end);
+                let mut spawned = commands.spawn((
+                    ModernSprite,
+                    sprite,
+                    Anchor::TOP_LEFT,
+                    Transform::from_xyz(
+                        f32::from(entry.x),
+                        -f32::from(entry.y) - 1.0 - pixels(row_start),
+                        z,
+                    ),
+                    RenderLayers::layer(SPRITES),
+                ));
+                if let Some(parent) = parent {
+                    spawned.insert(ChildOf(parent));
+                }
             }
             order = order.saturating_add(1);
         }
@@ -620,41 +690,58 @@ mod tests {
         let Some(rom) = rotj_rom::for_test() else {
             return;
         };
+        let piece_summary = |view: Option<View>| {
+            view.map(|v| {
+                v.pieces
+                    .iter()
+                    .flatten()
+                    .map(|p| (p.is_map(), p.line(), p.end()))
+                    .collect::<Vec<_>>()
+            })
+        };
         let play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 0);
         let (drawn, view) = renders_as_classic(play, 180, pad, "stage-1");
         assert!(drawn > 100, "{drawn} of 180 frames drawn Modern");
-        assert_eq!(
-            view.map(|view| (view.map_end, view.runs[0])),
-            Some((240, None))
-        );
+        assert_eq!(piece_summary(view), Some(vec![(true, 0, 240)]));
         let mut play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 5);
         crate::play::tests::enter_the_boss_room(&mut play, 0x0E);
         let (drawn, view) = renders_as_classic(play, 60, |_| Buttons::NONE, "boss-bar");
         assert_eq!(drawn, 60, "boss room frames drawn Modern");
         assert_eq!(
-            view.map(|view| (view.map_end, view.runs.map(|run| run.map(|run| run.line)))),
-            Some((
-                192,
-                [Some(192), Some(193), None, None, None, None, None, None]
-            )),
+            piece_summary(view),
+            Some(vec![(true, 0, 192), (false, 192, 193), (false, 193, 240)]),
             "the map down to the bar, its mixed line, the bar"
+        );
+        let mut play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 1);
+        crate::play::tests::enter_the_boss_room(&mut play, 0x04);
+        let (drawn, view) = renders_as_classic(play, 60, |_| Buttons::NONE, "boss-floor");
+        assert_eq!(
+            drawn, 60,
+            "Stage 1 boss floor frames (bank-split sprites) all draw Modern"
+        );
+        assert!(
+            view.is_some_and(|v| v.has_map()),
+            "boss floor arena draws from the map: {view:?}"
         );
         let play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 9);
         let (drawn, view) = renders_as_classic(play, 61, pad, "seven-bands");
         assert_eq!(drawn, 61, "area $18's frames drawn Modern");
         assert_eq!(
-            view.map(|view| (view.map_end, view.runs.iter().flatten().count())),
-            Some((0, 6)),
-            "six runs from the nametables"
+            view.map(|v| (v.has_map(), v.pieces.iter().flatten().count())),
+            Some((false, 6)),
+            "six parallax runs from the nametables"
         );
         let play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 11);
         // From frame 40 the rotation puts two of an enemy's overlapping sprites out of draw order.
         let (drawn, view) = renders_as_classic(play, 31, pad, "fixed-top");
         assert_eq!(drawn, 31, "area $1C's frames drawn Modern");
         assert_eq!(
-            view.map(|view| (view.map_end, view.runs.iter().flatten().count())),
-            Some((0, 3)),
-            "the playfield, the fixed art and the band below, from the lines after the loop"
+            view.map(|v| (
+                v.pieces.iter().flatten().filter(|p| p.is_map()).count(),
+                v.pieces.iter().flatten().count()
+            )),
+            Some((2, 3)),
+            "top and bottom map playfields around the fixed middle art"
         );
         let mut play = Play::start(crate::play::tests::prg(rom), rom.chr.clone(), 12);
         for arg in [0xC1, 0x61] {
@@ -681,8 +768,8 @@ mod tests {
         let (drawn, view) = renders_as_classic(play, 61, |_| Buttons::NONE, "final-boss");
         assert!(drawn > 0, "final boss frames drawn Modern");
         assert_eq!(
-            view.map(|view| view.map_end),
-            Some(0),
+            view.map(|v| v.has_map()),
+            Some(false),
             "the playfield from the nametables"
         );
     }
@@ -793,5 +880,43 @@ mod tests {
         let rgb = rotj_core::palette::NES_PALETTE;
         assert_eq!(colours(&palette, 0, false, &rgb)[0], rgb[0x2A]);
         assert_eq!(colours(&palette, 0, true, &rgb)[0], rgb[0x20]);
+    }
+
+    #[test]
+    fn bank_split_sprite_slices_respect_flip_y() {
+        let mut lines = vec![
+            Line {
+                mask: rotj_core::render::mask::SPRITES,
+                sprite_chr: [1, 2, 3, 4, 5, 6, 7, 8],
+                ..Line::default()
+            };
+            SCREEN_H
+        ];
+        for line in &mut lines[192..] {
+            line.sprite_chr[0] = 0x39;
+        }
+        let entry = OamEntry {
+            y: 185, // top_y = 186 -> rows 0..6 on lines 186..192, rows 6..16 on lines 192..202
+            tile: 2,
+            attr: attr::FLIP_Y,
+            x: 40,
+        };
+        let palette = [0x0F; 32];
+        let slices = sprite_slices(entry, &lines, &palette, &rotj_core::palette::NES_PALETTE);
+        assert_eq!(slices.len(), 2);
+        assert_eq!((slices[0].0, slices[0].1, slices[0].2.banks[0]), (0, 6, 1));
+        assert_eq!(
+            (slices[1].0, slices[1].1, slices[1].2.banks[0]),
+            (6, 16, 0x39)
+        );
+
+        let dummy_atlas = Handle::<Image>::default();
+        let dummy_layout = Handle::<TextureAtlasLayout>::default();
+        let top_slice = slice_sprite(dummy_atlas.clone(), &dummy_layout, entry, 0, 6);
+        let bottom_slice = slice_sprite(dummy_atlas, &dummy_layout, entry, 6, 16);
+        // Flip Y: screen rows 0..6 sample source rows 10..16, screen rows 6..16 sample 0..10.
+        assert_eq!(top_slice.rect, Some(Rect::new(8.0, 10.0, 16.0, 16.0)));
+        assert_eq!(bottom_slice.rect, Some(Rect::new(8.0, 0.0, 16.0, 10.0)));
+        assert!(top_slice.flip_y && bottom_slice.flip_y);
     }
 }

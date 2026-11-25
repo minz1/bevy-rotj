@@ -78,16 +78,15 @@ pub(crate) fn shown(
         .collect()
 }
 
-/// The atlas an OAM entry's 8x16 sprite is drawn from: its line's sprite banks and its
-/// palette's colours, or `None` on a line with sprites off.
+/// The atlas an OAM entry's 8x16 sprite is drawn from on a specific scanline, or `None` if
+/// sprites are disabled on that line.
 #[must_use]
-pub(crate) fn sprite_key(
+pub(crate) fn sprite_key_at_line(
     entry: OamEntry,
-    lines: &[Line],
+    line: &Line,
     palette: &[u8; 32],
     rgb: &Rgb,
 ) -> Option<Key> {
-    let line = lines.get(usize::from(entry.y) + 1)?;
     if line.mask & mask::SPRITES == 0 {
         return None;
     }
@@ -105,6 +104,19 @@ pub(crate) fn sprite_key(
         }
     });
     Some(Key { banks, colours })
+}
+
+/// The atlas an OAM entry's 8x16 sprite is drawn from: its line's sprite banks and its
+/// palette's colours, or `None` on a line with sprites off.
+#[must_use]
+pub(crate) fn sprite_key(
+    entry: OamEntry,
+    lines: &[Line],
+    palette: &[u8; 32],
+    rgb: &Rgb,
+) -> Option<Key> {
+    let line = lines.get(usize::from(entry.y) + 1)?;
+    sprite_key_at_line(entry, line, palette, rgb)
 }
 
 /// A pattern table as 128 8x16 tiles, 16 to a row, in `key`'s colours, colour 0 clear.

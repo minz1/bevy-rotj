@@ -158,7 +158,7 @@ fn the_loop_matches_the_tas_from_stage_1_to_the_ending() {
             exceptions.half_written,
             exceptions.unreached
         ),
-        (34815, 25985, 23807, 486, 185, 0, 8),
+        (35301, 26471, 13121, 0, 185, 0, 8),
         "the Modern frames and the gates' exceptions: {run:?}"
     );
     assert_eq!(pictures.crowded, 0, "no split past MAX_RUNS: {run:?}");

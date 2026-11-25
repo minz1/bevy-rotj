@@ -887,7 +887,7 @@ impl Lockstep {
         };
         if split {
             self.pictures.runs += 1;
-            self.pictures.from_nametables += usize::from(view.map_end == 0);
+            self.pictures.from_nametables += usize::from(!view.has_map());
         }
         let chr = &rotj_rom::for_test().expect("the ROM").chr;
         match super::modern::check_background(&view, before, port, &self.ppu, chr) {

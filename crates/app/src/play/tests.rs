@@ -340,11 +340,36 @@ fn a_split_frame_is_drawn_from_the_lines_after_its_loop() {
         play.step(pad);
         let session = play.session();
         let modern = session.snapshot().modern.as_ref().expect("drawn Modern");
-        assert_eq!(
-            Some(modern.view.runs),
-            rotj_core::sim::modern::runs(session.lines(), 0),
-            "frame {frame}"
-        );
+        let lines = session.lines();
+        let mut covered = 0;
+        for piece in modern.view.pieces.iter().flatten().copied() {
+            assert_eq!(piece.line(), covered, "frame {frame}: contiguous pieces");
+            covered = piece.end();
+            let line = lines[piece.line()];
+            match piece {
+                rotj_core::sim::modern::Piece::Run(run) => {
+                    assert_eq!(run.top, line, "frame {frame}: run matches lines after loop");
+                }
+                rotj_core::sim::modern::Piece::Map { left, .. } => {
+                    let period = if line.mirroring == rotj_core::render::Mirroring::SideBySide {
+                        512
+                    } else {
+                        256
+                    };
+                    let scroll_x = i32::from(
+                        (((line.v >> 10) & 1) << 8)
+                            | ((line.v & 0x1F) << 3)
+                            | u16::from(line.fine_x),
+                    );
+                    assert_eq!(
+                        left.rem_euclid(period),
+                        scroll_x.rem_euclid(period),
+                        "frame {frame}: map piece aligns with IRQ scroll after the loop"
+                    );
+                }
+            }
+        }
+        assert_eq!(covered, lines.len(), "frame {frame}: full screen covered");
     }
 }
 

@@ -1,5 +1,5 @@
 //! The Modern picture's view of a frame: when it is drawn, and its background from the live map
-//! (`docs/specs/archive/2026-10-18-modern-picture-design.md`).
+//! and per-split nametable runs (`docs/specs/2026-11-25-1.2.0-enhanced-presentation-design.md`).
 
 use super::stage::{self, FINAL_AREA};
 use super::world::{Ppu, orientation};
@@ -15,15 +15,19 @@ pub const COLUMNS: usize = SCREEN_W / 8 + 1;
 /// See [`COLUMNS`].
 pub const ROWS: usize = SCREEN_H / 8 + 1;
 
+/// One piece's `COLUMNS * ROWS` background grid of `(tile, palette)` pairs.
+pub type TileGrid = Vec<Option<(u8, u8)>>;
+
 /// What the Modern picture draws of the frame on screen, taken with the page it shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModernFrame {
-    /// Where the screen is in the level, and the background's banks.
+    /// Where the screen is in the level, and the ordered background pieces covering `0..240`.
     pub view: View,
     /// `$2001`'s greyscale bit.
     pub greyscale: bool,
-    /// Each tile's (tile, palette), [`COLUMNS`] by [`ROWS`], from the screen's top-left tile.
-    pub tiles: Vec<Option<(u8, u8)>>,
+    /// Map tiles (`COLUMNS * ROWS`) for each [`Piece::Map`] in [`View::pieces`], tagged by its
+    /// piece index.
+    pub map_tiles: Vec<(usize, TileGrid)>,
 }
 
 impl ModernFrame {
@@ -31,52 +35,129 @@ impl ModernFrame {
     #[must_use]
     pub(crate) fn of(game: &Game, levels: &Levels, lines: &[Line]) -> Option<ModernFrame> {
         let view = view(game, levels, lines)?;
-        let (left, top) = (
-            view.left - view.left.rem_euclid(8),
-            view.top - view.top.rem_euclid(8),
-        );
-        let end = view.top + i32::try_from(view.map_end).expect("a line");
-        let tiles = (0..ROWS)
-            .flat_map(|row| (0..COLUMNS).map(move |column| (column, row)))
-            .map(|(column, row)| {
-                let [x, y] =
-                    [column, row].map(|at| i32::try_from(at * 8).expect("a screen's worth"));
-                (top + y < end)
-                    .then(|| tile_at(game, left + x, top + y))
-                    .flatten()
-            })
-            .collect();
+        let mut map_tiles = Vec::new();
+        for (index, piece) in view.pieces.iter().enumerate() {
+            let Some(Piece::Map {
+                line,
+                end,
+                left,
+                top,
+                ..
+            }) = *piece
+            else {
+                continue;
+            };
+            let base_left = left - left.rem_euclid(8);
+            let base_top = top - top.rem_euclid(8);
+            let height = i32::try_from(end - line).expect("a line count");
+            let max_y = top + height;
+            let tiles = (0..ROWS)
+                .flat_map(|row| (0..COLUMNS).map(move |column| (column, row)))
+                .map(|(column, row)| {
+                    let [x, y] =
+                        [column, row].map(|at| i32::try_from(at * 8).expect("a screen's worth"));
+                    (base_top + y < max_y)
+                        .then(|| tile_at(game, base_left + x, base_top + y))
+                        .flatten()
+                })
+                .collect();
+            map_tiles.push((index, tiles));
+        }
         Some(ModernFrame {
             view,
             greyscale: lines
                 .first()
                 .is_some_and(|line| line.mask & mask::GREYSCALE != 0),
-            tiles,
+            map_tiles,
         })
+    }
+
+    /// The pre-fetched map tile grid for piece `piece_index`, if it is a [`Piece::Map`].
+    #[must_use]
+    pub fn tiles_for(&self, piece_index: usize) -> Option<&[Option<(u8, u8)>]> {
+        self.map_tiles
+            .iter()
+            .find(|(index, _)| *index == piece_index)
+            .map(|(_, tiles)| tiles.as_slice())
+    }
+}
+
+/// The most pieces (map playfields + nametable runs) a Modern frame can have (area `$18` shows 7).
+pub const MAX_RUNS: usize = 8;
+
+/// A frame's runs, the unused ones `None` at the end.
+pub type Runs = [Option<Run>; MAX_RUNS];
+
+/// A frame's ordered vertical pieces, the unused ones `None` at the end.
+pub type Pieces = [Option<Piece>; MAX_RUNS];
+
+/// One vertical slice of a Modern frame: either a live-map playfield or a nametable run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Piece {
+    /// Screen lines `line..end` drawn from the live level map: screen `(0, line)` maps to
+    /// level pixel `(left, top)`.
+    Map {
+        /// First screen scanline.
+        line: usize,
+        /// Scanline after the last.
+        end: usize,
+        /// Level x pixel shown at screen `(0, line)`.
+        left: i32,
+        /// Level y pixel shown at screen `(0, line)`.
+        top: i32,
+        /// Four 1 KiB background CHR banks.
+        banks: [u8; 4],
+    },
+    /// Screen lines `run.line..run.end` drawn from the PPU nametables.
+    Run(Run),
+}
+
+impl Piece {
+    /// First screen scanline covered by this piece.
+    #[must_use]
+    pub const fn line(self) -> usize {
+        match self {
+            Self::Map { line, .. } => line,
+            Self::Run(run) => run.line,
+        }
+    }
+
+    /// Scanline after the last covered by this piece.
+    #[must_use]
+    pub const fn end(self) -> usize {
+        match self {
+            Self::Map { end, .. } => end,
+            Self::Run(run) => run.end,
+        }
+    }
+
+    /// True if this piece draws from the live level map.
+    #[must_use]
+    pub const fn is_map(self) -> bool {
+        matches!(self, Self::Map { .. })
     }
 }
 
 /// What the Modern picture draws of a frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct View {
-    /// The screen's left edge in the level, in pixels.
+    /// The screen's nominal left edge in the level, in pixels.
     pub left: i32,
-    /// The screen's top edge in the level, in pixels.
+    /// The screen's nominal top edge in the level, in pixels.
     pub top: i32,
-    /// Line 0's four CHR banks, the map playfield's.
+    /// Line 0's four CHR banks.
     pub banks: [u8; 4],
-    /// The line the playfield from the live map stops at: 240 without a split, 0 when every
-    /// line is a run.
-    pub map_end: usize,
-    /// The lines from `map_end` down, as runs from the nametables, top to bottom.
-    pub runs: Runs,
+    /// Ordered top-to-bottom vertical pieces covering `0..240`.
+    pub pieces: Pieces,
 }
 
-/// The most runs a frame drawn Modern has (area `$18` shows 7).
-pub const MAX_RUNS: usize = 8;
-
-/// A frame's runs, the unused ones `None` at the end.
-pub type Runs = [Option<Run>; MAX_RUNS];
+impl View {
+    /// True when at least one piece draws from the live level map.
+    #[must_use]
+    pub fn has_map(&self) -> bool {
+        self.pieces.iter().flatten().any(|piece| piece.is_map())
+    }
+}
 
 /// Lines of the screen drawn from the nametables in screen space: one scroll, one set of banks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +182,14 @@ impl Run {
     pub fn banks(&self) -> [u8; 4] {
         background_banks(&self.top)
     }
+
+    /// Its 9-bit horizontal nametable pixel scroll (`0..512`).
+    #[must_use]
+    pub fn scroll_x(&self) -> u16 {
+        let nt_x = (self.top.v >> 10) & 1;
+        let coarse_x = self.top.v & 0x1F;
+        (nt_x << 8) | (coarse_x << 3) | u16::from(self.top.fine_x)
+    }
 }
 
 /// Whether the game is in play: the loop, a pause or a power-up's freeze, a stage's end.
@@ -112,32 +201,140 @@ pub(crate) fn in_play(game: &Game) -> bool {
     )
 }
 
+/// Aligns `rounded(camera_x)` to the nametable X scroll of `run` (nearest level x matching
+/// `run`'s horizontal ring: 512 px for `SideBySide` mirroring, 256 px for 1-screen-wide mirroring).
+fn map_left_from_run(camera_x: u16, run: &Run) -> i32 {
+    let period = if run.top.mirroring == crate::render::Mirroring::SideBySide {
+        512
+    } else {
+        256
+    };
+    let half = period / 2;
+    let base = i32::from(rounded(camera_x));
+    let target = i32::from(run.scroll_x()).rem_euclid(period);
+    let delta = (target - base + half).rem_euclid(period) - half;
+    base + delta
+}
+
+/// Converts `run` into a [`Piece::Map`] whose `(left, top)` matches the run's live map position.
+fn map_piece(game: &Game, run: Run, top: i32) -> Piece {
+    Piece::Map {
+        line: run.line,
+        end: run.end,
+        left: map_left_from_run(game.world.camera_x, &run),
+        top,
+        banks: run.banks(),
+    }
+}
+
+/// True if `run` is a playfield run drawn from the live map in `chain` (`index` of `count`).
+fn is_playfield_run(
+    chain: Chain,
+    vertical: bool,
+    index: usize,
+    count: usize,
+    run: Run,
+    lines_len: usize,
+) -> bool {
+    match chain {
+        Chain::BossBar => index == 0,
+        Chain::FixedRow => !vertical && index == 0,
+        Chain::TwoBands => index + 1 == count && run.end == lines_len && run.line >= 100,
+        Chain::ThreeBands => index + 1 == count && run.end == lines_len && run.line >= 120,
+        Chain::BossFloor => index == 2 && run.line >= 100 && run.end < lines_len,
+        Chain::FixedTop => true,
+        Chain::FourBands
+        | Chain::FourBandsTall
+        | Chain::SwingingRow
+        | Chain::Intro
+        | Chain::Cutscene
+        | Chain::Closing
+        | Chain::EndingTitle
+        | Chain::Credits => false,
+    }
+}
+
 /// The Modern view of the frame `lines` draws from `game` (its NMI state) in `levels`; `None`
 /// draws Classic.
 #[must_use]
 pub(crate) fn view(game: &Game, levels: &Levels, lines: &[Line]) -> Option<View> {
     let banks = background_banks(lines.first()?);
     let split = game.scroll.split;
-    let (map_end, runs) = if split.armed {
-        let map_end = if split.chain != Chain::BossBar
-            || stage::at(levels, game.world.area).area == FINAL_AREA
-        {
-            0
-        } else {
-            runs(lines, 0)?[0].map_or(0, |run| run.end)
-        };
-        (map_end, runs(lines, map_end)?)
+    let left = screen_edge(game.world.camera_x, game.scroll.x);
+    let top = i32::from(rounded(game.world.camera_y));
+    let pieces = if split.armed {
+        let raw = runs(lines, 0)?;
+        let count = raw.iter().flatten().count();
+        let final_area = stage::at(levels, game.world.area).area == FINAL_AREA;
+        let vertical = game.world.orientation & orientation::VERTICAL != 0;
+        let mut out: Pieces = [None; MAX_RUNS];
+        let mut cursor = 0usize;
+        for (index, run) in raw.iter().flatten().copied().enumerate() {
+            if !final_area
+                && is_playfield_run(split.chain, vertical, index, count, run, lines.len())
+            {
+                // Trim leading/trailing lines whose metatile row is marked fixed (`fixed_rows`)
+                // so only map-streamed rows draw from `tile_at`, plus clamp `BossFloor` before
+                // the status bar overwrites row 24 (line 192) and keep `FixedTop`'s fixed middle
+                // art (lines 111..194) as a nametable run even when `scroll.x == 0` merges runs.
+                let is_fixed = |y: usize| {
+                    if split.chain == Chain::FixedTop && (111..194).contains(&y) {
+                        return true;
+                    }
+                    if split.chain == Chain::BossFloor && y >= 192 {
+                        return true;
+                    }
+                    let row = (top + i32::try_from(y).expect("a line")) >> 4;
+                    usize::try_from(row)
+                        .ok()
+                        .and_then(|r| game.scroll.fixed_rows.get(r))
+                        .is_some_and(|&flag| flag & 0x80 != 0)
+                };
+                let mut y = run.line;
+                while y < run.end {
+                    let fixed = is_fixed(y);
+                    let seg_start = y;
+                    while y < run.end && is_fixed(y) == fixed {
+                        y += 1;
+                    }
+                    let seg_run = Run {
+                        line: seg_start,
+                        end: y,
+                        top: lines[seg_start],
+                    };
+                    let piece = if fixed {
+                        Piece::Run(seg_run)
+                    } else {
+                        let piece_top = top + i32::try_from(seg_start).expect("a line");
+                        map_piece(game, seg_run, piece_top)
+                    };
+                    *out.get_mut(cursor)? = Some(piece);
+                    cursor += 1;
+                }
+            } else {
+                *out.get_mut(cursor)? = Some(Piece::Run(run));
+                cursor += 1;
+            }
+        }
+        out
     } else {
-        (lines.len(), [None; MAX_RUNS])
+        let mut out: Pieces = [None; MAX_RUNS];
+        out[0] = Some(Piece::Map {
+            line: 0,
+            end: lines.len(),
+            left,
+            top,
+            banks,
+        });
+        out
     };
     let shown = lines.iter().all(|line| line.mask & mask::BACKGROUND != 0);
     let steady = split.armed || lines.iter().all(|line| background_banks(line) == banks);
-    (in_play(game) && shown && steady && sprites_steady(game, lines)).then(|| View {
-        left: screen_edge(game.world.camera_x, game.scroll.x),
-        top: i32::from(rounded(game.world.camera_y)),
+    (in_play(game) && shown && steady).then_some(View {
+        left,
+        top,
         banks,
-        map_end,
-        runs,
+        pieces,
     })
 }
 
@@ -173,23 +370,6 @@ fn follows(above: &Line, line: &Line) -> bool {
         && line.fine_x == above.fine_x
         && line.mirroring == above.mirroring
         && background_banks(line) == background_banks(above)
-}
-
-/// Whether every visible sprite sees one set of banks down its lines, as Modern draws it.
-fn sprites_steady(game: &Game, lines: &[Line]) -> bool {
-    game.oam
-        .shown
-        .iter()
-        .flat_map(|record| record.sprites(256))
-        .filter(|entry| entry.is_visible())
-        .all(|entry| {
-            let table = 4 * usize::from(entry.tile & 1);
-            let first = usize::from(entry.y) + 1;
-            let run = &lines[first.min(lines.len())..(first + 16).min(lines.len())];
-            run.windows(2).all(|pair| {
-                pair[0].sprite_chr[table..table + 4] == pair[1].sprite_chr[table..table + 4]
-            })
-        })
 }
 
 /// The run's tile and palette at a cell from its left (`top.fine_x` px off screen) and its first
@@ -259,12 +439,8 @@ fn background_banks(line: &Line) -> [u8; 4] {
 
 /// Checks the frame's Modern background against what the PPU fetches: each tile starting in
 /// x 8-247 on the lines a TV shows (8-231), at its first line, the palette only where the tile
-/// has a pixel to colour (`chr` its patterns). Left out: the vertical ring's seam the overscan
-/// hides, and the 8 px edges, where the column the game streams next can show (a scrolled
-/// line's, or one frame's as the camera lands). Returns how many cells showed the one
-/// difference the game makes: in a vertical room, a page's row 14 with its row 15's palette,
-/// which the game streams into row 14's attribute slot as its scroll locks at the page's end.
-/// The map is checked down to `map_end`, and each run's lines by [`check_run`].
+/// has a pixel to colour (`chr` its patterns). Each [`Piece::Map`] is checked against the live
+/// level map; each [`Piece::Run`] is checked by [`check_run`].
 ///
 /// # Errors
 /// The first cell that differs otherwise.
@@ -278,40 +454,53 @@ pub(crate) fn check_background(
 ) -> Result<usize, String> {
     let vertical = game.world.orientation & orientation::VERTICAL != 0;
     let mut row_15_palettes = 0;
-    let end = view.map_end.min(232);
-    let tops = lines
-        .iter()
-        .enumerate()
-        .filter(|&(y, line)| (8..end).contains(&y) && (y == 8 || line.v & 0x7000 == 0));
-    for (y, line) in tops {
-        for x in cells(line) {
-            let (tile, palette) = nametable_tile(ppu, line, x);
-            let at = (
-                view.left + i32::try_from(x).expect("a screen x"),
-                view.top + i32::try_from(y).expect("a line"),
-            );
-            let model = tile_at(game, at.0, at.1);
-            let row_15 = || {
-                (vertical && (at.1 >> 4) & 0x0F == 14)
-                    .then(|| tile_at(game, at.0, at.1 + 16))
-                    .flatten()
-                    .map(|(_, below)| below)
-            };
-            match model {
-                Some(model)
-                    if model.0 == tile && (model.1 == palette || blank(chr, view.banks, tile)) => {}
-                Some(model) if model.0 == tile && row_15() == Some(palette) => row_15_palettes += 1,
-                _ => {
-                    return Err(format!(
-                        "line {y} x {x} (level {at:?}): the map gives {model:02X?}, the nametable {:02X?}",
-                        (tile, palette)
-                    ));
+    for piece in view.pieces.iter().flatten() {
+        match *piece {
+            Piece::Map {
+                line: start,
+                end,
+                left,
+                top,
+                banks,
+            } => {
+                let vis_start = start.max(8);
+                let vis_end = end.min(232);
+                let tops = lines.iter().enumerate().filter(|&(y, line)| {
+                    (vis_start..vis_end).contains(&y) && (y == vis_start || line.v & 0x7000 == 0)
+                });
+                for (y, line) in tops {
+                    for x in cells(line) {
+                        let (tile, palette) = nametable_tile(ppu, line, x);
+                        let at = (
+                            left + i32::try_from(x).expect("a screen x"),
+                            top + i32::try_from(y - start).expect("a line"),
+                        );
+                        let model = tile_at(game, at.0, at.1);
+                        let row_15 = || {
+                            (vertical && (at.1 >> 4) & 0x0F == 14)
+                                .then(|| tile_at(game, at.0, at.1 + 16))
+                                .flatten()
+                                .map(|(_, below)| below)
+                        };
+                        match model {
+                            Some(model)
+                                if model.0 == tile
+                                    && (model.1 == palette || blank(chr, banks, tile)) => {}
+                            Some(model) if model.0 == tile && row_15() == Some(palette) => {
+                                row_15_palettes += 1;
+                            }
+                            _ => {
+                                return Err(format!(
+                                    "line {y} x {x} (level {at:?}): the map gives {model:02X?}, the nametable {:02X?}",
+                                    (tile, palette)
+                                ));
+                            }
+                        }
+                    }
                 }
             }
+            Piece::Run(run) => check_run(&run, lines, ppu)?,
         }
-    }
-    for run in view.runs.iter().flatten() {
-        check_run(run, lines, ppu)?;
     }
     Ok(row_15_palettes)
 }
@@ -382,25 +571,36 @@ mod tests {
         Some((game, lines))
     }
 
+    /// `(is_map, line, end)` for every piece in `view`.
+    fn piece_summary(view: &View) -> Vec<(bool, usize, usize)> {
+        view.pieces
+            .iter()
+            .flatten()
+            .map(|p| (p.is_map(), p.line(), p.end()))
+            .collect()
+    }
+
     #[test]
     fn play_is_modern_and_each_reason_makes_it_classic() {
         let Some((game, lines)) = stage_1() else {
             return;
         };
-        assert!(view(&game, levels(), &lines).is_some(), "stage 1-1 in play");
+        let shown = view(&game, levels(), &lines).expect("stage 1-1 in play");
+        assert_eq!(piece_summary(&shown), [(true, 0, 240)]);
         let mut script = game.clone();
         script.script = Some(Script::Ending(super::super::ending::Ending::default()));
         let mut split = game.clone();
         split.scroll.split.armed = true;
+        split.scroll.split.chain = Chain::FourBands;
         let mut masked = lines.clone();
         masked[100].mask &= !mask::BACKGROUND;
         let mut banked = lines.clone();
         banked[100].chr[0] ^= 1;
         assert_eq!(view(&script, levels(), &lines), None, "a script screen");
         assert_eq!(
-            view(&split, levels(), &lines).map(|view| (view.map_end, spans(&view.runs))),
-            Some((0, vec![(0, 240)])),
-            "a band room's split: every line a run"
+            view(&split, levels(), &lines).map(|v| piece_summary(&v)),
+            Some(vec![(false, 0, 240)]),
+            "a parallax-only band room: every line a run"
         );
         assert_eq!(
             view(&game, levels(), &masked),
@@ -435,16 +635,21 @@ mod tests {
     }
 
     #[test]
-    fn a_d3_4_boss_bar_is_the_map_then_runs_and_each_reason_makes_it_classic() {
+    fn a_d3_4_boss_bar_is_the_map_then_runs_and_bank_split_sprites_stay_modern() {
         let Some((game, lines)) = boss_bar_frame() else {
             return;
         };
         let shown = view(&game, levels(), &lines).expect("a boss bar frame");
         let slot_3 = lines[0].chr[3];
-        assert_eq!(shown.map_end, 192, "the map down to the bank change");
-        assert_eq!(spans(&shown.runs), [(192, 193), (193, 240)]);
         assert_eq!(
-            shown.runs[1].map(|bar| (bar.top.v, bar.banks())),
+            piece_summary(&shown),
+            [(true, 0, 192), (false, 192, 193), (false, 193, 240)]
+        );
+        assert_eq!(
+            match shown.pieces[2] {
+                Some(Piece::Run(bar)) => Some((bar.top.v, bar.banks())),
+                _ => None,
+            },
             Some((0x1300, [0x39, 0x3A, 0x3B, slot_3])),
             "the bar one line into its row, in its banks"
         );
@@ -456,11 +661,11 @@ mod tests {
         let with = |change: &dyn Fn(&mut Vec<Line>)| {
             let mut lines = lines.clone();
             change(&mut lines);
-            view(&game, levels(), &lines).map(|view| (view.map_end, spans(&view.runs)))
+            view(&game, levels(), &lines).map(|v| piece_summary(&v))
         };
         assert_eq!(
             with(&|lines| lines[192].chr = lines[193].chr),
-            Some((192, vec![(192, 240)])),
+            Some(vec![(true, 0, 192), (false, 192, 240)]),
             "line 192 all the bar's"
         );
         let playfield = lines[0].chr;
@@ -468,14 +673,15 @@ mod tests {
             with(&|lines| lines[192..195]
                 .iter_mut()
                 .for_each(|line| line.chr = playfield)),
-            Some((195, vec![(195, 240)])),
+            Some(vec![(true, 0, 195), (false, 195, 240)]),
             "the change a row's fourth line in"
         );
         assert_eq!(
             with(&|lines| lines.iter_mut().for_each(|line| line.chr = playfield)),
-            Some((240, vec![])),
+            Some(vec![(true, 0, 240)]),
             "no bank change: all the map"
         );
+        // Bank-split sprites are now sliced in Modern rather than forcing Classic fallback.
         let sprite = game
             .oam
             .shown
@@ -484,17 +690,9 @@ mod tests {
             .find(|entry| entry.is_visible())
             .expect("a sprite on screen");
         let table = 4 * usize::from(sprite.tile & 1);
-        assert_eq!(
-            with(&|lines| lines[usize::from(sprite.y) + 9].sprite_chr[table] ^= 1),
-            None,
-            "a sprite spanning a bank change"
-        );
-        let mut other = game.clone();
-        other.scroll.split.chain = Chain::BossFloor;
-        assert_eq!(
-            view(&other, levels(), &lines).map(|view| (view.map_end, spans(&view.runs))),
-            Some((0, vec![(0, 192), (192, 193), (193, 240)])),
-            "another handler: every line a run"
+        assert!(
+            with(&|lines| lines[usize::from(sprite.y) + 9].sprite_chr[table] ^= 1).is_some(),
+            "a sprite spanning a bank change stays Modern"
         );
     }
 
@@ -592,26 +790,33 @@ mod tests {
         game.world.area = FINAL_AREA;
         let shown = view(&game, levels(), &lines).expect("the final boss's room");
         assert_eq!(
-            (shown.map_end, spans(&shown.runs)),
-            (0, vec![(0, 192), (192, 193), (193, 240)]),
+            piece_summary(&shown),
+            [(false, 0, 192), (false, 192, 193), (false, 193, 240)],
             "every line from the nametables"
         );
-        assert_eq!(shown.runs[0].map(|run| run.top), Some(lines[0]));
+        assert_eq!(
+            match shown.pieces[0] {
+                Some(Piece::Run(run)) => Some(run.top),
+                _ => None,
+            },
+            Some(lines[0])
+        );
         let mut unarmed = game.clone();
         unarmed.scroll.split.armed = false;
         let unarmed_lines = raster::lines(&raster::Registers::of(&unarmed), &unarmed);
         assert_eq!(
-            view(&unarmed, levels(), &unarmed_lines).map(|view| (view.map_end, view.runs[0])),
-            Some((240, None)),
+            view(&unarmed, levels(), &unarmed_lines).map(|v| piece_summary(&v)),
+            Some(vec![(true, 0, 240)]),
             "no split armed: from the map"
         );
         let mut shaken = game.clone();
         shaken.scroll.x = 0xFC;
         let shaken_lines = raster::lines(&raster::Registers::of(&shaken), &shaken);
         assert_eq!(
-            view(&shaken, levels(), &shaken_lines)
-                .and_then(|view| view.runs[0])
-                .map(|run| (run.top.v & 0x1F, run.top.fine_x)),
+            view(&shaken, levels(), &shaken_lines).and_then(|v| match v.pieces[0] {
+                Some(Piece::Run(run)) => Some((run.top.v & 0x1F, run.top.fine_x)),
+                _ => None,
+            }),
             Some((31, 4)),
             "a shaken frame's run from coarse x 31"
         );
