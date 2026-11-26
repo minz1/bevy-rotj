@@ -443,6 +443,12 @@ impl Boot {
         self.step == Step::Title(Title::Waiting)
     }
 
+    /// True during the intro's 30 Hz nametable-alternation flicker (`$609F-$6139`).
+    #[must_use]
+    pub fn is_flickering(&self) -> bool {
+        self.step == Step::Slide && self.runner.row(SLIDE) == Some(&SlideRow::Flicker)
+    }
+
     /// Runs one frame up to its NMI wait.
     pub fn step(&mut self, game: &mut Game, prg: &Prg, chr: &[u8]) {
         if std::mem::take(&mut self.check) && game.world.pressed.intersects(Buttons::ACCEPT) {
@@ -1446,6 +1452,36 @@ mod tests {
             return;
         };
         assert_eq!((run.script_frames, run.frames), (612, 60));
+    }
+
+    #[test]
+    fn intro_flickering_is_true_strictly_during_the_flicker_window() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let levels = crate::levels::Levels::original(&rom.prg, &rom.chr).expect("original levels");
+        let prg = crate::prg::Prg::new(rom.prg.clone(), levels);
+        let mut session = super::super::session::Session::power_on(&prg, &rom.chr, None);
+        let mut flicker_frames = Vec::new();
+        for frame in 0..450 {
+            if session.intro_flickering() {
+                flicker_frames.push(frame);
+            }
+            session.step(super::Buttons::NONE, &prg, &rom.chr);
+            if session.on_title() {
+                break;
+            }
+        }
+        assert_eq!(
+            flicker_frames.len(),
+            usize::from(super::FLICKER_FRAMES),
+            "flicker window matches FLICKER_FRAMES exactly"
+        );
+        // Contiguous window: never flickers again once finished.
+        let first = flicker_frames[0];
+        let last = *flicker_frames.last().expect("non-empty");
+        assert_eq!(last - first + 1, flicker_frames.len());
+        assert!(!session.intro_flickering());
     }
 
     #[test]

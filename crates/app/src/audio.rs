@@ -305,6 +305,22 @@ impl Music {
         self.pending_frames.push_back(sounds);
     }
 
+    /// Resets the music driver, silences all SFX voices, and flushes queued audio (e.g. on
+    /// level-pack hot-swap).
+    pub fn reset(&mut self) {
+        self.pending_frames.clear();
+        for voice in &mut self.sfx_pool {
+            voice.silence();
+        }
+        for write in self.driver.init() {
+            self.stream.apu_mut().write(write.addr, write.value);
+        }
+        if let Ok(mut queue) = self.queue.0.lock() {
+            queue.clear();
+        }
+        self.gain = 0.0;
+    }
+
     /// Advances one game frame in Classic voice mode (test convenience).
     #[cfg(test)]
     pub fn advance_frame(&mut self, drive: AudioDrive) {

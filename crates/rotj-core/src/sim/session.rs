@@ -223,6 +223,12 @@ impl Session {
         matches!(&self.game.script, Some(Script::Boot(boot)) if boot.on_title())
     }
 
+    /// True while the intro is running its 30 Hz dual-nametable flicker sequence.
+    #[must_use]
+    pub fn intro_flickering(&self) -> bool {
+        matches!(&self.game.script, Some(Script::Boot(boot)) if boot.is_flickering())
+    }
+
     /// Current `(area, room)` identifier, used by the host to detect room changes without
     /// inspecting simulation internals.
     #[must_use]

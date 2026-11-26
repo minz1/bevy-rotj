@@ -266,6 +266,12 @@ const HINT: &str = "SELECT  SETTINGS";
 const SAVE_FAILED: &str = "SAVE FAILED";
 /// Footer notice on `DISPLAY` when high refresh is chosen with Classic picture.
 const NEEDS_MODERN: &str = "NEEDS MODERN PICTURE";
+/// Footer notice on `LOAD PACK` when no packs exist under `<exe_dir>/packs/`.
+const NO_PACKS: &str = "NO PACKS";
+/// Footer notice on `LOAD PACK` when a chosen pack fails validation.
+const PACK_INVALID: &str = "PACK INVALID";
+/// Maximum scrollable pack rows (including `ORIGINAL`) shown at once on `LOAD PACK`.
+const MAX_PACK_ROWS: usize = 6;
 /// Initial hold duration before directional repeat kicks in.
 const REPEAT_DELAY: Duration = Duration::from_millis(330);
 /// Interval between repeated steps while a direction stays held.
@@ -345,6 +351,10 @@ pub(crate) struct Menu {
     state: MenuState,
     save_failed: bool,
     repeat: RepeatState,
+    /// Discovered level packs under `<exe_dir>/packs/`, refreshed when opening `LOAD PACK`.
+    packs: Vec<crate::packs::PackEntry>,
+    /// True if the last pack selection on `LOAD PACK` failed import validation.
+    pack_error: bool,
 }
 
 impl Menu {
@@ -439,6 +449,122 @@ pub(crate) struct SteerInput<'w, 's> {
     nes: ResMut<'w, NesInput>,
 }
 
+/// Host resources reset atomically on a level-pack hot-swap.
+#[derive(SystemParam)]
+pub(crate) struct HotSwap<'w> {
+    rom: Option<Res<'w, RomData>>,
+    levels: Option<ResMut<'w, crate::GameLevels>>,
+    play: ResMut<'w, Play>,
+    music: Option<ResMut<'w, crate::audio::Music>>,
+    history: Option<ResMut<'w, crate::mirror::InterpolationHistory>>,
+    screen: Option<ResMut<'w, crate::screen::Screen>>,
+    next_state: Option<ResMut<'w, NextState<crate::GameState>>>,
+}
+
+impl HotSwap<'_> {
+    /// Replaces active levels and resets simulation, audio, interpolation, and state to Title.
+    fn apply(&mut self, rom: &rotj_rom::Rom, new_levels: rotj_core::levels::Levels) {
+        if let Some(levels) = self.levels.as_deref_mut() {
+            levels.0 = new_levels.clone();
+        }
+        let prg = rotj_core::prg::Prg::new(rom.prg.clone(), new_levels);
+        *self.play = Play::power_on(prg, rom.chr.clone(), None);
+        if let Some(music) = self.music.as_deref_mut() {
+            music.reset();
+        }
+        if let Some(history) = self.history.as_deref_mut() {
+            history.clear();
+        }
+        if let Some(screen) = self.screen.as_deref_mut() {
+            screen.clear_blend();
+        }
+        if let Some(next_state) = self.next_state.as_deref_mut() {
+            next_state.set(crate::GameState::Title);
+        }
+    }
+}
+
+/// Number of selectable rows on `page`, accounting for dynamic pack discovery on `LoadPack`.
+fn page_row_count(page: Page, pack_count: usize) -> usize {
+    if page == Page::LoadPack {
+        1 + pack_count + 1
+    } else {
+        page.rows().len()
+    }
+}
+
+/// Handles navigation and level-pack hot-swapping on `Page::LoadPack`.
+fn steer_load_pack(
+    inputs: &mut SteerInput<'_, '_>,
+    swap: &mut HotSwap<'_>,
+    menu: &mut Menu,
+    settings: &Settings,
+    dir: Option<&std::path::Path>,
+    cursor: usize,
+    root_cursor: usize,
+) {
+    let pressed = inputs.nes.pressed;
+    let row_count = page_row_count(Page::LoadPack, menu.packs.len());
+    let cursor = cursor.min(row_count - 1);
+    let back_index = row_count - 1;
+    let confirm = pressed.intersects(Buttons::A | Buttons::START);
+    if pressed.contains(Buttons::B) || (confirm && cursor == back_index) {
+        menu.state = MenuState::Open {
+            page: Page::Root,
+            cursor: root_cursor,
+            root_cursor,
+        };
+        menu.pack_error = false;
+        menu.repeat.reset();
+        return;
+    }
+    if confirm {
+        if let Some(rom) = swap.rom.as_deref().map(|r| r.0.clone()) {
+            let loaded = if cursor == 0 {
+                rotj_core::levels::Levels::original(&rom.prg, &rom.chr)
+                    .ok_or_else(|| "original levels failed to load".to_string())
+            } else {
+                let entry = &menu.packs[cursor - 1];
+                crate::pack_levels(&rom, &entry.dir)
+            };
+            match loaded {
+                Ok(new_levels) => {
+                    swap.apply(&rom, new_levels);
+                    menu.pack_error = false;
+                    close_and_save(menu, &mut inputs.nes, settings, dir);
+                }
+                Err(error) => {
+                    if cursor > 0 {
+                        warn!("{}: {error}", menu.packs[cursor - 1].dir.display());
+                    } else {
+                        warn!("{error}");
+                    }
+                    menu.pack_error = true;
+                }
+            }
+        }
+        return;
+    }
+    let dirs = menu
+        .repeat
+        .poll(inputs.nes.buttons, pressed, inputs.time.delta());
+    let mut next_cursor = cursor;
+    if dirs.contains(Buttons::UP) {
+        next_cursor = (next_cursor + row_count - 1) % row_count;
+    }
+    if dirs.contains(Buttons::DOWN) {
+        next_cursor = (next_cursor + 1) % row_count;
+    }
+    if next_cursor != cursor {
+        menu.pack_error = false;
+        menu.state = MenuState::Open {
+            page: Page::LoadPack,
+            cursor: next_cursor,
+            root_cursor,
+        };
+    }
+}
+
 /// Opens and drives the menu: Esc, F1, a pad's Guide or right stick anywhere, Select on
 /// the game's pause; B steps back one level (closing from the root), Esc/F1 closes from any page.
 #[expect(
@@ -447,7 +573,7 @@ pub(crate) struct SteerInput<'w, 's> {
 )]
 pub(crate) fn steer(
     mut inputs: SteerInput<'_, '_>,
-    play: Res<'_, Play>,
+    mut swap: HotSwap<'_>,
     mut menu: ResMut<'_, Menu>,
     mut settings: ResMut<'_, Settings>,
     dir: Res<'_, SettingsDir>,
@@ -463,12 +589,13 @@ pub(crate) fn steer(
         root_cursor,
     } = menu.state
     else {
-        if toggle || play.paused() && pressed.contains(Buttons::SELECT) {
+        if toggle || swap.play.paused() && pressed.contains(Buttons::SELECT) {
             menu.state = MenuState::Open {
                 page: Page::Root,
                 cursor: 0,
                 root_cursor: 0,
             };
+            menu.pack_error = false;
             menu.repeat.reset();
         }
         return;
@@ -477,8 +604,22 @@ pub(crate) fn steer(
         close_and_save(&mut menu, &mut inputs.nes, &settings, dir.0.as_deref());
         return;
     }
+    if page == Page::LoadPack {
+        steer_load_pack(
+            &mut inputs,
+            &mut swap,
+            &mut menu,
+            &settings,
+            dir.0.as_deref(),
+            cursor,
+            root_cursor,
+        );
+        return;
+    }
+
     let rows = page.rows();
-    let row = rows[cursor.min(rows.len() - 1)];
+    let cursor = cursor.min(rows.len() - 1);
+    let row = rows[cursor];
     let confirm = pressed.intersects(Buttons::A | Buttons::START);
     if pressed.contains(Buttons::B) || (confirm && row == Row::Back) {
         if page == Page::Root {
@@ -494,6 +635,13 @@ pub(crate) fn steer(
         return;
     }
     if confirm && let Row::Open(target) = row {
+        if target == Page::LoadPack {
+            menu.packs = dir
+                .0
+                .as_deref()
+                .map_or_default(|base| crate::packs::discover(base, COLUMNS));
+            menu.pack_error = false;
+        }
         menu.state = MenuState::Open {
             page: target,
             cursor: 0,
@@ -612,7 +760,13 @@ fn line(font: &Font, text: &str, tint: Color) -> impl Bundle {
 }
 
 /// Footer lines shown below `page`'s rows.
-fn footer_lines(page: Page, settings: &Settings, save_failed: bool) -> Vec<&'static str> {
+fn footer_lines(
+    page: Page,
+    settings: &Settings,
+    save_failed: bool,
+    pack_count: usize,
+    pack_error: bool,
+) -> Vec<&'static str> {
     let mut lines = Vec::new();
     if page == Page::Display {
         let palette_credit = credit(settings.palette);
@@ -621,6 +775,12 @@ fn footer_lines(page: Page, settings: &Settings, save_failed: bool) -> Vec<&'sta
         }
         if !settings.frame_rate.is_classic() && settings.picture == Picture::Classic {
             lines.push(NEEDS_MODERN);
+        }
+    } else if page == Page::LoadPack {
+        if pack_error {
+            lines.push(PACK_INVALID);
+        } else if pack_count == 0 {
+            lines.push(NO_PACKS);
         }
     }
     if save_failed {
@@ -656,20 +816,57 @@ fn menu_box(
                 Color::WHITE,
             ));
             menu_box.spawn(line(font, "", Color::WHITE));
-            for (index, &row) in page.rows().iter().enumerate() {
-                let value = row.value(&shown.settings, &shown.colours);
-                let tint = if index == selected {
+            if page == Page::LoadPack {
+                let pack_entries = 1 + shown.menu.packs.len();
+                let back_index = pack_entries;
+                let window_len = pack_entries.min(MAX_PACK_ROWS);
+                let focus = selected.min(pack_entries - 1);
+                let start = if focus >= window_len {
+                    (focus + 1 - window_len).min(pack_entries - window_len)
+                } else {
+                    0
+                };
+                for index in start..start + window_len {
+                    let label = if index == 0 {
+                        "ORIGINAL"
+                    } else {
+                        shown.menu.packs[index - 1].label.as_str()
+                    };
+                    let tint = if index == selected {
+                        Color::WHITE
+                    } else {
+                        grey
+                    };
+                    menu_box.spawn(line(font, &format!("{label:<COLUMNS$}"), tint));
+                }
+                let back_tint = if selected == back_index {
                     Color::WHITE
                 } else {
                     grey
                 };
-                menu_box.spawn(line(
-                    font,
-                    &format!("{:<VALUE_COLUMN$}{value}", row.label()),
-                    tint,
-                ));
+                menu_box.spawn(line(font, &format!("{:<COLUMNS$}", "BACK"), back_tint));
+            } else {
+                for (index, &row) in page.rows().iter().enumerate() {
+                    let value = row.value(&shown.settings, &shown.colours);
+                    let tint = if index == selected {
+                        Color::WHITE
+                    } else {
+                        grey
+                    };
+                    menu_box.spawn(line(
+                        font,
+                        &format!("{:<VALUE_COLUMN$}{value}", row.label()),
+                        tint,
+                    ));
+                }
             }
-            let footers = footer_lines(page, &shown.settings, shown.menu.save_failed);
+            let footers = footer_lines(
+                page,
+                &shown.settings,
+                shown.menu.save_failed,
+                shown.menu.packs.len(),
+                shown.menu.pack_error,
+            );
             if !footers.is_empty() {
                 menu_box.spawn(line(font, "", Color::WHITE));
                 for notice in footers {
@@ -831,7 +1028,13 @@ mod tests {
                     .chain(page.rows().iter().map(|row| row.label().to_string()))
             })
             .collect();
-        texts.extend([HINT.into(), SAVE_FAILED.into(), NEEDS_MODERN.into()]);
+        texts.extend([
+            HINT.into(),
+            SAVE_FAILED.into(),
+            NEEDS_MODERN.into(),
+            NO_PACKS.into(),
+            PACK_INVALID.into(),
+        ]);
         texts.extend(PALETTES.map(|palette| credit(palette).into()));
         for palette in PALETTES {
             for status in [PaletteStatus::Loaded, PaletteStatus::FileMissing] {
@@ -901,13 +1104,18 @@ mod tests {
             ..Settings::default()
         };
         for page in Page::ALL {
-            let footers = footer_lines(page, &worst_settings, true);
+            let footers = footer_lines(page, &worst_settings, true, 0, true);
             let footer_rows = if footers.is_empty() {
                 0
             } else {
                 1 + footers.len()
             };
-            let total_rows = 2 + page.rows().len() + footer_rows;
+            let visible_rows = if page == Page::LoadPack {
+                MAX_PACK_ROWS + 1
+            } else {
+                page.rows().len()
+            };
+            let total_rows = 2 + visible_rows + footer_rows;
             let height = pixels(total_rows * 16) + 2.0 * (PAD + BORDER);
             assert!(height <= 224.0, "{page:?}: {width}x{height}");
             for &row in page.rows() {
@@ -916,6 +1124,8 @@ mod tests {
         }
         assert!(PALETTES.iter().all(|&p| credit(p).len() <= COLUMNS));
         assert!(NEEDS_MODERN.len() <= COLUMNS);
+        assert!(NO_PACKS.len() <= COLUMNS);
+        assert!(PACK_INVALID.len() <= COLUMNS);
     }
 
     #[test]
@@ -927,7 +1137,7 @@ mod tests {
         assert_eq!(credited, [PaletteChoice::CompositeDirect]);
         let defaults = Settings::default();
         assert_eq!(
-            footer_lines(Page::Display, &defaults, false),
+            footer_lines(Page::Display, &defaults, false, 0, false),
             ["COMPOSITE DIRECT FBX"]
         );
         let high_classic = Settings {
@@ -936,7 +1146,7 @@ mod tests {
             ..defaults
         };
         assert_eq!(
-            footer_lines(Page::Display, &high_classic, false),
+            footer_lines(Page::Display, &high_classic, false, 0, false),
             ["COMPOSITE DIRECT FBX", NEEDS_MODERN]
         );
     }
@@ -1140,5 +1350,53 @@ mod tests {
         settings.volume = 3;
         Row::Volume.step(&mut settings, -1);
         assert_eq!(settings.volume, 0);
+    }
+
+    #[test]
+    fn load_pack_rejects_invalid_and_hot_swaps_original() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let Some((mut app, dir)) = app("load-pack") else {
+            return;
+        };
+        let original =
+            rotj_core::levels::Levels::original(&rom.prg, &rom.chr).expect("original levels");
+        app.insert_resource(RomData(rom.clone()))
+            .insert_resource(crate::GameLevels(original.clone()))
+            .init_resource::<crate::mirror::InterpolationHistory>();
+        // Create an invalid pack under <dir>/packs/broken/.
+        let broken = dir.join("packs/broken");
+        std::fs::create_dir_all(&broken).expect("broken dir");
+        std::fs::write(broken.join("pack.json"), "{ invalid json").expect("broken json");
+
+        // Open menu -> navigate down 3 times to LOAD PACK -> enter.
+        tap(&mut app, KeyCode::Escape);
+        for _ in 0..3 {
+            tap(&mut app, KeyCode::ArrowDown);
+        }
+        tap(&mut app, KeyCode::KeyX); // enter LOAD PACK
+        assert_eq!(app.world().resource::<Menu>().packs.len(), 1);
+        assert_eq!(app.world().resource::<Menu>().packs[0].label, "BROKEN");
+
+        // Select BROKEN (row 1): must fail validation, stay open, show PACK INVALID, keep Playing.
+        let frame_before = frame(&app);
+        tap(&mut app, KeyCode::ArrowDown);
+        tap(&mut app, KeyCode::KeyX);
+        assert!(open(&app), "invalid pack keeps menu open");
+        assert!(app.world().resource::<Menu>().pack_error);
+        assert_eq!(frame(&app), frame_before, "active game untouched");
+
+        // Select ORIGINAL (row 0): hot-swaps back to power-on boot & closes menu.
+        tap(&mut app, KeyCode::ArrowUp);
+        tap(&mut app, KeyCode::KeyX);
+        assert!(!open(&app), "valid selection closes menu");
+        assert!(!app.world().resource::<Menu>().pack_error);
+        assert!(
+            app.world().resource::<Play>().booting(),
+            "hot-swap powers on cleanly into Title/boot"
+        );
+        assert_eq!(app.world().resource::<crate::GameLevels>().0, original);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

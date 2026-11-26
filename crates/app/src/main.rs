@@ -7,6 +7,7 @@ mod menu;
 mod mirror;
 mod modern;
 mod pacing;
+mod packs;
 mod play;
 mod screen;
 mod settings;

@@ -36,7 +36,6 @@ impl InterpolationHistory {
     }
 
     /// Clears history (e.g. on level-pack hot-swap or hard reset) so the next frame snaps.
-    #[cfg(test)]
     pub fn clear(&mut self) {
         self.prev = None;
         self.curr = None;

@@ -351,6 +351,7 @@ fn draw(
     let lines = play.session().lines();
     let edges = std::array::from_fn(|y| hidden && lines.get(y).is_some_and(Line::scrolled));
     screen.edges = edges;
+    screen.blend = settings.intro_blend && play.session().intro_flickering();
 }
 
 #[cfg(test)]

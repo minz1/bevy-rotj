@@ -19,6 +19,11 @@ pub(crate) struct Screen {
     dirty: bool,
     /// Lines whose 8 pixels at each side show black, as a TV's edge would hide them.
     pub(crate) edges: [bool; SCREEN_H],
+    /// When true, [`upload_frame`] blends 50/50 with the previous uploaded frame's RGB to
+    /// smooth the intro's 30 Hz dual-nametable flicker (`intro_blend`).
+    pub(crate) blend: bool,
+    prev_rgba: Option<Vec<u8>>,
+    scratch_rgba: Vec<u8>,
 }
 
 impl Screen {
@@ -30,7 +35,16 @@ impl Screen {
             image: images.add(blank_image()),
             dirty: true,
             edges: [false; SCREEN_H],
+            blend: false,
+            prev_rgba: None,
+            scratch_rgba: vec![0; SCREEN_W * SCREEN_H * 4],
         }
+    }
+
+    /// Drops any retained flicker-blend frame (e.g. on level-pack hot-swap).
+    pub fn clear_blend(&mut self) {
+        self.blend = false;
+        self.prev_rgba = None;
     }
 }
 
@@ -197,6 +211,22 @@ fn blank_image() -> Image {
     rgba_image(SCREEN_W, SCREEN_H, vec![0; SCREEN_W * SCREEN_H * 4])
 }
 
+/// Averages RGB channels 50/50 between `prev` and `curr` into `out` (opaque alpha).
+pub(crate) fn blend_rgba(prev: &[u8], curr: &[u8], out: &mut [u8]) {
+    let pairs = prev
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(curr.as_chunks::<4>().0.iter())
+        .zip(out.as_chunks_mut::<4>().0.iter_mut());
+    for ((p, c), dst) in pairs {
+        for i in 0..3 {
+            dst[i] = u8::midpoint(p[i], c[i]);
+        }
+        dst[3] = 0xFF;
+    }
+}
+
 /// Copies the rendered frame into the displayed image, in [`Colours`], when either changed.
 #[expect(
     clippy::needless_pass_by_value,
@@ -207,15 +237,43 @@ pub(crate) fn upload_frame(
     colours: Res<'_, Colours>,
     mut images: ResMut<'_, Assets<Image>>,
 ) {
-    if !screen.dirty && !colours.is_changed() {
+    let palette_changed = colours.is_changed();
+    if !screen.dirty && !palette_changed {
         return;
     }
-    if let Some(mut image) = images.get_mut(&screen.image)
+    if palette_changed {
+        screen.prev_rgba = None;
+    }
+    let Screen {
+        frame,
+        image,
+        dirty,
+        edges,
+        blend,
+        prev_rgba,
+        scratch_rgba,
+    } = &mut *screen;
+    if let Some(mut image) = images.get_mut(&*image)
         && let Some(data) = image.data.as_mut()
     {
-        rgba_into(screen.frame.indices(), &colours.rgb, &screen.edges, data);
+        if *blend {
+            rgba_into(frame.indices(), &colours.rgb, edges, scratch_rgba);
+            if let Some(prev) = prev_rgba.as_deref() {
+                blend_rgba(prev, scratch_rgba, data);
+            } else {
+                data.copy_from_slice(scratch_rgba);
+            }
+            if let Some(prev) = prev_rgba.as_mut() {
+                prev.copy_from_slice(scratch_rgba);
+            } else {
+                *prev_rgba = Some(scratch_rgba.clone());
+            }
+        } else {
+            *prev_rgba = None;
+            rgba_into(frame.indices(), &colours.rgb, edges, data);
+        }
     }
-    screen.dirty = false;
+    *dirty = false;
 }
 
 /// Source crop rect in texels for a screen texture rendered at integer multiple `scale` (`1..=8`).
@@ -340,5 +398,21 @@ mod tests {
         std::fs::remove_file(dir.join("palette.pal")).expect("remove");
         assert_eq!(colours_for(PaletteChoice::File, Some(&dir)), missing);
         assert_eq!(colours_for(PaletteChoice::File, None), missing);
+    }
+
+    #[test]
+    fn blend_rgba_averages_alternating_frames_and_clears_when_disabled() {
+        let prev = [200, 100, 0, 255, 10, 20, 30, 255];
+        let curr = [0, 200, 100, 255, 30, 40, 50, 255];
+        let mut out = [0; 8];
+        blend_rgba(&prev, &curr, &mut out);
+        assert_eq!(out, [100, 150, 50, 255, 20, 30, 40, 255]);
+
+        let mut images = Assets::<Image>::default();
+        let mut screen = Screen::new(&mut images);
+        screen.blend = true;
+        screen.prev_rgba = Some(vec![0; SCREEN_W * SCREEN_H * 4]);
+        screen.clear_blend();
+        assert!(!screen.blend && screen.prev_rgba.is_none());
     }
 }
