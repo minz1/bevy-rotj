@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes the structure of the *Batman: Return of the Joker* Rust/Bevy port as of `1.1.60`. All crates deny `unsafe_code`, compile cleanly under `clippy::pedantic` at `-D warnings`, and keep Classic Mode byte-for-byte faithful to the original NES cartridge.
+This document describes the structure of the *Batman: Return of the Joker* Rust/Bevy port as of `1.2.0`. All crates deny `unsafe_code`, compile cleanly under `clippy::pedantic` at `-D warnings`, and keep Classic Mode byte-for-byte faithful to the original NES cartridge.
 
 ## Workspace Crate Map
 
@@ -9,8 +9,8 @@ This document describes the structure of the *Batman: Return of the Joker* Rust/
 | `crates/rotj-rom` | Locates and validates the user's ROM (`Rom::load`, `locate`, `InesHeader`, PRG+CHR MD5 check `830111df…`, typed `RomError`). Zero ROM bytes are tracked in the repo. |
 | `crates/rotj-core` | Pure-Rust, Bevy-free simulation, map/terrain/room data, Tiled level-pack exporter/importer, NES software PPU renderer, palettes, and FNV-1a digest helpers. |
 | `crates/rotj-apu` | Safe-Rust NES 2A03 APU synthesizer (pulse ×2, triangle, noise, DMC, frame counter, length counters, mixer, and `ApuStream` with 90 Hz HPF / 14 kHz LPF). |
-| `crates/rotj-music` | Ported Sunsoft music driver (`Music`, typed `Request`/`ActiveFade`/`VoiceState`/`EnvelopeStep`, bytecode command decoder). Verified write-for-write against the oracle over the entire TAS. |
-| `crates/app` | Bevy 0.20 host application (`batman-rotj`): windowing, 60 Hz pacing, keyboard/gamepad input, Classic & Modern renderers, faithful Bevy UI overlay, settings menu, audio output, and ECS mirror. |
+| `crates/rotj-music` | Ported Sunsoft music driver (`Music`, typed `Request`/`ActiveFade`/`VoiceState`/`EnvelopeStep`, bytecode command decoder, `SoundKind`/`classify_request`, `Music::is_idle`). Verified write-for-write against the oracle over the entire TAS. |
+| `crates/app` | Bevy 0.20 host application (`batman-rotj`): windowing, reactive 60 Hz & continuous high-refresh pacing, keyboard/gamepad input latching, Classic & display-scale interpolated Modern renderers, embedded WGSL CRT shader, faithful Bevy UI overlay, categorized settings & `LOAD PACK` browser, polyphonic SFX audio pool, and ECS mirror. |
 | `tools/rotj-oracle` | Cycle/scanline-timed 6502 + FME-7 + PPU + DMC emulator used exclusively by verification tests to lockstep-check `rotj-core` and `rotj-music`. |
 | `tools/rotj-tools` | `rotj` CLI for offline inspection, ROM dumps (`header`, `chr`, `level`, `stage`, `sublevels`, `actors`, `music`, `dmc`), and level-pack / tileset export. |
 | `tools/rotj-verify` | Headless renderer comparison tool against emulator dumps. |
@@ -91,16 +91,18 @@ Classic Mode's parity guarantee rests on a clean two-tier boundary:
    - **Weapons & audio:** `weapons::{ShotMode, HomingStage, SplitterStage, WaveStage, ThreeWayStage, SuperStage}`; `rotj-apu` `FrameCounter` (`SequenceMode`, `Option<PendingWrite>`) and `LengthCounter` (`Option<PendingReload>`); `rotj-music` `Request`, `Option<ActiveFade>`, `VoiceState`, `Option<u16>`/`Option<NonZeroU8>`, `EnvelopeStep`.
    - **App host (`crates/app`):** `Play` wraps `rotj_core::Session` (`step(buttons, prg, chr)`), never accessing `Game` internals directly. Explicit enums own every UI/audio/render transition: `AudioDrive` & `QueueState` (`audio.rs`), `MenuState` & `OverlayView` (`menu.rs`), `ActivePicture` & `BuiltTileset` (`modern.rs`), `PaletteStatus` (`screen.rs`), `LabelHold` & `Recorder` (`play/mod.rs`), `TickState` (`pacing.rs`).
 
-## Rendering, Mirror & UI Pipeline (`crates/app`)
+## Rendering, Mirror, Audio & CRT Pipeline (`crates/app`)
 
-Each 60 Hz tick (`pacing::Step::{Input, Game, Picture}`):
-1. **`Step::Input` (`input.rs`, `menu.rs`):** Reads keyboard + gamepads directly into `rotj_core::Buttons` (no bit-reversal) and steers the settings overlay when open (freezing gameplay and fading audio smoothly over 10 ms).
-2. **`Step::Game` (`play/mod.rs`):** Calls `Play::step(pad)` -> `Session::step(pad, &prg, &chr)`, forwarding the NMI's `$40-$43` `SoundId` requests to `audio::Music`.
-3. **Read-Only ECS Mirror (`mirror.rs`):** Copies `Session::snapshot()` (`DrawerState`, `DrawRecord`s, camera) into stable Bevy entities (`Drawer`, `Kind`, `LevelPosition`, `Draws`) and resources (`MirrorCamera`, `OtherDraws`) for the Modern renderer and future editor/inspector tools.
-4. **`Step::Picture` (`screen.rs`, `play/mod.rs`, `modern.rs`, `ui.rs`):**
-   - **Classic (`Picture::Classic`, default):** Composes `Session::compose` into `Frame`, skipping work when Modern is active or neither tick nor settings changed. Integer-scaled onto `ScreenCamera` (`main.rs`), hiding 8 px top/bottom overscan and scrolled-line side seams by default.
-   - **Modern (`Picture::Modern`):** Renders `ModernFrame` (map playfield + per-split scanline `Run`s) onto Bevy `TilemapChunk`s and mirrored `ModernSprite`s in an off-screen target texture; falls back seamlessly to Classic on non-gameplay frames and bank-straddling boss-floor frames.
+Each update frame (`pacing::Step::{Input, Game, Music, Picture}`):
+1. **Pacing (`pacing.rs`):** `FrameRate::Classic` uses reactive 60 Hz pacing (`alpha = 1.0`). `FrameRate::Fps(n)` and `FrameRate::Display` run a continuous fixed-timestep 60 Hz accumulator (spiral-of-death clamped) with `alpha ∈ [0.0, 1.0]` and optional deadline pacing.
+2. **`Step::Input` (`input.rs`, `menu.rs`, `packs.rs`):** Reads keyboard + gamepads directly into `rotj_core::Buttons`, latching brief taps between 60 Hz ticks via `take_tick_buttons()`. Steers the categorized settings submenus (`DISPLAY`, `GRAPHICS`, `AUDIO`, `LOAD PACK`, `BACK`) with held-key repeat, freezing gameplay, fading audio smoothly over 10 ms, and hot-swapping `<exe_dir>/packs/` level packs cleanly on confirmation.
+3. **`Step::Game` & `Step::Music` (`play/mod.rs`, `audio.rs`):** Steps `Play::step(pad)` -> `Session::step(pad, &prg, &chr)` for each due 60 Hz tick, pushing `TickSnapshot`s into `InterpolationHistory` and queuing `$40-$43` `SoundId` requests 1-to-1 into `audio::Music`. Under `SfxVoices::Classic` all requests go to the primary driver; under `SfxVoices::Unlimited`, `SoundKind::Sfx` spawns on a 16-voice polyphonic APU pool mixed through a transparent soft limiter (`±0.85` knee).
+4. **Read-Only ECS Mirror (`mirror.rs`):** Copies `Session::snapshot()` (`DrawerState`, `DrawRecord`s, camera) into stable Bevy entities (`Drawer`, `Kind`, `LevelPosition`, `Draws`) and resources (`MirrorCamera`, `OtherDraws`, `InterpolationHistory`).
+5. **`Step::Picture` (`screen.rs`, `play/mod.rs`, `modern.rs`, `ui.rs`, `crt.rs`, `crt.wgsl`):**
+   - **Classic (`Picture::Classic`, default):** Composes `Session::compose` into `Frame` (applying optional 50/50 RGB persistence during `Session::intro_flickering()` when `intro_blend` is enabled), skipping work when Modern is active or unchanged. Integer-scaled onto `ScreenCamera` (`order = 1`, `IsDefaultUiCamera`), hiding 8 px top/bottom overscan and scrolled-line side seams by default.
+   - **Modern (`Picture::Modern`):** Renders `ModernFrame` (`Piece::Map` live-map playfields + per-split `Piece::Run` strips with 1-tile guard margins, plus scanline-sliced bank-split `ModernSprite`s) into a `256×240` (Classic rate) or `M × 256 × 240` display-scale target with world-space interpolation and automatic snap rules.
    - **Faithful UI (`UiStyle::Faithful`):** Parks UI-marked OAM entries (`Mark::{Hud, Label, Pause, Title, Password}`) and renders them as crisp Bevy `ImageNode`s from CHR atlases, carrying the odd-frame HUD `L`/`E` label across even frames via `LabelHold`.
+   - **CRT Post-Process (`crt.rs`, `crt.wgsl`):** When `crt: Scanlines | Crt`, an off-screen `stage_camera` (`order = 0`) composites `ScreenSprite` + Faithful UI, `ScreenCamera` (`order = 1`) draws it through the embedded WGSL `CrtMaterial` quad (`RenderLayers::layer(15)`), and `menu_camera` (`order = 2`, no clear) renders the Settings Menu crisp above the CRT effect.
 
 ## Verification Pyramid
 

@@ -1,8 +1,20 @@
 # Changelog
 
-All notable changes to *Batman: Return of the Joker* (Rust/Bevy port), from `0.1.0` through the `1.1.x` modernisation series.
+All notable changes to *Batman: Return of the Joker* (Rust/Bevy port), from `0.1.0` onward.
 
-Classic Mode parity (whole-TAS lockstep, state tape byte-identical to `.orchestration/chain-1.1.14.tape`, random-play sweep, 300-branch exploration, and pixel/line parity) is preserved across every `1.0.x` and `1.1.x` release.
+Classic Mode parity (whole-TAS lockstep, state tape byte-identical to `.orchestration/chain-1.1.14.tape`, random-play sweep, 300-branch exploration, and pixel/line parity) is preserved across every `1.0.x`, `1.1.x`, and `1.2.x` release.
+
+## 1.2.0
+
+**done, tag `1.2.0`** (2026-11-25): first Enhanced Mode release — presentation, audio, and pack-loading enhancements layered on top of unchanged, byte-exact Classic Mode (all Classic gates green, 0 sweep divergences, 0 explore divergences, chain tape byte-identical to `.orchestration/chain-1.1.14.tape`; `settings.ron` backward-compatible with `1.1.0`). Spec: `docs/specs/2026-11-25-1.2.0-enhanced-presentation-design.md`.
+
+- **Categorized settings submenu & `1.2.0` schema:** reorganized the settings overlay into `DISPLAY`, `GRAPHICS`, `AUDIO`, `LOAD PACK`, and `BACK` (every screen fits `256 × 224` NES pixels) with held-direction auto-repeat, FirebrandX `COMPOSITE DIRECT FBX` credit on `DISPLAY`, `NEEDS MODERN PICTURE` notice when high refresh is paired with `Picture::Classic`, and new Classic-default fields (`frame_rate`, `crt`, `sfx_voices`, `intro_blend`, tested against `settings-1.1.0.ron` and `settings-1.2.0.ron`).
+- **Modern band-room live-map playfields & bank-split sprite slicing:** `ModernFrame` now emits `Piece::{Map, Run}` so horizontal band rooms draw their playfields directly from the live `Map` (eliminating all 486 Classic-fallback gameplay frames on Stage 1's boss floor by slicing 8×16 sprites cleanly across scanline CHR bank swaps, verified 0 differing pixels on headless GPU renders across all 6 scenes).
+- **High-refresh interpolated motion (`frame_rate`):** supports `Classic` (exact reactive 60 Hz pacing), curated `Fps(u16)` stops (`60..=360`, including `170` Hz), and `Display`, with continuous fixed-timestep 60 Hz accumulation, button latching between ticks, 1-tile guard-padded tilemaps, display-scale Modern rendering (`M × 256 × 240`), and world-space camera/parallax/sprite interpolation with automatic snap on teleports, slot reuse, room transitions, and pause.
+- **Unlimited-voice SFX (`sfx_voices`):** adds `SfxVoices::Unlimited` alongside Classic (`rotj_music::classify_request` + `Music::is_idle`), routing sound effects onto a 16-voice polyphonic APU pool with oldest-voice stealing, 4-frame tail reclamation, `StopAll` silence, and a transparent soft limiter (`±0.85` knee) so SFX never steal music channels.
+- **CRT shader (`crt: Off | Scanlines | Crt`):** embedded WGSL `Material2d` post-process (`crt.rs`, `crt.wgsl`) rendering the game picture + Faithful UI through scanlines or curved CRT (aperture grille, phosphor glow, vignette) while keeping the Settings Menu crisp on a dedicated overlay camera (`order = 2`), verified by a headless GPU render test.
+- **Intro 30 Hz flicker blend (`intro_blend`):** read-only `Session::intro_flickering()` detects `SlideRow::Flicker` strictly during the 79-frame intro flicker window and blends consecutive frames 50/50 RGB in `screen.rs` when enabled.
+- **In-game `LOAD PACK` browser:** scans `<exe_dir>/packs/` for Tiled packs (`packs.rs`), validates via `Source::User`, hot-swaps `GameLevels` + `Play` + `Music` + `InterpolationHistory` + `Screen` back to `GameState::Title` cleanly (session-only, never persisted to `settings.ron`), and shows `PACK INVALID` without disrupting the active game on failure.
 
 ## 1.1.60
 

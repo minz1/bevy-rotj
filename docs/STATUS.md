@@ -1,32 +1,34 @@
-# Status — where 1.1.60 stands
+# Status — where 1.2.0 stands
 
-`1.1.60` completes the `1.1.x` modernisation series. Classic Mode remains byte-for-byte faithful to the original NES cartridge (boot through ending, all 7 stages, 5 bosses, all 100 actor types, full soundtrack, and every raster split), while the codebase is hardened, cleanly modularized around `rotj_core::Session` and `rotj_core::map`, and ready for `1.2.0` Enhanced features.
+`1.2.0` is the first Enhanced Mode release of the *Batman: Return of the Joker* Rust/Bevy port. Classic Mode remains the default and stays byte-for-byte faithful to the original NES cartridge (boot through ending, all 7 stages, 5 bosses, all 100 actor types, full soundtrack, and every raster split), while Enhanced presentation, audio, and pack-loading features layer cleanly on top.
 
-- Full release history (`0.1.0`–`1.1.60`): [CHANGELOG.md](../CHANGELOG.md)
+- Full release history (`0.1.0`–`1.2.0`): [CHANGELOG.md](../CHANGELOG.md)
 - Current crate, module, state-machine, and boundary map: [docs/ARCHITECTURE.md](ARCHITECTURE.md)
-- Roadmap and `1.2.0+` plans: [docs/PLAN.md](PLAN.md)
+- Roadmap and `1.3.0+` plans: [docs/PLAN.md](PLAN.md)
+- `1.2.0` design specification: [docs/specs/2026-11-25-1.2.0-enhanced-presentation-design.md](specs/2026-11-25-1.2.0-enhanced-presentation-design.md)
 - Historical RE lab notebooks: `docs/re/` (`ACTORS.md`, `LEVELDATA.md`, `LEVELS.md`, `MUSIC.md`, `PHYSICS.md`, `RE-NOTES.md`, `SPRITES.md`, `SUBLEVELS.md`)
 - Completed `0.x`–`1.1.x` design specs & modernisation tracker: `docs/specs/archive/`
 
-## Verified working at 1.1.60
+## Verified working at 1.2.0
 
 | Area | Verification & Current State |
 | --- | --- |
 | Release gates | `.orchestration/release-checks.sh` green (`gates.sh`, `random_play_sweep` 0 divergences, 300-branch `sim::tests::explore` 0 divergences) and `target/tapes/the_loop_matches_the_tas_from_stage_1_to_the_ending.tape` byte-identical to `.orchestration/chain-1.1.14.tape`. |
 | Bring your own ROM | Zero ROM bytes tracked (`tools/check-no-rom-data.py`). `crates/rotj-rom` validates PRG+CHR MD5 (`830111df…`) with typed `RomError`; build-time embedding (`ROTJ_ROM` or `raw/`) or runtime search (CLI arg, `ROTJ_ROM`, beside exe); ROM-less CI passes all non-ROM tests and exits 2 with a clear message when run without a ROM. |
 | Full-game Classic parity | Whole-TAS lockstep (`sim::tests::the_loop_matches_the_tas_from_stage_1_to_the_ending`) replays frames 351–48026 byte-for-byte (CPU RAM, WRAM, PPU nametables/palette, all 240 scanlines across all 14 FME-7 IRQ raster chains `$D3` 0–`$0D`, and V-flag flow). Boot, intro, title, 14-password screen, attract mode, sound test, pause, cutscenes, and ending match `rotj-oracle`. |
-| Audio | `rotj-apu` (2A03 + DMC + 90 Hz HPF / 14 kHz LPF) and `rotj-music` (typed driver) match the oracle write-for-write over the whole TAS, wired into `bevy_audio` with frame-0 initialization and 10 ms pause fade. |
-| Modern picture & Faithful UI | `picture: Modern` draws gameplay levels and split-screen band/boss rooms via Bevy `TilemapChunk`s + mirrored ECS entities (`mirror.rs`, `modern.rs`), pixel-checked against Classic; `ui: Faithful` renders UI-marked sprites via Bevy UI with steady HUD `L`/`E` labels. |
-| Settings & CLI | `settings.ron` beside the exe (`volume`, `overscan`, `palette` with FirebrandX `COMPOSITE DIRECT FBX`, `sprite_limit`, `vsync`, `ui`, `picture`), `--help`/`--version`, `--pack <dir>` (or dropped pack folder/`pack.json`), unknown-flag rejection, flushed startup warnings, and `SAVE FAILED` menu feedback. |
-| Level packs (Tiled) | Export (`rotj export-levels`), per-(area, CHR variant) tilesets (`rotj tilesets` and auto-generated `tilesets/`), custom metatiles (`custom.tsj`), `Source::User` crash-hardening validation, and `--pack` playback. |
+| Audio (Classic & Unlimited SFX) | `rotj-apu` (2A03 + DMC + 90 Hz HPF / 14 kHz LPF) and `rotj-music` (typed driver) match the oracle write-for-write over the whole TAS (`sfx_voices: Classic`, default). `sfx_voices: Unlimited` isolates SFX onto a 16-voice polyphonic APU pool with oldest-voice stealing, 4-frame tail reclamation, `StopAll` silence, and a transparent soft limiter so SFX never steal music channels. |
+| Modern picture, High-Refresh & CRT | `picture: Modern` draws all gameplay frames — including split-screen band rooms from the live map and bank-split boss-floor sprites (`0` Classic gameplay fallbacks, 0 differing pixels on headless GPU checks). `frame_rate` (`Classic` / `60..=360` / `Display`) adds fixed-timestep 60 Hz pacing with button latching and display-scale Modern world-space interpolation. `crt` (`Off` / `Scanlines` / `Crt`) applies an embedded WGSL `Material2d` over the game picture + Faithful UI while keeping the Settings Menu crisp on a dedicated overlay camera. |
+| Faithful UI & Intro Blend | `ui: Faithful` renders UI-marked sprites via Bevy UI with steady HUD `L`/`E` labels. `intro_blend: true` smoothly blends 50/50 RGB frames strictly during the intro's 79-frame 30 Hz dual-nametable flicker window (`Session::intro_flickering()`). |
+| Settings, CLI & Load Pack | Categorized NES-font settings submenus (`DISPLAY`, `GRAPHICS`, `AUDIO`, `LOAD PACK`, `BACK`) with held-key repeat, `1.1.0`-compatible `settings.ron` (with FirebrandX `COMPOSITE DIRECT FBX` credit on `DISPLAY`), `--help`/`--version`, `--pack <dir>`, and session-only `<exe_dir>/packs/` hot-swapping (`Source::User` validated, `PACK INVALID` feedback). |
+| Level packs (Tiled) | Export (`rotj export-levels`), per-(area, CHR variant) tilesets (`rotj tilesets` and auto-generated `tilesets/`), custom metatiles (`custom.tsj`), `Source::User` crash-hardening validation, CLI `--pack`, and in-game `LOAD PACK` browser. |
 | Disassembly & Nix dev env | `disasm/assemble.sh` rebuilds the ROM byte-identically; `flake.nix` provides a reproducible Rust `1.100.0` + Bevy `0.20.1` + tooling shell (`nix develop`). |
 
-## Next (`1.2.0` onward)
+## Next (`1.3.0` onward)
 
-`1.1.x` is closed. `docs/specs/` is clean for `1.2.0` design specs. Planned Enhanced features (each leaving Classic Mode default and byte-exact; see [docs/PLAN.md](PLAN.md)):
+Planned Enhanced releases (each leaving Classic Mode default and byte-exact; see [docs/PLAN.md](PLAN.md)):
 
-- 1.2.0 prerequisites on record: band-room playfields from the map (`docs/specs/archive/2026-10-30-modern-band-rooms-design.md` "Not here"), plus a "Load pack" menu entry alongside future editor/overworld work.
-- Enhanced presentation & audio: interpolated motion + `frame_rate`, CRT filters, widescreen, unlimited-voice SFX, remastered / prototype music, chapter select, bonus levels, and cut-content restorations (`docs/CUTCONTENT.md`).
+- **`1.3.0` — Widescreen:** `> 256 px` view drawn from the live map playfield (building directly on `1.2.0`'s band-room `Piece::Map` foundation), widened actor spawn window, room-edge clamping, and centered 256 px HUD.
+- **`1.4.0+` — Content & Modes:** Chapter select & passwords, SNES prototype music, post-game Tiled bonus levels, and verified cut-content restorations (`docs/CUTCONTENT.md`).
 
 ## Known limitations & open leads
 

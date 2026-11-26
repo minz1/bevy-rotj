@@ -1,12 +1,14 @@
 # Batman: Return of the Joker — Rust/Bevy Port
 
 A port of Sunsoft's 1991 NES game *Batman: Return of the Joker* to safe Rust and
-[Bevy](https://bevyengine.org) (`1.1.60`). It isn't an emulator. The game's logic was rebuilt
+[Bevy](https://bevyengine.org) (`1.2.0`). It isn't an emulator. The game's logic was rebuilt
 routine by routine from the disassembly, and a 6502 emulator in `tools/rotj-oracle`
 checks the port byte for byte: the whole published TAS, from power-on through the
 ending, matches the original's RAM, WRAM, PPU scanlines, and APU writes at every frame of its
-game loop. Classic Mode plays like the cartridge, sound and flicker included, alongside an
-optional Modern Bevy tilemap renderer, Faithful Bevy UI overlay, and Tiled level-pack support.
+game loop. Classic Mode stays the default and plays like the cartridge, sound and flicker
+included, alongside optional Enhanced presentation and audio (high-refresh interpolated Modern
+renderer, CRT shader, Faithful UI, unlimited-voice SFX, intro flicker blend) and Tiled
+level-pack support.
 
 ## You need your own ROM
 
@@ -61,20 +63,25 @@ workspace still builds and tests (the ROM tests skip). If you add the ROM later,
 | Select     | Shift    | Select |
 | Settings   | Esc / F1 | Guide, or click the right stick |
 
-Esc opens the settings menu anywhere, and so does Select while the game is paused:
-volume, overscan, palette, the sprite limit, vsync, UI (`CLASSIC` / `FAITHFUL`), and picture
-(`CLASSIC` / `MODERN`). Everything starts the way the NES looked: a TV's overscan hides 8
-lines at the top and bottom and the scroll seam at the sides, the colours are FirebrandX's
-Composite Direct (`COMPOSITE DIRECT FBX`), and more than 8 sprites on a line flicker. Turn the
-sprite limit off and the flicker from it goes. Pick `FILE` as the palette to use your own
-64-colour `.pal`, saved as `palette.pal` next to the exe. UI set to `FAITHFUL` draws the
-game's own HUD, pause card and menus as Bevy UI, and the HUD's `L`/`E` letters stop flickering.
+Esc opens the categorized settings menu anywhere (`DISPLAY`, `GRAPHICS`, `AUDIO`, `LOAD PACK`),
+and so does Select while the game is paused:
+- **`DISPLAY`:** `PALETTE` (FirebrandX's `COMPOSITE DIRECT FBX`, `RGB PPU`, `NTSC`, or your own
+  64-colour `palette.pal` next to the exe), `OVERSCAN` (`HIDE` / `SHOW`), `CRT` (`OFF` /
+  `SCANLINES` / `CRT` shader over game + Faithful UI with crisp menu overlay), `VSYNC`, and
+  `FRAME RATE` (`60` Classic reactive pacing, curated stops up to `360`, or `DISPLAY` for
+  high-refresh interpolated motion with `PICTURE: MODERN`).
+- **`GRAPHICS`:** `PICTURE` (`CLASSIC` / `MODERN` Bevy tilemap & sprite renderer), `UI`
+  (`CLASSIC` / `FAITHFUL` steady HUD), `SPRITE LIMIT` (8-per-line NES flicker on/off), and
+  `INTRO BLEND` (50/50 RGB blend during the intro's 30 Hz flicker).
+- **`AUDIO`:** `VOLUME` (`0`–`100`) and `SFX VOICES` (`CLASSIC` channel-stealing vs. `UNLIMITED`
+  16-voice polyphonic SFX pool so effects never interrupt music).
+- **`LOAD PACK`:** browse and hot-swap Tiled level packs placed in `<exe_dir>/packs/` (or return
+  to `ORIGINAL`) without restarting.
 
-The window is resizable and the picture stays at an integer scale. The game shows one
-picture per 60 Hz tick, so on a variable-refresh display (G-Sync, FreeSync) every frame
-lasts the same 1/60 s. If the renderer misbehaves, `ROTJ_RENDER_BACKEND=gl` (or `vulkan`)
-picks a wgpu backend. `ROTJ_LEVEL=1..12` starts on a later level; `ROTJ_RECORD_INPUT=<dir>`
-records your pads for a replay against the original.
+Everything starts in Classic Mode, matching the original NES cartridge. The window is resizable
+and the picture stays at an integer scale. If the renderer misbehaves, `ROTJ_RENDER_BACKEND=gl`
+(or `vulkan`) picks a wgpu backend. `ROTJ_LEVEL=1..12` starts on a later level;
+`ROTJ_RECORD_INPUT=<dir>` records your pads for a replay against the original.
 
 ## What's here
 
@@ -89,9 +96,9 @@ records your pads for a replay against the original.
 | `tools/rotj-verify` | renderer comparison utility |
 | `disasm/` | the disassembler: `disasm/assemble.sh` generates the listing from your ROM and rebuilds it byte for byte |
 | `docs/ARCHITECTURE.md` | crate/module map, `Session` boundary, state machines, and verification pyramid |
-| `docs/STATUS.md` | current release status (`1.1.60`) and open leads |
-| `CHANGELOG.md` | full release history (`0.1.0`–`1.1.60`) |
-| `docs/PLAN.md` | roadmap for `1.2.0+` Enhanced features |
+| `docs/STATUS.md` | current release status (`1.2.0`) and open leads |
+| `CHANGELOG.md` | full release history (`0.1.0`–`1.2.0`) |
+| `docs/PLAN.md` | roadmap for `1.3.0+` Enhanced features |
 | `docs/re/`, `docs/specs/archive/` | archived reverse-engineering lab notebooks and completed `0.x`–`1.1.x` design specs |
 
 ## Tests
