@@ -187,7 +187,7 @@ fn biting(body: &mut Body, cx: &mut Cx<'_>) {
     body.counter = 0;
     body.timer.tick_up();
     if body.timer == 8 {
-        cx.effects.sound[0] = sound::ENEMY_FIRES;
+        cx.effects.sound.push(0, sound::ENEMY_FIRES);
         spawn_child(body, cx);
     }
     if body.timer >= 0x10 {

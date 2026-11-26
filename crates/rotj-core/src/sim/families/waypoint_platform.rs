@@ -125,7 +125,7 @@ fn spawn_children(body: &Body, cx: &mut Cx<'_>) {
         let Some(slot) = engine::free_child_slot(cx.slots) else {
             return;
         };
-        cx.effects.sound[0] = sound::SPAWN;
+        cx.effects.sound.push(0, sound::SPAWN);
         let x = if right {
             body.x.wrapping_add(0x80)
         } else {

@@ -67,7 +67,7 @@ impl State {
         };
         let frame = body.phase % DIRECTIONS;
         if collision::solid(&mut probe, SOLID_FLAGS, cx) {
-            cx.effects.sound[1] = sound::EXPLOSION;
+            cx.effects.sound.push(1, sound::EXPLOSION);
             if frame < BURSTING {
                 burst(work, cx);
             }

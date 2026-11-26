@@ -120,7 +120,7 @@ fn super_unleash(slot: usize, cx: &mut Cx<'_>, scroll: &mut Scroll, overflow: bo
     #[cfg(test)]
     super::super::oracle::seen(0x97AC);
     cx.effects.busy = busy::SCRIPTED;
-    cx.effects.sound[0] = sound::SUPER_UNLEASH;
+    cx.effects.sound.push(0, sound::SUPER_UNLEASH);
     cx.effects.player.stage_script |= stage_script::FROZEN;
     scroll.gate = 0;
     scroll.speed_x = 0;
@@ -237,7 +237,7 @@ fn super_orbiter(slot: usize, work: &mut Work, cx: &mut Cx<'_>, scroll: &mut Scr
     let projectile = &mut cx.effects.projectiles[slot];
     projectile.param.tick_up();
     if projectile.param.is_multiple_of(32) {
-        cx.effects.sound[0] = sound::SUPER_ORBITER;
+        cx.effects.sound.push(0, sound::SUPER_ORBITER);
     }
     if cx.effects.projectiles[slot].param >= 0xE0 {
         super_end_attack(slot, cx, scroll);

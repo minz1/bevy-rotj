@@ -22,6 +22,13 @@ pub(crate) struct NesInput {
     latched: Buttons,
 }
 
+/// Action buttons whose brief taps are latched between 60 Hz ticks at high refresh rates.
+/// Directional buttons are sampled live at the tick so rapid left/right reversals never inject
+/// stale opposite directions (`LEFT | RIGHT`) or cause one-frame wrong-way turns.
+const LATCHABLE: Buttons = Buttons::from_bits(
+    Buttons::A.bits() | Buttons::B.bits() | Buttons::START.bits() | Buttons::SELECT.bits(),
+);
+
 impl NesInput {
     /// Move to the next frame's state, deriving the edge bits.
     pub fn update(&mut self, buttons: Buttons) {
@@ -29,7 +36,7 @@ impl NesInput {
         self.released = !buttons & self.buttons;
         self.buttons = buttons;
         self.hidden &= buttons;
-        self.latched |= self.pressed & !self.hidden;
+        self.latched |= self.pressed & LATCHABLE & !self.hidden;
     }
 
     /// Hides every button held now from the game until it is released.
@@ -249,5 +256,18 @@ mod tests {
         assert_eq!(input.take_tick_buttons(), Buttons::A);
         // Next tick sees NONE once the latch was consumed.
         assert_eq!(input.take_tick_buttons(), Buttons::NONE);
+    }
+
+    #[test]
+    fn direction_reversal_between_ticks_does_not_latch_stale_direction() {
+        let mut input = NesInput::default();
+        // High-refresh non-tick frames switching rapidly LEFT -> RIGHT before a 60 Hz tick.
+        input.update(Buttons::LEFT);
+        input.update(Buttons::RIGHT);
+        assert_eq!(
+            input.take_tick_buttons(),
+            Buttons::RIGHT,
+            "stale LEFT must not OR with live RIGHT"
+        );
     }
 }

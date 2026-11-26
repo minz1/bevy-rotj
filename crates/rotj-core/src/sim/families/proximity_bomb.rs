@@ -71,7 +71,7 @@ impl State {
 
 /// `$8533`: frees the slot and spawns the `$18` burst.
 fn explode(kind: &mut u8, body: &Body, work: &Work, cx: &mut Cx<'_>) {
-    cx.effects.sound[0] = sound::IMPACT;
+    cx.effects.sound.push(0, sound::IMPACT);
     engine::free_own_slot(kind, body, work, cx);
     if let Some(index) = engine::spawn_parts(PARTS_VARIANT, work, cx) {
         let parts = &mut cx.slots.main[index];

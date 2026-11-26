@@ -334,18 +334,27 @@ impl Game {
         world.pressed = Buttons::from_bits((held.bits() ^ world.pad.bits()) & pad.bits());
         world.pad = held;
         let effects = &mut self.effects;
+        let music = SoundId::from_byte(std::mem::take(&mut effects.music));
+        let song = SoundId::from_byte(std::mem::take(&mut effects.song));
+        let (slots, sfx_events) = effects.sound.take();
         let sound = [
-            std::mem::take(&mut effects.music),
-            std::mem::take(&mut effects.song),
-            std::mem::take(&mut effects.sound[0]),
-            std::mem::take(&mut effects.sound[1]),
-        ]
-        .map(SoundId::from_byte);
+            music,
+            song,
+            SoundId::from_byte(slots[0]),
+            SoundId::from_byte(slots[1]),
+        ];
+        let mut all_sounds = Vec::with_capacity(2 + sfx_events.len());
+        all_sounds.extend([music, song].into_iter().flatten());
+        all_sounds.extend(sfx_events);
         let vram = &mut effects.vram;
         vram.top = 0x7F;
         let mut writes = std::mem::take(&mut vram.direct);
         writes.extend(vram.writes.drain(..).rev());
-        Vblank { writes, sound }
+        Vblank {
+            writes,
+            sound,
+            all_sounds,
+        }
     }
 }
 
@@ -356,6 +365,8 @@ pub(crate) struct Vblank {
     pub writes: Vec<world::VramWrite>,
     /// The sound driver's requests, `$40-$43`.
     pub sound: [Option<SoundId>; 4],
+    /// Music, song, and every non-colliding SFX written during the tick (for Unlimited SFX).
+    pub all_sounds: Vec<SoundId>,
 }
 
 /// One pass of the actor loop over slots 23 down to 0 (bank 14 `$CED5`).

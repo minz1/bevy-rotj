@@ -62,6 +62,9 @@ pub(crate) struct CrtRig {
     pub menu_camera: Entity,
     composite: Handle<Image>,
     composite_size: UVec2,
+    /// False on the frame a resized `composite` handle is allocated so `stage_camera` waits one
+    /// frame for `prepare_assets::<GpuImage>` before attaching a depth buffer to it.
+    ready: bool,
     overscan: Overscan,
     quad: Entity,
     material: Handle<CrtMaterial>,
@@ -153,6 +156,7 @@ fn setup_crt(
         menu_camera,
         composite,
         composite_size: UVec2::new(init_w, init_h),
+        ready: true,
         overscan: Overscan::Hidden,
         quad,
         material,
@@ -169,8 +173,16 @@ struct CrtAssets<'w> {
 #[derive(SystemParam)]
 struct CrtQueries<'w, 's> {
     screen_cameras: Query<'w, 's, &'static mut RenderLayers, With<ScreenCamera>>,
-    stage_cameras:
-        Query<'w, 's, (&'static mut Camera, &'static mut Projection), Without<ScreenCamera>>,
+    stage_cameras: Query<
+        'w,
+        's,
+        (
+            &'static mut Camera,
+            &'static mut Projection,
+            &'static mut RenderTarget,
+        ),
+        Without<ScreenCamera>,
+    >,
     quads: Query<'w, 's, (&'static mut Mesh2d, &'static mut Visibility), With<CrtQuad>>,
 }
 
@@ -200,8 +212,26 @@ fn sync_crt(
     let src_h = u32::try_from(shown.height).expect("height");
     let target_size = UVec2::new(src_w * scale, src_h * scale);
 
+    if active && rig.composite_size != target_size {
+        let new_composite = assets
+            .images
+            .add(composite_image(target_size.x, target_size.y));
+        if let Ok((_, _, mut target)) = queries.stage_cameras.get_mut(rig.stage_camera) {
+            *target = RenderTarget::Image(new_composite.clone().into());
+        }
+        if let Some(mut material) = assets.materials.get_mut(&rig.material) {
+            material.texture = new_composite.clone();
+        }
+        rig.composite = new_composite;
+        rig.composite_size = target_size;
+        rig.ready = false;
+    }
+
+    let ready = std::mem::replace(&mut rig.ready, true);
+    let show_crt = active && ready;
+
     for mut layers in &mut queries.screen_cameras {
-        let wanted = if active {
+        let wanted = if show_crt {
             RenderLayers::layer(CRT_QUAD_LAYER)
         } else {
             RenderLayers::layer(0)
@@ -212,22 +242,15 @@ fn sync_crt(
     }
 
     let scale_f = f32::from(u16::try_from(scale).expect("1..=16"));
-    if let Ok((mut camera, mut projection)) = queries.stage_cameras.get_mut(rig.stage_camera) {
-        camera.is_active = active;
-        if active && let Projection::Orthographic(orthographic) = &mut *projection {
+    if let Ok((mut camera, mut projection, _)) = queries.stage_cameras.get_mut(rig.stage_camera) {
+        camera.is_active = show_crt;
+        if show_crt && let Projection::Orthographic(orthographic) = &mut *projection {
             orthographic.scale = 4.0 / scale_f;
         }
     }
 
-    if active && rig.composite_size != target_size {
-        if let Some(mut image) = assets.images.get_mut(&rig.composite) {
-            *image = composite_image(target_size.x, target_size.y);
-        }
-        rig.composite_size = target_size;
-    }
-
     if let Ok((mut mesh, mut visibility)) = queries.quads.get_mut(rig.quad) {
-        *visibility = if active {
+        *visibility = if show_crt {
             Visibility::Visible
         } else {
             Visibility::Hidden
@@ -280,6 +303,46 @@ mod tests {
         assert_eq!(mode_code(CrtFilter::Off), 0);
         assert_eq!(mode_code(CrtFilter::Scanlines), 1);
         assert_eq!(mode_code(CrtFilter::Crt), 2);
+    }
+
+    #[test]
+    fn resizing_crt_composite_allocates_fresh_handle_and_waits_one_frame() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<Image>()
+            .init_asset::<Mesh>()
+            .init_asset::<CrtMaterial>()
+            .insert_resource(Settings {
+                crt: CrtFilter::Crt,
+                ..Settings::default()
+            })
+            .insert_resource(DisplayScale(1))
+            .add_systems(Startup, setup_crt)
+            .add_systems(Update, sync_crt);
+        app.update();
+        let initial_id = app.world().resource::<CrtRig>().composite.id();
+        let stage = app.world().resource::<CrtRig>().stage_camera;
+        assert!(app.world().get::<Camera>(stage).expect("stage").is_active);
+
+        app.world_mut().resource_mut::<DisplayScale>().0 = 3;
+        app.update();
+        let resized_id = app.world().resource::<CrtRig>().composite.id();
+        assert_ne!(
+            resized_id, initial_id,
+            "must allocate fresh composite handle"
+        );
+        assert!(
+            !app.world().get::<Camera>(stage).expect("stage").is_active,
+            "stage camera waits one frame before rendering to resized composite"
+        );
+        let target = app.world().get::<RenderTarget>(stage).expect("target");
+        assert!(
+            matches!(target, RenderTarget::Image(img) if img.handle.id() == resized_id),
+            "stage camera target points to new composite handle"
+        );
+
+        app.update();
+        assert!(app.world().get::<Camera>(stage).expect("stage").is_active);
     }
 
     /// Headless GPU render proving `crt.wgsl` compiles cleanly and produces scanline troughs

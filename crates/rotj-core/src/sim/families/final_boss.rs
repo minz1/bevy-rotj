@@ -430,7 +430,7 @@ fn spawn_c0(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
 
 /// `$907A`: a type `$52` part at a `$7E10`-indexed offset, once every fourth count.
 fn spawn_52(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
-    cx.effects.sound[0] = sound::EXPLOSION;
+    cx.effects.sound.push(0, sound::EXPLOSION);
     let n = usize::from(body.counter);
     let tables = &cx.prg.families.final_boss;
     let x = work.x.wrapping_add(tables.spot_x[n]);

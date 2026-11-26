@@ -46,7 +46,7 @@ pub(super) fn homing(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
         return;
     }
     if cx.world.frame.is_multiple_of(0x20) {
-        cx.effects.sound[0] = sound::CHARGE;
+        cx.effects.sound.push(0, sound::CHARGE);
     }
     match HomingStage::from_byte(projectile.kind) {
         Some(HomingStage::Gather) => homing_gather(slot, work, cx),

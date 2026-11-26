@@ -1,6 +1,6 @@
 # Port plan — Batman: Return of the Joker → Rust/Bevy
 
-Status: **1.2.0 tagged** (first Enhanced Mode release — Classic Mode stays default and byte-exact against the oracle, boot to ending, built with the user's own ROM, every frame's picture checked line by line; `docs/STATUS.md`
+Status: **1.2.1 tagged** (Enhanced Mode `1.2.0` + playtest fixes — Classic Mode stays default and byte-exact against the oracle, boot to ending, built with the user's own ROM, every frame's picture checked line by line; `docs/STATUS.md`
 is the source of truth and `docs/ARCHITECTURE.md` documents the current layout). **1.0 means full-game parity** (all 7 stages, 5 bosses,
 every actor behaviour, the complete soundtrack). Intermediate minor checkpoints are
 tagged as they land. After 1.0.0 only Classic Mode is bound by parity
@@ -42,6 +42,7 @@ workspace version in `Cargo.toml` and the in-game version string are the same.
 | 1.1.0 | The settings file and menu, one picture per tick (`docs/specs/archive/2026-10-16-settings-menu-design.md`), and the game's own HUD, pause card, title cursor and password entry as Bevy UI, the HUD label steady (`docs/specs/archive/2026-10-16-faithful-ui-design.md`) | **tagged** |
 | 1.1.x | Modernisation, one patch per step, no behaviour change (`1.1.1`–`1.1.60`): Modern Bevy tilemap & sprite renderer, Faithful Bevy UI, read-only ECS mirror, typed state machines across core/audio/app, Tiled level packs (`--pack` + tilesets + `Source::User` hardening), `rotj-core` consolidation (`map`, `sim::Session`), and docs overhaul (`CHANGELOG.md`, `docs/ARCHITECTURE.md`) | **tagged (`1.1.0`–`1.1.60`)** |
 | **1.2.0** | **Enhanced presentation & audio:** categorized settings submenus, band-room live-map playfields & bank-split sprites in Modern (`0` gameplay fallbacks), high-refresh interpolated motion (`frame_rate`) with display-scale Modern target & input latching, unlimited-voice SFX pool (`sfx_voices`), CRT WGSL shader (`crt: Off \| Scanlines \| Crt`) with crisp menu overlay, intro 30 Hz flicker blend (`intro_blend`), and in-game `LOAD PACK` browser (`docs/specs/2026-11-25-1.2.0-enhanced-presentation-design.md`) | **tagged** |
+| 1.2.1 | `1.2.0` playtest fixes: fresh-handle render-target resize in Modern & CRT, 1 px padded Modern sprite atlases, live D-pad direction sampling, same-tick `SoundQueue` + in-place SFX retriggering in Unlimited SFX, `batman-rotj.log` file logging, and Windows cross-build env in `flake.nix` | **tagged** |
 | 1.3.0 | Widescreen (`> 256 px` view drawn from the live map playfield, widened actor spawn window, room-edge clamping, and centered 256 px HUD) | next |
 | 1.4.0+ | Chapter select and passwords (revisit: the game's own password screen is ported) | |
 | then | Prototype music (enhanced mode) | |
@@ -183,7 +184,7 @@ See [docs/ARCHITECTURE.md](ARCHITECTURE.md) for the detailed crate and module ma
 | `tools/rotj-oracle` | 6502/FME-7/PPU emulator for lockstep verification |
 | `tools/rotj-tools`, `tools/rotj-verify` | `rotj` CLI (level-pack/tileset export, ROM dumps) and renderer verifier |
 | `docs/` | `ARCHITECTURE.md`, `STATUS.md`, `PLAN.md`, `CUTCONTENT.md`, `re/` notebooks, `specs/` (`archive/` for 0.x–1.1) |
-| `CHANGELOG.md` | full `0.1.0`–`1.2.0` release history |
+| `CHANGELOG.md` | full `0.1.0`–`1.2.1` release history |
 
 ## Post-1.0 content: cherry-picking the 16-bit versions (planned, not ported)
 

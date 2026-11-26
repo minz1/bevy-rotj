@@ -31,7 +31,7 @@ use crate::pacing::{Clock, Step};
 use crate::play::Play;
 use crate::screen::{Colours, Screen, ScreenSprite, pixels, screen_image, screen_quad_rect};
 use crate::settings::{Picture, Settings, UiStyle};
-use crate::ui::{Key, sprite_key_at_line, tiles};
+use crate::ui::{Key, sprite_key_at_line};
 
 /// A palette's four colours, as RGB.
 type Set = [[u8; 3]; 4];
@@ -53,6 +53,9 @@ struct Modern {
     image: Handle<Image>,
     /// Integer pixel multiple of `image` (`1` = `256x240`, `M` = `256*M x 240*M`).
     scale: u32,
+    /// False on the frame a resized `image` handle is allocated so cameras wait one frame for
+    /// `prepare_assets::<GpuImage>` before attaching depth buffers to the new target.
+    ready: bool,
     backdrop: Entity,
     pieces: [Layer; PIECES],
     atlases: HashMap<Key, Handle<Image>>,
@@ -118,6 +121,38 @@ fn target_image(scale: u32) -> Image {
     )
 }
 
+/// 1-pixel transparent gutter on every side of each 8x16 tile in Modern's sprite atlas so
+/// subpixel-interpolated sprites at display scale never bleed into neighboring tiles.
+const SPRITE_ATLAS_PAD: usize = 1;
+const SPRITE_CELL_W: usize = 8 + 2 * SPRITE_ATLAS_PAD;
+const SPRITE_CELL_H: usize = 16 + 2 * SPRITE_ATLAS_PAD;
+
+/// A pattern table as a 16x8 grid of 8x16 tiles, each surrounded by a 1 px transparent gutter.
+fn sprite_atlas_tiles(chr: &[u8], key: &Key) -> Image {
+    let width = 16 * SPRITE_CELL_W;
+    let height = 8 * SPRITE_CELL_H;
+    let mut data = vec![0; width * height * 4];
+    let stride = width * 4;
+    let colours = std::array::from_fn(|v| {
+        if v == 0 {
+            [0, 0, 0, 0]
+        } else {
+            let [r, g, b] = key.colours[v];
+            [r, g, b, 0xFF]
+        }
+    });
+    for cell in 0..128 {
+        for half in 0..2 {
+            let addr = (2 * cell + half) * 16;
+            let bytes = chr::tile(chr, &key.banks, addr);
+            let px = (cell % 16) * SPRITE_CELL_W + SPRITE_ATLAS_PAD;
+            let py = (cell / 16) * SPRITE_CELL_H + SPRITE_ATLAS_PAD + half * 8;
+            chr::blit_rgba(bytes, &mut data[py * stride + px * 4..], stride, colours);
+        }
+    }
+    crate::screen::rgba_image(width, height, data)
+}
+
 fn spawn(
     mut commands: Commands<'_, '_>,
     mut images: ResMut<'_, Assets<Image>>,
@@ -132,16 +167,18 @@ fn spawn(
         .id();
     let pieces =
         std::array::from_fn(|piece| spawn_layer(&mut commands, &mut images, &image, piece));
+    let pad = size(SPRITE_ATLAS_PAD);
     let layout = layouts.add(TextureAtlasLayout::from_grid(
         UVec2::new(8, 16),
         16,
         8,
-        None,
-        None,
+        Some(UVec2::splat(2 * pad)),
+        Some(UVec2::splat(pad)),
     ));
     commands.insert_resource(Modern {
         image,
         scale: 1,
+        ready: true,
         backdrop,
         pieces,
         atlases: HashMap::new(),
@@ -455,6 +492,29 @@ struct Scene<'w, 's> {
     sprites: Query<'w, 's, Entity, With<ModernSprite>>,
 }
 
+/// Allocates a fresh off-screen target at `desired_scale`, repoints every Modern camera to it,
+/// and marks `modern.ready = false` for one frame so `prepare_assets::<GpuImage>` runs before
+/// any camera attaches a depth buffer to the new texture.
+fn resize_target(
+    modern: &mut Modern,
+    images: &mut Assets<Image>,
+    cameras: &mut Cameras<'_, '_>,
+    desired_scale: u32,
+) {
+    let new_image = images.add(target_image(desired_scale));
+    if let Ok((_, _, _, mut target)) = cameras.get_mut(modern.backdrop) {
+        *target = RenderTarget::Image(new_image.clone().into());
+    }
+    for layer in &modern.pieces {
+        if let Ok((_, _, _, mut target)) = cameras.get_mut(layer.camera) {
+            *target = RenderTarget::Image(new_image.clone().into());
+        }
+    }
+    modern.image = new_image;
+    modern.scale = desired_scale;
+    modern.ready = false;
+}
+
 /// Draws the frame on screen Modern when the setting asks for it and the frame allows it;
 /// otherwise turns the Modern camera off and shows the PPU's picture.
 fn draw(
@@ -491,34 +551,36 @@ fn draw(
     let menu_open = menu.as_deref().is_some_and(Menu::is_open);
     let interpolating =
         frame.is_some() && !settings.frame_rate.is_classic() && !menu_open && !play.paused();
-    let desired_scale = if interpolating {
+    let desired_scale = if settings.picture == Picture::Modern && !settings.frame_rate.is_classic()
+    {
         display_scale.map_or(1, |s| s.0.clamp(1, 8))
     } else {
         1
     };
     if desired_scale != modern.scale {
-        if let Some(mut image) = images.get_mut(&modern.image) {
-            *image = target_image(desired_scale);
-        }
-        modern.scale = desired_scale;
+        resize_target(&mut modern, &mut images, &mut cameras, desired_scale);
     }
-    let (shown_image, active_scale) = match active {
-        ActivePicture::Modern => (modern.image.clone(), modern.scale),
-        ActivePicture::Classic => (screen_image(&screen), 1),
-    };
-    let expected_rect = Some(screen_quad_rect(settings.overscan, active_scale));
-    for mut quad in &mut quads {
-        if quad.image != shown_image {
-            quad.image = shown_image.clone();
-        }
-        if quad.rect != expected_rect {
-            quad.rect = expected_rect;
+    let ready = std::mem::replace(&mut modern.ready, true);
+    let active_frame = ready.then_some(frame).flatten();
+    if ready {
+        let (shown_image, active_scale) = match active {
+            ActivePicture::Modern => (modern.image.clone(), modern.scale),
+            ActivePicture::Classic => (screen_image(&screen), 1),
+        };
+        let expected_rect = Some(screen_quad_rect(settings.overscan, active_scale));
+        for mut quad in &mut quads {
+            if quad.image != shown_image {
+                quad.image = shown_image.clone();
+            }
+            if quad.rect != expected_rect {
+                quad.rect = expected_rect;
+            }
         }
     }
     let rgb = &colours_table.rgb;
-    if let Ok((mut backdrop, _, _)) = cameras.get_mut(modern.backdrop) {
-        backdrop.is_active = frame.is_some();
-        if let Some(frame) = frame {
+    if let Ok((mut backdrop, _, _, _)) = cameras.get_mut(modern.backdrop) {
+        backdrop.is_active = active_frame.is_some();
+        if let Some(frame) = active_frame {
             let [red, green, blue] =
                 colours(&play.session().ppu().palette, 0, frame.greyscale, rgb)[0];
             backdrop.clear_color = ClearColorConfig::Custom(Color::srgb_u8(red, green, blue));
@@ -530,7 +592,7 @@ fn draw(
         cameras: &mut cameras,
         scale: modern.scale,
     };
-    let Some(frame) = frame else {
+    let Some(frame) = active_frame else {
         for layer in &mut modern.pieces {
             show_layer(layer, &mut out, &play, [[[0; 3]; 4]; 4], None);
         }
@@ -578,6 +640,7 @@ type Cameras<'w, 's> = Query<
         &'static mut Camera,
         &'static mut Transform,
         &'static mut Projection,
+        &'static mut RenderTarget,
     ),
 >;
 
@@ -691,7 +754,7 @@ fn show_layer(
     sets: [Set; 4],
     shown: Option<Shown<'_>>,
 ) {
-    if let Ok((mut camera, mut transform, mut projection)) = out.cameras.get_mut(layer.camera) {
+    if let Ok((mut camera, mut transform, mut projection, _)) = out.cameras.get_mut(layer.camera) {
         camera.is_active = shown.is_some();
         if let Some(shown) = &shown {
             let s = out.scale.clamp(1, 8);
@@ -799,8 +862,8 @@ fn slice_sprite(
         )
     } else {
         let index = usize::from(entry.tall_index());
-        let tx = pixels((index % 16) * 8);
-        let ty = pixels((index / 16) * 16);
+        let tx = pixels((index % 16) * SPRITE_CELL_W + SPRITE_ATLAS_PAD);
+        let ty = pixels((index / 16) * SPRITE_CELL_H + SPRITE_ATLAS_PAD);
         let (src_top, src_bottom) = if flip_y {
             (pixels(16 - row_end), pixels(16 - row_start))
         } else {
@@ -868,7 +931,7 @@ fn spawn_sprites(
                 let atlas = modern
                     .atlases
                     .entry(key)
-                    .or_insert_with(|| images.add(tiles(&play.chr, &key)))
+                    .or_insert_with(|| images.add(sprite_atlas_tiles(&play.chr, &key)))
                     .clone();
                 let sprite = slice_sprite(atlas, &modern.layout, entry, row_start, row_end);
                 let mut spawned = commands.spawn((
@@ -1192,9 +1255,46 @@ mod tests {
         let dummy_layout = Handle::<TextureAtlasLayout>::default();
         let top_slice = slice_sprite(dummy_atlas.clone(), &dummy_layout, entry, 0, 6);
         let bottom_slice = slice_sprite(dummy_atlas, &dummy_layout, entry, 6, 16);
-        assert_eq!(top_slice.rect, Some(Rect::new(8.0, 10.0, 16.0, 16.0)));
-        assert_eq!(bottom_slice.rect, Some(Rect::new(8.0, 0.0, 16.0, 10.0)));
+        // Cell 1 in the padded 10x18 atlas starts at (11, 1).
+        assert_eq!(top_slice.rect, Some(Rect::new(11.0, 11.0, 19.0, 17.0)));
+        assert_eq!(bottom_slice.rect, Some(Rect::new(11.0, 1.0, 19.0, 11.0)));
         assert!(top_slice.flip_y && bottom_slice.flip_y);
+    }
+
+    #[test]
+    fn sprite_atlas_pads_every_tile_with_transparent_gutter() {
+        let chr = vec![0xFF; 8 * 1024];
+        let key = Key {
+            banks: [0, 1, 2, 3],
+            colours: [[0; 3], [10; 3], [20; 3], [30; 3]],
+        };
+        let atlas = sprite_atlas_tiles(&chr, &key);
+        let width = 16 * SPRITE_CELL_W;
+        let data = atlas.data.expect("pixels");
+        let alpha = |x: usize, y: usize| data[(y * width + x) * 4 + 3];
+        for cell in 0..128 {
+            let x0 = (cell % 16) * SPRITE_CELL_W;
+            let y0 = (cell / 16) * SPRITE_CELL_H;
+            // Inner tile pixels are opaque; 1 px border on all 4 sides is transparent.
+            assert_eq!(alpha(x0 + 1, y0 + 1), 0xFF);
+            assert_eq!(alpha(x0 + 8, y0 + 16), 0xFF);
+            for dx in 0..SPRITE_CELL_W {
+                assert_eq!(alpha(x0 + dx, y0), 0, "top gutter cell {cell}");
+                assert_eq!(
+                    alpha(x0 + dx, y0 + SPRITE_CELL_H - 1),
+                    0,
+                    "bottom gutter cell {cell}"
+                );
+            }
+            for dy in 0..SPRITE_CELL_H {
+                assert_eq!(alpha(x0, y0 + dy), 0, "left gutter cell {cell}");
+                assert_eq!(
+                    alpha(x0 + SPRITE_CELL_W - 1, y0 + dy),
+                    0,
+                    "right gutter cell {cell}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -1313,5 +1413,59 @@ mod tests {
             run_piece_offset(&run_pieces, 0, run_at(2), 0.5),
             Vec2::new(-2.0, 0.0)
         );
+    }
+
+    #[test]
+    fn resizing_modern_target_allocates_fresh_handle_and_waits_one_frame() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin::default(),
+            bevy::sprite_render::TilemapChunkPlugin,
+        ))
+        .init_asset::<Image>()
+        .init_asset::<Mesh>()
+        .init_asset::<bevy::sprite_render::TilemapChunkMaterial>()
+        .init_asset::<TextureAtlasLayout>()
+        .insert_resource(Settings {
+            picture: Picture::Modern,
+            frame_rate: crate::settings::FrameRate::Fps(170),
+            ..Settings::default()
+        })
+        .init_resource::<Colours>()
+        .insert_resource(DisplayScale(1))
+        .add_plugins((crate::mirror::MirrorPlugin, ModernPlugin));
+        let screen = Screen::new(&mut app.world_mut().resource_mut::<Assets<Image>>());
+        app.insert_resource(screen).insert_resource(Play::start(
+            crate::play::tests::prg(rom),
+            rom.chr.clone(),
+            0,
+        ));
+        app.update();
+        let initial_id = app.world().resource::<Modern>().image.id();
+        let backdrop = app.world().resource::<Modern>().backdrop;
+        assert!(app.world().get::<Camera>(backdrop).expect("cam").is_active);
+
+        // Resize to 3x (768x720): must allocate a brand-new AssetId and deactivate cameras for 1 frame.
+        app.world_mut().resource_mut::<DisplayScale>().0 = 3;
+        app.update();
+        let resized_id = app.world().resource::<Modern>().image.id();
+        assert_ne!(resized_id, initial_id, "must allocate fresh image handle");
+        assert!(
+            !app.world().get::<Camera>(backdrop).expect("cam").is_active,
+            "backdrop waits one frame before rendering to resized target"
+        );
+        let target = app.world().get::<RenderTarget>(backdrop).expect("target");
+        assert!(
+            matches!(target, RenderTarget::Image(img) if img.handle.id() == resized_id),
+            "camera target points to new image handle"
+        );
+
+        // Next frame: GpuImage is prepared, backdrop activates cleanly on the 768x720 target.
+        app.update();
+        assert!(app.world().get::<Camera>(backdrop).expect("cam").is_active);
     }
 }

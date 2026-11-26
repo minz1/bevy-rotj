@@ -217,7 +217,9 @@ impl SoundTest {
                     self.begin(Step::Song);
                 }
                 MenuRow::Effect => {
-                    game.effects.sound[0] = rom_byte(prg, 12, EFFECTS + u16::from(self.effect));
+                    game.effects
+                        .sound
+                        .push(0, rom_byte(prg, 12, EFFECTS + u16::from(self.effect)));
                 }
                 MenuRow::Exit => {
                     game.scroll.mask = 0;

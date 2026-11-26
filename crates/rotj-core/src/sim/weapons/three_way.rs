@@ -101,7 +101,7 @@ fn three_way_brew(slot: usize, cx: &mut Cx<'_>) {
     #[cfg(test)]
     super::super::oracle::seen(0x92D3);
     if cx.effects.attack & attack::CHARGING == 0 {
-        cx.effects.sound[1] = sound::THREE_WAY_TETHER;
+        cx.effects.sound.push(1, sound::THREE_WAY_TETHER);
         three_way_let_go(slot, cx);
         return;
     }
@@ -114,7 +114,7 @@ fn three_way_brew(slot: usize, cx: &mut Cx<'_>) {
     let Some(free) = free_slot(cx) else {
         return;
     };
-    cx.effects.sound[0] = sound::THREE_WAY_BUBBLE;
+    cx.effects.sound.push(0, sound::THREE_WAY_BUBBLE);
     let (x, y) = if cx.effects.player.motion == Motion::AimingUp {
         above_player(cx)
     } else {
@@ -240,7 +240,7 @@ fn three_way_tether(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     if count.is_multiple_of(8)
         && let Some(free) = free_slot(cx)
     {
-        cx.effects.sound[0] = sound::THREE_WAY_BUBBLE;
+        cx.effects.sound.push(0, sound::THREE_WAY_BUBBLE);
         let projectile = &mut cx.effects.projectiles[free];
         projectile.x = work.x;
         projectile.y = work.y;

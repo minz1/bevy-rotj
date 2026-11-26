@@ -87,7 +87,7 @@ fn falling(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     work.vy = i16::from_be_bytes([work.vy.to_be_bytes()[0], 0xFF]);
     let mut probe = Probe::default();
     if collision::feet(work, &mut probe, cx) {
-        cx.effects.sound[0] = sound::IMPACT;
+        cx.effects.sound.push(0, sound::IMPACT);
         body.phase = Phase::Landed.byte();
         body.counter = 0;
     }

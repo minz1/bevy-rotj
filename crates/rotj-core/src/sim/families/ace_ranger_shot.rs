@@ -138,7 +138,7 @@ fn shell(kind: &mut u8, body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     }
     if detonate {
         // `$9288`: sound, 76 px down, and the `$7D70` that starts the death.
-        cx.effects.sound[0] = sound::IMPACT;
+        cx.effects.sound.push(0, sound::IMPACT);
         work.y = work.y.wrapping_add(DETONATE_DROP);
         body.hit = hit::DYING;
         body.dying_timer = 0;

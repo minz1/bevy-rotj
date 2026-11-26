@@ -103,7 +103,7 @@ fn crouching(body: &mut Body) {
 /// Throwing (`$933A`, the throw sound `$9341`): throw every eighth frame, alternating two poses.
 fn throwing(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
     if body.timer.is_multiple_of(8) {
-        cx.effects.sound[0] = sound::CHARGE;
+        cx.effects.sound.push(0, sound::CHARGE);
         spawn_projectile(body, work, cx);
     }
     body.sprite = if body.timer & 0x08 == 0 { 2 } else { 3 };

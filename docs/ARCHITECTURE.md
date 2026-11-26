@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes the structure of the *Batman: Return of the Joker* Rust/Bevy port as of `1.2.0`. All crates deny `unsafe_code`, compile cleanly under `clippy::pedantic` at `-D warnings`, and keep Classic Mode byte-for-byte faithful to the original NES cartridge.
+This document describes the structure of the *Batman: Return of the Joker* Rust/Bevy port as of `1.2.1`. All crates deny `unsafe_code`, compile cleanly under `clippy::pedantic` at `-D warnings`, and keep Classic Mode byte-for-byte faithful to the original NES cartridge.
 
 ## Workspace Crate Map
 

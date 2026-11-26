@@ -142,7 +142,7 @@ fn firing(body: &mut Body, work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) 
         body.sprite = 2;
     } else {
         if let Some(slot) = engine::free_child_slot(cx.slots) {
-            cx.effects.sound[0] = sound::ENEMY_FIRES;
+            cx.effects.sound.push(0, sound::ENEMY_FIRES);
             spawn_child(body, slot, cx);
         }
         body.sprite = 6;

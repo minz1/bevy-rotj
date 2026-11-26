@@ -88,7 +88,7 @@ impl State {
 
 /// The `$82C9` tail: sound `$43`, the slot parked at `$0C20` and the dying phase armed.
 fn die(body: &mut Body, cx: &mut Cx<'_>) {
-    cx.effects.sound[1] = sound::IMPACT;
+    cx.effects.sound.push(1, sound::IMPACT);
     body.y = DEATH_Y;
     body.behaviour = DYING;
     body.anim = 0;

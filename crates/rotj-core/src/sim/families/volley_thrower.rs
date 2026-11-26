@@ -140,7 +140,7 @@ fn throw(body: &mut Body, work: &Work, cx: &mut Cx<'_>) {
         return;
     }
     if (THROW_START..THROW_END).contains(&body.counter) {
-        cx.effects.sound[0] = sound::STOMP;
+        cx.effects.sound.push(0, sound::STOMP);
         if body.counter.is_multiple_of(SPAWN_SPACING) {
             spawn_child(work, cx);
         }

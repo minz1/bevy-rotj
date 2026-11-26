@@ -80,7 +80,7 @@ fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             body.sprite = 2;
             return;
         }
-        cx.effects.sound[0] = sound::DROP;
+        cx.effects.sound.push(0, sound::DROP);
         if let Some(slot) = engine::free_child_slot(cx.slots) {
             spawn_child(body, work, slot, cx);
         }

@@ -808,7 +808,7 @@ impl Boot {
                     let phase = frame % 12;
                     if phase == 0 || phase == 6 {
                         if frame == 0 {
-                            game.effects.sound[0] = sound::CONFIRM;
+                            game.effects.sound.push(0, sound::CONFIRM);
                         }
                         self.cursor = match (phase, self.choice) {
                             (6, _) => 0,
@@ -918,9 +918,9 @@ impl Boot {
                 if accepted {
                     self.buffer[0x21] = 0;
                     self.buffer[0] = 0x21;
-                    game.effects.sound[0] = sound::CONFIRM;
+                    game.effects.sound.push(0, sound::CONFIRM);
                 } else {
-                    game.effects.sound[0] = sound::PASSWORD_REJECTED;
+                    game.effects.sound.push(0, sound::PASSWORD_REJECTED);
                 }
                 self.step = Step::Password(Password::Judged { accepted });
                 return false;
@@ -1008,7 +1008,7 @@ impl Boot {
                 continue;
             }
             entry.repeat_in = entry.period;
-            game.effects.sound[0] = sound::PASSWORD_LETTER;
+            game.effects.sound.push(0, sound::PASSWORD_LETTER);
             let letter = &mut entry.letters[column];
             match bit {
                 Buttons::UP => *letter = letter.checked_sub(1).unwrap_or(0x19),

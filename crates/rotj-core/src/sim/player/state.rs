@@ -47,7 +47,7 @@ impl Port<'_, '_> {
             Motion::from_byte(self.player.pose & pose::SAVED_MOTION).expect("a saved motion");
         self.player.pose &= pose::SHOT;
         if self.player.motion == Motion::Jumping {
-            self.cx.effects.sound[0] = sound::JUMP;
+            self.cx.effects.sound.push(0, sound::JUMP);
             if self.jump_blocked() {
                 self.cx.effects.attack &= attack::CHARGEABLE;
                 self.player.pose = pose::LANDING | pose::LONG_LANDING;
@@ -470,7 +470,7 @@ impl Port<'_, '_> {
 
     /// `$89A8`: motion 2 + the first pad shoulder (a side-jump).
     pub(super) fn walking_jump(&mut self) {
-        self.cx.effects.sound[0] = sound::JUMP;
+        self.cx.effects.sound.push(0, sound::JUMP);
         if self.player.pose & pose::TURNING != 0 {
             self.player.pose &= !pose::TURNING;
             self.player.facing ^= attr::FLIP_X;
@@ -752,7 +752,7 @@ impl Port<'_, '_> {
 
     /// `$8D6D`: the slide's launch: a push and the speed in the facing direction.
     pub(super) fn slide_launch(&mut self) {
-        self.cx.effects.sound[0] = sound::JUMP;
+        self.cx.effects.sound.push(0, sound::JUMP);
         self.player.sliding = sliding::ON;
         let x = self.player.x.cast_signed();
         self.overflow = if self.player.faces_left() {
@@ -987,12 +987,12 @@ impl Port<'_, '_> {
             self.player.death_timer.tick_up();
         } else {
             if timer == 0x2F {
-                self.cx.effects.sound[1] = sound::PLAYER_DIES;
+                self.cx.effects.sound.push(1, sound::PLAYER_DIES);
                 self.player.stage_script = stage_script::FROZEN | stage_script::HIDDEN;
                 self.player.death_flags |= death::BURST;
             }
             if timer.is_multiple_of(16) {
-                self.cx.effects.sound[1] = sound::DEATH_TICK;
+                self.cx.effects.sound.push(1, sound::DEATH_TICK);
             }
             self.set_overflow_from(self.player.death_flags);
             if self.player.death_flags & death::NO_OVERLAY == 0 {
@@ -1059,7 +1059,7 @@ impl Port<'_, '_> {
             Some(EntryStep::Arriving) => {
                 player.entry_timer.tick_up();
                 if player.entry_timer >= 4 {
-                    self.cx.effects.sound[0] = sound::TALLY_TICK;
+                    self.cx.effects.sound.push(0, sound::TALLY_TICK);
                     (player.entry_timer, player.tally_digit) = (0, 0);
                     player.entry_step = EntryStep::Tallying.byte();
                     return;
@@ -1077,7 +1077,7 @@ impl Port<'_, '_> {
                 let (tally, digit) = (self.player.tally, self.player.tally_digit);
                 self.queue_tally(tally, Some(digit));
                 if self.cx.world.frame.is_multiple_of(16) {
-                    self.cx.effects.sound[0] = sound::TALLY_TICK;
+                    self.cx.effects.sound.push(0, sound::TALLY_TICK);
                 }
                 let player = &mut *self.player;
                 player.tally_digit += 1;
@@ -1111,7 +1111,7 @@ impl Port<'_, '_> {
                 let player = &mut *self.player;
                 player.entry_timer.tick_up();
                 if player.entry_timer >= 4 {
-                    self.cx.effects.sound[0] = sound::EXPLOSION;
+                    self.cx.effects.sound.push(0, sound::EXPLOSION);
                     player.entry_step = EntryStep::Posing.byte();
                     player.entry_timer = 0;
                 }

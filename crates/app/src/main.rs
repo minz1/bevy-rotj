@@ -199,7 +199,24 @@ enum GameState {
     Playing,
 }
 
+/// Writes Bevy logs (including render errors and panics) to `batman-rotj.log` beside the exe,
+/// so double-clicking on Windows preserves diagnostics without needing a console.
+fn file_log_layer(_app: &mut App) -> Option<bevy::log::BoxedLayer> {
+    let dir = settings::exe_dir()?;
+    let file = std::fs::File::create(dir.join("batman-rotj.log")).ok()?;
+    Some(Box::new(
+        tracing_subscriber::fmt::layer()
+            .with_ansi(false)
+            .with_writer(std::sync::Mutex::new(file)),
+    ))
+}
+
 fn main() {
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        error!("panic: {info}");
+        prev_hook(info);
+    }));
     let launch = match launch_action(std::env::args_os().skip(1).map(PathBuf::from)) {
         Ok(LaunchAction::Run(launch)) => launch,
         Ok(LaunchAction::Help) => {
@@ -243,6 +260,10 @@ fn main() {
         // Nearest-neighbor for everything — pixel-art game, global default.
         DefaultPlugins
             .set(ImagePlugin::default_nearest())
+            .set(bevy::log::LogPlugin {
+                custom_layer: file_log_layer,
+                ..default()
+            })
             .set(render)
             .set(WindowPlugin {
                 primary_window: Some(Window {

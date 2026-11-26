@@ -9,11 +9,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-rotj-apu = { path = "../rotj-apu", version = "1.2.0" }
+rotj-apu = { path = "../rotj-apu", version = "1.2.1" }
 
 [dev-dependencies]
-rotj-core = { path = "../rotj-core", version = "1.2.0" }
-rotj-rom = { path = "../rotj-rom", version = "1.2.0" }
+rotj-core = { path = "../rotj-core", version = "1.2.1" }
+rotj-rom = { path = "../rotj-rom", version = "1.2.1" }
 
 [lints]
 workspace = true

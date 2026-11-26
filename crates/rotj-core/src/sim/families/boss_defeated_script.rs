@@ -69,7 +69,7 @@ impl State {
 /// `$9C67`: spawn a `$52` next to the source slot; always advances the counter.
 fn spawn_52(body: &mut Body, cx: &mut Cx<'_>) {
     if body.anim & 0x1C == 0 {
-        cx.effects.sound[0] = sound::EXPLOSION;
+        cx.effects.sound.push(0, sound::EXPLOSION);
     }
     if let Some((child, x, y)) = child_slot(body, cx) {
         let part = cx.slots.main[child].spawn(CHILD, x, y);

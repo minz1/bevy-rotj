@@ -307,7 +307,7 @@ fn spawn_3a(body: &Body, work: &Work, cx: &mut Cx<'_>) {
     let Some(slot) = cx.slots.free_main(16..24) else {
         return;
     };
-    cx.effects.sound[0] = sound::ENEMY_FIRES;
+    cx.effects.sound.push(0, sound::ENEMY_FIRES);
     let left = work.attr & attr::FLIP_X != 0;
     let (dx, dy, phase, frame) = if body.phase == Phase::Spawning.byte() {
         (0x01D0, 0x03B0, if left { 2 } else { 3 }, 1)

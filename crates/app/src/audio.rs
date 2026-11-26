@@ -144,6 +144,7 @@ fn soft_clip(sample: f32) -> f32 {
 struct SfxVoice {
     stream: ApuStream,
     driver: rotj_music::Music,
+    id: u8,
     active: bool,
     tail_frames: u8,
     age: u64,
@@ -161,6 +162,7 @@ impl SfxVoice {
         Self {
             stream,
             driver,
+            id: 0,
             active: false,
             tail_frames: 0,
             age: 0,
@@ -172,7 +174,14 @@ impl SfxVoice {
             self.stream.apu_mut().write(write.addr, write.value);
         }
         self.driver.request(id);
+        self.id = id;
         self.active = true;
+        self.tail_frames = SFX_TAIL_FRAMES;
+        self.age = age;
+    }
+
+    fn retrigger(&mut self, id: u8, age: u64) {
+        self.driver.request(id);
         self.tail_frames = SFX_TAIL_FRAMES;
         self.age = age;
     }
@@ -221,8 +230,9 @@ pub(crate) struct Music {
     sfx_pool: Vec<SfxVoice>,
     /// Monotonic counter for oldest-voice stealing when all [`MAX_SFX_VOICES`] are busy.
     sfx_seq: u64,
-    /// Per-tick sound requests queued by `Step::Game` for 1-to-1 lockstep on multi-tick catch-up.
-    pending_frames: VecDeque<[Option<SoundId>; 4]>,
+    /// Per-tick sound requests queued by `Step::Game` for 1-to-1 lockstep on multi-tick catch-up:
+    /// Classic 4-slot bytes plus the full non-colliding SFX list for Unlimited mode.
+    pending_frames: VecDeque<([Option<SoundId>; 4], Vec<SoundId>)>,
     /// The gain applied to the last sample, ramping toward the asked one.
     gain: f32,
 }
@@ -285,6 +295,12 @@ impl Music {
     fn spawn_sfx(&mut self, id: u8) {
         self.sfx_seq = self.sfx_seq.wrapping_add(1);
         let age = self.sfx_seq;
+        // Retrigger the same SFX id in place without resetting `$4015` so rapid piercing hits
+        // never stack 16 copies, click, saturate the limiter, or steal other SFX voices.
+        if let Some(same) = self.sfx_pool.iter_mut().find(|v| v.active && v.id == id) {
+            same.retrigger(id, age);
+            return;
+        }
         if let Some(voice) = self.sfx_pool.iter_mut().find(|v| !v.active) {
             voice.trigger(id, age);
             return;
@@ -300,9 +316,16 @@ impl Music {
         }
     }
 
-    /// Queues a tick's four `$40-$43` requests so multi-tick catch-up steps audio 1-to-1.
+    /// Queues a tick's Classic `$40-$43` requests plus every distinct SFX written that tick.
+    pub fn request_frame_with_all(&mut self, classic: [Option<SoundId>; 4], all: &[SoundId]) {
+        self.pending_frames.push_back((classic, all.to_vec()));
+    }
+
+    /// Queues a tick's four `$40-$43` requests (test convenience).
+    #[cfg(test)]
     pub fn request_frame(&mut self, sounds: [Option<SoundId>; 4]) {
-        self.pending_frames.push_back(sounds);
+        let all: Vec<SoundId> = sounds.into_iter().flatten().collect();
+        self.pending_frames.push_back((sounds, all));
     }
 
     /// Resets the music driver, silences all SFX voices, and flushes queued audio (e.g. on
@@ -334,9 +357,15 @@ impl Music {
         let mut sfx_active = false;
         let target_gain = match drive {
             AudioDrive::Running { target_gain } => {
-                if let Some(frame_sounds) = self.pending_frames.pop_front() {
-                    for id in frame_sounds.into_iter().flatten() {
-                        self.route_request(id.byte(), voices);
+                if let Some((classic, all)) = self.pending_frames.pop_front() {
+                    if voices == SfxVoices::Classic {
+                        for id in classic.into_iter().flatten() {
+                            self.route_request(id.byte(), voices);
+                        }
+                    } else {
+                        for id in all {
+                            self.route_request(id.byte(), voices);
+                        }
                     }
                 }
                 for write in self.driver.tick() {
@@ -762,10 +791,15 @@ mod tests {
         let mut unlimited = Music::new(SampleQueue::default(), &rom.prg);
         let song = SoundId::from_byte(0x04).expect("stage 1-1 song");
         let jump = SoundId::from_byte(rotj_music::JUMP_SFX).expect("jump sfx");
+        let shot = SoundId::from_byte(0x2D).expect("shot sfx");
         music_only.request_frame([Some(song), None, None, None]);
         unlimited.request_frame([Some(song), None, None, None]);
         for frame in 0..80 {
-            if frame == 10 || frame == 14 || frame == 18 {
+            if frame == 10 {
+                unlimited.request_frame([Some(jump), None, None, None]);
+            } else if frame == 14 {
+                unlimited.request_frame([Some(shot), None, None, None]);
+            } else if frame == 18 {
                 unlimited.request_frame([Some(jump), None, None, None]);
             }
             music_only.advance_frame_with(
@@ -785,12 +819,99 @@ mod tests {
         }
         assert!(
             unlimited.sfx_pool.len() >= 2,
-            "overlapping SFX allocated distinct voices"
+            "overlapping distinct SFX allocated distinct voices"
         );
         assert!(
             unlimited.sfx_pool.iter().all(|v| !v.active),
             "finished SFX voices auto-reclaimed"
         );
+    }
+
+    #[test]
+    fn unlimited_sfx_retriggers_same_id_in_place_without_stealing_charge() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let queue = SampleQueue::default();
+        let mut music = Music::new(queue.clone(), &rom.prg);
+        let song = SoundId::from_byte(0x04).expect("stage 1-1 song");
+        let charge = SoundId::from_byte(0x2E).expect("charge sfx");
+        let hit = SoundId::from_byte(0x38).expect("actor hit sfx");
+        music.request_frame([Some(song), Some(charge), None, None]);
+        music.advance_frame_with(
+            AudioDrive::Running { target_gain: 1.0 },
+            SfxVoices::Unlimited,
+        );
+        // Simulate piercing sparkler hitting an enemy for 25 consecutive frames.
+        for _ in 0..25 {
+            music.request_frame([Some(hit), None, None, None]);
+            music.advance_frame_with(
+                AudioDrive::Running { target_gain: 1.0 },
+                SfxVoices::Unlimited,
+            );
+        }
+        assert_eq!(
+            music.sfx_pool.len(),
+            2,
+            "repeated hits retrigger one voice instead of stacking 16 copies"
+        );
+        assert!(
+            music.sfx_pool.iter().any(|v| v.id == 0x2E),
+            "charge voice was never stolen by repeated hits"
+        );
+        let peak = drain_peak(&queue);
+        assert!(peak > 0.05 && peak <= 1.0, "clean peak {peak}");
+    }
+
+    #[test]
+    fn unlimited_sfx_plays_both_colliding_same_tick_sounds_while_classic_keeps_last_write() {
+        let Some(rom) = rotj_rom::for_test() else {
+            return;
+        };
+        let song = SoundId::from_byte(0x04).expect("stage 1-1 song");
+        let wave_spread = SoundId::from_byte(0x2C).expect("wave spread sfx");
+        let hit = SoundId::from_byte(0x38).expect("actor hit sfx");
+
+        let queue = SampleQueue::default();
+        let mut unlimited = Music::new(queue.clone(), &rom.prg);
+        unlimited.request_frame_with_all([None, Some(song), None, None], &[song]);
+        unlimited.advance_frame_with(
+            AudioDrive::Running { target_gain: 1.0 },
+            SfxVoices::Unlimited,
+        );
+        for _ in 0..30 {
+            unlimited.request_frame_with_all([None, None, Some(hit), None], &[wave_spread, hit]);
+            unlimited.advance_frame_with(
+                AudioDrive::Running { target_gain: 1.0 },
+                SfxVoices::Unlimited,
+            );
+        }
+        assert_eq!(unlimited.sfx_pool.len(), 2);
+        assert!(
+            unlimited
+                .sfx_pool
+                .iter()
+                .any(|v| v.id == 0x2C && v.active && !v.driver.is_idle()),
+            "wave spread voice stays active even when hit overwrote Classic $42 every tick"
+        );
+        assert!(
+            unlimited
+                .sfx_pool
+                .iter()
+                .any(|v| v.id == 0x38 && v.active && !v.driver.is_idle()),
+            "actor hit voice also plays simultaneously"
+        );
+        let peak = drain_peak(&queue);
+        assert!(peak > 0.05 && peak <= 1.0, "clean peak {peak}");
+
+        let mut classic = Music::new(SampleQueue::default(), &rom.prg);
+        let mut classic_direct = Music::new(SampleQueue::default(), &rom.prg);
+        classic.request_frame_with_all([None, None, Some(hit), None], &[wave_spread, hit]);
+        classic_direct.request_frame([None, None, Some(hit), None]);
+        classic.advance_frame_with(AudioDrive::Running { target_gain: 1.0 }, SfxVoices::Classic);
+        classic_direct
+            .advance_frame_with(AudioDrive::Running { target_gain: 1.0 }, SfxVoices::Classic);
+        assert_eq!(classic.driver.tick(), classic_direct.driver.tick());
     }
 
     #[test]
@@ -800,11 +921,16 @@ mod tests {
         };
         let queue = SampleQueue::default();
         let mut music = Music::new(queue.clone(), &rom.prg);
-        let jump = SoundId::from_byte(rotj_music::JUMP_SFX).expect("jump sfx");
         let stop = SoundId::from_byte(0xFF).expect("stop all");
-        // Trigger 20 rapid SFX (> MAX_SFX_VOICES=16) to exercise voice stealing & soft limiting.
-        for _ in 0..5 {
-            music.request_frame([Some(jump), Some(jump), Some(jump), Some(jump)]);
+        // Trigger 20 distinct rapid SFX (> MAX_SFX_VOICES=16) to exercise voice stealing & soft limiting.
+        for batch in 0..5u8 {
+            let base = 0x20 + batch * 4;
+            music.request_frame([
+                SoundId::from_byte(base),
+                SoundId::from_byte(base + 1),
+                SoundId::from_byte(base + 2),
+                SoundId::from_byte(base + 3),
+            ]);
             music.advance_frame_with(
                 AudioDrive::Running { target_gain: 1.0 },
                 SfxVoices::Unlimited,

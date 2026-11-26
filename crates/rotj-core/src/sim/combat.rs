@@ -132,7 +132,7 @@ pub fn projectile_hits(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             if projectile.flags & shot_flags::PASSES_SHIELDS != 0 {
                 continue;
             }
-            cx.effects.sound[0] = sound::SHOT_DEFLECTED;
+            cx.effects.sound.push(0, sound::SHOT_DEFLECTED);
             projectile.flags |= shot_flags::INERT;
             let away_right = if projectile.vx == 0 {
                 noise & 0x01 == 0
@@ -149,7 +149,7 @@ pub fn projectile_hits(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
             projectile.vy = i16::from_be_bytes([0xFF, !(seed & 0x7F)]);
             continue;
         }
-        cx.effects.sound[0] = sound::ACTOR_HIT;
+        cx.effects.sound.push(0, sound::ACTOR_HIT);
         spend(projectile, seed);
         let (health, killed) = body.health.overflowing_sub(u16::from(projectile.damage));
         body.health = health;
@@ -184,7 +184,7 @@ fn spend(projectile: &mut super::world::Projectile, rng_f9: u8) {
 
 /// The player's attack lands: 8 off the actor's health, then a flash or death (`$AA2C`).
 fn hurt_actor(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-    cx.effects.sound[0] = sound::ACTOR_HIT;
+    cx.effects.sound.push(0, sound::ACTOR_HIT);
     let (health, killed) = body.health.overflowing_sub(8);
     body.health = health;
     if killed {
@@ -196,7 +196,7 @@ fn hurt_actor(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
 
 /// The actor is killed: sound `$21`, 76 px lower, the dying animation starts (`$AB13`).
 fn die(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-    cx.effects.sound[0] = sound::ACTOR_DIES;
+    cx.effects.sound.push(0, sound::ACTOR_DIES);
     work.y = work.y.wrapping_add(0x04C0);
     body.hit = hit::DYING;
     body.dying_timer = 0;
@@ -336,7 +336,7 @@ pub fn boss_contact(
                 && mode != ContactMode::TouchOnly
                 && body.contact & contact::SLIDE_HURTS != 0
             {
-                cx.effects.sound[0] = sound::IMPACT;
+                cx.effects.sound.push(0, sound::IMPACT);
                 return boss_damaged(8, body, cx);
             }
             if !attacking || !guarded {
@@ -381,7 +381,7 @@ fn boss_damaged(damage: u8, body: &mut Body, cx: &mut Cx<'_>) -> BossContact {
     let (hp, killed) = cx.effects.boss_hp.overflowing_sub(u16::from(damage));
     cx.effects.boss_hp = hp;
     if killed || hp == 0 {
-        cx.effects.sound[1] = sound::EXPLOSION;
+        cx.effects.sound.push(1, sound::EXPLOSION);
         body.hit = hit::DYING;
         body.dying_timer = 0;
         cx.effects.boss_hp = 0;
@@ -430,7 +430,7 @@ pub fn touch(work: &Work, damage: u8, cx: &mut Cx<'_>) -> bool {
 
 /// The player is hit: sound `$25`, hurt timer, and knock-back when standing (`$B17F`).
 pub fn hurt_player(effects: &mut Effects) {
-    effects.sound[0] = sound::PLAYER_HURT;
+    effects.sound.push(0, sound::PLAYER_HURT);
     effects.attack &= attack::CHARGEABLE;
     let player = &mut effects.player;
     let knock_back = start_hurt(player);
@@ -504,7 +504,7 @@ pub fn dying(
 /// Picks up an item drop (`$AB39`): the weapon, or meter capsules up to the level end.
 pub fn collect(kind: &mut u8, body: &Body, cx: &mut Cx<'_>) {
     let effects = &mut *cx.effects;
-    effects.sound[1] = sound::PICKUP;
+    effects.sound.push(1, sound::PICKUP);
     if effects.player.out_of_energy() {
         *kind = super::slots::EMPTY;
         return;

@@ -72,12 +72,15 @@ impl Port<'_, '_> {
         let handler = self.rw(table + u16::from(weapon.byte()) * 2);
         #[cfg(test)]
         super::super::oracle::seen(handler);
-        self.cx.effects.sound[0] = match handler {
-            0x9C06 | 0x9D6F => sound::SPLITTER_SHOT,
-            0x9C2E | 0x9CD9 | 0x9DA0 | 0x9E72 => sound::WAVE_SHOT,
-            0x9C7E | 0x9E09 => sound::THREE_WAY_SHOT,
-            _ => sound::SHOT,
-        };
+        self.cx.effects.sound.push(
+            0,
+            match handler {
+                0x9C06 | 0x9D6F => sound::SPLITTER_SHOT,
+                0x9C2E | 0x9CD9 | 0x9DA0 | 0x9E72 => sound::WAVE_SHOT,
+                0x9C7E | 0x9E09 => sound::THREE_WAY_SHOT,
+                _ => sound::SHOT,
+            },
+        );
         if aim_up {
             self.shoot_up(slot, handler);
         } else {
@@ -314,7 +317,7 @@ impl Port<'_, '_> {
         super::super::oracle::seen(handler);
         match handler {
             0x9A81 => {
-                self.cx.effects.sound[0] = sound::CHARGE;
+                self.cx.effects.sound.push(0, sound::CHARGE);
                 let projectile = &mut self.cx.effects.projectiles[slot];
                 charge(projectile);
                 projectile.param = 0;
@@ -323,7 +326,7 @@ impl Port<'_, '_> {
                 projectile.vx = i16::from_be_bytes([0, projectile.vx.to_be_bytes()[1]]);
             }
             0x9AA0 => {
-                self.cx.effects.sound[0] = sound::SPLITTER_ORBIT;
+                self.cx.effects.sound.push(0, sound::SPLITTER_ORBIT);
                 let orbit = |projectile: &mut Projectile, n: usize| {
                     charge(projectile);
                     projectile.part = u8::try_from(n).expect("four parts");

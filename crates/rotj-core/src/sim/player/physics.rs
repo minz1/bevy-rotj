@@ -75,7 +75,7 @@ pub fn step_move(work: &mut Work, probe: &mut Probe, cx: &mut Cx<'_>) {
     {
         hit!(9);
         player.energy = player.energy.wrapping_sub(work.damage);
-        cx.effects.sound[0] = sound::PLAYER_HURT;
+        cx.effects.sound.push(0, sound::PLAYER_HURT);
         cx.effects.attack &= attack::CHARGEABLE;
         let knock_back = engine::start_hurt(&mut player);
         if player.motion.on_foot() {

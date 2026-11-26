@@ -1,15 +1,15 @@
-# Status — where 1.2.0 stands
+# Status — where 1.2.1 stands
 
-`1.2.0` is the first Enhanced Mode release of the *Batman: Return of the Joker* Rust/Bevy port. Classic Mode remains the default and stays byte-for-byte faithful to the original NES cartridge (boot through ending, all 7 stages, 5 bosses, all 100 actor types, full soundtrack, and every raster split), while Enhanced presentation, audio, and pack-loading features layer cleanly on top.
+`1.2.1` is the current Enhanced Mode release of the *Batman: Return of the Joker* Rust/Bevy port (`1.2.0` + playtest fixes for display-scale/CRT render-target resizing, Modern sprite atlas gutters, live D-pad direction reversals, Unlimited SFX same-tick polyphony, and `batman-rotj.log` file logging). Classic Mode remains the default and stays byte-for-byte faithful to the original NES cartridge (boot through ending, all 7 stages, 5 bosses, all 100 actor types, full soundtrack, and every raster split), while Enhanced presentation, audio, and pack-loading features layer cleanly on top.
 
-- Full release history (`0.1.0`–`1.2.0`): [CHANGELOG.md](../CHANGELOG.md)
+- Full release history (`0.1.0`–`1.2.1`): [CHANGELOG.md](../CHANGELOG.md)
 - Current crate, module, state-machine, and boundary map: [docs/ARCHITECTURE.md](ARCHITECTURE.md)
 - Roadmap and `1.3.0+` plans: [docs/PLAN.md](PLAN.md)
 - `1.2.0` design specification: [docs/specs/2026-11-25-1.2.0-enhanced-presentation-design.md](specs/2026-11-25-1.2.0-enhanced-presentation-design.md)
 - Historical RE lab notebooks: `docs/re/` (`ACTORS.md`, `LEVELDATA.md`, `LEVELS.md`, `MUSIC.md`, `PHYSICS.md`, `RE-NOTES.md`, `SPRITES.md`, `SUBLEVELS.md`)
 - Completed `0.x`–`1.1.x` design specs & modernisation tracker: `docs/specs/archive/`
 
-## Verified working at 1.2.0
+## Verified working at 1.2.1
 
 | Area | Verification & Current State |
 | --- | --- |

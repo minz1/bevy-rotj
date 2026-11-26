@@ -130,7 +130,7 @@ fn sweeping(body: &mut Body, work: &mut Work, cx: &Cx<'_>) {
 fn bombing(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     if body.timer & RISING == 0 {
         if body.counter & FLASHING == 0 {
-            cx.effects.sound[0] = sound::IMPACT;
+            cx.effects.sound.push(0, sound::IMPACT);
             spawn_bomb(body, work, cx);
             body.counter = FLASHING;
             body.subtype = BLASTING;

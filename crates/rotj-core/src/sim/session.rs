@@ -96,6 +96,8 @@ pub struct Session {
     marks: [Mark; 64],
     /// Snapshot of the drawers and Modern view taken at the NMI.
     snapshot: FrameSnapshot,
+    /// Full list of sound requests (music, song, and all non-colliding SFX) from the last tick.
+    tick_sounds: Vec<SoundId>,
     /// The level forced at `$D3D8`, kept across GAME OVER resets.
     forced: Option<u8>,
 }
@@ -129,6 +131,7 @@ impl Session {
             oam: [0; 256],
             marks: [Mark::Scene; 64],
             snapshot: FrameSnapshot::default(),
+            tick_sounds: Vec::new(),
             forced,
         };
         let registers = raster::Registers::of(&session.game);
@@ -169,12 +172,20 @@ impl Session {
             raster::run_irqs(&mut self.game);
         }
         let vblank = self.game.nmi(pad);
+        self.tick_sounds = vblank.all_sounds;
         self.raster = self.game.scroll.split.armed;
         self.ppu.apply(&vblank.writes, self.game.scroll.mirroring);
         let registers = raster::Registers::of(&self.game);
         self.copy_page(&registers, &prg.levels);
         self.run_frame(registers, prg, chr);
         vblank.sound
+    }
+
+    /// Every distinct sound request (music command, song, and all SFX including ones that
+    /// collided on Classic `$42`/`$43`) emitted during the most recent [`Session::step`].
+    #[must_use]
+    pub fn tick_sounds(&self) -> &[SoundId] {
+        &self.tick_sounds
     }
 
     /// Composes the PPU picture into `frame`; with `park`, moves UI-marked sprites off screen.

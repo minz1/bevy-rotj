@@ -532,11 +532,73 @@ pub struct World {
     pub spawn_distance: u8,
 }
 
+/// The two Classic NES SFX request bytes (`$42`, `$43`) plus the full per-tick list of
+/// requested effects (host-only, never RAM-projected) so Unlimited SFX mode never loses
+/// simultaneous effects that collide on `$42` (e.g. weapon charge + enemy hit on one tick).
+#[derive(Debug, Clone, Default)]
+pub struct SoundQueue {
+    /// Classic NES RAM bytes `$42` and `$43` (last write per slot wins).
+    slots: [u8; 2],
+    /// Every non-zero SFX written this tick, in order, for Unlimited SFX mode.
+    events: Vec<SoundId>,
+}
+
+impl PartialEq for SoundQueue {
+    fn eq(&self, other: &Self) -> bool {
+        self.slots == other.slots
+    }
+}
+
+impl Eq for SoundQueue {}
+
+impl SoundQueue {
+    /// Constructs a queue from raw Classic RAM bytes `$42` and `$43`.
+    #[cfg(test)]
+    #[must_use]
+    pub const fn from_slots(slots: [u8; 2]) -> Self {
+        Self {
+            slots,
+            events: Vec::new(),
+        }
+    }
+
+    /// Writes `id` to Classic slot `0` (`$42`) or `1` (`$43`) and records it for Unlimited SFX.
+    pub fn push(&mut self, slot: usize, id: u8) {
+        self.slots[slot] = id;
+        if let Some(sound) = SoundId::from_byte(id)
+            && !self.events.contains(&sound)
+        {
+            self.events.push(sound);
+        }
+    }
+
+    /// Classic RAM bytes (`$42`, `$43`).
+    #[cfg(test)]
+    #[must_use]
+    pub const fn slots(&self) -> [u8; 2] {
+        self.slots
+    }
+
+    /// Drains both Classic slots and the full per-tick event list at NMI.
+    pub fn take(&mut self) -> ([u8; 2], Vec<SoundId>) {
+        let slots = std::mem::take(&mut self.slots);
+        let mut events = std::mem::take(&mut self.events);
+        if events.is_empty() {
+            for id in slots {
+                if let Some(sound) = SoundId::from_byte(id) {
+                    events.push(sound);
+                }
+            }
+        }
+        (slots, events)
+    }
+}
+
 /// The game state handlers read and change outside the actor slots.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Effects {
-    /// Sound requests (`$42`, `$43`).
-    pub sound: [u8; 2],
+    /// Sound requests (`$42`, `$43`) plus full per-tick SFX history for Unlimited SFX.
+    pub sound: SoundQueue,
     /// Music control (`$40`), the `sound::music` commands.
     pub music: u8,
     /// Song request (`$41`).
@@ -994,8 +1056,8 @@ impl Cx<'_> {
 #[cfg(test)]
 mod layout {
     use super::{
-        Effects, Level, Motion, PROJECTILE_ARRAYS, Player, Projectile, Schedule, View, Vram,
-        VramWrite, Weapon, World,
+        Effects, Level, Motion, PROJECTILE_ARRAYS, Player, Projectile, Schedule, SoundQueue, View,
+        Vram, VramWrite, Weapon, World,
     };
     use crate::sim::button::Buttons;
 
@@ -1150,7 +1212,7 @@ mod layout {
                 projectile
             });
             Effects {
-                sound: [ram[0x42], ram[0x43]],
+                sound: SoundQueue::from_slots([ram[0x42], ram[0x43]]),
                 music: ram[0x40],
                 song: ram[0x41],
                 player: Player::lift(ram),
@@ -1204,7 +1266,7 @@ mod layout {
         }
 
         pub(crate) fn project(&self, ram: &mut [u8; 2048], wram: &mut [u8; 8192]) {
-            [ram[0x42], ram[0x43]] = self.sound;
+            [ram[0x42], ram[0x43]] = self.sound.slots();
             ram[0x40] = self.music;
             ram[0x41] = self.song;
             self.player.project(ram);
@@ -1403,5 +1465,33 @@ mod tests {
         assert_eq!(rng.0, [0x80, 0x81]);
         rng.next_frame();
         assert_eq!(rng.0, [0x40, 0x40]);
+    }
+
+    #[test]
+    fn sound_queue_keeps_classic_last_write_and_preserves_all_unlimited_events() {
+        use super::{SoundId, SoundQueue, sound};
+
+        let mut queue = SoundQueue::default();
+        queue.push(0, sound::WAVE_SPREAD);
+        queue.push(0, sound::ACTOR_HIT);
+        queue.push(0, sound::ACTOR_HIT);
+        queue.push(1, sound::PICKUP);
+        assert_eq!(queue.slots(), [sound::ACTOR_HIT, sound::PICKUP]);
+        assert_eq!(
+            queue,
+            SoundQueue::from_slots([sound::ACTOR_HIT, sound::PICKUP])
+        );
+        let (slots, events) = queue.take();
+        assert_eq!(slots, [sound::ACTOR_HIT, sound::PICKUP]);
+        assert_eq!(
+            events,
+            vec![
+                SoundId::from_byte(sound::WAVE_SPREAD).expect("wave spread"),
+                SoundId::from_byte(sound::ACTOR_HIT).expect("actor hit"),
+                SoundId::from_byte(sound::PICKUP).expect("pickup"),
+            ]
+        );
+        assert_eq!(queue.slots(), [0, 0]);
+        assert_eq!(queue.take(), ([0, 0], Vec::new()));
     }
 }

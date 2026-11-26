@@ -1,7 +1,7 @@
 # Batman: Return of the Joker — Rust/Bevy Port
 
 A port of Sunsoft's 1991 NES game *Batman: Return of the Joker* to safe Rust and
-[Bevy](https://bevyengine.org) (`1.2.0`). It isn't an emulator. The game's logic was rebuilt
+[Bevy](https://bevyengine.org) (`1.2.1`). It isn't an emulator. The game's logic was rebuilt
 routine by routine from the disassembly, and a 6502 emulator in `tools/rotj-oracle`
 checks the port byte for byte: the whole published TAS, from power-on through the
 ending, matches the original's RAM, WRAM, PPU scanlines, and APU writes at every frame of its
@@ -96,8 +96,8 @@ and the picture stays at an integer scale. If the renderer misbehaves, `ROTJ_REN
 | `tools/rotj-verify` | renderer comparison utility |
 | `disasm/` | the disassembler: `disasm/assemble.sh` generates the listing from your ROM and rebuilds it byte for byte |
 | `docs/ARCHITECTURE.md` | crate/module map, `Session` boundary, state machines, and verification pyramid |
-| `docs/STATUS.md` | current release status (`1.2.0`) and open leads |
-| `CHANGELOG.md` | full release history (`0.1.0`–`1.2.0`) |
+| `docs/STATUS.md` | current release status (`1.2.1`) and open leads |
+| `CHANGELOG.md` | full release history (`0.1.0`–`1.2.1`) |
 | `docs/PLAN.md` | roadmap for `1.3.0+` Enhanced features |
 | `docs/re/`, `docs/specs/archive/` | archived reverse-engineering lab notebooks and completed `0.x`–`1.1.x` design specs |
 

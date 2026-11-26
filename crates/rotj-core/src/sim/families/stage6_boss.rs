@@ -226,7 +226,7 @@ fn spawn_a8(work: &Work, cx: &mut Cx<'_>) -> u8 {
             return spawn_index;
         };
         spawn_index = part;
-        cx.effects.sound[0] = sound::SPAWN;
+        cx.effects.sound.push(0, sound::SPAWN);
         let tables = &cx.prg.families.stage6_boss;
         let (phase, timer) = (
             tables.child_phases[usize::from(part)],

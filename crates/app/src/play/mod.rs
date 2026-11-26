@@ -305,7 +305,7 @@ pub(crate) fn tick(
             });
         }
         if let Some(music) = services.music.as_deref_mut() {
-            music.request_frame(sound);
+            music.request_frame_with_all(sound, play.session().tick_sounds());
         }
     }
     let now = if play.booting() {

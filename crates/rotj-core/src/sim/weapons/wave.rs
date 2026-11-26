@@ -115,7 +115,7 @@ fn wave_spread(slot: usize, cx: &mut Cx<'_>) -> bool {
     #[cfg(test)]
     super::super::oracle::seen(0x8FC2);
     if cx.effects.attack & attack::CHARGING != 0 {
-        cx.effects.sound[0] = sound::WAVE_SPREAD;
+        cx.effects.sound.push(0, sound::WAVE_SPREAD);
     }
     let count = cx.effects.projectiles[slot].part_timer;
     if cx.effects.attack & attack::CHARGING == 0 || count >= 0x40 {

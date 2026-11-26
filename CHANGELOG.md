@@ -4,6 +4,16 @@ All notable changes to *Batman: Return of the Joker* (Rust/Bevy port), from `0.1
 
 Classic Mode parity (whole-TAS lockstep, state tape byte-identical to `.orchestration/chain-1.1.14.tape`, random-play sweep, 300-branch exploration, and pixel/line parity) is preserved across every `1.0.x`, `1.1.x`, and `1.2.x` release.
 
+## 1.2.1
+
+**done, tag `1.2.1`** (2026-11-26): `1.2.0` playtest fixes across rendering, input, Unlimited SFX, diagnostics, and Windows cross-compilation, with no change to Classic Mode (all Classic gates green, 0 sweep divergences, 0 explore divergences, chain tape byte-identical to `.orchestration/chain-1.1.14.tape`).
+
+- **Display-scale / CRT render-target resize crash fix (`modern.rs`, `crt.rs`):** allocating a fresh `Handle<Image>` on target resize, repointing cameras, and waiting one frame before activating them prevents the Bevy 0.20 / wgpu depth-vs-color attachment size mismatch (`Attachments have differing sizes`) when transitioning from Title to Stage 1 under `Picture::Modern` + high refresh + `CrtMode::Crt`. Pre-sizing Modern's render target to `DisplayScale` eliminates mid-session resizes.
+- **Padded Modern sprite atlases (`modern.rs`):** adds a 1 px transparent gutter around every 8×16 tile (`160 × 144` padded sheet) so subpixel high-refresh interpolation never samples adjacent tile rows along sprite edges (verified 0 differing pixels on headless GPU parity scenes).
+- **Live D-pad sampling on direction reversals (`input.rs`):** restricts between-tick input latching to action/system buttons (`A`, `B`, `START`, `SELECT`) so rapid left/right reversals never latch a stale opposite direction for a frame.
+- **Unlimited SFX charged-weapon + hit polyphony (`world.rs`, `session.rs`, `audio.rs`):** adds `SoundQueue` (preserving exact Classic `$42`/`$43` last-write-wins bytes while recording every distinct SFX pushed during a tick for `SfxVoices::Unlimited`) and retriggers matching SFX IDs in place without resetting `$4015`, so simultaneous charge/sparkler SFX (`$2C`, `$2E`, `$3F`) and rapid enemy hits (`$38`) play cleanly together without dropping or saturating the voice pool.
+- **File logging & Windows cross-build (`main.rs`, `flake.nix`):** writes runtime logs and panics to `batman-rotj.log` beside the executable; exports `CC_x86_64_pc_windows_gnu` and `AR_x86_64_pc_windows_gnu` in `flake.nix` for `x86_64-pc-windows-gnu` builds.
+
 ## 1.2.0
 
 **done, tag `1.2.0`** (2026-11-25): first Enhanced Mode release — presentation, audio, and pack-loading enhancements layered on top of unchanged, byte-exact Classic Mode (all Classic gates green, 0 sweep divergences, 0 explore divergences, chain tape byte-identical to `.orchestration/chain-1.1.14.tape`; `settings.ron` backward-compatible with `1.1.0`). Spec: `docs/specs/2026-11-25-1.2.0-enhanced-presentation-design.md`.

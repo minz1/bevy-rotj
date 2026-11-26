@@ -33,7 +33,7 @@ impl State {
                         if cx.effects.vram.top < 0x60 {
                             return;
                         }
-                        cx.effects.sound[1] = sound::BLOCK_BREAKS;
+                        cx.effects.sound.push(1, sound::BLOCK_BREAKS);
                         _ = engine::spawn_parts(0, work, cx);
                         _ = engine::spawn_parts(1, work, cx);
                         shatter(body, work, cx);

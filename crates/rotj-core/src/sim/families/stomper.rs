@@ -202,7 +202,7 @@ fn landing(
     }
     body.counter.tick_down();
     if body.counter == 0 {
-        cx.effects.sound[0] = sound::STOMP;
+        cx.effects.sound.push(0, sound::STOMP);
         body.phase = Phase::Stomping.byte();
         body.counter = 0;
         body.anim = cx.prg.families.stomper.anims[usize::from(body.timer)];

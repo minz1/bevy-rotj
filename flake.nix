@@ -52,6 +52,10 @@
         LD65 = "${pkgs.cc65}/bin/ld65";
         CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER =
           "${mingw.stdenv.cc}/bin/x86_64-w64-mingw32-gcc";
+        CC_x86_64_pc_windows_gnu =
+          "${mingw.stdenv.cc}/bin/x86_64-w64-mingw32-gcc";
+        AR_x86_64_pc_windows_gnu =
+          "${mingw.stdenv.cc}/bin/x86_64-w64-mingw32-ar";
         CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS =
           "-L native=${mingw.windows.pthreads}/lib";
       };

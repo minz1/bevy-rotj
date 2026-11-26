@@ -65,7 +65,7 @@ fn fall(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) -> bool {
     [body.subtype, body.behaviour] = fall_speed.to_be_bytes();
     work.y = work.y.wrapping_add(fall_speed);
     if work.y.row() >= FLOOR_ROW {
-        cx.effects.sound[1] = sound::STOMP;
+        cx.effects.sound.push(1, sound::STOMP);
         work.y = u16::from_be_bytes([FLOOR_ROW, 0]);
         body.phase = LANDING_START;
         body.timer = LANDED;
@@ -90,7 +90,7 @@ fn land(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
     );
     body.phase = body.phase.wrapping_add(1);
     if body.phase >= LANDING_FRAMES {
-        cx.effects.sound[1] = sound::EXPLOSION;
+        cx.effects.sound.push(1, sound::EXPLOSION);
         body.timer = FLASHING;
         body.phase = FLASH_START;
     }

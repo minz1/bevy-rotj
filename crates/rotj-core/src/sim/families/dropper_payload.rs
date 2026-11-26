@@ -47,7 +47,7 @@ impl State {
         engine::integrate(body, work);
         let landing_y = u16::from_be_bytes([body.counter, body.timer]);
         if work.y.row() & 0x80 == 0 && work.y >= landing_y && body.anim & LANDING == 0 {
-            cx.effects.sound[0] = sound::IMPACT;
+            cx.effects.sound.push(0, sound::IMPACT);
             body.flags &= attr::PALETTE;
             work.attr = body.flags;
             body.vx = 0;

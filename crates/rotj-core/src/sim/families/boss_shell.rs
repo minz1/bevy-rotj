@@ -75,7 +75,7 @@ impl State {
 
 /// The kill arm (`$9BCB`): sound `$22`, the shell dropped 76 px, the dying flag set.
 fn kill(body: &mut Body, work: &mut Work, cx: &mut Cx<'_>) {
-    cx.effects.sound[0] = sound::IMPACT;
+    cx.effects.sound.push(0, sound::IMPACT);
     work.y = work.y.wrapping_add(KILL_DROP);
     body.hit = hit::DYING;
     body.dying_timer = 0;

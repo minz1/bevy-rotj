@@ -16,7 +16,7 @@ pub struct State;
 impl State {
     /// One frame of the handler (`$933A`).
     pub fn step(kind: &mut u8, body: &mut Body, _work: &mut Work, cx: &mut Cx<'_>) {
-        cx.effects.sound[1] = sound::LEVEL_START;
+        cx.effects.sound.push(1, sound::LEVEL_START);
         let column = if body.state & 0x80 != 0 { 0xAF } else { 0x40 };
         for row in 7..10 {
             cx.effects.level.map[Cell { row, column }] = 0x60;

@@ -76,7 +76,7 @@ impl State {
                 }
                 let mut probe = Probe::default();
                 if collision::feet(work, &mut probe, cx) && body.timer & BURST_DONE == 0 {
-                    cx.effects.sound[0] = sound::DIVER_LANDS;
+                    cx.effects.sound.push(0, sound::DIVER_LANDS);
                     body.timer = BURST_DONE;
                     work.y = work.y.wrapping_add(BURST_OFFSET);
                     engine::spawn_parts(BURST_VARIANT, work, cx);

@@ -34,13 +34,13 @@ pub(super) fn splitter(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     match fly(slot, work, cx) {
         Flight::Freed { .. } => return,
         Flight::Touched => {
-            cx.effects.sound[0] = sound::IMPACT;
+            cx.effects.sound.push(0, sound::IMPACT);
             cx.effects.projectiles[slot].timer |= 1;
             project_or_free(slot, work, cx);
             return;
         }
         Flight::TouchedAgain => {
-            cx.effects.sound[0] = sound::IMPACT;
+            cx.effects.sound.push(0, sound::IMPACT);
             splitter_split(slot, cx);
             return;
         }
@@ -157,7 +157,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     if projectile.part_timer >= 0x40 {
         projectile.param ^= SECOND_HALF;
         projectile.part_timer = 0;
-        cx.effects.sound[1] = sound::SPLITTER_ORBIT;
+        cx.effects.sound.push(1, sound::SPLITTER_ORBIT);
     }
     let back = vx.wrapping_neg();
     let motion = usize::from(cx.effects.player.motion.byte());
@@ -196,7 +196,7 @@ fn splitter_orbit(slot: usize, work: &mut Work, cx: &mut Cx<'_>) {
     }
     #[cfg(test)]
     super::super::oracle::seen(0x8BCB);
-    cx.effects.sound[0] = sound::SPLITTER_SHOT;
+    cx.effects.sound.push(0, sound::SPLITTER_SHOT);
     let player = &cx.effects.player;
     let (aim_up, left) = (player.motion == Motion::AimingUp, player.faces_left());
     let projectile = &mut cx.effects.projectiles[slot];

@@ -349,7 +349,7 @@ impl Ending {
             Row::StopMusic => game.effects.music = sound::music::STOP,
             Row::Song(song) => game.effects.song = song,
             Row::Mask(mask) => game.scroll.mask = mask,
-            Row::Sound(id) => game.effects.sound[0] = id,
+            Row::Sound(id) => game.effects.sound.push(0, id),
             Row::Banks(table, count) => {
                 for (i, shadow) in (0..u16::from(count)).zip(&mut game.oam.chr) {
                     *shadow = read(table + i);
@@ -581,7 +581,7 @@ impl Burst {
         };
         if read(BURST_HOLDS + u16::from(stage)) < ticks {
             if stage == 0 {
-                game.effects.sound[0] = sound::IMPACT;
+                game.effects.sound.push(0, sound::IMPACT);
             }
             stage += 1;
             ticks = 0;

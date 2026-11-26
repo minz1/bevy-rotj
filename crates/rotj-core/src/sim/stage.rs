@@ -354,7 +354,7 @@ impl PowerUp {
     pub fn step(&mut self, game: &mut Game, prg: &Prg) {
         let effects = &mut game.effects;
         if self.frames == 0 {
-            effects.sound[0] = sound::POWER_UP;
+            effects.sound.push(0, sound::POWER_UP);
             for projectile in &mut effects.projectiles {
                 projectile.free();
             }
@@ -1483,11 +1483,14 @@ impl Continue {
             DigitPhase::Holding => {
                 self.timer.tick_down();
                 if self.timer.ran_out() {
-                    game.effects.sound[0] = if self.digit == 0 {
-                        sound::COUNTDOWN_END
-                    } else {
-                        sound::COUNTDOWN_TICK
-                    };
+                    game.effects.sound.push(
+                        0,
+                        if self.digit == 0 {
+                            sound::COUNTDOWN_END
+                        } else {
+                            sound::COUNTDOWN_TICK
+                        },
+                    );
                     self.phase = DigitPhase::Splitting;
                     (self.speed, self.offset) = (0, 0);
                 }

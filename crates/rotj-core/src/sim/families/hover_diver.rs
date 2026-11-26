@@ -50,7 +50,7 @@ impl State {
             Some(Phase::Diving) => {
                 if work.y.row() >= FLOOR_ROW {
                     work.y = u16::from_be_bytes([FLOOR_ROW - 1, 0xFF]);
-                    cx.effects.sound[0] = sound::DIVER_LANDS;
+                    cx.effects.sound.push(0, sound::DIVER_LANDS);
                     work.vy = HOVER;
                     work.y = work.y.wrapping_add(DROP);
                     engine::spawn_parts(2, work, cx);
