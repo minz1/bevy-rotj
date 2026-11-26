@@ -191,6 +191,7 @@ struct Overlay;
 struct Art<'w> {
     atlases: ResMut<'w, Atlases>,
     images: ResMut<'w, Assets<Image>>,
+    crt: Option<Res<'w, crate::crt::CrtRig>>,
 }
 
 #[expect(
@@ -268,7 +269,7 @@ fn show(
             )
         })
         .collect();
-    commands.spawn((
+    let mut spawned = commands.spawn((
         Overlay,
         GlobalZIndex(-1),
         Node {
@@ -288,6 +289,11 @@ fn show(
             Children::spawn(SpawnIter(sprites.into_iter())),
         )],
     ));
+    if settings.crt != crate::settings::CrtFilter::Off
+        && let Some(crt) = art.crt
+    {
+        spawned.insert(UiTargetCamera(crt.stage_camera));
+    }
 }
 
 /// The faithful UI.

@@ -689,6 +689,7 @@ fn draw(
     mut commands: Commands<'_, '_>,
     shown: Shown<'_>,
     font: Option<Res<'_, Font>>,
+    crt: Option<Res<'_, crate::crt::CrtRig>>,
     overlays: Query<'_, '_, Entity, With<Overlay>>,
     mut last_view: Local<'_, OverlayView>,
 ) {
@@ -715,41 +716,43 @@ fn draw(
         return;
     }
     let area = visible(shown.settings.overscan);
-    commands
-        .spawn((
-            Overlay,
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-        ))
-        .with_children(|root| {
-            root.spawn(Node {
-                width: Val::Px(pixels(area.width)),
-                height: Val::Px(pixels(area.height)),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            })
-            .with_children(|picture| match shown.menu.state {
-                MenuState::Closed => {
-                    picture.spawn((
-                        Node {
-                            position_type: PositionType::Absolute,
-                            top: Val::Px(pixels(HINT_ROW - area.y)),
-                            ..default()
-                        },
-                        children![line(&font, HINT, Color::WHITE)],
-                    ));
-                }
-                MenuState::Open { page, cursor, .. } => {
-                    menu_box(picture, &font, &shown, page, cursor);
-                }
-            });
+    let mut root_entity = commands.spawn((
+        Overlay,
+        Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+    ));
+    if let Some(crt) = crt {
+        root_entity.insert(UiTargetCamera(crt.menu_camera));
+    }
+    root_entity.with_children(|root| {
+        root.spawn(Node {
+            width: Val::Px(pixels(area.width)),
+            height: Val::Px(pixels(area.height)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        })
+        .with_children(|picture| match shown.menu.state {
+            MenuState::Closed => {
+                picture.spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        top: Val::Px(pixels(HINT_ROW - area.y)),
+                        ..default()
+                    },
+                    children![line(&font, HINT, Color::WHITE)],
+                ));
+            }
+            MenuState::Open { page, cursor, .. } => {
+                menu_box(picture, &font, &shown, page, cursor);
+            }
         });
+    });
 }
 
 /// The settings menu.

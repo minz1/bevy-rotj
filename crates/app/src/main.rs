@@ -1,6 +1,7 @@
 //! Batman: Return of the Joker — Rust/Bevy port entry point.
 
 mod audio;
+mod crt;
 mod input;
 mod menu;
 mod mirror;
@@ -273,6 +274,7 @@ fn main() {
     .add_systems(Update, fit_camera)
     .add_plugins((
         pacing::PacingPlugin,
+        crt::CrtPlugin,
         menu::MenuPlugin,
         ui::UiPlugin,
         audio::AudioPlugin,
@@ -303,7 +305,7 @@ impl Default for DisplayScale {
 
 /// The camera that shows the screen quad in the window, the only one [`fit_camera`] fits.
 #[derive(Component)]
-struct ScreenCamera;
+pub(crate) struct ScreenCamera;
 
 /// Logs any warnings collected before Bevy's `LogPlugin` initialized.
 fn log_startup_warnings(mut warnings: ResMut<'_, StartupWarnings>) {
@@ -332,11 +334,17 @@ fn write_tilesets(rom: Res<'_, RomData>, dir: Res<'_, settings::SettingsDir>) {
 fn spawn_camera(mut commands: Commands<'_, '_>) {
     commands.spawn((
         ScreenCamera,
+        IsDefaultUiCamera,
         Camera2d,
+        Camera {
+            order: 1,
+            ..default()
+        },
         Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::WindowSize,
             ..OrthographicProjection::default_2d()
         }),
+        bevy::camera::visibility::RenderLayers::layer(0),
     ));
 }
 
